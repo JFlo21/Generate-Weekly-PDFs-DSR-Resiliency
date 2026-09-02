@@ -643,33 +643,43 @@ sweeps. The resolved state is printed at startup alongside
 `Unknown Foreman` / `#NO MATCH` claimer is no longer honoured — the next
 scheduled run resolves such rows from the CURRENT Smartsheet foreman and
 regenerates the file under the real name as soon as the WR is assigned.
-No hash reset is needed for that. What is **not** automatic is removing
-the stale `*_Unknown_Foreman*` attachment left by earlier runs: the
-every-run cleanup prunes only identities it processed, and this sweep in
-its isolated mode deliberately protects `_Unknown_Foreman` (only
-`_NO_MATCH` is swept, because without live identities a current
-unassigned-WR file is indistinguishable from a stale one). To clear the
-superseded file for a WR that now carries a real foreman, dispatch
-`reset_wr_list:<WR>` in `advanced_options` or delete it by hand. The run
-summary reports `sentinel_claimers_ignored` (rows resolved past a frozen
-sentinel this run) and `sentinel_freezes_deferred` (completed rows not
-frozen yet because no role held a real name).
+No hash reset is needed for that. Since the owner-approved follow-up
+(2026-09-01), the every-run cleanup also removes the stale placeholder
+file itself: a `*_Unknown_Foreman*` / `*_Unknown_Helper*` /
+`*_Unknown_VAC_Crew*` / `*__NO_MATCH*` attachment that this run did not
+produce is deleted once a **real-name identity for the same WR, same
+week-ending, and same variant** is live in that run **and physically
+attached to the row** (a replacement that was generated but failed to
+upload does not count). Log line `🔄 Sentinel-superseded attachment
+detected`; Sentry breadcrumb `cleanup` / `sentinel_superseded` with the
+WR, week, variant, and attachment name. It never fires across weeks or
+across roles, never on a placeholder that is still produced (the WR is
+still unassigned), and neither a bare primary with no name nor a
+sanitized Smartsheet error token (`_REF_`, `_INVALID`, `_NO_MATCH`)
+counts as a real name. This isolated sweep keeps protecting `_Unknown_Foreman` for
+the reason above (only `_NO_MATCH` is swept here). The run summary
+reports `sentinel_claimers_ignored` (rows resolved past a frozen sentinel
+this run) and `sentinel_freezes_deferred` (completed rows not frozen yet
+because no role held a real name).
 
 **What `reset_wr_list` really does (read before dispatching):** the
 *purge* is scoped to the listed WRs — their `WR_*.xlsx` attachments on
-`TARGET_SHEET_ID` and the matching local outputs — but the *run* is not.
-Any non-empty `RESET_WR_LIST` is an operator flag: the incremental-read
-decision ignores its watermark and runs in full mode (Trigger 5), and the
-unchanged-group skip gate is disabled for **every** group, so every WR in
-scope regenerates and re-uploads in that run, not only the listed ones.
-Expect a long run and attachment churn across unrelated WRs; the same is
-true of `regen_weeks`, `RESET_HASH_HISTORY`, and `FORCE_GENERATION`.
-The purge also touches only the target sheet: a stale reduced-sub PPP
-identity on `SUBCONTRACTOR_PPP_SHEET_ID` (for example a
-`_ReducedSub_User_Unknown_Foreman` file) is left beside the regenerated
-one and must be deleted by hand. Scoping the run-wide effect to the listed
-WRs would be a code change to the orchestrator, not a documented behaviour
-today.
+`TARGET_SHEET_ID` and the matching local outputs — and, since the
+owner-approved scoping (2026-09-01), so is the *regeneration*: only the
+listed WRs bypass the unchanged-group skip gate, every other unchanged
+group is skipped as usual. Tokens are normalized to the bare WR number,
+so `reset_wr_list:12345678` and `reset_wr_list:WR12345678` name the same
+WR. What stays run-wide is the *read*: any non-empty `RESET_WR_LIST`
+makes the incremental-read decision ignore its watermark and read every
+sheet in full (Trigger 5) — deliberately, because an unchanged source
+sheet would otherwise be skipped and the purged WR could never be rebuilt.
+`RESET_HASH_HISTORY`, `regen_weeks`, and `FORCE_GENERATION` remain
+run-wide for regeneration too. The purge also touches only the target
+sheet: a stale reduced-sub PPP identity on `SUBCONTRACTOR_PPP_SHEET_ID`
+(for example a `_ReducedSub_User_Unknown_Foreman` file) is not purged by
+the reset — the every-run sentinel-superseded cleanup above handles it on
+the PPP sheet once the real-name reduced-sub identity is live, otherwise
+delete it by hand.
 
 ### `REMEDIATION_DRY_RUN`
 

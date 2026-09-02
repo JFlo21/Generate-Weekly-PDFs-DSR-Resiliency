@@ -408,6 +408,27 @@ def should_skip_no_target_row(
     return key not in target_map
 
 
+def _reset_list_forces_regeneration(
+    wr_num: object, reset_wr_list: set | None
+) -> bool:
+    """True when ``wr_num`` is named in ``RESET_WR_LIST``.
+
+    Owner-approved scoping (2026-09-01, ledger ``[2026-09-01 19:45]``):
+    a per-WR reset purges and regenerates ONLY the listed WRs. Before
+    this, any non-empty list disabled the unchanged-group skip gate for
+    every group, so resetting one WR regenerated and re-uploaded the
+    whole run (Greptile on PR #376). The incremental-read decision is
+    deliberately NOT scoped — ``resolve_run_mode`` Trigger 5 still reads
+    every sheet in full when a reset list is set, because an unchanged
+    source sheet would otherwise be skipped and the purged WR could
+    never be rebuilt. Membership uses the same bare-WR token the purge
+    compares (``pipeline.config._normalize_reset_wr``).
+    """
+    if not reset_wr_list:
+        return False
+    return str(wr_num) in reset_wr_list
+
+
 def format_no_target_row_summary(
     groups: NoTargetRowGroups, target_sheet_id: object,
     max_values: int = 25,
@@ -3521,7 +3542,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         FORCE_GENERATION
                         or week_raw in REGEN_WEEKS
                         or RESET_HASH_HISTORY
-                        or RESET_WR_LIST
+                        # Scoped to the listed WRs (owner-approved
+                        # 2026-09-01); see _reset_list_forces_regeneration.
+                        or _reset_list_forces_regeneration(wr_num, RESET_WR_LIST)
                     )
                 )
                 # Sub-project E: the unchanged decision now consults the

@@ -596,7 +596,36 @@ except (ValueError, TypeError):
 # 372 garbage _User__NO_MATCH / _User_Unknown_Foreman files.
 
 RESET_HASH_HISTORY = os.getenv('RESET_HASH_HISTORY','0').lower() in ('1','true','yes')  # When true, delete ALL existing WR_*.xlsx attachments & local files first; also escalates the run via D-02 trigger 5 (Phase 11 Plan 08, INC-05)
-RESET_WR_LIST = {w.strip() for w in os.getenv('RESET_WR_LIST','').split(',') if w.strip()}  # When provided, only purge these WR numbers (overrides full reset)
+def _normalize_reset_wr(token: str) -> str:
+    """Bare WR number for ``RESET_WR_LIST`` membership.
+
+    Every consumer compares against the bare WR token — the attachment
+    identity parsed from ``WR_<wr>_WeekEnding_…`` and the group loop's
+    sanitized ``wr_num`` — so an operator-typed ``WR_123`` / ``wr123``
+    (the runbook's own ``reset_wr_list:WR123;WR456`` example) used to
+    match nothing for the purge while still forcing the run-wide reset.
+    Strip an optional leading ``WR_`` / ``WR`` (any case) so both spellings
+    name the same WR, then canonicalize exactly like the group loop and
+    the filename identity do (``str(wr).split('.')[0]`` +
+    ``_RE_SANITIZE_HELPER_NAME`` + 50-char cap) so a WR value carrying
+    punctuation (``12/34`` -> ``12_34``) still matches both the purge and
+    the scoped skip gate (Codex on PR #377).
+    """
+    t = token.strip()
+    if t[:3].upper() == 'WR_':
+        t = t[3:]
+    elif t[:2].upper() == 'WR' and t[2:3].isdigit():
+        t = t[2:]
+    t = t.strip().split('.')[0]
+    return _RE_SANITIZE_HELPER_NAME.sub('_', t)[:50]
+
+
+# When provided, only purge these WR numbers (overrides full reset).
+RESET_WR_LIST = {
+    normalized
+    for token in os.getenv('RESET_WR_LIST', '').split(',')
+    if (normalized := _normalize_reset_wr(token))
+}
 # Phase 11 Plan 08 (INC-05, D-12): HASH_HISTORY_PATH and its env-override
 # plumbing (_env_hist_path / _default_hist_path) are retired along with the
 # local hash-history JSON cache file itself. group_state.content_hash

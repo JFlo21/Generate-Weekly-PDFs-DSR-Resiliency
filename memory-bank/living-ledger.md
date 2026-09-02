@@ -8280,3 +8280,122 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   wrong contract.
 - **Figures:** #375 shipped with 12 tests / 1904 passed; the #376 branch has 14 tests / 1906 passed
   / 1 skipped / 335 subtests, mypy 71→71, Gate 6 24 keys.
+
+## [2026-09-01 19:45] Owner decisions (Juan): spec §8 #1 ownership = claim-time / as-of-the-week per row and per role (spec §5 adopted); §8 #5 backfill sources 1–4 allowed; sentinel-aware cleanup + `RESET_WR_LIST` scoping approved; event-driven change capture assessed (not yet a phase)
+
+- **§8 #1 — ownership semantics (DECIDED, gates OWN-01/04):** a file for (WR, week_ending) is
+  named for, and contains the rows of, the person who CLAIMED those rows in that week — the
+  observed, non-sentinel value on the row when it was first seen completed — never the live
+  Smartsheet value at generation time. Owner's example (fictional names): foreman A claims WE
+  07-05 rows, the job is reassigned and foreman B claims WE 07-19 rows → A's file for 07-05, B's
+  file for 07-19, even though Smartsheet now shows B on the WR. Within one week, rows A claimed
+  Mon–Tue stay A's and rows B claimed later stay B's → two files for that week, one per claimer,
+  each carrying only its own rows. Applies identically to primary foreman, helper foreman,
+  subcontractor, VAC crew, and any category added later (one ladder, keyed by role). This is
+  spec §5 items 1 and 4 ("observed in week, never a sentinel") and confirms the row-level
+  partition of Foundation A; the audit purpose is that the billing team can see where every
+  dollar went each week. Consequences: (a) "current always wins" (policy C) is rejected for good;
+  (b) a later Smartsheet edit to the Foreman/helper/VAC cell of an already-claimed row does NOT
+  move the row — it becomes an audit event, and a real correction needs an explicit, audited
+  operator override (OWN-01 ladder), never a live-value override; (c) OWN-02's "use current"
+  fallback for a frozen sentinel is a stopgap until OWN-03 derives the claim-time name from
+  history — for a row whose foreman was genuinely unknown when it was claimed, the current value
+  is only right when no history source disagrees.
+- **§8 #1 sub-question DECIDED (Juan, 2026-09-01 19:55): do NOT inherit across weeks.** Spec §5
+  step 2 ("last known foreman at or before the week") is dropped from the ladder. A week with no
+  in-week observation keeps the sentinel until a same-week source (row history, non-sentinel
+  snapshot, artifact filename for that WR + week) names someone. Rationale: inheriting pays the
+  previous foreman on inference; the billing audit must rest on observed claims only.
+- **§8 #5 — backfill sources (DECIDED, gates OWN-03):** allowed, in precedence order: (1)
+  `pipeline_memory.row_event` / `row_state.foreman_observed` / `helper_observed` /
+  `vac_crew_observed` (live observations, `source='live'`); (2) non-sentinel
+  `billing_audit.attribution_snapshot` rows; (3) `public.artifacts` `_User_<name>` /
+  `_Helper_<name>` / `_VacCrew_<name>` filenames for the same WR + week
+  (`source='backfill_artifacts'`); (4) the 2025 `hash_history.json` `foreman` field, imported
+  once (`source='backfill_hash_history'`). Optional (5): Smartsheet cell history for the
+  Foreman / helper / VAC columns as a one-off, rate-limited (300 req/min) last resort for weeks
+  none of 1–4 cover — Juan to confirm before it is used. Every backfilled row carries its
+  `source` so it is distinguishable from a live observation.
+- **Sentinel handling (APPROVED):** when a WR is truly unknown at claim time, keep the sentinel
+  file and ship the two recommendations from `[2026-09-01 18:55]`: (a) sentinel-aware
+  attachment cleanup — drop a `_Unknown_Foreman` / `_Unknown_Helper` / `_Unknown_VAC_Crew`
+  file for (WR, week) once a real-name identity for the same WR + week + role is live; (b)
+  scope the `RESET_WR_LIST` unchanged-group skip gate to the listed WRs so a per-WR reset stops
+  regenerating the whole run. Both are production-orchestration changes → plan → minimal diff →
+  6 gates → known-good sample comparison before merge; one small PR.
+- **Event-driven change capture (owner direction, ASSESSED — not yet a phase):** Juan wants a
+  continuous watcher that receives row-edit events from every pulled sheet, fetches only the
+  edited rows, and keeps Supabase row history current between runs, so a scheduled run reads
+  its changed rows from memory instead of re-inspecting sheets. Fit: the Phase 10/11 tables
+  (`sheet_registry`, `row_state`, `row_event`, `group_state`) and affected-group regeneration
+  are exactly what such a watcher would feed; Phase 11 COVERAGE marked Smartsheet webhooks
+  OPT-OUT only because they need a publicly reachable endpoint and a schedule change. Shape:
+  Smartsheet webhook per source sheet → Vercel serverless function (portal-v2) or Supabase Edge
+  Function → verification handshake → on event, `get_sheet(row_ids=[…])` for the changed rows →
+  upsert `row_state` + append `row_event` → the scheduled run consumes "dirty since watermark"
+  and regenerates affected groups only; weekly deep run stays as reconciliation (§8 #4) because
+  webhooks can be disabled after callback failures and events can be missed. Rejected parts:
+  editing an existing Excel in place instead of regenerating — regeneration is milliseconds,
+  the cost is API I/O, and in-place edits would add a download + re-upload, break the
+  hash-in-filename contract, and destroy the literal-total tamper evidence that exposed the
+  `<WR-D>` hand-edited copy. Unchanged PPP attachments are NOT deleted every run today (the
+  reduced_sub leg only uploads regenerated groups; cleanup prunes only processed identities) —
+  if PPP churn is observed on scheduled runs it is either a reset dispatch (run-wide) or a
+  volatile reduced_sub hash, to be checked in the first post-merge run summary before designing
+  around it. Gate before building: Phase 11.1 SC-1 wall clock + a per-phase timing breakdown of
+  a normal run, so the watcher targets the actual bottleneck. Proposed as Phase 14 after 12/13.
+
+## [2026-09-01 20:20] Sentinel-superseded cleanup + `RESET_WR_LIST` scoped to the listed WRs (owner-approved churn PR)
+
+- **What changed (`pipeline/cleanup.py`):** new gate in `cleanup_untracked_sheet_attachments`,
+  after the variant-migration orphan gate: an attachment whose parsed identifier is a
+  placeholder (`_is_sentinel_identifier` → `billing_audit.writer.is_sentinel_claimer`, lazy
+  import: `Unknown_Foreman` / `Unknown_Helper` / `Unknown_VAC_Crew` / `_NO_MATCH` …) and whose
+  identity is NOT in `valid_wr_weeks` is queued for deletion when a live identity with the SAME
+  `(wr, week, variant)` carries a non-empty, non-sentinel identifier. Sentry tag
+  `cleanup.reason=sentinel_superseded`. Runs on both TARGET and PPP cleanups (so a stale
+  `_ReducedSub_User_Unknown_Foreman` goes once the real-name reduced-sub identity is live).
+  Guards: same week only (ownership is never inherited across weeks — owner decision 19:55);
+  same variant only; a sentinel still produced this run is in `valid_wr_weeks` and untouched; a
+  live bare primary (identifier None) is not a real name; the gate fires only for identities
+  this run did not emit, exactly like the two gates above it.
+- **What changed (`pipeline/orchestrate.py`, `pipeline/config.py`):** `_history_eligible_for_skip`
+  now uses `_reset_list_forces_regeneration(wr_num, RESET_WR_LIST)` — only the LISTED WRs bypass
+  the unchanged-group skip gate; every other unchanged group skips as usual. `resolve_run_mode`
+  Trigger 5 is deliberately unchanged (a reset list still forces a full read of every sheet),
+  because under incremental read an unchanged source sheet is skipped entirely and the purged WR
+  could never be rebuilt — scoping the read would turn a per-WR reset into a silent data loss.
+  `RESET_WR_LIST` tokens are normalized by `_normalize_reset_wr` (strip a leading `WR_` / `WR`,
+  any case) so the runbook's own `reset_wr_list:WR123` example matches the bare-WR identity the
+  purge and the group loop compare; before, such a token purged nothing while still forcing the
+  run-wide reset.
+- **Validation:** `tests/test_sentinel_superseded_cleanup.py` (13 tests / 16 subtests: predicate
+  table, 9 cleanup scenarios incl. cross-week and cross-variant negatives, reset-scope + token
+  normalization). Pre-change reproduction with `pipeline/cleanup.py` stashed: a stale
+  `_User_Unknown_Foreman` beside a live real-name primary survives (deleted ids `[]`); with the
+  change the same scenario deletes only the placeholder (the new test module cannot collect
+  without the helpers, so the RED evidence is that inline reproduction). ALL 6 GATES PASSED (1919
+  passed / 1 skipped / 351 subtests; mypy 71→71); website typecheck + build clean. Known-good comparison: the first scheduled run
+  after merge is the canary — expect `🔄 Sentinel-superseded` log lines only for WRs whose
+  real-name file was regenerated in the same run, and `reset_wr_list` dispatches to regenerate
+  only the listed WRs.
+- **Review round on PR #377 (Greptile ×3, Copilot ×2, Codex ×4 — all valid, all fixed):** (a)
+  `valid_wr_weeks` is built from GENERATED filenames (`orchestrate.py` ~4813-4838 adds every
+  group, including ones never reached after a time-budget stop and ones whose upload errored),
+  so "in valid_wr_weeks" is not "published" — the gate now also requires the real-name sibling
+  to be in the row's CURRENT attachment listing (`_row_attached_idents`); (b) a Smartsheet error
+  token other than `#NO MATCH` (`#REF!`, `#INVALID`) sanitizes to `_REF_` / `_INVALID`, which
+  `is_sentinel_claimer` did not recognize — `_is_sentinel_identifier` treats a leading `_` (the
+  sanitized `#`) as a placeholder; (c) tags set inside a throwaway `sentry_sdk.new_scope()` are
+  discarded — replaced by an `add_breadcrumb` (`cleanup` / `sentinel_superseded`); the same
+  no-op pattern exists in the older variant-migration orphan gate and is left as-is for a
+  separate cleanup; (d) `RESET_WR_LIST` tokens are canonicalized with the same
+  `split('.')[0]` + `_RE_SANITIZE_HELPER_NAME` + 50-char cap as `wr_num` and filename identities,
+  otherwise `12/34` would force a full read but neither purge nor regenerate; (e) 79-char line
+  and the changelog PR reference.
+- **Rules:** (1) never scope the READ side of a reset lever — only generation/upload; (2) a
+  cleanup gate must require a live same-week, same-variant real-name sibling that is ATTACHED
+  on the row (generated ≠ published) before deleting a placeholder; (3) any new placeholder
+  spelling must be added to `_SENTINEL_CLAIMERS` in `billing_audit/writer.py`, which this gate
+  reuses, and sanitized `#`-errors are recognized by their leading `_`; (4) a Sentry tag inside a
+  `new_scope()` that captures nothing is a no-op — use a breadcrumb or tag the active span.

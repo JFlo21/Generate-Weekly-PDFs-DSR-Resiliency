@@ -86,6 +86,36 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
         # Non-conforming files left untouched
     return removed
 
+def _is_sentinel_identifier(identifier: str | None) -> bool:
+    """True when a filename identifier token is a placeholder claimer.
+
+    ``build_group_identity`` yields the token after ``_User_`` /
+    ``_Helper_`` / ``_VacCrew_`` verbatim (``Unknown_Foreman``,
+    ``Unknown_Helper``, ``Unknown_VAC_Crew``, ``_NO_MATCH``, …). The
+    single source of truth for "is this a placeholder" is
+    ``billing_audit.writer.is_sentinel_claimer`` (Phase 12 / OWN-02),
+    imported lazily so this module keeps its import graph. A missing or
+    empty identifier (a bare primary) is NOT a sentinel — it is simply
+    unattributed and must never count as a real name either.
+    """
+    if not identifier:
+        return False
+    # Filename identifiers are SANITIZED (``_RE_SANITIZE_HELPER_NAME``:
+    # every non-word char -> ``_``), so a Smartsheet error token such as
+    # ``#REF!`` / ``#INVALID`` / ``#NO MATCH`` arrives as ``_REF_`` /
+    # ``_INVALID`` / ``_NO_MATCH``. ``is_sentinel_claimer`` recognizes the
+    # raw ``#`` prefix and the named family, but not every sanitized error
+    # spelling (Codex on PR #377). A real person's sanitized name never
+    # starts with ``_``, so a leading underscore IS the sanitized ``#``.
+    if identifier.startswith('_'):
+        return True
+    try:
+        from billing_audit.writer import is_sentinel_claimer  # noqa: PLC0415
+    except Exception:  # pragma: no cover - defensive: writer unavailable
+        return False
+    return bool(is_sentinel_claimer(identifier))
+
+
 def cleanup_untracked_sheet_attachments(
     client,
     target_sheet_id: int,
@@ -238,6 +268,20 @@ def cleanup_untracked_sheet_attachments(
             continue
         identity_groups = collections.defaultdict(list)
         off_contract_attachments = []  # Phase 1.1 Bug B2 / D-07: per-sheet whitelist
+        # Identities physically attached to THIS row right now. The
+        # sentinel-superseded gate below requires its real-name sibling
+        # to be in here as well as in ``valid_wr_weeks``: ``valid_wr_weeks``
+        # is built from GENERATED filenames, so a replacement whose upload
+        # failed would otherwise count as live and the placeholder — the
+        # only current report for that (wr, week, variant) — would be
+        # deleted (Greptile on PR #377).
+        _row_attached_idents = set()
+        for _a in attachments:
+            _n = getattr(_a, 'name', '') or ''
+            if _n.startswith('WR_') and _n.endswith('.xlsx'):
+                _i = build_group_identity(_n)
+                if _i:
+                    _row_attached_idents.add(_i)
         for att in attachments:
             name = getattr(att,'name','') or ''
             if name.startswith('WR_') and name.endswith('.xlsx'):
@@ -421,6 +465,72 @@ def cleanup_untracked_sheet_attachments(
                               f"🔄 Variant-migration orphan detected: "
                             f"primary attachment {att.name!r} superseded "
                             f"by live helper for WR {wr} week {week}. "
+                            f"Queued for deletion."
+                        )
+                        continue
+                    # Sentinel-superseded gate (Phase 12 / OWN-02 follow-up,
+                    # owner-approved 2026-09-01, ledger [2026-09-01 19:45]):
+                    # a placeholder identity (``_User_Unknown_Foreman``,
+                    # ``_Helper_Unknown_Helper``, ``_VacCrew_Unknown_VAC_Crew``,
+                    # ``_User__NO_MATCH`` …) that is NOT produced this run is
+                    # stale once a REAL-name identity for the SAME (wr, week,
+                    # variant) is live this run — the WR was assigned after
+                    # the placeholder file was uploaded and the sentinel-never-
+                    # a-claimer rule regenerated it under the real name.
+                    #
+                    # Safety: (1) same week AND same variant only — a real
+                    # name on another week or another role never triggers it
+                    # (ownership is never inherited across weeks — owner
+                    # decision); (2) a sentinel file still produced this run
+                    # (WR still unassigned) is in ``valid_wr_weeks`` and never
+                    # touched; (3) a live bare primary (no identifier) is not
+                    # a real name and does not trigger it; (4) like the two
+                    # gates above, it fires only for identities this run did
+                    # not emit, so KEEP_HISTORICAL_WEEKS / WR_FILTER scoping
+                    # cannot make an in-scope sentinel look stale without a
+                    # live real-name sibling; (5) the sibling must ALSO be
+                    # attached to this row right now
+                    # (``_row_attached_idents``) — generated but not
+                    # uploaded is not a replacement (Greptile, PR #377).
+                    if (
+                        _identifier
+                        and ident not in valid_wr_weeks
+                        and _is_sentinel_identifier(_identifier)
+                        and any(
+                            _vw[0] == wr
+                            and _vw[1] == week
+                            and _vw[2] == variant
+                            and _vw[3]
+                            and not _is_sentinel_identifier(_vw[3])
+                            and _vw in _row_attached_idents
+                            for _vw in valid_wr_weeks
+                        )
+                    ):
+                        try:
+                            # Breadcrumb, not a throwaway scope: tags set
+                            # inside a ``new_scope()`` that captures nothing
+                            # are discarded (Copilot / Codex on PR #377). A
+                            # breadcrumb rides along on any later event in
+                            # this run and is visible in the cleanup span.
+                            import sentry_sdk as _sentry_sdk
+                            _sentry_sdk.add_breadcrumb(
+                                category='cleanup',
+                                message='sentinel_superseded',
+                                level='info',
+                                data={
+                                    'wr': wr,
+                                    'week': week,
+                                    'variant': variant,
+                                    'attachment': name,
+                                },
+                            )
+                        except Exception:
+                            pass
+                        off_contract_attachments.append(att)
+                        logging.info(
+                            f"🔄 Sentinel-superseded attachment detected: "
+                            f"{att.name!r} ({variant}) for WR {wr} week "
+                            f"{week} now has a live real-name identity. "
                             f"Queued for deletion."
                         )
                         continue
