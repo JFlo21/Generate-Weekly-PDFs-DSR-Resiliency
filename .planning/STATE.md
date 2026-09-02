@@ -5,16 +5,16 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11.1
 current_phase_name: Post-INC-05 Runtime Remediation (INSERTED)
 status: executing
-stopped_at: "execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 MERGED to master as 13e8e76 (PR #384, 20:52Z; includes the Greptile-thread fix adc6639). Task 4 canary pending: waiting for the first scheduled weekly-excel-generation run whose build contains 13e8e76 (21:00Z cron), then read skip index / validation split / Phase 1 / Python Duration; PASS only on a skip-MISS run. SUMMARY/ROADMAP deferred to the continuation agent."
-last_updated: "2026-09-02T20:55:16.711Z"
+stopped_at: "Phase 11.1 complete: plan 11.1-04 Task 4 canary PASS (run 33683979474, Phase 1 37.7s, Duration 50.8min). G-11.1-4 RESOLVED (components a+b). 11.1-04-SUMMARY.md written. Next: /gsd:verify-work 11.1."
+last_updated: "2026-09-02T22:16:10.981Z"
 last_activity: 2026-09-02
-last_activity_desc: "PR #384 merged (13e8e76); awaiting Task 4 skip-MISS canary run"
-state_head: e2efdc00d045c2248ff6eaaf3fa90acce563cb08
+last_activity_desc: "Phase 11.1 complete (4/4 plans); G-11.1-4 RESOLVED via canary PASS on run 33683979474"
+state_head: 1ca1b36e7d0a148c2578b09498fa37d226b90d69
 progress:
   total_phases: 13
   completed_phases: 3
   total_plans: 50
-  completed_plans: 49
+  completed_plans: 50
   percent: 23
 ---
 
@@ -37,13 +37,13 @@ pipeline.
 
 Phase: 11.1 (Post-INC-05 Runtime Remediation (INSERTED)) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 1 of 4
+Plan: 4 of 4 — 11.1-04 (G-11.1-4 residual (b) gap closure) complete, PR #384 merged `13e8e76`, canary PASS on run 33683979474 (Phase 1 37.7s, Duration 50.8min). Phase 11.1 has no further open plans.
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
   typed skip index). Merged with 9 bot threads unresolved — see
   Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
-Status: Executing Phase 11.1
+Status: Phase 11.1 plans complete (4/4); next action is /gsd:verify-work 11.1 to reconcile G-11.1-4 RESOLVED
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
   `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
@@ -147,6 +147,7 @@ Progress: [██░░░░░░░░] 23% (v1.3 complete; v1.4 Phase 10 clo
 | Phase 11 P08 | ~2h | 3 tasks | 35 files |
 | Phase 11.1 P01 | ~30 min | 3 tasks | 6 files |
 | Phase 11.1 P02 | ~10min | 3 tasks | 3 files |
+| Phase 11.1 P04 | ~25min (Task 4 continuation) | 1 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -266,6 +267,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: [Phase 11] 11-08 INC-05 retirement shipped: group_state.content_hash sole skip gate, always-full sheet discovery via sheet_registry, six workflow cache steps removed; Phase 11 fully closed with dated Living Ledger entry
 - [Phase 11.1]: [Phase 11.1] 11.1-01: discovery registry-version skip fast path (D-11.1-01) ships INC-05-compatible -- registry hit requires exact version equality + valid stored column_mapping, any doubt falls back to full validation; Gate-4 mypy re-baselined 70->72 (zero accepted findings, pure annotation-note line drift)
 - [Phase 11.1]: [Phase 11.1] 11.1-02: bulk attachment pre-seed (D-11.1-02) pre-seeds the existing _live_row_attachments memo from 2 bulk list_all_attachments calls before the group loop -- _live_row_attachments and both call sites left byte-for-byte unmodified; total_count pre-flight + 25000 ceiling fallback to today's lazy per-row path (D-11.1-05); Phase 11.1 both fixes complete on feat/11.1-runtime-remediation
+- [Phase 11.1]: [Phase 11.1] 11.1-04: G-11.1-4 residual (b) RESOLVED — bounded discovery validation read (row_numbers=[1,2,3], reused as sample-row cache) replaces the unbounded full-sheet download; PR #384 merged 13e8e76; production canary (skip-MISS run 33683979474) confirms Phase 1 37.7s (was 3,214-4,999s) and Python Duration 50.8min (< 75min SC-1); fix candidate (b) column-set-hash skip key stays DEFERRED, motivation removed by cheap-miss result
 
 ### Roadmap Evolution
 
@@ -417,9 +419,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-02T19:27:43.048Z
-**Stopped at:** execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 MERGED to master as 13e8e76 (PR #384, 20:52Z; includes the Greptile-thread fix adc6639). Task 4 canary pending: waiting for the first scheduled weekly-excel-generation run whose build contains 13e8e76 (21:00Z cron), then read skip index / validation split / Phase 1 / Python Duration; PASS only on a skip-MISS run. SUMMARY/ROADMAP deferred to the continuation agent.
-**Resume file:** .planning/phases/11.1-post-inc-05-runtime-remediation/11.1-04-PLAN.md
+**Last session:** 2026-09-02T22:16:09.857Z
+**Stopped at:** Phase 11.1 complete: plan 11.1-04 Task 4 canary PASS (run 33683979474, Phase 1 37.7s, Duration 50.8min). G-11.1-4 RESOLVED (components a+b). 11.1-04-SUMMARY.md written. Next: /gsd:verify-work 11.1.
+**Resume file:** None
 
 ## Session Continuity
 

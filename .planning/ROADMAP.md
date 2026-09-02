@@ -675,7 +675,7 @@ confirmation + fail-closed discovery semantics from PR #373's review fixes.
 **Requirements**: none mapped (inserted urgent phase — the Success Criteria
 above plus D-11.1-01..04 in `11.1-CONTEXT.md` are the contract)
 **Depends on:** Phase 11
-**Plans:** 4 plans (3 executed, 1 open — gap closure for G-11.1-4)
+**Plans:** 4/4 plans executed (includes 2 gap-closure plans for G-11.1-4)
 
 Plans:
 **Wave 1**
@@ -689,7 +689,7 @@ Plans:
 **Gap closure** *(from 11.1-UAT.md)*
 
 - [x] 11.1-03-PLAN.md — G-11.1-4 (a) / G-11.1-6: warm-start the frozen-row cache from the attribution prefetch (PR #378, merged 2008fd9)
-- [ ] 11.1-04-PLAN.md — G-11.1-4 (b): bound the discovery validation read to three rows and reuse them as the date-column sample set, so a D-11.1-01 registry-skip MISS costs ~1-2 s/sheet instead of 26-41 s
+- [x] 11.1-04-PLAN.md — G-11.1-4 (b): bound the discovery validation read to three rows and reuse them as the date-column sample set, so a D-11.1-01 registry-skip MISS costs ~1-2 s/sheet instead of 26-41 s
 
 ### Phase 12: Ownership — last known foreman as of the week
 
