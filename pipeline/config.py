@@ -190,9 +190,11 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
 
     This subclass addresses (2) by setting ``daemon=True`` at thread
     creation (``_set_tstate_lock`` only adds to ``_shutdown_locks``
-    when ``not self.daemon``). Callers addressing a stall must still
-    pop from ``_threads_queues`` (addresses 1) and call
-    ``shutdown(wait=False, cancel_futures=True)`` (addresses 3).
+    when ``not self.daemon``). Callers abandoning a stall must still
+    call ``shutdown(wait=False, cancel_futures=True)`` (addresses 3)
+    and then ``detach()`` (addresses 1 — INC-06: without the pop,
+    ``_python_exit`` joined stuck probe workers for 42 minutes on
+    run 33579406295 and the job crossed the 180-min runner ceiling).
 
     **Safety invariant — use this ONLY when the worker's work is
     discardable.** The pre-fetch cache has a per-row fallback path,
@@ -232,6 +234,27 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
             t.start()
             self._threads.add(t)  # type: ignore[attr-defined]  # CPython exposes _threads as a mutable set despite AbstractSet typing
             _cf_thread._threads_queues[t] = self._work_queue  # type: ignore[index]  # CPython internals expose this as a mutable dict despite Mapping typing
+
+    def detach(self) -> int:
+        """Drop this executor's workers from the atexit join registry.
+
+        ``shutdown(wait=False, cancel_futures=True)`` stops feeding
+        the workers but leaves each of them registered in
+        ``concurrent.futures.thread._threads_queues``, so a worker
+        stuck in a socket read is still joined by ``_python_exit`` at
+        interpreter exit (INC-06). Call this after the abandon
+        ``shutdown()``; the daemon flag then lets the interpreter exit
+        without waiting for the stuck I/O. Idempotent and safe before
+        any worker has started. Returns the number of workers removed.
+        """
+        queues = getattr(_cf_thread, '_threads_queues', None)
+        if queues is None:
+            return 0
+        detached = 0
+        for t in list(self._threads):
+            if queues.pop(t, None) is not None:
+                detached += 1
+        return detached
 
 
 # Phase 11 Plan 08 (INC-05, D-12): USE_DISCOVERY_CACHE, DISCOVERY_CACHE_TTL_MIN,

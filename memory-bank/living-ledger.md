@@ -8606,3 +8606,35 @@ Reference: `.planning/phases/11.1-post-inc-05-runtime-remediation/` (`11.1-CONTE
   steps (daemon flag, `shutdown(wait=False, cancel_futures=True)`, `_threads_queues` pop) or the
   atexit join still waits; (3) `sentinel_claimers_ignored` ≈ the sentinel-row count is the healthy
   signature of the OWN-02 rule, not an error.
+
+## [2026-09-02 02:50] INC-06 fix built — `_DaemonThreadPoolExecutor.detach()` + the parity abandon-path call (PR #379, `fix/inc-06-parity-exit-hang` off `2008fd9`); the probe read-timeout half is a scoped follow-up
+
+- **What changed.** `pipeline/config.py`: new `detach() -> int` on `_DaemonThreadPoolExecutor` pops
+  every thread in `self._threads` from `concurrent.futures.thread._threads_queues` (the atexit
+  join registry), returns the count, is idempotent, is safe before any worker started, and returns
+  0 if a future CPython removes the private registry; the class docstring now names `detach()` as
+  the required third abandon step. `pipeline/parity.py` `run_shadow_delta_reads`: the `finally:`
+  now calls `executor.detach()` right after `executor.shutdown(wait=False, cancel_futures=True)`
+  and logs `🧵 Shadow parity: detached N probe worker(s) from the interpreter-exit join; M
+  probe(s) still running (INC-06)` — INFO when M is 0, WARNING when a probe is still executing
+  (M counts futures not `done()` after `cancel_futures`, so idle-worker teardown timing cannot
+  make it noisy). Probe logic, escalation counters, verdict and the returned dict are unchanged.
+- **Proof.** `tests/test_inc06_parity_exit_hang.py` (5 tests): registry pop with a worker blocked
+  on an Event; idempotence / zero before any worker; a real child interpreter with a blocked
+  worker exits in under 15 s after `shutdown + detach`; the control child WITHOUT `detach` hangs
+  (asserted via `TimeoutExpired`, then killed) — the same shape that hung this session's first
+  RED run for the full 120 s tool timeout on Windows, so the failure mode reproduces on both
+  platforms; and a spy proving parity calls `detach()` exactly once, after the abandon
+  `shutdown()`. TDD order: RED (4 failures: `AttributeError: detach`, parity call list missing
+  `detach`) → GREEN 47/47 with `tests/test_parity_shadow.py`.
+- **Deliberately NOT in this PR — the read-timeout half.** smartsheet-python-sdk 4.3.0 sends
+  every request as `self._session.send(prepped_request, stream=stream)` with no timeout and no
+  configuration knob, so a bounded probe read needs either a session-wide `requests` timeout
+  (touches the production fetch path — needs owner approval and its own failure-mode review) or
+  a per-call adapter wrapper. With `detach()` the hang is gone regardless: a stuck probe now
+  costs the parity block at most `RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC` per sheet and nothing at
+  exit. Recorded as a scoped follow-up, not a blocker.
+- **Rule.** Any new `_DaemonThreadPoolExecutor` user that abandons workers must call all three
+  documented steps — daemon flag (constructor), `shutdown(wait=False, cancel_futures=True)`,
+  then `detach()` — and may only do so for discardable work (the D-07 shadow qualifies; uploads,
+  Supabase writes and run-summary flushes never do).

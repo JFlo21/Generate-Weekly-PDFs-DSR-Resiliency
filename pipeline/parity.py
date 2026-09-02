@@ -400,6 +400,24 @@ def run_shadow_delta_reads(
                 rows_seen += len(ids)
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
+            # INC-06 (run 33579406295): shutdown() abandons stragglers
+            # but leaves them in concurrent.futures' atexit join
+            # registry, so one probe stuck in a socket read held
+            # interpreter exit for 42 min and pushed the job past the
+            # 180-min runner ceiling. Detach them — probe results are
+            # discardable by design (D-07: shadow compares, never acts).
+            detached = executor.detach()
+            still_running = sum(
+                1 for f in future_to_source if not f.done()
+            )
+            if detached:
+                logger.log(
+                    logging.WARNING if still_running else logging.INFO,
+                    "🧵 Shadow parity: detached %d probe worker(s) from "
+                    "the interpreter-exit join; %d probe(s) still "
+                    "running (INC-06)",
+                    detached, still_running,
+                )
 
         # Evidence accounting (Greptile P1, PR #353): count what was
         # actually asserted, and which changed sheets the probes never

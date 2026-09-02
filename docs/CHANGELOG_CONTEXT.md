@@ -212,3 +212,29 @@ the line is absent the bulk prefetch failed or the attribution flags are off, an
 behaves exactly as before this change (every completed row frozen, slower but correct).
 `snapshots_already_frozen` in the run summary drops toward zero for warm-started rows because
 they never reach the RPC. See `memory-bank/living-ledger.md` `[2026-09-01 22:40]`; PR #378.
+
+## 2026-09-02 — INC-06: abandoned shadow-parity probe workers no longer hold interpreter exit (PR #379)
+**What.** The Phase 11 shadow-parity block runs its per-sheet Smartsheet delta probes on the
+daemonised `_DaemonThreadPoolExecutor` and abandons any probe that overruns
+`RUN_MEMORY_SHADOW_RPC_TIMEOUT_SEC` with `shutdown(wait=False, cancel_futures=True)`. That
+covered two of the three exit blockers the executor's own docstring lists: the abandoned workers
+stayed registered in `concurrent.futures`' atexit join registry, so the interpreter waited for
+them at exit. `_DaemonThreadPoolExecutor.detach()` now removes them (`pipeline/config.py`) and
+the parity `finally:` calls it after the abandon shutdown (`pipeline/parity.py`).
+
+**Why.** Run 33579406295 finished every phase — generation, upload, cleanup, audit — by 05:37Z
+and then sat 42 minutes in interpreter shutdown while three stuck `get_sheet` probe reads waited
+for Smartsheet to close their sockets (~16 minutes each, then a retry). The job crossed
+`timeout-minutes: 180` during its last artifact steps and is recorded as cancelled although no
+billing output was lost. `TIME_BUDGET_MINUTES` cannot see this: it governs the group loop, not
+interpreter shutdown.
+
+**How it affects operators.** A new line closes the parity block: `🧵 Shadow parity: detached N
+probe worker(s) from the interpreter-exit join; M probe(s) still running (INC-06)` — INFO when
+M is 0, WARNING when a probe was still stuck. Nothing else changes: probe results were always
+discardable (D-07: the shadow compares and reports, never acts), escalation counts and the
+parity verdict are computed exactly as before, and no billing, grouping, hashing, attachment,
+workflow or env behaviour is touched. The bounded read timeout for the probe path is a separate
+follow-up because the Smartsheet SDK exposes no per-request timeout and a session-wide one would
+touch the production fetch path. See `memory-bank/living-ledger.md` `[2026-09-02 01:35]`
+(diagnosis) and `[2026-09-02 02:50]` (fix).
