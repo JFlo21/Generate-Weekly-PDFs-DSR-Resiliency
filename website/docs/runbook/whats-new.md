@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 2, 2026
 
+- ⚡ The system now runs faster (warm-start the frozen-row cache from the attribution prefetch)
 - ✨ New capability: sentinel-superseded cleanup + RESET&#95;WR&#95;LIST scoped to listed WRs
 - ✅ Problem fixed: resolve&#95;claimer week-key coercion + review fixes
 - ✅ Problem fixed: sentinel is never a claimer (Phase 12 / OWN-02, policy A)
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✨ New capability: parity streak counts weekend + manual runs
 - 📄 Help guides updated: fix run&#95;ledger column name in flip confirmation SQL; record flip live
 - ✨ New capability: retire local JSON caches and attachment pre-fetch (INC-05)
-- 📄 Help guides updated: + merged; streak is weekday-only
 
 <!-- /runbook-repo -->
 
