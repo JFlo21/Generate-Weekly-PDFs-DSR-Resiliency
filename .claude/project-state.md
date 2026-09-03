@@ -35,9 +35,11 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   group_state` identifiers (no JSON file). Both recorded in the ledger `[2026-09-02 18:15]`.
 - **19:25 closeout:** checker iteration 2 = 0 blockers / 1 warning (VALIDATION.md 12-03-T2 row, fixed inline,
   no third pass); requirements 4/4; STATE.md Ready to execute (6 plans); ROADMAP annotated (4 waves). Ledger `[2026-09-02 18:15]` closeout.
-- **Next:** `/gsd-execute-phase 12` (wave 1 = 12-01 tracer: dry-run backfill for WR 19073866). Then execution
-  → `/gsd-execute-phase 12`. Live steps (SQL apply, `--apply` backfill, source-5 workflow) stay human
-  checkpoints for Juan.
+- **Write-back done (19:35):** `docs/CHANGELOG_CONTEXT.md` Phase 12 entry; wiki project page "2026-09-02
+  evening — Phase 12 PLANNED" subsection, dashboard row, and `wiki/log.md`. Repo tracked tree clean.
+- **Next:** `/clear` → `/gsd-execute-phase 12` (wave 1 = 12-01 tracer: dry-run backfill for WR 19073866 on a
+  branch → PR). Live steps (owner SQL apply, `--apply` backfill, source-5 cron enable, attachment
+  replacement) stay blocking human checkpoints for Juan.
 
 ## Earlier today (2026-09-02 17:45 CDT) — **Phase 11.1 CLOSED** via `/gsd-execute-phase 11.1 --gaps-only`: PR #384 merged `13e8e76` (20:52Z); skip-MISS canary run 33683979474 met SC-1; VERIFICATION 20/20, UAT 19/19; ROADMAP/STATE at **Phase 12** (unplanned)
 - **Canary (21:14Z cron, build `e2efdc0` ⊇ `13e8e76`, production_frequent):** skip index 121 / 0 eligible,

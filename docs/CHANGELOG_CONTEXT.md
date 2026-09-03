@@ -278,3 +278,20 @@ validated) finished discovery in 37.7 s instead of 3,214–4,999 s, processed al
 at ~0.52 s/group with no `TIME_BUDGET` stop, and reported `• Duration: 0:50:47`. SC-1 is met
 on the worst-case path and G-11.1-4 is closed; Phase 11.1 is sealed and GSD is at Phase 12.
 Ledger `[2026-09-02 17:45]`.
+
+## 2026-09-02 — Phase 12 (Ownership) PLANNED: 6 plans / 4 waves, checker passed, two owner decisions
+
+`/gsd-plan-phase 12` ran end-to-end without a CONTEXT.md (owner chose to plan from the OWN-03
+design spec and the 2026-09-01/02 ledger decisions). Research `7191676`, validation seed
+`fbf2bf8`, pattern map, plans `f0ed36c` + revision `ed49ab4` (+ `34cac0d`), closeout `f6ff88e`.
+Plan checker: iteration 1 = 0 blockers / 4 warnings, iteration 2 = 0 / 1 (validation-map row,
+fixed inline). Requirements coverage 4/4; STATE.md is "Ready to execute".
+
+**Why it matters for operators.** Two owner decisions change what Phase 12 builds: **D-12-A** —
+no `wr_week_ownership` table; the ownership ladder is `attribution_snapshot` + `resolve_claimer`
+plus new `backfill_source` / `backfill_run_id` columns (table deferred to Phase 13). **D-12-B** —
+backfill source 4 reads the Supabase hash store (`billing_audit.group_content_hash` and
+`pipeline_memory.group_state`) instead of the retired `hash_history.json`. Nothing in production
+changed; every live step in the plans (owner SQL apply, `--apply` backfill, source-5 cron enable,
+attachment replacement) is a blocking human checkpoint. See `memory-bank/living-ledger.md`
+`[2026-09-02 18:15]` and `.planning/phases/12-ownership-last-known-foreman-as-of-the-week/`.
