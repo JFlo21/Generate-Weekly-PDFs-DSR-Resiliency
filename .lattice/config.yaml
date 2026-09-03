@@ -1,0 +1,8 @@
+# .lattice/config.yaml -- Lattice Framework Configuration
+# All paths are relative to the repository root.
+# Run refiners to populate: /knowledge-priming-refiner, /language-idioms-refiner, /architecture-refiner, /ddd-refiner, /clean-code-refiner, /review-refiner
+# Repo note: GSD-driven (.planning/); Lattice atoms act as quality guardrails inside GSD phases (lattice-overlay.v1).
+
+version: 1
+language: python
+paths: {}

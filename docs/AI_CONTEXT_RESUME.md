@@ -5,8 +5,9 @@
 > live chat history. This is a snapshot; update it before you stop working
 > (see the bottom of this file and `PROJECT_HANDOFF.md`).
 >
-> **Authoritative project rules live in [`/CLAUDE.md`](../CLAUDE.md)** (and the
-> Codex mirror [`/AGENTS.md`](../AGENTS.md)). This file is the *status / resume*
+> **Authoritative project rules live in [`/CLAUDE.md`](../CLAUDE.md)** plus
+> `.claude/rules/*.md`; verified implementation truth is in `docs/ai/`. (`AGENTS.md` is a
+> frozen Codex-side pointer, not maintained by ClaudeOS.) This file is the *status / resume*
 > layer, not the rulebook.
 
 _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot)._
@@ -17,18 +18,54 @@ _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot).
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
 >
-> **Snapshot 2026-09-02 (14:30 CDT):** v1.4 Phase 11.1 (post-INC-05 runtime remediation) is
-> merged (#374, #377, #378, #379) and its last gap-closure plan `11.1-04` is built: PR #384
-> (`5bb45b3`, branch `perf/discovery-bounded-validation-read`) bounds the discovery validation
-> read to `row_numbers=[1, 2, 3]` and reuses that response as the date-column sample set, so a
-> registry-skip miss no longer downloads every row of 121 sheets (26–41 s/sheet → ~1–2 s).
-> Full suite 1945 passed, ALL 6 GATES PASSED, two independent read-only reviews PASS. GSD is
-> paused at the plan's `blocking-human` checkpoint: owner squash-merges #384, then the first
-> post-merge scheduled **skip-MISS** run is judged on `⚡ Phase 1 complete` (< ~4 min) and the
-> Python `• Duration:` line (< ~75 min) — never the Actions job clock. Evidence:
-> `.planning/debug/11.1-discovery-full-validation-cost.md`, ledger `[2026-09-02 14:35]`. Next:
-> canary reply → continuation executor writes `11.1-04-SUMMARY.md` → `/gsd-verify-work 11.1`
-> reconciles G-11.1-4 → seal 11.1 → Phase 12 via GSD.
+> **Snapshot 2026-09-02 (22:05 CDT) — instruction files aligned (run 1, branch
+> `docs/align-instruction-files`, docs-only PR):** the new `align-instruction-files` skill ran its
+> repair order. GSD health is HEALTHY (a `(INSERTED)` tag placement hid Phase 01.1 from the roadmap
+> parser; one-line fix `d9740f2`). CLAUDE.md went 369 → 150 lines with nothing deleted: pipeline
+> flow, cron schedule and runner timeouts now live in `docs/ai/architecture.md`, the env-var catalog in
+> `.github/prompts/configuration-environment.md` § Operator quick reference, command lists in
+> `docs/ai/safe-commands.md`; `.github/copilot-instructions.md` was regenerated. `.claude/project-state.md`
+> was cut 1,555 → ≤ 120 lines (all dropped history already in the ledger; the one uncovered day,
+> 2026-08-15, is recorded in `[2026-09-02 22:05]`). The six non-ledger `memory-bank/*` pages are now
+> ≤ 8-line pointer stubs — their surviving facts moved to `docs/ai/architecture.md` § Domain model and a
+> rewritten `docs/PROJECT_BRIEF.md`, and their pre-ledger April-2026 history to `[2026-09-02 21:20]`.
+> gsd-doc-verifier fact-checked the docs a fresh session reads (CLAUDE.md 71/74 → stale claims fixed by
+> the trim; `docs/ai/*` 234/235 → WR-01 wording corrected: `pipeline/discovery.py` never imports
+> `AttachmentParentType`, so Plan 12-02's "same path" comparison is wrong). Two things did NOT happen:
+> `AGENTS.md` could not be frozen (the harness-boundary hook denies every ClaudeOS write; Juan pastes the
+> header from the PR body), and GSD canonical-doc generation was skipped on purpose (it would add five
+> duplicate docs). Next: `/clear` → `/gsd-execute-phase 12`.
+>
+> **Snapshot 2026-09-02 (19:40 CDT) — Phase 12 PLANNED:** `/gsd-plan-phase 12` produced 6 plans
+> in 4 waves (research `7191676`, plans `f0ed36c` + `ed49ab4`, closeout `f6ff88e`); the plan
+> checker passed with 0 blockers and STATE.md reads "Ready to execute". Two owner decisions are
+> locked: **D-12-A** no `wr_week_ownership` table — OWN-01's ladder is `attribution_snapshot` +
+> `resolve_claimer` + new `backfill_source` / `backfill_run_id` columns (table deferred to Phase
+> 13); **D-12-B** OWN-03 source 4 reads the Supabase hash store (`billing_audit.group_content_hash`
+> + `pipeline_memory.group_state`), not the retired `hash_history.json`. Plans: 12-01 backfill
+> script (tracer: dry-run WR 19073866 → `_User_Avery_Example`), 12-02 CR-01 + WR-01 fixes, 12-03
+> owner-deployed SQL, 12-04 source-5 cell-history job + isolated workflow, 12-05 runbook + ledger,
+> 12-06 live rollout — every live step is a blocking human checkpoint. Next: `/clear` →
+> `/gsd-execute-phase 12` (wave 1 on a branch → PR). Same session: ClaudeOS bootstrap audit added
+> `docs/ai/`, `.claude/rules/python-module-architecture.md`, and a rewritten `.claude/context-map.md`.
+>
+> **Snapshot 2026-09-02 (17:45 CDT) — Phase 11.1 CLOSED:** v1.4 Phase 11.1 (post-INC-05
+> runtime remediation) is fully merged (#374, #377, #378, #379, **#384** `13e8e76`) and sealed
+> by GSD: `11.1-VERIFICATION.md` passed 20/20, `11.1-UAT.md` 19/19 resolved, ROADMAP 4/4 plans,
+> `phase.complete 11.1` moved STATE to **Phase 12 (Ownership — last known foreman as of the
+> week, unplanned)**. #384 bounds the discovery validation read to `row_numbers=[1, 2, 3]` and
+> reuses that response as the date-column sample set. The first post-merge scheduled run
+> (33683979474, 21:14Z cron, a genuine registry-skip MISS: 0/121 eligible, 121 fully
+> validated) proved it: `⚡ Phase 1 complete` 37.7 s (was 3,214 / 4,999 s), 3,178 groups all
+> processed at ~0.52 s/group, no `TIME_BUDGET` stop, Python `• Duration:` 0:50:47 — SC-1 met
+> on the worst-case path. Two advisory findings from the phase-close code-quality report are
+> parked for the owner in `.planning/STATE.md` Blockers/Concerns: CR-01 `pipeline/cleanup.py`
+> `_is_sentinel_identifier` treats any leading `_` as a sentinel (a sanitized real name can
+> start with `_`) inside the sentinel-superseded attachment cleanup gate — protected OWN-02
+> code, not auto-fixed; WR-01 top-level `AttachmentParentType` import in `orchestrate.py`.
+> Five docs-only commits sit on local `master` ahead of origin (they ride the next code PR;
+> never pushed directly). Evidence: `11.1-04-SUMMARY.md`, ledger `[2026-09-02 14:35]`,
+> `[15:05]`, `[17:45]`. Next: `/gsd-discuss-phase 12` then `/gsd-plan-phase 12`.
 
 > **Live status now lives in [`.claude/project-state.md`](../.claude/project-state.md)**
 > (overwritten each session) and [`.planning/STATE.md`](../.planning/STATE.md). This

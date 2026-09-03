@@ -9,7 +9,7 @@ This document describes the Sentry error-monitoring setup across all three compo
 | Component | Instrumented? | DSN env var | Notes |
 |-----------|---------------|-------------|-------|
 | Python billing engine (`generate_weekly_pdfs.py`) | ✅ Yes (existing + standardised) | `SENTRY_DSN` | Cron check-in, tracing, custom helpers, **Sentry Logs (opt-in via `SENTRY_ENABLE_LOGS`; default off)** |
-| Express backend (`portal/`) | ✅ Yes (new) | `PORTAL_SENTRY_DSN` | Error handler, header scrubbing |
+| Express backend (`portal/`) | ❌ Removed 2026-06-02 (03153c3) | `PORTAL_SENTRY_DSN` (retired) | Historical — the Express sections below are kept for reference only |
 | React frontend (`portal-v2/`) | ✅ Yes (new) | `VITE_SENTRY_DSN` | Browser tracing, ErrorBoundary, API breadcrumbs |
 
 All three surfaces are **opt-in via DSN**. When the DSN is absent or empty, Sentry no-ops completely — the app works unchanged.
@@ -27,7 +27,7 @@ All three surfaces are **opt-in via DSN**. When the DSN is absent or empty, Sent
 | `SENTRY_ENVIRONMENT` | Optional | Environment tag, e.g. `production`. Takes priority over `ENVIRONMENT`. |
 | `RELEASE` | Optional | Legacy fallback release (e.g. git SHA). |
 | `ENVIRONMENT` | Optional | Legacy fallback environment (default `production`). |
-| `SENTRY_DEBUG` | Optional | Set to `true` to enable Sentry SDK debug logging. |
+| `SENTRY_DEBUG` | Not consumed | Listed in `.env.example`, but no active code reads it (only the archived `archive/generate_weekly_pdfs_backup.py`); setting it has no effect today. |
 | `SENTRY_ENABLE_LOGS` | Optional | Set to `1`/`true`/`yes`/`on` to forward stdlib `logging` records to the Sentry **Logs** product (SDK ≥ 2.35.0). **Default: off.** See the [Sentry Logs](#sentry-logs-structured-logs-product) section for the required audit of log call sites before enabling — INFO-level debug paths can emit billing-row PII. |
 
 ### Express Backend (`portal/`)
@@ -102,7 +102,8 @@ python generate_weekly_pdfs.py
 PORTAL_SENTRY_DSN=https://your_backend_dsn@o123456.ingest.sentry.io/789
 SENTRY_ENVIRONMENT=development
 
-cd portal && npm install && npm start
+# HISTORICAL — portal/ was removed in 03153c3 (2026-06-02); this no longer applies:
+#   cd portal && npm install && npm start
 ```
 
 ### React frontend
@@ -191,7 +192,7 @@ Or run a workflow dispatch in GitHub Actions — Sentry will receive the cron ch
 
 #### Sentry Logs (structured logs product)
 
-`generate_weekly_pdfs.py` wires the SDK to support the Sentry **Logs** product (requires `sentry-sdk>=2.35.0`, already pinned in `requirements.txt`). Log forwarding is **gated and opt-in**: it activates only when the environment variable `SENTRY_ENABLE_LOGS` is set to `1` / `true` / `yes` / `on`. When unset (default) or `false`, `enable_logs` is `False` and no stdlib records are shipped to the Logs product — existing breadcrumb and event behavior is unaffected.
+`generate_weekly_pdfs.py` wires the SDK to support the Sentry **Logs** product (requires `sentry-sdk>=2.35.0`; `requirements.txt` pins `sentry-sdk>=2.54.0`, which satisfies it). Log forwarding is **gated and opt-in**: it activates only when the environment variable `SENTRY_ENABLE_LOGS` is set to `1` / `true` / `yes` / `on`. When unset (default) or `false`, `enable_logs` is `False` and no stdlib records are shipped to the Logs product — existing breadcrumb and event behavior is unaffected.
 
 > **Privacy note.** Enabling `SENTRY_ENABLE_LOGS` ships every stdlib `logging` record captured by `LoggingIntegration(level=logging.INFO, ...)` to Sentry. This engine has INFO-level debug paths (e.g. `PER_CELL_DEBUG_ENABLED`, row-sample logs) that can include raw cell values, foreman names, dept/job numbers, WR numbers, and price values — all of which are billing-row PII per the [Privacy / Security](#privacy--security) section above. Before flipping `SENTRY_ENABLE_LOGS=true` in any environment, audit the log call sites, keep `PER_CELL_DEBUG_ENABLED` and row-sample debug flags **off** in production, and never add new log lines that embed billing row/cell content.
 >
@@ -218,13 +219,14 @@ Issue-creation behavior is unchanged — the `LoggingIntegration` is still confi
 ### Express backend
 
 ```bash
-cd portal && npm start
+# HISTORICAL — portal/ was removed in 03153c3 (2026-06-02); nothing below runs today:
+#   cd portal && npm start
 # To test Sentry error capture, add a temporary test route in server.js:
 #   app.get('/sentry-test', (req, res) => { throw new Error('Sentry test'); });
 # Then trigger it:
 #   curl http://localhost:3000/sentry-test
 # Or use Sentry.captureMessage() directly in Node.js:
-node -e "require('dotenv').config(); const Sentry = require('./lib/sentry'); Sentry.captureMessage('Test from Express backend', 'info'); setTimeout(() => {}, 1000);"
+#   node -e "require('dotenv').config(); const Sentry = require('./lib/sentry'); Sentry.captureMessage('Test from Express backend', 'info'); setTimeout(() => {}, 1000);"
 # Check your Sentry project for the captured event.
 ```
 

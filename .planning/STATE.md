@@ -2,27 +2,27 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
-current_phase: 11.1
-current_phase_name: Post-INC-05 Runtime Remediation (INSERTED)
+current_phase: 12
+current_phase_name: Ownership — last known foreman as of the week
 status: executing
-stopped_at: "execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 committed (5bb45b3) on branch perf/discovery-bounded-validation-read, PR #384 OPEN vs master; paused at Task 4 blocking-human checkpoint (owner merge + post-merge skip-MISS canary). SUMMARY/ROADMAP deferred to the continuation agent after the canary reply."
-last_updated: "2026-09-02T19:27:44.093Z"
+stopped_at: Phase 11.1 complete, ready to plan Phase 12
+last_updated: "2026-09-03T00:54:40.155Z"
 last_activity: 2026-09-02
-last_activity_desc: Phase 11.1 execution started
-state_head: 5bb45b3e37cf569c8db768e075254e3f0b591716
+last_activity_desc: Phase 11.1 complete, transitioned to Phase 12
+state_head: 34cac0d7d0aee94d02a019e01959728a423921b5
 progress:
   total_phases: 13
-  completed_phases: 3
-  total_plans: 50
-  completed_plans: 49
-  percent: 23
+  completed_phases: 4
+  total_plans: 56
+  completed_plans: 50
+  percent: 31
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-25 after Phase 09 close)
+See: .planning/PROJECT.md (updated 2026-09-02 after Phase 11.1 close)
 
 **Core value:** The production Smartsheet → Excel → Smartsheet attachment
 pipeline runs every 2 hours on weekdays and ships billing-grade Excel
@@ -31,19 +31,19 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 11.1 — Post-INC-05 Runtime Remediation (INSERTED)
+**Current focus:** Phase 12 — Ownership — last known foreman as of the week (OWN-03 backfill, OWN-04 runbook); Phase 11.1 closed 2026-09-02
 
 ## Current Position
 
-Phase: 11.1 (Post-INC-05 Runtime Remediation (INSERTED)) — EXECUTING
+Phase: 12 (Ownership — last known foreman as of the week) — READY TO EXECUTE
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 1 of 4
+Plan: Not started
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
   typed skip index). Merged with 9 bot threads unresolved — see
   Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
-Status: Executing Phase 11.1
+Status: Ready to execute
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
   `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
@@ -59,7 +59,7 @@ Status: Executing Phase 11.1
   built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
   mypy delta neutral 72->72, no re-baseline needed this plan); full
   suite 1886 passed / 1 skipped / 306 subtests.
-Last activity: 2026-09-02 — Phase 11.1 execution started
+Last activity: 2026-09-02 — Phase 11.1 complete, transitioned to Phase 12
   GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
   Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
   under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
@@ -89,7 +89,7 @@ Last activity: 2026-09-02 — Phase 11.1 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [██░░░░░░░░] 23% (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped)
+Progress: [████████████████████] 50/50 plans (100%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
 ```
 
 ## Performance Metrics
@@ -147,6 +147,7 @@ Progress: [██░░░░░░░░] 23% (v1.3 complete; v1.4 Phase 10 clo
 | Phase 11 P08 | ~2h | 3 tasks | 35 files |
 | Phase 11.1 P01 | ~30 min | 3 tasks | 6 files |
 | Phase 11.1 P02 | ~10min | 3 tasks | 3 files |
+| Phase 11.1 P04 | ~25min (Task 4 continuation) | 1 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -266,6 +267,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: [Phase 11] 11-08 INC-05 retirement shipped: group_state.content_hash sole skip gate, always-full sheet discovery via sheet_registry, six workflow cache steps removed; Phase 11 fully closed with dated Living Ledger entry
 - [Phase 11.1]: [Phase 11.1] 11.1-01: discovery registry-version skip fast path (D-11.1-01) ships INC-05-compatible -- registry hit requires exact version equality + valid stored column_mapping, any doubt falls back to full validation; Gate-4 mypy re-baselined 70->72 (zero accepted findings, pure annotation-note line drift)
 - [Phase 11.1]: [Phase 11.1] 11.1-02: bulk attachment pre-seed (D-11.1-02) pre-seeds the existing _live_row_attachments memo from 2 bulk list_all_attachments calls before the group loop -- _live_row_attachments and both call sites left byte-for-byte unmodified; total_count pre-flight + 25000 ceiling fallback to today's lazy per-row path (D-11.1-05); Phase 11.1 both fixes complete on feat/11.1-runtime-remediation
+- [Phase 11.1]: [Phase 11.1] 11.1-04: G-11.1-4 residual (b) RESOLVED — bounded discovery validation read (row_numbers=[1,2,3], reused as sample-row cache) replaces the unbounded full-sheet download; PR #384 merged 13e8e76; production canary (skip-MISS run 33683979474) confirms Phase 1 37.7s (was 3,214-4,999s) and Python Duration 50.8min (< 75min SC-1); fix candidate (b) column-set-hash skip key stays DEFERRED, motivation removed by cheap-miss result
 
 ### Roadmap Evolution
 
@@ -304,6 +306,19 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   (3/13 vs 11/13); `⚡` vs `⏭️` marker in 11.1-01-PLAN:423 / 11.1-VALIDATION:89;
   SimpleNamespace pin at test_incremental_read 4112; 11.1-VERIFICATION.md:89 describes the
   pre-review ceiling code.
+
+**From the Phase 11.1 close-out code-quality report (`11.1-REVIEW.md`, 2026-09-02 — advisory, owner decision; both findings are in OWN-02 / INC-06 code that the phase diff range swept in, not in 11.1's own plans):**
+
+- ⚠️ [Phase 12 / OWN-02] CR-01 `pipeline/cleanup.py:89-116` `_is_sentinel_identifier`: any sanitized
+  identifier starting with `_` is treated as a sentinel, but `_RE_SANITIZE_HELPER_NAME` (`[^\w\-]`→`_`)
+  turns a leading space/apostrophe/paren in a real claimer name into a leading `_` too (`excel.py:308/324`
+  sanitize the raw name with no strip). Through the sentinel-superseded gate (`cleanup.py:495-508`) that
+  could delete a real person's historical attachment when another real person later holds the same
+  (wr, week, variant). Narrow the heuristic to the known sanitized error spellings (`_REF_`, `_INVALID`,
+  `_NO_MATCH`, …) or de-sanitize before `is_sentinel_claimer`, plus a test with a leading-space name.
+- ⚠️ [Phase 12 / INC-06] WR-01 `pipeline/orchestrate.py`: top-level `from smartsheet.models.enums.
+  attachment_parent_type import AttachmentParentType` — a future SDK relocation would break module
+  import instead of degrading; `discovery.py` uses the lazy/defensive pattern for deep `smartsheet.models.*` paths.
 
 **From Phase 09 gap closure (2026-08-25, tracked, non-blocking):**
 
@@ -417,36 +432,24 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-02T19:27:43.048Z
-**Stopped at:** execute-phase 11.1 --gaps-only: plan 11.1-04 Tasks 1-3 committed (5bb45b3) on branch perf/discovery-bounded-validation-read, PR #384 OPEN vs master; paused at Task 4 blocking-human checkpoint (owner merge + post-merge skip-MISS canary). SUMMARY/ROADMAP deferred to the continuation agent after the canary reply.
-**Resume file:** .planning/phases/11.1-post-inc-05-runtime-remediation/11.1-04-PLAN.md
+**Last session:** 2026-09-02T22:16:09.857Z
+**Stopped at:** Phase 11.1 complete, ready to plan Phase 12
+**Resume file:** None
 
 ## Session Continuity
 
-Last session: 2026-09-02T16:15:00.000Z
-Stopped at: Resumed from HANDOFF.json (consumed). PR #379 (INC-06 detach)
-  MERGED d79f02d 2026-09-02T15:57Z; branch fix/inc-06-parity-exit-hang deleted
-  local + remote; master = e27516d (d79f02d + docs-changelog stub). Canary run
-  33634833356 (511ec48, created 13:17Z) SUCCESS and read — 11.1-03-SUMMARY.md
-  written: #378 engaged (🧊 218,439 rows warm-started; snapshots_written 117 /
-  already_frozen 0; freeze_attribution 117 calls vs 214,233), group phase
-  1,352 s / 3,176 groups = 0.43 s/group (G-11.1-6 RESOLVED), all groups, no
-  budget stop; Python Duration 1:36:00 (96 min) MISSES SC-1 because discovery
-  fully validated all 121 sheets (skip index 0/121 eligible — every source
-  sheet version moved overnight vs the 03:41Z watermarks; the two prior runs
-  had 117/121). With that skip rate Duration ≈ 43 min. Second data point
-  run 33647771644 (15:19Z, 511ec48, success): skip index 0/121 AGAIN two
-  hours after the watermarks were refreshed, discovery 83.3 min, Duration
-  2:09:40, group phase 0.40 s/group, 200 freeze calls = snapshots_written.
-  Reading corrected: the registry-version skip engages off-hours (117/121 at
-  19:56 and 22:20 CDT) and not in business hours (0/121 at 08:17 and 10:19
-  CDT); no registry-code change since the 117 builds. Hypothesis: cross-sheet
-  links/recalcs bump every backup sheet's version in business hours —
-  confirm read-only via two get_sheet_version samples. SC-1 unattainable on
-  business-hours runs by this design; discovery cost = its own follow-up.
-  First run ≥ d79f02d = 33659869696 (17:14Z, e27516d; watch the 🧵 INC-06
-  line). Loop for run 33647771644 stopped after reporting.
-  Planning edits (STATE.md, SUMMARY, HANDOFF.json deletion, project-state,
-  ledger) are UNCOMMITTED on master — commit them on the next docs/code PR.
-  Next: /gsd-verify-work 11.1 (close G-11.1-6; re-scope G-11.1-4 per SUMMARY).
-Resume file: .planning/phases/11.1-post-inc-05-runtime-remediation/.continue-here.md
+Last session: 2026-09-02T22:45:00.000Z
+Stopped at: Phase 11.1 complete, ready to plan Phase 12. Closed via
+  `/gsd-execute-phase 11.1 --gaps-only`: PR #384 (bounded discovery
+  validation read + the empty-rows PR-thread fix) squash-merged 13e8e76
+  at 20:52Z; canary run 33683979474 (21:14Z, build e2efdc0) was a genuine
+  registry-skip MISS (0/121) and met SC-1 — Phase 1 37.7 s, Python Duration
+  50.8 min, 3,178 groups, no budget stop, 0.52 s/group, INC-06 line present.
+  11.1-04-SUMMARY written; 11.1-VERIFICATION re-run passed 20/20; UAT 19/19
+  (G-11.1-4 resolved); 11.1-REVIEW.md advisory: CR-01 / WR-01 routed to the
+  owner (see Blockers/Concerns). All docs commits are LOCAL on master (ahead
+  of origin) — they ride the next code PR (no standalone docs PRs, D-09).
+  The remote branch perf/discovery-bounded-validation-read still exists
+  (owner delete). Phase 12 entry: check `.planning/config.json`
+  `review.default_reviewers` stays non-Codex; then /gsd-discuss-phase 12.
+Resume file: None

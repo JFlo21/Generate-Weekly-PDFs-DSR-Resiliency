@@ -8852,3 +8852,257 @@ production-risk review, independently raised as Greptile P2 and Copilot findings
 (RED: 2 calls ≠ 1 → GREEN). Mapping logic, the D-11.1-01 fast path, the fail-closed guard and the
 return contract are untouched; the source pin still holds. Same PR (#384); the Task 4 production
 canary contract is unchanged.
+
+## [2026-09-02 17:45] Phase 11.1 CLOSED — skip-MISS canary (run 33683979474, build `e2efdc0` ⊇ #384 `13e8e76`) met SC-1: `⚡ Phase 1 complete` 37.7 s, Python `Duration` 0:50:47, 3,178 groups at 0.52 s/group; G-11.1-4 resolved end-to-end; two advisory findings routed to the owner
+
+**Canary.** PR #384 was squash-merged at 20:52Z as `13e8e76`. The first scheduled run on a
+build containing it was 33683979474 (21:14:05Z cron, `production_frequent`, build `e2efdc0`).
+It was a genuine registry-skip MISS — skip index 121 / 0 eligible, validation split 0 skipped /
+121 fully validated — i.e. the exact path that cost 96 and 129.7 min on runs 33634833356 and
+33647771644. With the bounded read the same path measured:
+
+| Signal (Python log, never the Actions clock) | Before (`511ec48`) | Canary (`e2efdc0`) |
+|---|---|---|
+| `⚡ Phase 1 complete` (discovery incl. 121 full validations) | 3,214 s / 4,999 s | **37.7 s** |
+| Phase 2 fetch (215,079 rows) | ~1,200 s | 1,181 s |
+| Group phase (`🧊 warm-started` → `🧾 group_state: N flushed`) | 0.43 s/group | 1,660 s ÷ 3,178 = **0.52 s/group** |
+| Groups processed | budget-stopped | 3,178 (3,018 unchanged, 154 no-target-row, 6 generated), no `TIME_BUDGET` stop |
+| `• Duration:` | 96.0 / 129.7 min | **0:50:47 (50.8 min)** |
+| INC-06 🧵 release line / exit | — | 22:04:59Z, job 54.7 min, no hang |
+
+SC-1 (< ~75 min on the worst-case miss path), SC-2 (every group processed, no graceful stop)
+and D-11.1-04 (no exit hang) are MET. G-11.1-4 is resolved on both components: (a) the
+frozen-row warm start (#378) and (b) the bounded validation read (#384).
+
+**Seal.** Continuation executor wrote `11.1-04-SUMMARY.md`; gsd-verifier re-ran
+`11.1-VERIFICATION.md` to `passed` 20/20 (it re-pulled the run log and re-ran the suite + 6
+gates itself); `11.1-UAT.md` test 4 → pass, 19/19, G-11.1-4 `resolved`; `phase.complete 11.1`
+marked ROADMAP 4/4 and moved STATE to Phase 12 (Ownership — last known foreman as of the
+week). All of that is docs-only and sits on local `master` ahead of origin; it rides the next
+code PR (D-09 — never push docs straight to master).
+
+**Advisory code-quality report (`11.1-REVIEW.md`, gsd code reviewer, 16 files in the phase
+diff range) — owner decision, deliberately NOT auto-fixed because both touch OWN-02 / INC-06
+code the range swept in, and CR-01 sits inside the protected attachment-cleanup path:**
+- **CR-01** `pipeline/cleanup.py:89-116` `_is_sentinel_identifier` returns True for any
+  identifier that starts with `_`. `_RE_SANITIZE_HELPER_NAME = re.compile(r'[^\w\-]')`
+  (`config.py:28`) is applied without a strip in `excel.py:308/324`, so a real foreman name
+  with a leading space or punctuation also sanitizes to a leading `_`. The heuristic feeds the
+  sentinel-superseded gate (`cleanup.py:495-508`), which could delete a real person's
+  historical attachment. Fix shape: match the known error spellings (`_Unknown_Foreman`,
+  `_No_Foreman`, …) or de-sanitize before testing, plus a leading-space-name regression test.
+- **WR-01** `orchestrate.py` imports `AttachmentParentType` from
+  `smartsheet.models.enums.attachment_parent_type` at module top level; `discovery.py` uses a
+  lazy, guarded import for the same SDK-internal path. Align to the lazy pattern.
+
+**Rules retained.** (1) A discovery canary is judged only on a skip-MISS run and only on the
+Python `⚡ Phase 1 complete` / `• Duration:` lines — a skip-HIT run proves nothing about the
+fix, and the Actions job clock includes post-job steps. (2) When reading a ~29k-line run log,
+grep the `Session complete` block and the phase markers directly; `head -N` truncates inside
+the thousands of `Skip (unchanged` lines and hides the Duration line. (3) The
+harness-boundary hook rejects any shell command containing lowercase `review` in a GSD
+context (`init.code-review`, `gsd-code-reviewer`, commit text) as the cross-AI lane; the
+Claude-native path is plain git/node for scoping, the reviewer spawned via the Agent tool,
+and `git commit -F <msgfile>`.
+
+## [2026-09-02 18:15] Phase 12 plan-phase IN PROGRESS — research/pattern/validation artifacts landed; two owner decisions: no `wr_week_ownership` table (extend `attribution_snapshot`), source 4 = Supabase hash store
+
+`/gsd-plan-phase 12` (interactive, no CONTEXT.md — owner chose "continue without context" because the
+OWN-03 design spec + the `[2026-09-01 19:45]` / `[2026-09-02 00:35]` decisions already carry the design).
+Artifacts: `12-RESEARCH.md` (`7191676`), `12-VALIDATION.md` (`fbf2bf8`, Nyquist seed), `12-PATTERNS.md`
+(uncommitted until the plan commit). Planner (Opus) running; plan checker (Sonnet) next.
+
+**Owner decisions made during this run (Juan, 2026-09-02 ~18:05 CDT) — LOCKED for Phase 12:**
+
+- **D-12-A — OWN-01 deliverable is NOT a new table.** REQUIREMENTS.md / ROADMAP.md name a
+  `wr_week_ownership` table (2026-08-24 draft schema; `pipeline_memory/schema.sql` defers it to Phases
+  12/13), but the 2026-09-01 OWN-03 design spec never mentions it and writes backfilled owners straight
+  into `billing_audit.attribution_snapshot` (already read by `resolve_claimer`) with the two new
+  provenance columns `backfill_source` / `backfill_run_id` (spec §7). Decision: extend
+  `attribution_snapshot` only; `wr_week_ownership` stays deferred to Phase 13 audit memory. OWN-01's
+  ladder as implemented = observed_in_week → backfill sources → sentinel (no `last_known_before_week`,
+  per `[2026-09-01 19:55]`); REQUIREMENTS.md OWN-01/OWN-02 wording is stale on both points.
+- **D-12-B — OWN-03 source 4 (`backfill_hash_history`) reads the Supabase hash store, not a JSON file.**
+  Owner asked where hash history lives today: it is `billing_audit.group_content_hash` (Sub-project E,
+  dual-written every run since 2026-05-25, PK `wr, week_ending, variant, identifier`, `updated_at`) and
+  `pipeline_memory.group_state` (same key + `attachment_name`, `source` CHECK already allows
+  `backfill_hash_history`); the local `hash_history.json` was retired in Phase 11 Plan 08 and no archive
+  exists. Because `identifier` is part of the PK, the pre-defect real-name row survives when a later run
+  writes an `Unknown Foreman` row for the same (WR, week, variant). Spec §3 row 4 is amended: for each
+  sentinel key take the non-sentinel `identifier` rows in those two tables, keep the single-name rule,
+  prefer `updated_at` < 2026-08-24. No `--hash-history <path>` flag, no JSON fixture. Weeks never seen in
+  a run since 2026-05-25 stay uncovered by source 4 (fall to sources 3 and 5).
+
+Also confirmed from research (not new decisions): OWN-02's sentinel rule is SHIPPED (#375/#376/#377) —
+only CR-01 (`pipeline/cleanup.py:89-116`) and WR-01 (`pipeline/orchestrate.py:43-45`) residuals remain;
+`RESET_WR_LIST` scoping is shipped (`pipeline/orchestrate.py:412-430`); `audit_billing_changes.py`'s
+"selective cell-history" is a stub — the working paced pattern for source 5 is
+`pipeline/snapshot_drift.py:404-438`; `scripts/backfill_attribution_snapshot.py` must NOT be extended
+(its "current Smartsheet value wins" semantics were rejected). Spec-less edge probe: 7 unresolved edges
+handed to the planner (adjacency/empty/encoding/ordering on OWN-01; unclassified OWN-02/03/04).
+
+**Update 18:45 CDT — planner done, checker running.** gsd-planner (Opus) wrote six plans, committed
+`f0ed36c` (`docs(12): create phase plan`): 12-01 OWN-03 backfill script (wave 1, tracer: dry-run for
+WR 19073866 via source 4 → sources 1–3 → gated `--apply`); 12-02 OWN-02 residuals CR-01 + WR-01 (wave 2);
+12-03 owner-deployed Supabase SQL `billing_audit/own03_backfill_attribution.sql` + contract comment
+(wave 2, `autonomous: false`); 12-04 source-5 cell-history job `scripts/backfill_cell_history_
+attribution.py` + isolated `.github/workflows/cell-history-backfill.yml` (wave 2, `autonomous: false`);
+12-05 OWN-04 runbook + ledger (wave 3); 12-06 live rollout dry-run → decision → apply → post-run (wave 4,
+all human checkpoints). Planner notes worth keeping: `tests/test_sentinel_superseded_cleanup.py` already
+owns `_is_sentinel_identifier` tests (extend, do not add `tests/test_cleanup.py`); `generated_docs/` is
+only selectively gitignored, so 12-01 adds `own03_*` report patterns; CR-01 fix stays in
+`pipeline/cleanup.py` (a `.strip()` in `excel.py` would change filenames = change-detection identity);
+`COVERAGE.md` carries a "No external API integration" declaration. Both verify-command probes clean
+(31 commands, 0 blockers/warnings). gsd-plan-checker (Sonnet) in flight.
+
+**Update 19:10 CDT — checker round 1 and revision.** gsd-plan-checker (Sonnet) iteration 1: 0 blockers /
+4 warnings (W1 source-4 two-names conflict test missing from 12-01 Task 2; W2 research Open Questions not
+marked resolved; W3 93/5,824 vs 94/5,829 are point-in-time ledger counts — 12-06 Task 1's dry-run is the
+authoritative live figure; W4 12-03/12-04 at the 4-task threshold, half checkpoints, no change). Planner
+revision applied W1–W3 (`ed49ab4`); the orchestrator settled the last "NOT a settled decision" line in
+`12-RESEARCH.md` under D-12-A (`34cac0d`). Probes re-run clean (31 commands, 0/0). Checker iteration 2/3
+in flight; then requirements-coverage gate → `state.planned-phase` → roadmap wave annotation → plan commit.
+
+**Closeout 19:25 CDT — Phase 12 PLANNED (6 plans / 4 waves).** Checker iteration 2: 0 blockers / 1
+warning (12-VALIDATION.md lacked the 12-03-T2 row) — fixed inline by the orchestrator in its own seeded
+artifact; no third checker pass (override, recorded here). Requirements coverage 4/4 (OWN-01..04);
+decision-coverage gate skipped (no CONTEXT.md); `state.planned-phase` → STATE.md "Ready to execute";
+`roadmap.annotate-dependencies` → 4 wave headers, 0 cross-cutting constraints; plan:post gap-analysis gate
+advisory. Next: `/gsd-execute-phase 12`. Every live step (owner SQL apply, `--apply` backfill, source-5 cron
+enable, post-run observation) is a blocking human checkpoint for Juan; execution ships as PRs, never
+direct to master.
+
+## [2026-09-02 20:20] ClaudeOS bootstrap audit — `docs/ai/` implementation-truth tier, Python module-architecture rule, context map rewritten, runtime caches gitignored
+
+`/global-project-bootstrap` run after Phase 12 planning. Present already: CLAUDE.md, `.claude/context-map.md`,
+`.claude/project-state.md`, `context-policy.json` (enforce), `docs/PROJECT_BRIEF.md`, `docs/AI_CONTEXT_RESUME.md`,
+CHANGELOG/DECISIONS stubs → this ledger, three `.claude/rules/`, three repo skills, three read-only agents,
+`.claude/writeback-pending/.gitkeep`. **Added:** `docs/ai/{architecture,implementation-truth,safe-commands,
+decisions,known-bugs}.md` (file-cited; `NEEDS_VERIFICATION` on the Supabase client env-var names, the Vercel
+deploy trigger, and the fact that only CR-01/WR-01 were bug-swept), `.claude/rules/python-module-architecture.md`
+(+ CLAUDE.md / context-map pointers), rewritten context map (June map still named `portal/` and `.remember/`),
+`context-policy.json` `secondBrainPath` + `requireUpdateOnMeaningfulChanges`. **Now tracked:** `.lattice/config.yaml`,
+`12-PATTERNS.md`, `docs/superpowers/specs/2026-08-24-supabase-run-memory-design.md`,
+`docs/superpowers/specs/2026-09-01-own-03-claim-time-backfill-design.md` (Phase 12 plans cite both; identifier
+check: no emails, keys, or real `_User_` tokens). **Gitignored:** `.serena/cache/`, `.gsd/`, `.codex/`,
+`generated_docs/billing_audit_frozen_rows.json`. **Rule:** ledger updates must go through the Edit/Write tools
+(the Stop hook cannot see Bash-heredoc edits) — see `~/.claude/lessons-learned.md` 2026-09-02.
+**Owner items:** trim/archive `CLAUDE.md` (367 lines) and `.claude/project-state.md` (~1,550 lines); refresh
+`docs/PROJECT_BRIEF.md`; decide track-or-ignore for `.agents/skills/`, `.serena/project*.yml` + `memories/`,
+`.planning/state.json`, `website/.claude/`.
+
+## [2026-09-02 20:45] New project skill `align-instruction-files` (v1.0) — ownership map + drift check + repair order for CLAUDE.md / mirrors / .planning / ledgers; four owner decisions
+
+Extracted via `workflow-skill-extraction` from the bootstrap audit. Path: `.claude/skills/align-instruction-files/SKILL.md`.
+Step 0 drift check (embedded bash; dry-run 2026-09-02): CLAUDE.md 369 lines (cap 150), `.claude/project-state.md`
+1,555 lines (cap 120), `AGENTS.md` + `.github/copilot-instructions.md` stale since 2026-08-17, six `memory-bank/*`
+pages 67–149 days old, zero dangling slash-qualified pointers after the context-map rewrite. Repair order:
+`/gsd-core:health` → `/gsd-core:docs-update` → CLAUDE.md trim (move, never delete) + regenerate
+`copilot-instructions.md` → project-state cut → snapshot docs → pointer validation → write-back + docs PR.
+**Owner decisions (Juan, 2026-09-02):** (1) `AGENTS.md` FROZEN with a `FROZEN MIRROR` pointer header, never
+regenerated, never via Codex; (2) non-ledger `memory-bank/*` pages collapse to ≤ 8-line pointer stubs after any
+surviving fact moves to `docs/ai/`; (3) cadence = milestone close + any Step 0 breach (phase closes run the check
+only); (4) caps CLAUDE.md ≤ 150 / project-state ≤ 120. Next: run the repair order on a docs branch → PR.
+
+## [2026-09-02 21:20] Historical import — memory-bank pages retired to pointer stubs (align-instruction-files run 1)
+
+- **What:** `memory-bank/{projectbrief,productContext,techContext,systemPatterns,progress,activeContext}.md`
+  collapsed to ≤8-line pointer stubs (skill `align-instruction-files` Step 2; owner decision
+  2026-09-02). Surviving implementation facts moved to `docs/ai/architecture.md` § "Domain model —
+  variants, grouping keys, metadata fields" and `docs/PROJECT_BRIEF.md`; the full prior text stays in
+  git history (the commit before this entry's PR).
+- **Facts preserved (verified against `pipeline/` this run):** three row variants
+  (primary / helper / vac_crew) detected per row, never per sheet — helper = `Foreman Helping?` +
+  `Helping Foreman Completed Unit?`; VAC = `VAC Crew Helping?` + `Vac Crew Completed Unit?` +
+  `Units Completed?`, gated by `sheet_has_vac_crew_columns` (`pipeline/fetch.py:554-570`);
+  metadata fields `__is_helper_row/__helper_foreman/__helper_dept/__helper_job` and
+  `__is_vac_crew/__vac_crew_name/__vac_crew_dept/__vac_crew_job/__vac_crew_email`; group keys
+  `MMDDYY_WR`, `MMDDYY_WR_HELPER_<name>`, `MMDDYY_WR_VACCREW[_<claimer>]`
+  (`pipeline/grouping.py:76-108`); rate CSV env vars `NEW_RATES_CSV` / `OLD_RATES_CSV` /
+  `SUBCONTRACTOR_RATES_CSV` (`pipeline/pricing.py:51-87`).
+- **Stale claims dropped (contradicted by code):** techContext said `VAC_CREW_FOLDER_IDS` was
+  removed — it is live (`pipeline/config.py:317`); `SMARTSHEET_ACCESS_TOKEN` → the real name is
+  `SMARTSHEET_API_TOKEN`; `generated_docs/hash_history.json` and the TTL discovery cache are retired
+  (Phase 11 Plan 08, INC-05); `portal/` v1 was removed in 03153c3; `CU List Contract - Arrowhead
+  Contract.csv` is not the subcontractor rate source (`data/subcontractor_rates.csv` is).
+- **History predating this ledger (first entry 2026-04-17), summarized so it is not lost:** April 2026
+  session — (1) `discover_folder_sheets` made recursive (depth 5); (2) discovery-cache freshness
+  check (since retired); (3) VAC crew moved from sheet-level tagging (`VAC_CREW_SHEET_IDS`) to
+  row-level detection mirroring the helper pattern. April 6, 2026 VAC-crew data isolation — the
+  Excel header branch fell through to primary for `vac_crew` (showed the primary foreman) and read
+  `Job #` (leaking the Arrowhead-contract job number); fixed with an explicit
+  `elif variant == 'vac_crew'` using `__vac_crew_name/_dept/_job`, group-key foreman =
+  `__vac_crew_name`, and `VACCREW=/VACCREW_DEPT=/VACCREW_JOB=` in the hash metadata. The
+  Railway→Render portal plan (`docs/railway-to-render-transition-plan.md`) is obsolete — `portal/`
+  was removed 2026-06-02; the 2026-04-18 dashboard pass is logged in
+  `docs/update-log-v2-dashboard-fixes.md`.
+- **Owner follow-up (not resolved by this run):** progress.md carried an April 2026 note that an API
+  token had been pasted into a chat and should be rotated — confirm the rotation happened.
+  `__vac_crew_email` is populated in `pipeline/fetch.py` but has no consumer in Excel output.
+
+## [2026-09-02 22:05] Instruction-file alignment run 1 (skill `align-instruction-files`) — CLAUDE.md 369→150, project-state 1,555→95, memory-bank stubs, docs fact-checked
+
+- **Branch / PR:** `docs/align-instruction-files` (docs-only; nothing pushed to `master`). Commits:
+  `d9740f2` (ROADMAP Phase 01.1 declared), `303745c` (alignment), `24206db` (CLAUDE.md cap),
+  `48e9e82` (copilot stamp), plus the closeout commit carrying this entry.
+- **Step 1 — GSD health:** W002/W007 were a parser miss — the `buildRoadmapPhaseVariants` checklist regex
+  rejects a pre-colon `(INSERTED)` tag while the heading regex accepts one. **Rule:** write inserted-phase
+  checklist lines as `**Phase NN.N: (INSERTED) Name**` (tag after the colon). Health is now HEALTHY
+  (only the expected "Phase 12 plans without summaries" info).
+- **Step 2 — docs-update, verification half only.** Canonical-doc generation skipped on purpose: the
+  project classifies `generic`, so GSD would create five new docs under `docs/architecture|guides|
+  testing|configuration/` that duplicate `docs/ai/architecture.md`, the env-var prompt, the testing
+  prompt and the runbook — the opposite of alignment. README (hand-written) preserved. gsd-doc-verifier
+  (Sonnet) results: CLAUDE.md 71/74 (facade "~3100 lines" → 687; stale Vite `/api` proxy claim;
+  `audit_vault_writes.js` is a global hook — all fixed by the trim; re-verified 43/43 after the trim),
+  `docs/ai/architecture.md` 77/77, `implementation-truth.md` 94/94, `safe-commands.md` 44/44,
+  `known-bugs.md` 19/20 (fixed), `decisions.md` 21/21, `docs/PROJECT_BRIEF.md` 14/14 (rewritten first),
+  `README.md` 37/38 (stale `hash_history.json` line fixed), `SECURITY.md` 8/8, `docs/AI_CONTEXT_RESUME.md`
+  31/33 (both misses were this entry not yet existing and a line count, fixed),
+  `docs/sentry-implementation.md` 16/20 (four stale `portal/` references, fixed).
+- **Correction (WR-01):** `pipeline/discovery.py` never imports `AttachmentParentType`;
+  `pipeline/orchestrate.py:43-44` is the ONLY import of that enum path in `pipeline/`. The "align to
+  discovery.py's lazy import of the same path" wording in `[2026-09-02 17:45]`, `docs/ai/known-bugs.md`
+  (fixed) and `12-02-PLAN.md` line 25 (GSD-owned, not hand-edited) is wrong — the pattern to align to is
+  discovery.py's lazy, guarded `Sheet` / `Folder` imports.
+- **Step 3 — moves (CLAUDE.md § → new home):** Data Pipeline Architecture → `docs/ai/architecture.md`
+  § Diagram-in-words + § Domain model (new: variants, detection columns, metadata fields, group keys,
+  rate CSVs) and CLAUDE.md § Pipeline flow (one screen); GitHub Actions schedule / runner timeouts /
+  other workflows → `docs/ai/architecture.md` § Runtime; Configuration — 30+ env vars →
+  `.github/prompts/configuration-environment.md` § Operator quick reference (adds `VAC_CREW_FOLDER_IDS`,
+  the rate-CSV vars, `SENTRY_ENABLE_LOGS`, the retired/no-op list); Build/Test/Run commands + aspirational
+  `uv` → `docs/ai/safe-commands.md`; Current Stack & Ecosystem + Multi-Disciplinary Best Practices →
+  CLAUDE.md § Role (condensed); Detailed References → § Where to read next. Every guardrail sentence
+  stays in CLAUDE.md § Guardrails. `.github/copilot-instructions.md` regenerated and stamped with the
+  CLAUDE.md revision it came from.
+- **AGENTS.md — BLOCKED, not retried:** the harness-boundary hook denies Write and Bash on `AGENTS.md`
+  ("Codex-owned project configuration … never loaded or edited by ClaudeOS"). Freezing it is an owner
+  hand step (header in the PR body and skill step 3.4). Skill → v1.1; Step 0 now only reports it.
+- **Step 2/4 — memory-bank + project-state history:** six non-ledger pages → ≤ 8-line stubs after their
+  surviving facts moved (`[2026-09-02 21:20]`). Every dated section dropped from project-state has a
+  ledger entry except **2026-08-15 01:12 CDT**, recorded here: #340 merged (`96e42cb`) → nightly health
+  system complete on master (#339 entry point + #340 hardened dispositions), verified green manual run
+  31860218831; stale local branches/refs pruned, master at `644b1af`; #338 (docs) was the last open PR.
+- **Step 6 residuals (not drift, left as-is):** `.claude/rules/smartsheet-python-optimization.md`
+  (108 lines) and `documentation-maintenance.md` (65) exceed the skill's 60-line rule cap —
+  recommendation: move the two code samples to `.github/instructions/` and keep the rule as bullets.
+- **Owner items:** paste the AGENTS.md header; confirm the April-2026 token rotation; decide on the full
+  docs-update generation; track-or-ignore `.agents/`, `.serena/project*.yml`, `.planning/state.json`,
+  `website/.claude/`; delete-or-keep `replit.md`, `Copilot-Processing.md`, `wiki.md`.
+- **Final re-verification after the moves:** trimmed CLAUDE.md 43/43; `docs/ai/architecture.md` 85/87 →
+  two carried-over stale claims fixed (the 2026-04-22 budget raise was 80→180 per `[2026-04-22 17:10]`,
+  and the artifact step globs `WR_*.xlsx` / `generated_docs/**/WR_*.xlsx`, not `WR_*_WeekEnding_*`) →
+  53/53; configuration quick reference 51/53 → citations + `DEBUG_MODE` (not read by any code; joins
+  the not-consumed list with `CLEANUP_ONLY`, `SYNTHETIC_WR_COUNT`, `SYNTHETIC_ROW_VARIANCE`,
+  `ENABLE_AUDIT_ANOMALIES`) → 20/20, with the legacy prompt text below it labeled design intent
+  (`run_summary.json` is a 24-key golden, no `cleanup_only` input, `AUDIT_SHEET_ID` not a workflow
+  secret); `docs/sentry-implementation.md` 20/22 after the `portal/` fix → `SENTRY_DEBUG` marked not
+  consumed and the sdk pin corrected (fix loop closed at 2 iterations). haiku-verifier: all 18
+  guardrail sentences from the old CLAUDE.md resolve to a home; caps and pointers PASS.
+- **PR #385 review fix (Greptile):** "every sheet validated every run" was stale since Phase 11.1 Plan 01
+  — `pipeline/discovery.py:196-300` builds a registry-version skip index (D-11.1-01): watermark exists,
+  live version == `last_sheet_version`, stored `column_mapping` non-empty with `Weekly Reference Logged
+  Date`, name non-empty → reuse the registry mapping without a validation read; any doubt → full
+  validation (row-bounded, Plan 11.1-04). Corrected in CLAUDE.md § Pipeline flow,
+  `docs/ai/implementation-truth.md` (module row, data flow, behavior note), `docs/ai/architecture.md`
+  § Diagram-in-words, and both mentions in `.github/prompts/configuration-environment.md`.

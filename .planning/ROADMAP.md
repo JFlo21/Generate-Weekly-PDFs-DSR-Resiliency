@@ -42,7 +42,7 @@
   WR groups, dual-target routing, shadow-foreman/helper support. Original
   6 plans + 8 gap-closure plans (CR/WR/IN review findings).
 
-- [x] **Phase 01.1 (INSERTED): Subcontractor Helper-Shadow Rescue + Variant
+- [x] **Phase 01.1: (INSERTED) Subcontractor Helper-Shadow Rescue + Variant
   Partition + Claim-History Attribution** (5/5 plans) — hotfix for three
   post-Phase-1 production bugs (pre-acceptance rescue, variant partitioning,
   PPP cleanup whitelist) + per-row claim-history attribution.
@@ -675,7 +675,7 @@ confirmation + fail-closed discovery semantics from PR #373's review fixes.
 **Requirements**: none mapped (inserted urgent phase — the Success Criteria
 above plus D-11.1-01..04 in `11.1-CONTEXT.md` are the contract)
 **Depends on:** Phase 11
-**Plans:** 4 plans (3 executed, 1 open — gap closure for G-11.1-4)
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -689,7 +689,7 @@ Plans:
 **Gap closure** *(from 11.1-UAT.md)*
 
 - [x] 11.1-03-PLAN.md — G-11.1-4 (a) / G-11.1-6: warm-start the frozen-row cache from the attribution prefetch (PR #378, merged 2008fd9)
-- [ ] 11.1-04-PLAN.md — G-11.1-4 (b): bound the discovery validation read to three rows and reuse them as the date-column sample set, so a D-11.1-01 registry-skip MISS costs ~1-2 s/sheet instead of 26-41 s
+- [x] 11.1-04-PLAN.md — G-11.1-4 (b): bound the discovery validation read to three rows and reuse them as the date-column sample set, so a D-11.1-01 registry-skip MISS costs ~1-2 s/sheet instead of 26-41 s
 
 ### Phase 12: Ownership — last known foreman as of the week
 
@@ -722,6 +722,42 @@ approved as the next small PR.
    remains in the scheduled run (today: ~154 regenerations per run).
 
 4. Living Ledger + runbook document the amended Foundation A contract.
+
+**Plans:** 6 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 12-01-PLAN.md — OWN-03 claim-time backfill script: tracer dry-run for WR 19073866, sources 1–4 precedence, and the gated `--apply` write path
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 12-02-PLAN.md — OWN-02 residuals: CR-01 sentinel-identifier narrowing and WR-01 lazy `AttachmentParentType` import, both with regression tests
+- [ ] 12-03-PLAN.md — Owner-deployed Supabase SQL: backup table, `backfill_source` / `backfill_run_id` columns, `is_sentinel_value`, and the sentinel-only `backfill_attribution` RPC
+- [ ] 12-04-PLAN.md — OWN-03 source 5: capped, self-paced cell-history backfill script plus its isolated off-hours workflow
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 12-05-PLAN.md — OWN-04 documentation: the ownership-attribution runbook page, sidebar and reference updates, and the dated Living Ledger entry
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run
+
+**Planning decisions (2026-09-02, supersede the stale wording above):**
+
+- **D-12-A** — Phase 12 ships NO `wr_week_ownership` table. OWN-01's ladder is satisfied by
+  `billing_audit.attribution_snapshot` + `resolve_claimer` plus the new `backfill_source` /
+  `backfill_run_id` provenance columns; the table is deferred to Phase 13. The ladder as
+  implemented is `observed_in_week → backfill_artifacts → backfill_hash_history → operator
+  → sentinel`, with no cross-week rung (REQUIREMENTS.md OWN-01's wording is stale).
+- **D-12-B** — source 4 (`backfill_hash_history`) reads the Supabase hash store
+  (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), NOT a JSON file. No
+  `--hash-history` flag, no JSON fixture. Weeks never seen in a run since 2026-05-25 fall
+  through to sources 3 and 5.
+- Source 5 (Smartsheet cell history) is INCLUDED (2026-09-02 00:35), as a separate capped
+  off-hours job — never inside `generate_weekly_pdfs.py`. The "cell history optional,
+  pending" phrase in the **Depends on** paragraph above predates that decision.
 
 ### Phase 13: Audit Memory
 
