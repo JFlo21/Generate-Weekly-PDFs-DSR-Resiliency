@@ -46,10 +46,11 @@ Repo-local implementation truth — outranks second-brain notes; verified from r
   (Sun 23:00 CST / Mon 00:00 CDT), classified by cron identity (`github.event.schedule == '0 5 * * 1'`)
   never wall clock, so a scheduling delay cannot mislabel it and manual dispatches stay `manual`.
   Runner timeouts: `timeout-minutes: 180` hard ceiling; `TIME_BUDGET_MINUTES: '165'` Python graceful
-  stop (raised 95→165 on 2026-05-26 together with the runner 110→180; an earlier 80→95 on 2026-04-22
-  followed a pre-fetch stall). The 15-minute gap is reserved for post-job cache-save / artifact-upload
-  steps — never raise the budget without raising `timeout-minutes` by at least as much. The artifact
-  organizer step globs `WR_*_WeekEnding_*`. Mirrored to Azure DevOps via `azure-pipelines.yml`.
+  stop (raised 95→165 on 2026-05-26 together with the runner 110→180; an earlier raise on 2026-04-22
+  — 80→180, ledger `[2026-04-22 17:10]` — followed a pre-fetch stall). The 15-minute gap is reserved for post-job cache-save / artifact-upload
+  steps — never raise the budget without raising `timeout-minutes` by at least as much. The "Organize
+  artifacts by Work Request" step finds `WR_*.xlsx` under `generated_docs` and the upload step globs
+  `generated_docs/**/WR_*.xlsx`. Mirrored to Azure DevOps via `azure-pipelines.yml`.
   Other workflows: `docs-changelog.yml` (appends the runbook changelog on every merge to `master`),
   `notion-sync.yml`, `snyk-security.yml`, `system-health-check.yml`.
 - **`portal-v2/`** — static Vite build, deployed to Vercel (README/CLAUDE.md).
