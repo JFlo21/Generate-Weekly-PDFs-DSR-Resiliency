@@ -390,3 +390,12 @@ write (owner re-runs STEP 2 + STEP 4, idempotent); (2) the source-5 apply ignore
 silently dropped blank-role proposals: mode now inherited from the report summary; (3) `max_requests=0` was a green no-op:
 workflow rejects it, script exits 4. Suite 2,098. **Lesson:** a provenance column must have the same grain as the write — a
 per-role write needs per-role provenance.
+
+**Live re-apply (same evening, Supabase MCP after Juan's OAuth):** the Greptile STEP 2 (per-role provenance column) and
+STEP 4 (new RPC) were applied on the billing project and every previously unreported answer was read back: STEP 0b 0
+duplicate keys; live 220,236 vs backup 220,010 (the cron froze 226 rows in six hours — a dated backup is valid only on
+its apply day, 12-06 re-creates it); spot check true/true/false; smoke test `skipped_no_row`; 0 backfilled rows.
+Surprise: the RPC was executable by `anon`/`authenticated` because Postgres grants EXECUTE to PUBLIC by default —
+STEP 5 now REVOKEs from PUBLIC/anon/authenticated before the service_role GRANT (`a227463`, contract test), verified
+with `has_function_privilege` (service_role + postgres only). Owner item: `anon`/`authenticated` also hold full DML
+on `attribution_snapshot` behind RLS. Ledger `[2026-09-03 15:55]`.

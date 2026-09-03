@@ -9221,3 +9221,19 @@ current wherever `REQUIREMENTS.md` OWN-01 or the 2026-09-01 spec disagree. Gate:
 - Not done in Phase 12 (carried to 12-06 / owner): 12-03 Task 4 live apply + seven-answer confirmation; the
   NULL / stale-week `row_event` / `row_state` count before `--apply`; a candidate source for the dispatch job;
   a public `ROLE_BY_VARIANT` export; `--from-report` approval binding; an operator override for a wrong real name.
+
+## [2026-09-03 15:55] Owner-applied RPCs: Postgres grants EXECUTE to PUBLIC by default — REVOKE before GRANT; dated backups expire
+
+- Seen live on the billing project after Juan hand-applied `billing_audit/own03_backfill_attribution.sql`:
+  `billing_audit.backfill_attribution(jsonb)` was executable by `anon` and `authenticated` even though STEP 5 only
+  `GRANT`ed `service_role`. Every `CREATE FUNCTION` inherits EXECUTE for PUBLIC, and `DROP` + `CREATE` resets the
+  ACL, so a GRANT-only step never proves the negative.
+- Rule: an owner-applied SQL file that creates or replaces a function must `REVOKE ALL ON FUNCTION ... FROM PUBLIC,
+  anon, authenticated` before the `GRANT`, and the contract test pins the REVOKE line (`a227463`). Verify after apply
+  with `has_function_privilege(role, 'schema.fn(args)', 'EXECUTE')` for anon / authenticated / service_role.
+- Rule: a dated backup table (`attribution_snapshot_backup_<YYYYMMDD>`) is valid only on its apply day. The cron froze
+  226 rows in the six hours after Juan's backup (220,010 → 220,236); the 12-06 apply must re-create the backup first,
+  and the same-UTC-day precondition probe in the CLI is what enforces it.
+- Read-only checks worth repeating before any `--apply` (all cheap through the Supabase MCP): STEP 0b duplicate-key
+  probe = 0, `backfill_run_id IS NOT NULL` = 0, smoke test `skipped_no_row`, EXECUTE roles, and the DML grants on
+  `attribution_snapshot` (`anon`/`authenticated` hold full DML behind RLS — owner item to confirm the policies).

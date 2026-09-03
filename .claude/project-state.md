@@ -4,7 +4,7 @@ _Last updated: 2026-09-03 01:25 CDT (06:25Z) · **overwrite-in-place each sessio
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
-_Latest ledger entries: `[2026-09-03 13:55]` (Phase 12 ownership contract, waves 2–3), `[2026-09-03 11:05]` (Greptile source-1 in-week guard fix on PR #387), `[2026-09-03 01:20]` (Phase 12 wave 1 — OWN-03 backfill tracer, review fix round, PR #387),
+_Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; dated backups expire), `[2026-09-03 13:55]` (Phase 12 ownership contract, waves 2–3), `[2026-09-03 11:05]` (Greptile source-1 in-week guard fix on PR #387), `[2026-09-03 01:20]` (Phase 12 wave 1 — OWN-03 backfill tracer, review fix round, PR #387),
 `[2026-09-02 22:05]` (instruction-file alignment run 1 — what moved where),
 `[2026-09-02 21:20]` (memory-bank pages retired; pre-ledger April-2026 history imported),
 `[2026-09-02 20:45]` (align skill), `[2026-09-02 20:20]` (bootstrap audit), `[2026-09-02 18:15]`
@@ -49,9 +49,12 @@ _Latest ledger entries: `[2026-09-03 13:55]` (Phase 12 ownership contract, waves
   Sunday cron returns in 12-06 with a candidate source), 12-05 ✓ (runbook `ownership-attribution.md`, 4 pages
   rewritten, 20 docs tests, Docusaurus typecheck + build green, ledger `[2026-09-03 13:55]`), 12-03 Tasks 1–3 ✓
   (Juan `approve`d the DDL and **applied it live 2026-09-03 — Task 4 APPROVED**: backup table
-  `attribution_snapshot_backup_20260903`, five-tag CHECK confirmed by STEP 2 VERIFY, predicate + RPC created; the
-  STEP 0/0b/3/6 answers and the grant list were not reported and are re-checked read-only in 12-06 Task 1;
-  **Greptile on #388 (`27c7ca5`): per-role `backfill_provenance JSONB` added — Juan must re-run STEP 2 + STEP 4**),
+  `attribution_snapshot_backup_20260903`, five-tag CHECK confirmed by STEP 2 VERIFY, predicate + RPC created;
+  **Greptile on #388 (`27c7ca5`): per-role `backfill_provenance JSONB`; STEP 2 + STEP 4 re-applied live the same
+  evening through the Supabase MCP plus a STEP 5 REVOKE (`a227463`) — the RPC had been PUBLIC-executable. Full
+  read-only report in `12-03-SUMMARY.md`: STEP 0b 0 dups, live 220,236 vs backup 220,010 (cron drift — 12-06
+  re-creates the backup), spot check true/true/false, smoke `skipped_no_row`, 0 backfilled rows, EXECUTE =
+  `service_role` only**),
   12-06 not started (owner-run after merge + apply). Gates: Opus whole-branch integration review **SHIP** (7 seams
   OK; 2 MEDIUM fixed in the SQL, LOW-1 carried), `/gsd-code-review 12` 0 critical / 3 warnings (WR-01 false-zero
   backlog + WR-02 fixed, WR-03 accepted), gsd-verifier **human_needed** (49/62 verified · 0 failed · 13 owner
@@ -113,11 +116,13 @@ _Latest ledger entries: `[2026-09-03 13:55]` (Phase 12 ownership contract, waves
 1. Owner: squash-merge PR #387 (wave 1; #386 closed, targeting default confirmed 2026-09-03);
    paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
    denies every ClaudeOS write to that file).
-2. Owner: merge PR #388 (waves 2–3; 12-03 SQL already applied live). Then a fresh session: `/clear` →
-   `/gsd-execute-phase 12` → 12-06 (Task 1 first re-runs the read-only checks Juan did not report: STEP 0 column
-   names, STEP 0b zero rows, backup vs live count, spot check, smoke test, UPDATE grant; then dry-run review → apply
-   decision → same-UTC-day apply → post-run check); restore the Sunday cron only together with a real candidate
-   source. After 12-06: `/gsd-verify-work 12` → `phase.complete 12`.
+2. Owner: merge PR #388 (waves 2–3; 12-03 SQL fully applied and verified live). Then a fresh session: `/clear` →
+   `/gsd-execute-phase 12` → 12-06 (Task 1 re-runs the cheap read-only checks and MUST re-create the backup table
+   on apply day — live already drifted 226 rows past `attribution_snapshot_backup_20260903`; then dry-run review →
+   apply decision → same-UTC-day apply → post-run check); restore the Sunday cron only together with a real
+   candidate source. After 12-06: `/gsd-verify-work 12` → `phase.complete 12`. Owner security item seen live:
+   `anon`/`authenticated` hold full DML grants on `billing_audit.attribution_snapshot` behind RLS — confirm the
+   policies deny them before relying on it.
 3. Owner-owned Phase 12 steps stay blocking checkpoints: read-only count of NULL/stale-week `row_event`/`row_state`
    rows for the target row_ids before `--apply` (Opus MED, 2026-09-03); confirm live `attribution_snapshot` column names, apply
    `billing_audit/own03_backfill_attribution.sql`, approve the dry-run report, run `--apply`, restore the source-5

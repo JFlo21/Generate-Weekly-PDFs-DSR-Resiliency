@@ -254,17 +254,38 @@ The comment now says so, and a **STEP 1 VERIFY** query lists the existing backup
 - STEP 4 failed twice with 42601 (run-under-cursor split the dollar-quoted body; a stray `;` after `AS $$` was
   reverted) and succeeded once the whole block between the new SELECTION markers was run as one statement.
 
-**Answers NOT reported at approval (carried to 12-06 Task 1/3 preconditions, re-verifiable read-only):**
+**Live re-apply + full read-only report (same evening, Supabase MCP on the billing project after Juan's OAuth;
+authorized by "the authentication was successful, log to our second brain and continue"):**
 
-- STEP 0 write-side role column names (the file's `frozen_primary` / `frozen_helper` / `frozen_vac_crew` assumption
-  was not corrected, so STEP 4 compiled against those names — a mismatch would have failed STEP 4).
-- STEP 0b duplicate-key probe result (must be zero rows before `--apply`).
-- Backup table row count vs live `attribution_snapshot` count.
-- STEP 3 spot check triple (`true, true, false`), the STEP 6 smoke-test row (`skipped_no_row`), the
-  `backfill_run_id IS NOT NULL` count (must be 0), and the `service_role` grant list on `attribution_snapshot`
-  (must include UPDATE — the RPC is SECURITY INVOKER).
+Read-only first (before any DDL):
 
-12-06 Task 1 re-runs the read-only checks above and records the numbers before any apply decision.
+- STEP 0 columns: `wr, week_ending, smartsheet_row_id, pole, cu, work_type, frozen_primary, frozen_helper,
+  frozen_helper_dept, frozen_vac_crew, frozen_at, source_release, source_run_id, backfill_source, backfill_run_id`
+  — the write-side role names the RPC assumes are correct; `backfill_provenance` was absent (Greptile STEP 2 not yet
+  applied).
+- STEP 0b duplicate-key probe: **0 rows**.
+- Live `attribution_snapshot` **220,236** rows vs `attribution_snapshot_backup_20260903` **220,010** — the cron froze
+  226 rows between Juan's backup and this check. A dated backup is only valid on its apply day: **12-06 re-creates it.**
+- `backfill_run_id IS NOT NULL`: 0 rows. STEP 3 spot check: `true, true, false`.
+- Grants on `attribution_snapshot`: `service_role` SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER (UPDATE
+  present — the SECURITY INVOKER RPC can write). `anon` and `authenticated` also hold full DML; RLS is enabled —
+  **owner security item: confirm the policies deny them.**
+- The live RPC was Juan's first version (no provenance merge) and was executable by `anon`, `authenticated` and
+  `service_role`: Postgres grants EXECUTE to PUBLIC on every new function, so a GRANT-only STEP 5 never removed it.
+  Fix: STEP 5 now `REVOKE ALL ... FROM PUBLIC, anon, authenticated` before the GRANT (`a227463`, contract test pins it).
+
+Applied, in order, each as one statement batch: STEP 2 (three `ADD COLUMN IF NOT EXISTS` + CHECK guard) → STEP 0
+re-read confirms `backfill_provenance jsonb` → STEP 2 VERIFY returns the five-tag CHECK → STEP 4 (`DROP` + `CREATE`,
+whole block) → STEP 5 REVOKE + GRANT + `NOTIFY pgrst` → STEP 6 smoke test.
+
+- STEP 6: `00000000 / 2026-08-24 / 1 / primary → skipped_no_row`.
+- Function definition: SECURITY INVOKER, provenance merge present, 3 per-role `jsonb_build_object` merges, `UNION`
+  dedup.
+- EXECUTE after STEP 5: `anon` false · `authenticated` false · `authenticator` false · `postgres` true ·
+  `service_role` true.
+- Post-smoke counts: `backfill_run_id` rows 0 · `backfill_provenance` rows 0 · smoke WR rows 0.
+
+12-06 Task 1 re-runs these cheap read-only checks and must re-create the backup table on apply day.
 
 ## Greptile review fix (PR #388, issue 1) — per-role provenance
 
