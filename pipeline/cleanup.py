@@ -148,11 +148,15 @@ def _is_sentinel_identifier(identifier: str | None) -> bool:
     """
     if not identifier:
         return False
-    normalized = " ".join(
-        str(identifier).strip().replace('_', ' ').split()
-    ).casefold()
+    # Review fix (Phase 12 plan 02): coerce + strip ONCE so a non-str
+    # token never raises AttributeError inside the cleanup loop and a
+    # whitespace-prefixed allowlisted spelling still classifies.
+    token = str(identifier).strip()
+    if not token:
+        return False
+    normalized = " ".join(token.replace('_', ' ').split()).casefold()
     if (
-        identifier.startswith('_')
+        token.startswith('_')
         and normalized in _SANITIZED_ERROR_IDENTIFIERS
     ):
         return True
@@ -160,7 +164,35 @@ def _is_sentinel_identifier(identifier: str | None) -> bool:
         from billing_audit.writer import is_sentinel_claimer  # noqa: PLC0415
     except Exception:  # pragma: no cover - defensive: writer unavailable
         return False
-    return bool(is_sentinel_claimer(identifier))
+    return bool(is_sentinel_claimer(token))
+
+
+def _is_real_name_identifier(identifier: str | None) -> bool:
+    """True only for a token safe to treat as a LIVE REAL-NAME sibling
+    in the sentinel-superseded delete gate below.
+
+    Review fix (Phase 12 plan 02, production-risk review): narrowing
+    ``_is_sentinel_identifier`` to the explicit allowlist made every
+    leading-underscore token OUTSIDE that allowlist a "real name" by
+    negation on the sibling side of the gate -- so an unlisted
+    sanitized Smartsheet error spelling (``#DATE EXPECTED`` ->
+    ``_DATE_EXPECTED``, ``#NO WRITE ACCESS`` -> ``_NO_WRITE_ACCESS``)
+    would have *triggered* deletion of a stale ``Unknown_Foreman``
+    attachment. A leading-underscore token is therefore neutral on
+    BOTH sides: never a sentinel victim unless allowlisted (CR-01) and
+    never the real-name replacement either. Only a non-empty token with
+    no leading underscore that ``is_sentinel_claimer`` rejects counts
+    as a real name. The fail-safe direction stays "decline to delete";
+    the cost is that a real person whose raw name began with a space,
+    apostrophe or parenthesis leaves the stale sentinel file in place
+    until a plain-name file supersedes it.
+    """
+    if not identifier:
+        return False
+    token = str(identifier).strip()
+    if not token or token.startswith('_'):
+        return False
+    return not _is_sentinel_identifier(token)
 
 
 def cleanup_untracked_sheet_attachments(
@@ -548,7 +580,7 @@ def cleanup_untracked_sheet_attachments(
                             and _vw[1] == week
                             and _vw[2] == variant
                             and _vw[3]
-                            and not _is_sentinel_identifier(_vw[3])
+                            and _is_real_name_identifier(_vw[3])
                             and _vw in _row_attached_idents
                             for _vw in valid_wr_weeks
                         )

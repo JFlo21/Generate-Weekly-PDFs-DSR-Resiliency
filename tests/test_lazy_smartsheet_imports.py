@@ -134,6 +134,32 @@ class IsRowAttachmentBehaviorTests(unittest.TestCase):
             self.assertTrue(orchestrate._is_row_attachment(att_row_string))
             self.assertFalse(orchestrate._is_row_attachment(att_sheet_string))
 
+    def test_import_fallback_warns_once(self) -> None:
+        """Review fix: the degrade path must log a WARNING exactly once
+        per process, never silently bucket attachments as non-row."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _blocking_import(name, *args, **kwargs):
+            if name == "smartsheet.models.enums.attachment_parent_type":
+                raise ImportError("simulated SDK relocation")
+            return real_import(name, *args, **kwargs)
+
+        orchestrate._ATTACHMENT_PARENT_TYPE_FALLBACK_WARNED = False
+        try:
+            with mock.patch.object(
+                builtins, "__import__", side_effect=_blocking_import
+            ), self.assertLogs(level="WARNING") as captured:
+                orchestrate._is_row_attachment(_FakeAttachment('ROW'))
+                orchestrate._is_row_attachment(_FakeAttachment('SHEET'))
+            warnings = [
+                m for m in captured.output if "AttachmentParentType" in m
+            ]
+            self.assertEqual(len(warnings), 1)
+        finally:
+            orchestrate._ATTACHMENT_PARENT_TYPE_FALLBACK_WARNED = False
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

@@ -142,6 +142,16 @@ class SentinelIdentifierPredicateTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIs(_is_sentinel_identifier(token), False)
 
+    def test_non_string_and_whitespace_prefixed_tokens(self) -> None:
+        """Review fix: a non-str token must not raise, and a
+        whitespace-prefixed allowlisted spelling is still a sentinel."""
+        self.assertIs(
+            _is_sentinel_identifier(123),  # type: ignore[arg-type]
+            False,
+        )
+        self.assertIs(_is_sentinel_identifier(' _REF_'), True)
+        self.assertIs(_is_sentinel_identifier('_REF_'), True)
+
 
 class SentinelSupersededCleanupTests(unittest.TestCase):
     """The gate fires only on: sentinel identity NOT live + real-name
@@ -211,6 +221,31 @@ class SentinelSupersededCleanupTests(unittest.TestCase):
             {(_WR, _WEEK, 'primary', '_REF_')},
         )
         self.assertNotIn(10, deleted)
+
+    def test_unlisted_underscore_sibling_never_triggers(self) -> None:
+        """Review fix (Phase 12 plan 02): an unlisted sanitized error
+        spelling ('#DATE EXPECTED' -> '_DATE_EXPECTED') is neither a
+        sentinel victim nor a real-name replacement -- nothing fires."""
+        sib = (
+            'WR_90001_WeekEnding_041926_120001_User__DATE_EXPECTED'
+            '_ddeeff.xlsx'
+        )
+        deleted = _run_cleanup(
+            [_att(_STALE_UNKNOWN_PRIMARY, 10), _att(sib, 20)],
+            {(_WR, _WEEK, 'primary', '_DATE_EXPECTED')},
+        )
+        self.assertEqual(deleted, [])
+
+    def test_underscore_real_name_sibling_is_neutral(self) -> None:
+        """A real name that sanitized to a leading underscore (CR-01)
+        is never deleted as a sentinel AND never acts as the replacement
+        that deletes a stale sentinel file (fail-safe on both sides)."""
+        sib = 'WR_90001_WeekEnding_041926_120001_User__O_Brien_ddeeff.xlsx'
+        deleted = _run_cleanup(
+            [_att(_STALE_UNKNOWN_PRIMARY, 10), _att(sib, 20)],
+            {(_WR, _WEEK, 'primary', '_O_Brien')},
+        )
+        self.assertEqual(deleted, [])
 
     def test_live_bare_primary_is_not_a_real_name(self) -> None:
         deleted = _run_cleanup(
