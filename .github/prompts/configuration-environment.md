@@ -31,7 +31,8 @@ re-exported by the `generate_weekly_pdfs.py` facade). Env var NAMES only — nev
 **Retired / no-op (Phase 11 Plan 08, INC-05 — setting them has no effect):** `USE_DISCOVERY_CACHE`,
 `DISCOVERY_CACHE_TTL_MIN`, `HASH_HISTORY_PATH`, `ATTACHMENT_PREFETCH_MAX_MINUTES`,
 `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC`; `FORCE_REDISCOVERY` still exists on the facade for
-runbook/back-compat reasons but is a no-op (discovery validates every sheet every run).
+runbook/back-compat reasons but is a no-op (the registry-version skip gate, D-11.1-01, decides per sheet
+whether validation runs; it cannot be forced from this variable).
 
 **Documented below but not currently consumed by the pipeline (aspirational until wired up):**
 `SKIP_FILE_OPERATIONS`, `DRY_RUN_UPLOADS`, `MOCK_SMARTSHEET_UPLOAD`, `DEBUG_MODE`, `CLEANUP_ONLY`,
@@ -64,8 +65,9 @@ TARGET_SHEET_ID=5723337641643908  # Default upload destination
 PERFORMANCE TUNING VARIABLES:
 ```bash
 # Discovery (Phase 11 Plan 08 / INC-05: the local discovery-cache JSON
-# file and its TTL are retired — every candidate sheet is validated in
-# full every run; cross-run sheet identity persists in
+# file and its TTL are retired — a sheet is fully validated unless its
+# live version matches its pipeline_memory.sheet_registry watermark with a
+# stored column mapping (D-11.1-01); cross-run sheet identity persists in
 # pipeline_memory.sheet_registry instead. USE_DISCOVERY_CACHE and
 # DISCOVERY_CACHE_TTL_MIN no longer exist.)
 EXTENDED_CHANGE_DETECTION=true    # Include foreman/dept/scope in hash

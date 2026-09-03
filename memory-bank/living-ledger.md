@@ -9099,3 +9099,10 @@ only); (4) caps CLAUDE.md ≤ 150 / project-state ≤ 120. Next: run the repair 
   secret); `docs/sentry-implementation.md` 20/22 after the `portal/` fix → `SENTRY_DEBUG` marked not
   consumed and the sdk pin corrected (fix loop closed at 2 iterations). haiku-verifier: all 18
   guardrail sentences from the old CLAUDE.md resolve to a home; caps and pointers PASS.
+- **PR #385 review fix (Greptile):** "every sheet validated every run" was stale since Phase 11.1 Plan 01
+  — `pipeline/discovery.py:196-300` builds a registry-version skip index (D-11.1-01): watermark exists,
+  live version == `last_sheet_version`, stored `column_mapping` non-empty with `Weekly Reference Logged
+  Date`, name non-empty → reuse the registry mapping without a validation read; any doubt → full
+  validation (row-bounded, Plan 11.1-04). Corrected in CLAUDE.md § Pipeline flow,
+  `docs/ai/implementation-truth.md` (module row, data flow, behavior note), `docs/ai/architecture.md`
+  § Diagram-in-words, and both mentions in `.github/prompts/configuration-environment.md`.

@@ -75,8 +75,10 @@ Repo-local implementation truth — outranks second-brain notes; verified from r
 
 A GitHub Actions cron (or manual `workflow_dispatch`) starts `generate_weekly_pdfs.py`, which loads
 environment variables and delegates to `pipeline.orchestrate.main()`. Orchestrate calls
-`pipeline.discovery` to validate every candidate Smartsheet source sheet (13+ sheets, folder-based
-discovery — the old TTL'd discovery cache is retired), then `pipeline.fetch` pulls ~550 rows in
+`pipeline.discovery` to resolve every candidate Smartsheet source sheet (13+ sheets, folder-based
+discovery; the old TTL'd discovery cache is retired — a sheet whose live version matches its
+`pipeline_memory.sheet_registry` watermark reuses the stored column mapping, any doubt → full
+validation, D-11.1-01), then `pipeline.fetch` pulls ~550 rows in
 parallel (capped at 8 workers). `pipeline.grouping` buckets rows by WR/week/variant/foreman/dept/job;
 `pipeline.change_detection` hashes each group and consults `pipeline_memory.group_state` /
 `billing_audit.group_content_hash` to skip unchanged groups. Changed groups flow through

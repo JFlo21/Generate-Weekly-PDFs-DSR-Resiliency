@@ -37,7 +37,7 @@ instruct Claude. Never store secrets in any tier.
 |---|---|---|---|
 | Facade | `generate_weekly_pdfs.py` | Thin re-export layer over `pipeline/`; owns dotenv load + Sentry-visible startup banners | Do not import `pipeline` directly in new code — import via the facade (`pipeline/__init__.py` docstring) |
 | Config | `pipeline/config.py` | All `os.getenv`-derived constants (~60), regex compiles, folder-ID parsing | Imports stdlib only; never another `pipeline` module |
-| Discovery | `pipeline/discovery.py` | Smartsheet source-sheet discovery + column-mapping validation | Owns 3 PEP-562 live-proxy globals; every sheet validated every run (discovery cache retired, Phase 11 Plan 08) |
+| Discovery | `pipeline/discovery.py` | Smartsheet source-sheet discovery + column-mapping validation | Owns 3 PEP-562 live-proxy globals; local discovery cache retired (Phase 11 Plan 08); registry-version skip index (D-11.1-01) lets a sheet reuse its stored `sheet_registry` name + column mapping, any doubt → full validation |
 | Fetch | `pipeline/fetch.py` | Parallel row fetch (`ThreadPoolExecutor`, `PARALLEL_WORKERS<=8`) | Owns `_RATES_FINGERPRINT` live-proxy global |
 | Grouping | `pipeline/grouping.py` | `group_source_rows` (~1145 lines) — WR/week/variant/foreman/dept/job grouping + helper dual-checkbox exclusion | Relocated byte-for-byte, no decomposition |
 | Pricing | `pipeline/pricing.py` | Rate loading (CSV) + price resolution + rate recalculation | Pure calculator; no Smartsheet calls |
@@ -56,8 +56,8 @@ instruct Claude. Never store secrets in any tier.
 ## Data flow
 
 - **Primary flow (every scheduled run):** GitHub Actions cron → `generate_weekly_pdfs.py` (facade,
-  loads env) → `pipeline.orchestrate.main()` → `pipeline.discovery.discover_source_sheets` (validate
-  every candidate sheet) → `pipeline.fetch.get_all_source_rows` (parallel, `PARALLEL_WORKERS<=8`) →
+  loads env) → `pipeline.orchestrate.main()` → `pipeline.discovery.discover_source_sheets` (registry-version
+  skip or full validation per sheet) → `pipeline.fetch.get_all_source_rows` (parallel, `PARALLEL_WORKERS<=8`) →
   `pipeline.grouping.group_source_rows` → `pipeline.change_detection.calculate_data_hash` per group
   (skip unchanged, backed by `pipeline_memory.group_state` / `billing_audit.group_content_hash`, not a
   local JSON file — CLAUDE.md "Data Pipeline Architecture") → `pipeline.excel.generate_excel` →
@@ -96,9 +96,14 @@ instruct Claude. Never store secrets in any tier.
 - **CR-01 open gap:** `pipeline/cleanup.py:89-116` `_is_sentinel_identifier` treats ANY identifier
   starting with `_` as a sentinel placeholder — a real sanitized name can also start with `_` (see
   `docs/ai/known-bugs.md`).
-- **Discovery cache retired (Phase 11 Plan 08, INC-05):** every candidate sheet is validated in full
-  every run; `USE_DISCOVERY_CACHE` / `DISCOVERY_CACHE_TTL_MIN` no longer have effect
-  (`pipeline/discovery.py` module docstring; CLAUDE.md "Data Pipeline Architecture").
+- **Discovery cache retired (Phase 11 Plan 08, INC-05); registry-version skip (Phase 11.1, D-11.1-01):**
+  the local discovery-cache JSON and `USE_DISCOVERY_CACHE` / `DISCOVERY_CACHE_TTL_MIN` are gone. A
+  sheet skips full validation only when ALL hold: a `pipeline_memory.sheet_registry` watermark exists,
+  the live Smartsheet version (one bulk probe) equals `last_sheet_version`, the stored `column_mapping`
+  is non-empty and contains `Weekly Reference Logged Date`, and the stored name is non-empty — then the
+  registry's name + mapping are reused without a validation read. Any other case (missing watermark,
+  version mismatch, registry or probe failure) falls through to `_validate_single_sheet`, whose read is
+  bounded to `row_numbers=[1, 2, 3]` (Plan 11.1-04). `pipeline/discovery.py:196-300`, `:464-475`.
 - **Time-budget family:** `TIME_BUDGET_MINUTES` (`pipeline/config.py:106`, default `0`/disabled locally)
   must stay strictly below the GitHub Actions `timeout-minutes` (currently `180`); production sets it to
   `165` (`.github/workflows/weekly-excel-generation.yml:537`).

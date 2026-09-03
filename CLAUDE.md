@@ -85,26 +85,26 @@ TEST_MODE=true python generate_weekly_pdfs.py     # synthetic data, no token nee
 bash scripts/run_6_gates.sh                       # 6-gate harness after any module move
 ```
 
-Full command list (portal-v2, website, diagnostics, single-test forms, aspirational `uv`,
-protected areas): `docs/ai/safe-commands.md`. `.github/hooks/pre-push-tests.json` is a Claude Code
-hook that blocks the `git push` tool if `pytest tests/` fails; a plain shell push is not gated.
+Full command list: `docs/ai/safe-commands.md`. `.github/hooks/pre-push-tests.json` is a Claude Code hook
+that blocks the `git push` tool if `pytest tests/` fails; a plain shell push is not gated.
 
 ## Configuration
 
-Required: `SMARTSHEET_API_TOKEN`. Everything else is `os.getenv()` with defaults. The full catalog
-(commonly touched flags, discovery folders and rate tables, the time-budget family, debug flags,
-retired no-op vars, and flags documented but not yet consumed) lives in
-`.github/prompts/configuration-environment.md` § Operator quick reference.
+Required: `SMARTSHEET_API_TOKEN`. Everything else is `os.getenv()` with defaults; the full catalog
+(common flags, discovery folders, rate tables, time-budget family, debug flags, retired no-ops,
+documented-but-unconsumed flags) is `.github/prompts/configuration-environment.md` § Operator quick reference.
 
 ## Pipeline flow (one screen)
 
-Smartsheet folder discovery (every sheet validated every run; the discovery cache is retired) →
-parallel fetch (≤ 8 workers) → filter and group by `(WR, week_ending, variant, foreman, dept, job)`
-→ attachment identity from `pipeline_memory.group_state` → SHA-256 change detection → Excel
-(`openpyxl`; `generated_docs/WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant_suffix}_{hash}.xlsx`)
-→ billing audit (`audit_billing_changes.py`, LOW/MEDIUM/HIGH risk) → delete the old attachment,
-then upload to `TARGET_SHEET_ID`. Module map, data stores, schedule/timeouts, variant/grouping
-model: `docs/ai/architecture.md`. Verified behavior notes: `docs/ai/implementation-truth.md`.
+Smartsheet folder discovery (local discovery cache retired; a sheet skips full validation only when
+its live version matches `pipeline_memory.sheet_registry` and a stored column mapping exists, any
+doubt → full validation, D-11.1-01) → parallel fetch (≤ 8 workers) → filter and group by
+`(WR, week_ending, variant, foreman, dept, job)` → attachment identity from `pipeline_memory.group_state`
+→ SHA-256 change detection → Excel (`openpyxl`;
+`generated_docs/WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant_suffix}_{hash}.xlsx`) → billing audit
+(`audit_billing_changes.py`, LOW/MEDIUM/HIGH) → delete the old attachment, then upload to
+`TARGET_SHEET_ID`. Module map, data stores, schedule/timeouts, variant/grouping model:
+`docs/ai/architecture.md`. Verified behavior notes: `docs/ai/implementation-truth.md`.
 
 ## Conventions
 
