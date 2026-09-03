@@ -215,3 +215,26 @@ to the schema.sql contract comment; the contract test now parses both lists and 
 the five-tag set. A commented re-apply snippet (DROP CONSTRAINT IF EXISTS + ADD)
 covers an environment where STEP 2 already ran with the four-value list. This is a
 vocabulary decision for the owner to confirm at the Task 3 checkpoint before applying.
+
+## Integration review fixes (Opus, whole-branch pass, 2026-09-03)
+
+The pre-PR Opus integration review of the merged branch returned **SHIP** with two MEDIUM items in this
+plan's SQL, both fixed before Juan's Task 4 apply (the SQL is idempotent; if STEP 0/2/4 were already run from
+the earlier file version, re-run STEP 0b, the STEP 2 VERIFY query and STEP 4 — `CREATE OR REPLACE`):
+
+- **MEDIUM-1** `attribution_snapshot` uniqueness on `(wr, week_ending, smartsheet_row_id)` was never checked;
+  duplicate key rows would make the RPC's `UNION ALL`ed `RETURNING` sets fan the result out past `p_rows`, and
+  the 12-01 CLI would count the chunk as failed (exit 6) after the UPDATEs committed. Fix: `updated_keys` now
+  uses `UNION` (dedup), and a mandatory **STEP 0b** duplicate-key probe must return zero rows before STEP 4.
+- **MEDIUM-2** STEP 2's `DO` block is a no-op when the CHECK constraint already exists and cannot widen an
+  older four-value version. Fix: a mandatory **STEP 2 VERIFY** `pg_get_constraintdef` query follows the block;
+  the operator confirms all five tags are accepted or runs the commented drop/re-add snippet.
+
+Task 4 checklist therefore gains two answers: STEP 0b returned zero rows, and STEP 2 VERIFY shows the
+five-tag definition. Seams confirmed OK by the same review: p_rows keys/types, five-tag CHECK vs emitted tags,
+`is_sentinel_value` vs `is_sentinel_claimer`, backup-table name + SELECT grant, exit codes vs runbook.
+
+**Apply-time fix (2026-09-03, during Juan's Task 4 run):** STEP 1 failed with 42P01 because the `YYYYMMDD`
+placeholder must be substituted in BOTH the `CREATE TABLE` and the `GRANT` (the comment said "this statement").
+The comment now says so, and a **STEP 1 VERIFY** query lists the existing backup tables so a stray
+`attribution_snapshot_backup_yyyymmdd` (placeholder unreplaced in the CREATE) is visible and can be dropped.

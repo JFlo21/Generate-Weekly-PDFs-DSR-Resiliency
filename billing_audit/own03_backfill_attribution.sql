@@ -42,6 +42,22 @@ WHERE table_schema = 'billing_audit'
   AND table_name = 'attribution_snapshot'
 ORDER BY ordinal_position;
 
+-- STEP 0b -- CONFIRM KEY UNIQUENESS (Opus integration review, MEDIUM-1).
+-- The RPC in STEP 4 joins p_rows back to the rows it updated on
+-- (wr, week_ending, smartsheet_row_id, role). If the live table holds
+-- more than one row for a key, the RPC returns more result rows than
+-- p_rows and the 12-01 CLI counts the chunk as failed (exit 6) AFTER
+-- those UPDATEs already committed -- an operator could then re-run
+-- against rows already written. This query MUST return zero rows
+-- before STEP 4; if it returns any, stop and reconcile the duplicates
+-- with the data team first.
+SELECT wr, week_ending, smartsheet_row_id, count(*) AS duplicate_rows
+FROM billing_audit.attribution_snapshot
+GROUP BY wr, week_ending, smartsheet_row_id
+HAVING count(*) > 1
+ORDER BY duplicate_rows DESC
+LIMIT 20;
+
 -- This file ASSUMES the three write-side role columns returned above
 -- are named frozen_primary, frozen_helper and frozen_vac_crew, per
 -- docs/superpowers/specs/2026-09-01-own-03-claim-time-backfill-design.md
@@ -60,8 +76,13 @@ ORDER BY ordinal_position;
 -- ── STEP 1 -- BACKUP ──────────────────────────────────────────
 -- Copies the CURRENT attribution_snapshot into a dated backup table
 -- before any write path touches it. Substitute today's UTC date
--- (YYYYMMDD, e.g. 20260903) for the literal placeholder below before
--- running this statement. Idempotent: CREATE TABLE IF NOT EXISTS --
+-- (YYYYMMDD, e.g. 20260903) for BOTH occurrences of the literal
+-- placeholder in this step -- the CREATE TABLE and the GRANT below
+-- (use the SQL editor's find/replace; running the GRANT with the
+-- placeholder still in it fails with 42P01 "relation ... does not
+-- exist", and running the CREATE with it creates a stray table
+-- literally named attribution_snapshot_backup_yyyymmdd that the CLI
+-- probe will never find). Idempotent: CREATE TABLE IF NOT EXISTS --
 -- re-running this exact statement on the same UTC date is a no-op, it
 -- will NOT re-snapshot a table that already had writes applied to it
 -- earlier today.
@@ -81,6 +102,22 @@ SELECT * FROM billing_audit.attribution_snapshot;
 -- this GRANT is required even though the table was just created in
 -- the same SQL Editor session.
 GRANT SELECT ON billing_audit.attribution_snapshot_backup_YYYYMMDD TO service_role;
+
+-- STEP 1 VERIFY -- lists every backup table that exists. Expect exactly
+-- the dated table you just created (attribution_snapshot_backup_
+-- 20260903 for a 2026-09-03 UTC apply). A row named
+-- attribution_snapshot_backup_yyyymmdd means the CREATE ran with the
+-- placeholder unreplaced: drop that stray table (it is a copy, never
+-- written to) and re-run STEP 1 with the date substituted in both
+-- statements:
+--   DROP TABLE IF EXISTS billing_audit.attribution_snapshot_backup_yyyymmdd;
+SELECT c.relname AS backup_table
+FROM pg_catalog.pg_class AS c
+JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+WHERE n.nspname = 'billing_audit'
+  AND c.relkind = 'r'
+  AND c.relname LIKE 'attribution_snapshot_backup_%'
+ORDER BY c.relname DESC;
 
 
 -- ── STEP 2 -- PROVENANCE COLUMNS ─────────────────────────────
@@ -144,6 +181,17 @@ BEGIN
     END IF;
 END;
 $$;
+
+-- STEP 2 VERIFY (Opus integration review, MEDIUM-2) -- mandatory.
+-- The DO block above is a no-op when the constraint already exists and
+-- will NOT widen an older, narrower definition; a stale definition makes
+-- every apply that carries a newer provenance tag abort server-side.
+-- Read the returned definition: it must accept every provenance tag the
+-- two CLIs emit (the five listed in the DO block). If it does not, run
+-- the commented drop/re-add snippet above, then re-run this SELECT.
+SELECT conname, pg_catalog.pg_get_constraintdef(oid) AS live_definition
+FROM pg_catalog.pg_constraint
+WHERE conname = 'attribution_snapshot_backfill_source_check';
 
 
 -- ── STEP 3 -- SENTINEL PREDICATE ─────────────────────────────
@@ -321,10 +369,13 @@ BEGIN
         RETURNING s.wr, s.week_ending, s.smartsheet_row_id, 'vac_crew'::TEXT AS role
     ),
     updated_keys AS (
+        -- UNION (not UNION ALL): one key per updated (row, role) even
+        -- if the live table ever holds duplicate key rows, so the
+        -- final result never fans out past p_rows (MEDIUM-1).
         SELECT * FROM upd_primary
-        UNION ALL
+        UNION
         SELECT * FROM upd_helper
-        UNION ALL
+        UNION
         SELECT * FROM upd_vac_crew
     ),
     existing_rows AS (

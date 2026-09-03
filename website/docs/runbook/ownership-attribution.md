@@ -402,7 +402,7 @@ with the data team, not a routine rollback step.
 | --- | --- | --- |
 | Resolving a row's claimer, regenerating the file, deleting the superseded placeholder attachment | Python billing pipeline — `generate_weekly_pdfs.py` via `pipeline/` (`billing_audit/writer.py`, `pipeline/cleanup.py`) | Every `weekly-excel-generation.yml` run |
 | Sources 1-4 backfill (dry run, report, `--apply`) | `scripts/backfill_claim_time_attribution.py` — one-time / off-hours operator remediation | By hand, from a workstation; the live apply is plan 12-06's human checkpoint |
-| Source 5 cell-history backfill | `scripts/backfill_cell_history_attribution.py` | Only from `.github/workflows/cell-history-backfill.yml` (manual `workflow_dispatch`; no cron until plan 12-06), never inside the billing run — a structural test fails if any production module calls `get_cell_history` for this feature or reads a `CELL_HISTORY_BACKFILL_*` variable |
+| Source 5 cell-history backfill | `scripts/backfill_cell_history_attribution.py` | Dry runs from `.github/workflows/cell-history-backfill.yml` (manual `workflow_dispatch`; no cron until plan 12-06) or by hand from a workstation; `--apply` only by hand under plan 12-06's checkpoint; never inside the billing run — a structural test fails if any production module calls `get_cell_history` for this feature or reads a `CELL_HISTORY_BACKFILL_*` variable |
 | Backup table, provenance columns, `is_sentinel_value`, `backfill_attribution` RPC | Owner-applied from `billing_audit/own03_backfill_attribution.sql` in the Supabase SQL editor | Once per environment, by Juan; never executed by repo code |
 | Rollback | Owner-applied SQL against the dated backup table | Only if the post-apply run is wrong |
 
