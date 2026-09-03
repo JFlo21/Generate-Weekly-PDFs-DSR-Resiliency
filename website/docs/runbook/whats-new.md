@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 3, 2026
 
+- ✨ New capability: OWN-03 claim-time attribution backfill (wave 1)
 - 📄 Help guides updated: align instruction files (run 1)
 - ⚡ The system now runs faster (bound validation read to 3 rows (G-11.1-4))
 - ✅ Problem fixed: detach abandoned shadow-parity probe workers at interpreter exit
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✨ New capability: sentinel-superseded cleanup + RESET&#95;WR&#95;LIST scoped to listed WRs
 - ✅ Problem fixed: resolve&#95;claimer week-key coercion + review fixes
 - ✅ Problem fixed: sentinel is never a claimer (Phase 12 / OWN-02, policy A)
-- ⚡ The system now runs faster (fix post-INC-05 runtime regressions (discovery skip + attachment pre-seed))
 
 <!-- /runbook-repo -->
 
@@ -485,4 +485,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
