@@ -230,3 +230,52 @@ None — no external service configuration required. `SUPABASE_URL` / `SUPABASE_
 - FOUND commit: `7912fd2` (Task 2 GREEN)
 - FOUND commit: `c1020c7` (Task 3 RED)
 - FOUND commit: `e047c02` (Task 3 GREEN)
+
+## Post-merge review fixes
+
+An independent production-risk review of `scripts/backfill_claim_time_attribution.py`
+(commit `d922d29`) found seven issues, all fixed in the same commit:
+
+- **Targeting (HIGH):** `_discover_sentinel_targets` treated a role whose current
+  frozen value was `None`/blank as a sentinel target (`is_sentinel_claimer(None)`
+  is `True`), so source 2 could propose the primary claimer's name into a
+  `helper`/`vac_crew` role that never had one. Default targeting now requires a
+  NAMED sentinel (non-blank string classified by `is_sentinel_claimer`); the
+  opt-in `--include-blank-roles` flag restores the prior behavior and is recorded
+  in the report `summary`. The same rule was applied inside `_build_apply_payload`.
+- **Batched reads (HIGH):** source 1 (`row_event`/`row_state`) queried once per
+  `row_id`. Rewritten as `_prefetch_row_events_and_states`, which issues chunked
+  `.in_()` reads over every in-scope `row_id` (chunk size 500, mirroring
+  `pipeline_memory/reader.py`) and groups results in Python — never one query
+  per row.
+- **Silent read failure (HIGH):** `with_retry` returning `None` on failure was
+  treated as a genuine zero-row read by every source fetcher. All five read
+  sites now raise `_SourceReadConnectivityError` on a `None` result, which
+  propagates to `main()`'s existing connectivity `try`/`except` (exit 7) instead
+  of producing an incorrect `unresolved` report row.
+- **Discovery status (MED):** `main()` only treated `prefetch_attribution`'s
+  `'fetch_failure'` status as fatal; `'unavailable'` / `'rpc_missing'` fell
+  through silently to zero targets and exit 0. `main()` now fails (exit 7) on
+  any status outside `{'success', 'no_row'}`.
+- **Determinism (MED, plan must_have):** added explicit `.order()` clauses to
+  the `group_content_hash`, `group_state`, `artifacts` and `row_state` reads,
+  and sort candidate rows in Python before `_resolve_single_name` builds
+  conflict evidence and before `_pick_best_entry` breaks ties, so two runs over
+  the same rows produce byte-identical reports regardless of server row order.
+- **Apply reconciliation (MED):** each RPC chunk's response is now checked for
+  `len(results) == len(chunk)`; a mismatch logs an ERROR and folds into
+  `local_exceptions` so `main()` returns 6 instead of trusting a
+  partial/over-long response.
+- **Report dir (LOW):** a `--report-dir` that resolves outside `generated_docs/`
+  now logs a WARNING that its files will not be git-ignored — the run is never
+  refused.
+
+Tests added/updated in `tests/test_backfill_claim_time_attribution.py`:
+`BlankRoleTargetingTests`, `BatchedReadsTests`, `SourceReadFailureTests`,
+`DeterminismTests`, `DiscoveryStatusTests`,
+`ApplyPathTests::test_apply_rpc_result_count_mismatch_returns_6`,
+`KnownGoodSampleDryRunTests::test_report_dir_outside_generated_docs_warns_not_refuses`;
+`test_default_roles_scope_covers_all_three_roles` and the two subcontractor/bare
+`_Helper_` source-3 tests were updated to use `--include-blank-roles` / a named
+sentinel so they still exercise the intended behavior under the new default
+targeting rule. Full suite: 1994 passed, 1 skipped, 365 subtests passed.
