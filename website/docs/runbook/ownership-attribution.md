@@ -336,13 +336,15 @@ rejected for good on 2026-09-01 19:45.
 `scripts/backfill_claim_time_attribution.py` derives the **historically correct
 claimer** from the ladder above and never reads current row state.
 
-Running the older script against a WR that the newer one has remediated would
-not overwrite the repair on its own — the `freeze_attribution` RPC it calls is
-first-write-wins and the repaired value is already a real name — but it will
-freeze the current value into any role that is still NULL, which is exactly the
-role the claim-time ladder may still be trying to name. Do not run
-`scripts/backfill_attribution_snapshot.py` against the remediated WRs, and do
-not use it as a shortcut when the claim-time script reports `unresolved`.
+Running the older script against a WR that the newer one has remediated
+re-applies the rejected policy: it submits today's Smartsheet value for every
+completed row of the week through the Supabase-resident `freeze_attribution`
+RPC. That RPC's body is not in this repo, so what it does to a row that already
+holds a repaired value cannot be verified here — do not rely on first-write-wins
+to protect a repair. Never run `scripts/backfill_attribution_snapshot.py`
+against the remediated WRs, and never use it as a shortcut when the claim-time
+script reports `unresolved`: a row no source can name keeps its sentinel by
+design.
 :::
 
 ## After the backfill
@@ -352,8 +354,9 @@ operator step is needed after a successful apply.
 
 On the next scheduled run, `resolve_claimer` finds the real frozen name for the
 backfilled rows through the same bulk prefetch it already performs — no grouping
-code changes, no hash reset. The group's content hash changes because the
-claimer changed, so the file regenerates under the real name and is uploaded.
+code changes, no hash reset. The group identity now carries the real name
+(`_User_Avery_Example` instead of `_User_Unknown_Foreman`), so the file
+regenerates under the real name and is uploaded.
 In the same run the sentinel-superseded gate in `pipeline/cleanup.py` deletes
 the stale placeholder attachment (`_User_Unknown_Foreman`,
 `_Helper_Unknown_Helper`, `_VacCrew_Unknown_VAC_Crew`, `_User__NO_MATCH`, and

@@ -47,9 +47,10 @@ only tells the scripts apart.
 - `scripts/backfill_attribution_snapshot.py` — the older one-shot backfill. It
   freezes whatever Smartsheet shows **today** for a target week ("current
   always wins", a policy rejected on 2026-09-01). Do **not** run it against WRs
-  the claim-time script has remediated: it freezes the current name into any
-  role that is still NULL, which may be the role the claim-time ladder is still
-  trying to name.
+  the claim-time script has remediated: it re-applies the rejected policy
+  through the Supabase-resident `freeze_attribution` RPC, whose behaviour
+  against a row that already holds a repaired value cannot be verified from
+  this repo.
 
 ## Verification
 

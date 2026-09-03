@@ -9216,7 +9216,8 @@ current wherever `REQUIREMENTS.md` OWN-01 or the 2026-09-01 spec disagree. Gate:
 - **The two-scripts trap.** `scripts/backfill_attribution_snapshot.py` freezes whatever Smartsheet shows TODAY
   for a target week ("current always wins", rejected `[2026-09-01 19:45]`); `scripts/backfill_claim_time_attribution.py`
   derives the claim-time claimer and never reads current row state. Never run the former against a remediated
-  WR — it freezes the current name into any role still NULL, the role the ladder may still be naming.
+  WR — it re-applies the rejected policy through the Supabase-resident `freeze_attribution` RPC, whose body is
+  not in this repo, so its effect on a row that already holds a repaired value is unverifiable here.
 - Not done in Phase 12 (carried to 12-06 / owner): 12-03 Task 4 live apply + seven-answer confirmation; the
   NULL / stale-week `row_event` / `row_state` count before `--apply`; a candidate source for the dispatch job;
   a public `ROLE_BY_VARIANT` export; `--from-report` approval binding; an operator override for a wrong real name.
