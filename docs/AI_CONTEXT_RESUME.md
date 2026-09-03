@@ -18,6 +18,19 @@ _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot).
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
 >
+> **Snapshot 2026-09-03 (night) — 12-06 HALTED at Task 1: dry-run REJECTED (`reject: source-3 filename parser
+> defect`), no apply.** `/gsd-execute-phase 12` on `feat/phase-12-remediation` reached the owner-run plan; Juan ran
+> the scoped full dry-run (207 WRs × 54 weeks, exit 0, 5,829 rows): 4,070 of 4,762 proposals were the literal
+> `Unknown Foreman.xlsx` because `public.artifacts.filename` is the stable hash-less attachment name and source 3
+> strips only a `_<6hex>.xlsx` tail; fixtures were all hash-suffixed; the RPC guard checks the current value only.
+> Only 692 `live` (source 1) proposals across 7 WRs are sound. Live scope by SQL: 6,764 named-sentinel rows / 207
+> WRs / 391 pairs (`#NO MATCH` 945 rows invisible to targeting via the lookup RPC). Sample WR 19073866 is a
+> placeholder absent from Supabase; WR 89829163 matches the four-week fingerprint but has sentinel-only hash
+> identifiers (SC3 re-decision). `12-06-SUMMARY.md` is `status: halted` (`090c5dc`, `417a085`); ROADMAP shows the
+> plan halted and unchecked. Next: `/gsd-verify-work 12` → `/gsd-plan-phase 12 --gaps` → `/gsd-execute-phase 12
+> --gaps-only` (Opus production-risk review before any PR) → re-run 12-06 on a fresh same-UTC-day backup. Ledger
+> `[2026-09-03 17:30]`; vault: PostgREST patterns §4.
+>
 > **Snapshot 2026-09-03 (evening) — Phase 12 waves 2–3 MERGED (PR #388 → `1f159bc`, master green):** 12-02 ✓, 12-04 ✓
 > (`cell-history-backfill.yml` is dispatch-only by owner re-decision; cron returns in 12-06 with a candidate
 > source), 12-05 ✓ (runbook `ownership-attribution.md`), 12-03 ✓ (Task 4 APPROVED: Juan hand-applied the SQL, then
