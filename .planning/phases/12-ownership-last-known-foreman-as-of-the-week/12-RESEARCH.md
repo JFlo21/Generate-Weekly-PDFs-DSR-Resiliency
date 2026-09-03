@@ -269,6 +269,13 @@ def _fetch_history(sheet_id: int, row_id: int, column_id: int) -> Any:
 
 > Included: OWN-03 is a one-time backfill/remediation of existing Supabase state and stale Smartsheet attachments — this is functionally a data migration, even though it is not a rename/rebrand.
 
+> **Row/WR counts are point-in-time ledger snapshots, not live measurements.** This table's
+> "5,829 rows / 94 WRs" is the 2026-09-01 ledger count; ROADMAP.md, REQUIREMENTS.md and
+> `12-06-PLAN.md` cite "5,824 rows / 93 WRs" from the 2026-08-24 ledger entry. Neither figure
+> is authoritative — the backfill script counts sentinel rows dynamically, and the
+> **authoritative live count is the one `12-06-PLAN.md` Task 1's dry-run report emits**. Do
+> not hard-code either historical number anywhere.
+
 | Category | Items Found | Action Required |
 |----------|-------------|------------------|
 | Stored data | `billing_audit.attribution_snapshot` — 5,829 rows / 94 WRs (per ledger, count as of 2026-09-01) hold the sentinel `Unknown Foreman`/`Unknown Helper`/`Unknown VAC Crew` verbatim in `frozen_<role>` columns (exact column names NOT verified — see Assumptions Log A1). | **Data migration**: the new `backfill_attribution` RPC updates these rows in place, sentinel/NULL-only, with a pre-write backup copy to `attribution_snapshot_backup_<date>`. |
@@ -388,18 +395,26 @@ def _reset_list_forces_regeneration(
 
 **If this table is empty:** N/A — populated above; all four claims are either self-correcting-if-wrong (loud failure) or explicitly routed to a checkpoint.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All four questions below were answered before planning closed. The question text is left
+> verbatim as the record of what was uncertain; each carries a **RESOLVED:** pointer naming
+> the decision, plan or task that now owns it.
 
 1. **Does OWN-01 require building the literal `wr_week_ownership` table, or is the ladder satisfied by `attribution_snapshot` + the two new provenance columns?**
+   - **RESOLVED: D-12-A** (2026-09-01 19:55) — no `wr_week_ownership` table in Phase 12. OWN-01 is satisfied by `attribution_snapshot` + `resolve_claimer` plus the new `backfill_source` / `backfill_run_id` provenance columns; the table is deferred to Phase 13. Recorded in `12-01-PLAN.md` § Decisions this plan implements and applied by `12-03-PLAN.md`. The `last_known_before_week` cross-week rung in REQUIREMENTS.md is stale and deliberately NOT implemented.
    - What we know: REQUIREMENTS.md and ROADMAP.md both name `wr_week_ownership` explicitly as OWN-01's deliverable and OWN-02's partition source. `pipeline_memory/schema.sql:41-48` confirms the table was deliberately NOT shipped in Phase 10/11 and is "scoped to Phases 12/13." The 2026-08-24 design draft has a full schema for it. But the 2026-09-01 OWN-03 design spec — the most recent, most detailed, Juan-approved artifact — never mentions the table; it writes backfilled values directly into the existing `attribution_snapshot` table that `resolve_claimer` already reads, and spec §7 proposes `backfill_source`/`backfill_run_id` as new *columns on `attribution_snapshot`*, not as fields feeding a separate ownership table.
    - What's unclear: whether the table is still wanted as an audit/query surface for OWN-04's documentation purposes, or whether it was silently superseded by the simpler "extend `attribution_snapshot`" approach once the write-path decision (§4 option 1) was made.
    - Recommendation: Raise this as an explicit `checkpoint:human-verify` (or a discuss-phase question) before the plan commits to (or skips) a new-table migration. Building it unnecessarily is schema debt Juan owns (Supabase migrations require his approval per `.claude/rules/production-guardrails.md`); skipping it when it's actually wanted under-delivers a named requirement.
 
 2. **Exact column names on the live `billing_audit.attribution_snapshot` table** (see Pitfall 1 / Assumption A1) — not discoverable from this repo; the plan should route the RPC SQL through Juan for confirmation against the live schema before merge, per the existing convention that this table's DDL is data-team-owned.
+   - **RESOLVED: routed, not guessed** — `12-03-PLAN.md`'s `checkpoint:human-verify` has Juan confirm the write-side role column names against the live schema before he applies the SQL file, and `12-03-SUMMARY.md` records the confirmed names. No plan asserts a column name.
 
 3. **Where is the frozen 2025 `hash_history.json` (source 4) archived post-retirement?** Not found in this session's repo search (the retired JSON caches were removed from the working tree; only `generated_docs/billing_audit_frozen_rows.json` — a different file — is currently untracked in the working directory per `git status`). The plan needs to locate this file (git history? a release artifact? Juan's local archive?) before source 4 can be implemented — flag as a blocking question for the plan's first task, not something to guess at.
+   - **RESOLVED: mooted by D-12-B** — source 4 no longer reads any JSON file. It reads the Supabase hash store (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), so there is no archived-file location to find, no `--hash-history <path>` flag and no JSON fixture. Implemented by `12-01-PLAN.md` Task 1's `resolve_source_4`.
 
 4. **Exact off-hours cron slot for Source 5**: the design spec says "Saturday-midnight-Central / Sunday 05:00Z cron while a backlog exists" — this needs a concrete stop condition (how does the workflow know "a backlog exists" and self-disable?). Likely answer: check the count of remaining sentinel rows in `attribution_snapshot` at the start of the run and no-op (or auto-disable) if zero — but this specific mechanism is not spelled out in the spec and needs a plan-level decision.
+   - **RESOLVED: routed to `12-04-PLAN.md`** — the cron slot is confirmed at that plan's `checkpoint:decision`, and the stop condition is the `--check-backlog` mechanism (count remaining sentinel rows at start of run; no-op when zero) built in the same plan.
 
 ## Environment Availability
 
