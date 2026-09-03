@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -35,6 +36,8 @@ from tests.test_backfill_claim_time_attribution import (  # noqa: E402
     _FakeSchema,
     _FakeTable,
 )
+
+import validate_system_health as vsh  # noqa: E402
 
 _SCRIPT_RELPATH = "scripts/backfill_cell_history_attribution.py"
 
@@ -861,6 +864,187 @@ class CellHistoryProductionIsolationTests(unittest.TestCase):
             "must remain a stub -- it must never gain a real "
             "get_cell_history call as a side effect of this plan.",
         )
+
+
+# ── Task 4: workflow structural contract ────────────────────────────
+
+_WORKFLOW_RELPATH = ".github/workflows/cell-history-backfill.yml"
+_PRODUCTION_CONCURRENCY_MARKER = "weekly-excel"
+_BACKFILL_STEP_ID = "run_backfill"
+_GATE_STEP_ID = "backlog"
+
+
+def _workflow_raw_lines() -> "list[str]":
+    path = _REPO_ROOT / _WORKFLOW_RELPATH
+    return path.read_text(encoding="utf-8").splitlines()
+
+
+def _live_lines(raw: "list[str]") -> "list[str]":
+    """Comment-stripped lines, read the same way validate_system_health
+    grades the production workflow -- a commented key can never satisfy
+    or break an assertion here."""
+    return [vsh._strip_comment(line) for line in raw]
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _step_blocks(raw: "list[str]") -> "dict[str, list[str]]":
+    """Split the raw ``steps:`` list into per-step raw line blocks,
+    keyed by the step's ``id:`` (steps without one are keyed by
+    name)."""
+    starts = [
+        i for i, line in enumerate(raw)
+        if line.lstrip().startswith("- name:")
+    ]
+    blocks: "dict[str, list[str]]" = {}
+    for pos, start in enumerate(starts):
+        end = starts[pos + 1] if pos + 1 < len(starts) else len(raw)
+        block = raw[start:end]
+        live = _live_lines(block)
+        key = vsh._find_key_value(live, "id")
+        if key is None:
+            key = vsh._find_key_value(live, "- name") or str(start)
+        blocks[key.strip()] = block
+    return blocks
+
+
+def _run_block(block: "list[str]") -> str:
+    """Return the raw shell text of the block's ``run:`` scalar."""
+    for i, line in enumerate(block):
+        if line.lstrip().startswith("run:"):
+            base = _indent(line)
+            body: "list[str]" = []
+            for follow in block[i + 1:]:
+                if follow.strip() and _indent(follow) <= base:
+                    break
+                body.append(follow)
+            return "\n".join(body)
+    return ""
+
+
+def _dispatch_input_names(live: "list[str]") -> "list[str]":
+    names: "list[str]" = []
+    for i, line in enumerate(live):
+        if line.strip() != "inputs:":
+            continue
+        base = _indent(line)
+        for follow in live[i + 1:]:
+            if not follow.strip():
+                continue
+            if _indent(follow) <= base:
+                break
+            is_child = _indent(follow) == base + 2
+            if is_child and follow.rstrip().endswith(":"):
+                names.append(follow.strip()[:-1])
+        break
+    return names
+
+
+class CellHistoryWorkflowStructureTests(unittest.TestCase):
+    """Structural contract of .github/workflows/cell-history-backfill.yml
+    (Task 4). Parsed with the same comment-stripped line reader
+    validate_system_health.py uses for the production workflow: PyYAML
+    is not a declared dependency of this repo (requirements.txt is the
+    only thing CI installs), so no YAML library is imported here."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.raw = _workflow_raw_lines()
+        cls.live = _live_lines(cls.raw)
+        cls.blocks = _step_blocks(cls.raw)
+
+    def test_workflow_declares_jobs_and_read_only_token(self):
+        self.assertTrue((_REPO_ROOT / _WORKFLOW_RELPATH).is_file())
+        self.assertIn("jobs:", [line.strip() for line in self.live])
+        self.assertEqual(
+            vsh._find_key_value(self.live, "contents"), "read"
+        )
+
+    def test_concurrency_group_is_isolated_from_production(self):
+        group = vsh._find_key_value(self.live, "group")
+        self.assertIsNotNone(group)
+        self.assertTrue(group.startswith("cell-history-backfill-"), group)
+        self.assertNotIn(_PRODUCTION_CONCURRENCY_MARKER, group)
+        self.assertEqual(
+            vsh._find_key_value(self.live, "cancel-in-progress"), "false"
+        )
+
+    def test_timeout_exceeds_max_minutes_budget(self):
+        timeouts = vsh._find_timeout_minutes(self.live)
+        self.assertEqual(len(timeouts), 1, timeouts)
+        raw_budget = vsh._find_key_value(
+            self.live, "CELL_HISTORY_BACKFILL_MAX_MINUTES"
+        )
+        self.assertIsNotNone(raw_budget)
+        budget = float(raw_budget.strip().strip("'\""))
+        self.assertGreater(
+            timeouts[0], budget,
+            "timeout-minutes must stay strictly above the script's "
+            "wall-clock cap so its graceful stop fires first",
+        )
+
+    def test_single_sunday_cron(self):
+        crons = [
+            line.split(":", 1)[1].strip().strip("'\"")
+            for line in self.live
+            if line.strip().startswith("- cron:")
+        ]
+        self.assertEqual(crons, ["0 5 * * 0"])
+
+    def test_backfill_step_is_gated_and_never_applies(self):
+        block = self.blocks[_BACKFILL_STEP_ID]
+        cond = vsh._find_key_value(_live_lines(block), "if")
+        self.assertIsNotNone(cond)
+        self.assertIn("steps.backlog.outputs.backlog_rows", cond)
+        run = _run_block(block)
+        self.assertTrue(run.strip())
+        self.assertNotIn("${{", run)
+        self.assertNotIn("--apply", run)
+        self.assertIn("--dry-run", run)
+
+    def test_no_run_block_interpolates_expressions(self):
+        for step_id, block in self.blocks.items():
+            with self.subTest(step=step_id):
+                self.assertNotIn("${{", _run_block(block))
+
+    def test_every_dispatch_input_is_bound_to_env(self):
+        names = _dispatch_input_names(self.live)
+        self.assertEqual(
+            sorted(names), ["dry_run", "max_requests", "wr_filter"]
+        )
+        for name in names:
+            pattern = re.compile(
+                r"^\s*[A-Z][A-Z0-9_]*:\s*\$\{\{\s*(github\.event\.)?"
+                r"inputs\." + re.escape(name) + r"\b"
+            )
+            with self.subTest(input=name):
+                self.assertTrue(
+                    any(pattern.match(line) for line in self.live),
+                    f"dispatch input {name!r} has no env: binding",
+                )
+
+    def test_gate_step_writes_backlog_rows_output(self):
+        block = self.blocks[_GATE_STEP_ID]
+        run = _run_block(block)
+        self.assertIn("--check-backlog", run)
+        self.assertIn("backlog_rows=", run)
+        self.assertIn("GITHUB_OUTPUT", run)
+        self.assertNotIn("SMARTSHEET_API_TOKEN", "\n".join(block))
+
+    def test_smartsheet_token_bound_only_in_backfill_step(self):
+        joined = "\n".join(self.raw)
+        self.assertEqual(joined.count("secrets.SMARTSHEET_API_TOKEN"), 1)
+        self.assertIn(
+            "secrets.SMARTSHEET_API_TOKEN",
+            "\n".join(self.blocks[_BACKFILL_STEP_ID]),
+        )
+        steps_idx = next(
+            i for i, line in enumerate(self.live)
+            if line.strip() == "steps:"
+        )
+        self.assertNotIn("secrets.", "\n".join(self.live[:steps_idx]))
 
 
 if __name__ == "__main__":
