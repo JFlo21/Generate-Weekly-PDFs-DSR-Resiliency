@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-02 19:25 CDT (2026-09-03 00:25Z) · **overwrite-in-place each session** (this is the
+_Last updated: 2026-09-02 20:20 CDT (2026-09-03 01:20Z) · **overwrite-in-place each session** (this is the
 canonical "where the project stands" landing spot for the global Stop
 write-back reminder). Keep it terse; link to history rather than duplicating it._
 
@@ -37,6 +37,12 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   no third pass); requirements 4/4; STATE.md Ready to execute (6 plans); ROADMAP annotated (4 waves). Ledger `[2026-09-02 18:15]` closeout.
 - **Write-back done (19:35):** `docs/CHANGELOG_CONTEXT.md` Phase 12 entry; wiki project page "2026-09-02
   evening — Phase 12 PLANNED" subsection, dashboard row, and `wiki/log.md`. Repo tracked tree clean.
+- **ClaudeOS bootstrap audit (20:20, `/global-project-bootstrap`):** added `docs/ai/` (5 implementation-truth
+  files, `NEEDS_VERIFICATION` marks kept), `.claude/rules/python-module-architecture.md`, rewritten
+  `.claude/context-map.md`, `context-policy.json` keys; tracked `.lattice/config.yaml`, `12-PATTERNS.md`, both
+  `docs/superpowers/specs/` design docs; gitignored `.serena/cache/`, `.gsd/`, `.codex/`, the retired
+  frozen-rows cache. Ledger `[2026-09-02 20:20]`. Owner items: trim CLAUDE.md (367 lines) / this file
+  (~1,550 lines); track-or-ignore `.agents/`, `.serena/project*.yml`, `.planning/state.json`, `website/.claude/`.
 - **Next:** `/clear` → `/gsd-execute-phase 12` (wave 1 = 12-01 tracer: dry-run backfill for WR 19073866 on a
   branch → PR). Live steps (owner SQL apply, `--apply` backfill, source-5 cron enable, attachment
   replacement) stay blocking human checkpoints for Juan.

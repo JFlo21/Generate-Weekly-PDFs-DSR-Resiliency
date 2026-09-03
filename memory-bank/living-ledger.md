@@ -8971,3 +8971,22 @@ decision-coverage gate skipped (no CONTEXT.md); `state.planned-phase` → STATE.
 advisory. Next: `/gsd-execute-phase 12`. Every live step (owner SQL apply, `--apply` backfill, source-5 cron
 enable, post-run observation) is a blocking human checkpoint for Juan; execution ships as PRs, never
 direct to master.
+
+## [2026-09-02 20:20] ClaudeOS bootstrap audit — `docs/ai/` implementation-truth tier, Python module-architecture rule, context map rewritten, runtime caches gitignored
+
+`/global-project-bootstrap` run after Phase 12 planning. Present already: CLAUDE.md, `.claude/context-map.md`,
+`.claude/project-state.md`, `context-policy.json` (enforce), `docs/PROJECT_BRIEF.md`, `docs/AI_CONTEXT_RESUME.md`,
+CHANGELOG/DECISIONS stubs → this ledger, three `.claude/rules/`, three repo skills, three read-only agents,
+`.claude/writeback-pending/.gitkeep`. **Added:** `docs/ai/{architecture,implementation-truth,safe-commands,
+decisions,known-bugs}.md` (file-cited; `NEEDS_VERIFICATION` on the Supabase client env-var names, the Vercel
+deploy trigger, and the fact that only CR-01/WR-01 were bug-swept), `.claude/rules/python-module-architecture.md`
+(+ CLAUDE.md / context-map pointers), rewritten context map (June map still named `portal/` and `.remember/`),
+`context-policy.json` `secondBrainPath` + `requireUpdateOnMeaningfulChanges`. **Now tracked:** `.lattice/config.yaml`,
+`12-PATTERNS.md`, `docs/superpowers/specs/2026-08-24-supabase-run-memory-design.md`,
+`docs/superpowers/specs/2026-09-01-own-03-claim-time-backfill-design.md` (Phase 12 plans cite both; identifier
+check: no emails, keys, or real `_User_` tokens). **Gitignored:** `.serena/cache/`, `.gsd/`, `.codex/`,
+`generated_docs/billing_audit_frozen_rows.json`. **Rule:** ledger updates must go through the Edit/Write tools
+(the Stop hook cannot see Bash-heredoc edits) — see `~/.claude/lessons-learned.md` 2026-09-02.
+**Owner items:** trim/archive `CLAUDE.md` (367 lines) and `.claude/project-state.md` (~1,550 lines); refresh
+`docs/PROJECT_BRIEF.md`; decide track-or-ignore for `.agents/skills/`, `.serena/project*.yml` + `memories/`,
+`.planning/state.json`, `website/.claude/`.

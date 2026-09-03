@@ -17,6 +17,19 @@ _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot).
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
 >
+> **Snapshot 2026-09-02 (19:40 CDT) — Phase 12 PLANNED:** `/gsd-plan-phase 12` produced 6 plans
+> in 4 waves (research `7191676`, plans `f0ed36c` + `ed49ab4`, closeout `f6ff88e`); the plan
+> checker passed with 0 blockers and STATE.md reads "Ready to execute". Two owner decisions are
+> locked: **D-12-A** no `wr_week_ownership` table — OWN-01's ladder is `attribution_snapshot` +
+> `resolve_claimer` + new `backfill_source` / `backfill_run_id` columns (table deferred to Phase
+> 13); **D-12-B** OWN-03 source 4 reads the Supabase hash store (`billing_audit.group_content_hash`
+> + `pipeline_memory.group_state`), not the retired `hash_history.json`. Plans: 12-01 backfill
+> script (tracer: dry-run WR 19073866 → `_User_Avery_Example`), 12-02 CR-01 + WR-01 fixes, 12-03
+> owner-deployed SQL, 12-04 source-5 cell-history job + isolated workflow, 12-05 runbook + ledger,
+> 12-06 live rollout — every live step is a blocking human checkpoint. Next: `/clear` →
+> `/gsd-execute-phase 12` (wave 1 on a branch → PR). Same session: ClaudeOS bootstrap audit added
+> `docs/ai/`, `.claude/rules/python-module-architecture.md`, and a rewritten `.claude/context-map.md`.
+>
 > **Snapshot 2026-09-02 (17:45 CDT) — Phase 11.1 CLOSED:** v1.4 Phase 11.1 (post-INC-05
 > runtime remediation) is fully merged (#374, #377, #378, #379, **#384** `13e8e76`) and sealed
 > by GSD: `11.1-VERIFICATION.md` passed 20/20, `11.1-UAT.md` 19/19 resolved, ROADMAP 4/4 plans,

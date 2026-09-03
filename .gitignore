@@ -146,3 +146,11 @@ generated_docs/artifact_manifest.json
 .planning/research/.cache/
 # debug notes can hold real crew names / WRs: alias first, then `git add -f`
 .planning/debug/
+
+# ClaudeOS / agent runtime caches (local only; never commit)
+.serena/cache/
+.gsd/
+# Codex-owned assets are foreign to ClaudeOS (production-guardrails.md, Harness boundary)
+.codex/
+# retired Phase 11 Plan 08 local cache; carries real WR ids (public repo)
+generated_docs/billing_audit_frozen_rows.json

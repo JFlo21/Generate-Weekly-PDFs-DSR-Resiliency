@@ -330,6 +330,8 @@ When proposing new workflows, dynamically evaluate the absolute best technology.
 - `AZURE_ARCHITECTURE.md`, `AZURE_PIPELINE_SETUP.md`, `AZURE_QUICKSTART.md`, `README_AZURE.md` — Azure DevOps mirror.
 - `portal-v2/README.md` — Supabase schema, auth flow, role assignment, Vercel deployment.
 - `docs/sentry-implementation.md` — Sentry wiring across Python, Node, and React.
+- `docs/ai/` — repo-local implementation truth (`architecture`, `implementation-truth`, `safe-commands`, `decisions` pointers, `known-bugs`); verified from code, outranks second-brain notes.
+- `.claude/rules/python-module-architecture.md` — Python edits: module-cohesion posture (facade stays thin; new behavior lives in the owning `pipeline/` module).
 
 ## Living Ledger (Auto-Updated Context)
 
