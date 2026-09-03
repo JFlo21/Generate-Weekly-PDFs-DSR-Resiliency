@@ -985,13 +985,17 @@ class CellHistoryWorkflowStructureTests(unittest.TestCase):
             "wall-clock cap so its graceful stop fires first",
         )
 
-    def test_single_sunday_cron(self):
+    def test_dispatch_only_no_schedule(self):
+        """Owner re-decision 2026-09-03 (Opus H1): dispatch-only until
+        plan 12-06 lands a candidate source. No cron may creep back."""
         crons = [
-            line.split(":", 1)[1].strip().strip("'\"")
-            for line in self.live
+            line for line in self.live
             if line.strip().startswith("- cron:")
         ]
-        self.assertEqual(crons, ["0 5 * * 0"])
+        self.assertEqual(crons, [])
+        keys = [line.strip() for line in self.live]
+        self.assertNotIn("schedule:", keys)
+        self.assertIn("workflow_dispatch:", keys)
 
     def test_backfill_step_is_gated_and_never_applies(self):
         block = self.blocks[_BACKFILL_STEP_ID]

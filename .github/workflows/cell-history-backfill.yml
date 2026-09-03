@@ -14,15 +14,15 @@ concurrency:
   group: cell-history-backfill-${{ github.ref }}
   cancel-in-progress: false
 
+# DISPATCH-ONLY by owner decision (2026-09-03, 12-04 Task 3 re-decided
+# after the Opus production-risk review): the backfill step takes its
+# candidates only from generated_docs/own03_backfill_report.json (the
+# sources 1-4 dry-run output), which a fresh runner does not produce, so
+# an unattended cron would be a permanently green no-op. The Sunday
+# 05:00 UTC schedule ('0 5 * * 0' -- clear of the 15:00/19:00/23:00 UTC
+# weekend billing crons) returns in plan 12-06 together with a real
+# candidate source. Do not add a `schedule:` key here before then.
 on:
-  schedule:
-    # Sunday 05:00 UTC = Saturday midnight Central during CDT (Sunday
-    # 00:00 CDT). Chosen because the production weekend crons in
-    # weekly-excel-generation.yml fire at 15:00, 19:00 and 23:00 UTC, so
-    # a full 45-minute backfill never shares the 300 req/min Smartsheet
-    # token budget with a billing run. Approved 2026-09-03 (12-04 Task 3
-    # decision: approve-cron).
-    - cron: '0 5 * * 0'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -79,10 +79,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       # No other workflow in this repo has a backlog pre-check. This one
-      # exists so the Sunday cron self-disables once the sentinel set is
+      # exists so a scheduled run (12-06) self-disables once the set is
       # empty: --check-backlog is a bounded read (the sources 1-4 report
       # when present, otherwise a LIMIT-capped Supabase scan) that issues
-      # ZERO Smartsheet calls, so an empty-backlog Sunday spends nothing
+      # ZERO Smartsheet calls, so an empty-backlog run spends nothing
       # from the shared 300 req/min budget. Only the Supabase secrets are
       # bound here; the Smartsheet token is not needed and is deliberately
       # absent. A broken backend exits 7 and fails the job — it is never

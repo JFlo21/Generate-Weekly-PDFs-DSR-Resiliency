@@ -344,3 +344,15 @@ Sunday cron is a permanently green no-op (zero Smartsheet calls) until a candida
 "self-disables when empty" property does not hold. Opus recommends dropping the `schedule:` block until
 12-06 lands a real candidate source (option b) and rejects a checked-in WR scope (option c). Juan chose
 `approve-cron` before this gap was known; the schedule stays in the file pending his re-decision.
+
+## Re-decision: dispatch-only (2026-09-03, resolves Opus H1)
+
+Presented with the H1 finding above, Juan re-decided the Task 3 question. **Selected option:**
+`dispatch-only now (Recommended)` — verbatim from the structured prompt: "Remove the schedule block; keep
+workflow_dispatch. Restore the cron in 12-06 in the same change that gives the job a real candidate source.
+No green no-ops on the production token." Applied by the orchestrator: the `schedule:` block was removed from
+`.github/workflows/cell-history-backfill.yml` (header comment records why and when it returns);
+`test_single_sunday_cron` became `test_dispatch_only_no_schedule` (asserts no `- cron:` line and no
+`schedule:` key, `workflow_dispatch:` present). The earlier `approve-cron` records in this file are kept as
+history; the shipped shape is dispatch-only. Plan 12-06 owns restoring `'0 5 * * 0'` together with a candidate
+source and the M4 dispatch-time guard.
