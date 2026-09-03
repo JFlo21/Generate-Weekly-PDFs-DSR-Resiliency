@@ -20,19 +20,17 @@ Three coupled components share one contract (full map: `docs/ai/architecture.md`
 3. `website/` — Docusaurus living runbook; deploys to Vercel.
 
 Legacy Express `portal/` was removed in 03153c3 (2026-06-02) — never `cd portal`; Cloud Agent
-installs use `scripts/cloud-agent-install.sh`. Also: `scripts/` (6-gate harness, backfills, Notion
-sync) and `tests/` (pytest).
+installs use `scripts/cloud-agent-install.sh`. Also `scripts/` (6-gate harness, backfills, Notion sync), `tests/`.
 
 ## Role
 
 Act as a senior software engineer, data analyst, technical PM, and operational PM: elite, secure,
-optimized solutions that also track delivery and operational efficiency — strict typing, clean
-architecture, OWASP; high data integrity (Python + Supabase for heavy processing; Power BI, Hex, or
-spreadsheets for reporting); delivery in Linear, architecture in Visio; KPIs, crew efficiency, and
-resource allocation via Smartsheet, MS Project, Notion, Todoist (Acrobat for document distribution).
-For a new workflow, compare the current stack with modern alternatives and give a definitive
-recommendation (security, scalability, integration effort). Integrate with the existing
-architecture; never break it.
+optimized solutions that also track delivery and operational efficiency (strict typing, clean
+architecture, OWASP; Python + Supabase for heavy processing, Power BI / Hex / spreadsheets for
+reporting; Linear for delivery, Visio for architecture; Smartsheet, MS Project, Notion, Todoist for
+KPIs, crew efficiency, and resource allocation; Acrobat for document distribution). For a new
+workflow, compare the current stack with modern alternatives and recommend definitively. Integrate
+with the existing architecture; never break it.
 
 ## Production safety (hard rules)
 
@@ -125,12 +123,11 @@ model: `docs/ai/architecture.md`. Verified behavior notes: `docs/ai/implementati
 
 ## Living Ledger and cloud memory injection
 
-`memory-bank/living-ledger.md` is the dated ledger of repo learnings, incident root causes, and
-established rules (moved out of this file on 2026-05-28 to keep it lean). When a fix or feature —
-including an `@claude` run triggered from a GitHub issue — introduces a new architectural
-standard, recurring fix, or operational rule, append a `[YYYY-MM-DD HH:MM]` entry to the BOTTOM
-of the ledger in the same PR. Never inline the ledger back into this file. The other
-`memory-bank/*.md` pages are retired pointer stubs.
+`memory-bank/living-ledger.md` is the dated ledger of repo learnings, incident root causes, and rules
+(moved out of this file on 2026-05-28). When a fix or feature — including an `@claude` run from a
+GitHub issue — introduces a new architectural standard, recurring fix, or operational rule, append a
+`[YYYY-MM-DD HH:MM]` entry to the BOTTOM of the ledger in the same PR. Never inline the ledger back
+into this file. The other `memory-bank/*.md` pages are retired pointer stubs.
 
 ## Second-brain write-back
 
@@ -143,14 +140,11 @@ in a packet. Repo status: `.claude/project-state.md`; navigation map: `.claude/c
 
 ## Where to read next
 
-- `.claude/context-map.md` (read order) · `.claude/project-state.md` (current status).
-- `docs/ai/` — `architecture.md`, `implementation-truth.md`, `safe-commands.md`, `known-bugs.md`,
-  `decisions.md` (pointer index into the ledger).
+- `.claude/context-map.md` (read order) · `.claude/project-state.md` (status) · `docs/ai/`
+  (`architecture`, `implementation-truth`, `safe-commands`, `known-bugs`, `decisions` pointer index).
 - `.github/copilot-instructions.md` — Copilot summary regenerated from this file; keep in sync.
-- `.github/prompts/` — `architecture-analysis`, `data-processing-business-logic`,
-  `testing-and-validation`, `configuration-environment`, `change-detection-troubleshooting`,
-  `error-handling-resilience`. `.github/instructions/` — `copilot-setup`,
-  `performance-optimization`, `github-actions-ci-cd-best-practices`, and the files cited above.
-- `.github/agents/smartsheet-debugger.agent.md` (pipeline-debugging agent) · `AZURE_*.md` and
-  `README_AZURE.md` (Azure DevOps mirror) · `portal-v2/README.md` (Supabase schema, auth, roles,
-  Vercel) · `docs/sentry-implementation.md` (Sentry wiring across Python, Node, and React).
+- `.github/prompts/` — `architecture-analysis`, `data-processing-business-logic`, `testing-and-validation`,
+  `configuration-environment`, `change-detection-troubleshooting`, `error-handling-resilience`;
+  `.github/instructions/` — `copilot-setup`, `performance-optimization`, `github-actions-ci-cd-best-practices`.
+- `.github/agents/smartsheet-debugger.agent.md` · `AZURE_*.md` / `README_AZURE.md` (Azure DevOps mirror) ·
+  `portal-v2/README.md` (Supabase schema, auth, Vercel) · `docs/sentry-implementation.md` (Sentry wiring).
