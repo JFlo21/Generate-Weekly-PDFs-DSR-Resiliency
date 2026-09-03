@@ -122,9 +122,10 @@ def _default_pipeline_memory_client(row_ids: list[int]) -> _FakeClient:
 # ── Fake Smartsheet client (Cells.get_cell_history) ──────────────────
 
 class _FakeCellHistoryEntry:
-    def __init__(self, value, modified_at: str):
+    def __init__(self, value, modified_at: str, display_value=None):
         self.value = value
         self.modified_at = modified_at
+        self.display_value = display_value
 
 
 class _FakeCellHistoryResult:
@@ -318,6 +319,25 @@ class CheckBacklogTests(unittest.TestCase):
             )
             self.assertIn("backlog_rows=2", printed)
 
+    def test_client_none_and_report_absent_exits_7(self):
+        """MED-07 review fix: --check-backlog must not silently return
+        an all-clear (0) when the Supabase client is unavailable and
+        no sources-1-4 report exists -- a weekly job must never no-op
+        forever on a broken backend."""
+        import tempfile
+        from scripts import backfill_cell_history_attribution as cha
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            missing_report = Path(tmp_dir) / "does_not_exist.json"
+            fake_ctor = _RaisingSmartsheetConstructor()
+            with mock.patch(
+                "billing_audit.client.get_client", return_value=None
+            ), mock.patch("smartsheet.Smartsheet", fake_ctor):
+                exit_code = cha.main(
+                    ["--check-backlog", "--report", str(missing_report)]
+                )
+            self.assertEqual(exit_code, 7)
+
 
 # ── Candidate resolution / pacing / caps ──────────────────────────────
 
@@ -368,12 +388,11 @@ class CandidateResolutionTests(unittest.TestCase):
             data = json.loads(out_json.read_text(encoding="utf-8"))
         return exit_code, data
 
-    def test_request_cap_stops_third_candidate(self):
-        # 3 candidates, each with a checkbox history that NEVER becomes
-        # checked -- costs exactly 1 get_cell_history call each. With
-        # MAX_REQUESTS=2, candidates 1 and 2 each get their (single)
-        # call made; candidate 3 is stopped before any call, reported
-        # unresolved with a reason naming the request cap.
+    def test_request_cap_defers_remaining_candidates(self):
+        # HIGH-04 review fix: a tripped request cap no longer marks
+        # the triggering/remaining candidates "unresolved" -- they are
+        # left OUT of this run's report entirely (deferred to the next
+        # invocation) and the run still exits 0.
         rows = [
             _report_row(row_id=1),
             _report_row(row_id=2),
@@ -381,10 +400,10 @@ class CandidateResolutionTests(unittest.TestCase):
         ]
         history = {
             (_SHEET_ID, 1, 1001): [
-                _FakeCellHistoryEntry(False, "2026-08-01T00:00:00Z")
+                _FakeCellHistoryEntry(False, "2026-08-19T00:00:00Z")
             ],
             (_SHEET_ID, 2, 1001): [
-                _FakeCellHistoryEntry(False, "2026-08-01T00:00:00Z")
+                _FakeCellHistoryEntry(False, "2026-08-19T00:00:00Z")
             ],
         }
         fake_ss = _FakeSmartsheetClient(history_by_key=history)
@@ -398,14 +417,39 @@ class CandidateResolutionTests(unittest.TestCase):
         by_row = {r["row_id"]: r for r in data["rows"]}
         self.assertEqual(by_row[1]["status"], "unresolved")
         self.assertEqual(by_row[2]["status"], "unresolved")
-        self.assertEqual(by_row[3]["status"], "unresolved")
-        self.assertIn("request cap", by_row[3]["evidence"])
+        self.assertNotIn(3, by_row)
+        self.assertTrue(data["summary"]["cap_reached"])
+        self.assertEqual(data["summary"]["candidates_deferred"], 1)
         self.assertEqual(len(fake_ss.call_log), 2)
         # Candidates 1 and 2 were each attempted (their single call was
         # made); candidate 3 never reached Cells.get_cell_history.
         self.assertIn((_SHEET_ID, 1, 1001), fake_ss.call_log)
         self.assertIn((_SHEET_ID, 2, 1001), fake_ss.call_log)
         self.assertNotIn((_SHEET_ID, 3, 1001), fake_ss.call_log)
+
+    def test_cap_trips_between_a_single_candidates_own_two_requests(self):
+        # HIGH-04 review fix: the cap is re-checked BEFORE EVERY
+        # request, not once per candidate -- it can trip between one
+        # candidate's own checkbox and name-column requests.
+        rows = [_report_row(row_id=1)]
+        history = {
+            (_SHEET_ID, 1, 1001): [
+                _FakeCellHistoryEntry(True, "2026-08-19T00:00:00Z"),
+            ],
+        }
+        fake_ss = _FakeSmartsheetClient(history_by_key=history)
+
+        exit_code, data = self._run(
+            rows, fake_ss,
+            extra_argv=["--max-requests", "1"],
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(data["rows"], [])
+        self.assertTrue(data["summary"]["cap_reached"])
+        self.assertEqual(data["summary"]["candidates_deferred"], 1)
+        self.assertEqual(len(fake_ss.call_log), 1)
+        self.assertIn((_SHEET_ID, 1, 1001), fake_ss.call_log)
 
     def test_sleep_pacing_zero_before_first_one_before_subsequent(self):
         rows = [_report_row(row_id=1), _report_row(row_id=2)]
@@ -432,7 +476,7 @@ class CandidateResolutionTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(fake_ss.call_log), 2)
         self.assertEqual(len(sleep_calls), 1)
-        self.assertAlmostEqual(sleep_calls[0], 0.25, places=3)
+        self.assertAlmostEqual(sleep_calls[0], 0.5, places=3)
 
     def test_row_cap_env_var_stops_remaining_candidates(self):
         rows = [
@@ -449,7 +493,7 @@ class CandidateResolutionTests(unittest.TestCase):
         self.assertIn("row cap", by_row[2]["evidence"])
         self.assertEqual(len(fake_ss.call_log), 1)
 
-    def test_wall_clock_deadline_stops_before_any_fetch(self):
+    def test_wall_clock_deadline_defers_before_any_fetch(self):
         rows = [_report_row(row_id=1)]
         fake_ss = _FakeSmartsheetClient(history_by_key={})
         self._set_env(CELL_HISTORY_BACKFILL_MAX_MINUTES="-1")
@@ -457,8 +501,9 @@ class CandidateResolutionTests(unittest.TestCase):
         exit_code, data = self._run(rows, fake_ss)
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(data["rows"][0]["status"], "unresolved")
-        self.assertIn("deadline", data["rows"][0]["evidence"])
+        self.assertEqual(data["rows"], [])
+        self.assertTrue(data["summary"]["cap_reached"])
+        self.assertEqual(data["summary"]["candidates_deferred"], 1)
         self.assertEqual(len(fake_ss.call_log), 0)
 
     def test_checkbox_never_checked_stays_unresolved(self):
@@ -478,11 +523,36 @@ class CandidateResolutionTests(unittest.TestCase):
         self.assertIn("never became checked", data["rows"][0]["evidence"])
         self.assertEqual(len(fake_ss.call_log), 1)
 
+    def test_transition_before_week_start_ignored(self):
+        # Default fixture week_ending is 2026-08-24 -> week_start is
+        # 2026-08-18. This candidate's only checkbox transition
+        # predates that -- it belongs to a prior week's claim and is
+        # ignored. The name column is never fetched (efficiency: the
+        # only transition is already out-of-window).
+        rows = [_report_row(row_id=1)]
+        history = {
+            (_SHEET_ID, 1, 1001): [
+                _FakeCellHistoryEntry(True, "2026-08-10T00:00:00Z"),
+            ],
+            (_SHEET_ID, 1, 1002): [
+                _FakeCellHistoryEntry("Avery Example", "2026-08-05T00:00:00Z"),
+            ],
+        }
+        fake_ss = _FakeSmartsheetClient(history_by_key=history)
+
+        exit_code, data = self._run(rows, fake_ss)
+
+        self.assertEqual(exit_code, 0)
+        row = data["rows"][0]
+        self.assertEqual(row["status"], "unresolved")
+        self.assertIn("in-window", row["evidence"])
+        self.assertEqual(len(fake_ss.call_log), 1)
+
     def test_resolved_name_that_is_a_sentinel_stays_unresolved(self):
         rows = [_report_row(row_id=1)]
         history = {
             (_SHEET_ID, 1, 1001): [
-                _FakeCellHistoryEntry(True, "2026-08-05T00:00:00Z"),
+                _FakeCellHistoryEntry(True, "2026-08-20T00:00:00Z"),
             ],
             (_SHEET_ID, 1, 1002): [
                 _FakeCellHistoryEntry("Unknown Foreman", "2026-08-01T00:00:00Z"),
@@ -497,16 +567,18 @@ class CandidateResolutionTests(unittest.TestCase):
         self.assertIn("sentinel", data["rows"][0]["evidence"])
         self.assertEqual(len(fake_ss.call_log), 2)
 
-    def test_happy_path_resolves_real_name_with_operator_provenance(self):
+    def test_happy_path_uses_backfill_cell_history_provenance(self):
         rows = [_report_row(row_id=1)]
         history = {
             (_SHEET_ID, 1, 1001): [
-                _FakeCellHistoryEntry(False, "2026-08-01T00:00:00Z"),
-                _FakeCellHistoryEntry(True, "2026-08-05T12:00:00Z"),
+                _FakeCellHistoryEntry(False, "2026-08-16T00:00:00Z"),
+                _FakeCellHistoryEntry(True, "2026-08-20T12:00:00Z"),
             ],
             (_SHEET_ID, 1, 1002): [
-                _FakeCellHistoryEntry("Avery Example", "2026-08-03T00:00:00Z"),
-                _FakeCellHistoryEntry("Jordan Example", "2026-08-06T00:00:00Z"),
+                _FakeCellHistoryEntry("Avery Example", "2026-08-18T00:00:00Z"),
+                _FakeCellHistoryEntry(
+                    "Jordan Example", "2026-08-21T00:00:00Z"
+                ),
             ],
         }
         fake_ss = _FakeSmartsheetClient(history_by_key=history)
@@ -517,17 +589,144 @@ class CandidateResolutionTests(unittest.TestCase):
         row = data["rows"][0]
         self.assertEqual(row["status"], "proposed")
         self.assertEqual(row["proposed_value"], "Avery Example")
-        self.assertEqual(row["source"], "operator")
+        self.assertEqual(row["source"], "backfill_cell_history")
         self.assertEqual(row["name_fidelity"], "exact")
+        self.assertIn("claims=1", row["evidence"])
 
-    def test_exception_on_one_candidate_leaves_next_candidate_resolving(self):
+    def test_newest_first_history_input_still_resolves_correctly(self):
+        # _sorted_history_entries must normalize ordering -- the API's
+        # own (here: newest-first) ordering must not change the
+        # result for either the checkbox or the name column.
+        rows = [_report_row(row_id=1)]
+        history = {
+            (_SHEET_ID, 1, 1001): [
+                _FakeCellHistoryEntry(True, "2026-08-20T12:00:00Z"),
+                _FakeCellHistoryEntry(False, "2026-08-19T00:00:00Z"),
+            ],
+            (_SHEET_ID, 1, 1002): [
+                _FakeCellHistoryEntry(
+                    "Jordan Example", "2026-08-21T00:00:00Z"
+                ),
+                _FakeCellHistoryEntry("Avery Example", "2026-08-18T00:00:00Z"),
+            ],
+        }
+        fake_ss = _FakeSmartsheetClient(history_by_key=history)
+
+        exit_code, data = self._run(rows, fake_ss)
+
+        self.assertEqual(exit_code, 0)
+        row = data["rows"][0]
+        self.assertEqual(row["status"], "proposed")
+        self.assertEqual(row["proposed_value"], "Avery Example")
+
+    def test_check_uncheck_recheck_same_name_yields_claims_two(self):
+        rows = [_report_row(row_id=1)]
+        history = {
+            (_SHEET_ID, 1, 1001): [
+                _FakeCellHistoryEntry(True, "2026-08-19T00:00:00Z"),
+                _FakeCellHistoryEntry(False, "2026-08-20T00:00:00Z"),
+                _FakeCellHistoryEntry(True, "2026-08-21T00:00:00Z"),
+            ],
+            (_SHEET_ID, 1, 1002): [
+                _FakeCellHistoryEntry("Avery Example", "2026-08-18T00:00:00Z"),
+            ],
+        }
+        fake_ss = _FakeSmartsheetClient(history_by_key=history)
+
+        exit_code, data = self._run(rows, fake_ss)
+
+        self.assertEqual(exit_code, 0)
+        row = data["rows"][0]
+        self.assertEqual(row["status"], "proposed")
+        self.assertEqual(row["proposed_value"], "Avery Example")
+        self.assertIn("claims=2", row["evidence"])
+
+    def test_check_uncheck_recheck_different_names_yields_conflict(self):
+        rows = [_report_row(row_id=1)]
+        history = {
+            (_SHEET_ID, 1, 1001): [
+                _FakeCellHistoryEntry(True, "2026-08-19T00:00:00Z"),
+                _FakeCellHistoryEntry(False, "2026-08-20T00:00:00Z"),
+                _FakeCellHistoryEntry(True, "2026-08-21T00:00:00Z"),
+            ],
+            (_SHEET_ID, 1, 1002): [
+                _FakeCellHistoryEntry("Avery Example", "2026-08-18T00:00:00Z"),
+                _FakeCellHistoryEntry(
+                    "Jordan Example", "2026-08-20T12:00:00Z"
+                ),
+            ],
+        }
+        fake_ss = _FakeSmartsheetClient(history_by_key=history)
+
+        exit_code, data = self._run(rows, fake_ss)
+
+        self.assertEqual(exit_code, 0)
+        row = data["rows"][0]
+        self.assertEqual(row["status"], "conflict")
+        self.assertEqual(row["proposed_value"], "")
+        self.assertNotIn("Avery", row["evidence"])
+        self.assertNotIn("Jordan", row["evidence"])
+        self.assertIn("2026-08-19", row["evidence"])
+        self.assertIn("2026-08-21", row["evidence"])
+
+    def test_name_changed_after_check_earlier_name_wins(self):
+        rows = [_report_row(row_id=1)]
+        history = {
+            (_SHEET_ID, 1, 1001): [
+                _FakeCellHistoryEntry(True, "2026-08-19T00:00:00Z"),
+            ],
+            (_SHEET_ID, 1, 1002): [
+                _FakeCellHistoryEntry("Avery Example", "2026-08-18T00:00:00Z"),
+                _FakeCellHistoryEntry(
+                    "Jordan Example", "2026-08-25T00:00:00Z"
+                ),
+            ],
+        }
+        fake_ss = _FakeSmartsheetClient(history_by_key=history)
+
+        exit_code, data = self._run(rows, fake_ss)
+
+        self.assertEqual(exit_code, 0)
+        row = data["rows"][0]
+        self.assertEqual(row["status"], "proposed")
+        self.assertEqual(row["proposed_value"], "Avery Example")
+
+    def test_display_value_preferred_over_value_for_name_column(self):
+        rows = [_report_row(row_id=1)]
+        history = {
+            (_SHEET_ID, 1, 1001): [
+                _FakeCellHistoryEntry(True, "2026-08-19T00:00:00Z"),
+            ],
+            (_SHEET_ID, 1, 1002): [
+                _FakeCellHistoryEntry(
+                    "avery.example@centurigroup.com",
+                    "2026-08-18T00:00:00Z",
+                    display_value="Avery Example",
+                ),
+            ],
+        }
+        fake_ss = _FakeSmartsheetClient(history_by_key=history)
+
+        exit_code, data = self._run(rows, fake_ss)
+
+        self.assertEqual(exit_code, 0)
+        row = data["rows"][0]
+        self.assertEqual(row["status"], "proposed")
+        self.assertEqual(row["proposed_value"], "Avery Example")
+
+    def test_read_failure_aborts_run_with_error_status(self):
+        # HIGH-01 review fix: a Smartsheet cell-history read failure
+        # must never launder into "unresolved". It aborts the run
+        # (exit 7), marks the failing candidate status="error" with
+        # the exception TYPE only in evidence, and issues no further
+        # Smartsheet requests for any later candidate.
         rows = [_report_row(row_id=1), _report_row(row_id=2)]
         history = {
             (_SHEET_ID, 2, 1001): [
-                _FakeCellHistoryEntry(True, "2026-08-05T12:00:00Z"),
+                _FakeCellHistoryEntry(True, "2026-08-19T00:00:00Z"),
             ],
             (_SHEET_ID, 2, 1002): [
-                _FakeCellHistoryEntry("Avery Example", "2026-08-03T00:00:00Z"),
+                _FakeCellHistoryEntry("Avery Example", "2026-08-18T00:00:00Z"),
             ],
         }
         fake_ss = _FakeSmartsheetClient(
@@ -537,12 +736,17 @@ class CandidateResolutionTests(unittest.TestCase):
 
         exit_code, data = self._run(rows, fake_ss)
 
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(exit_code, 7)
         by_row = {r["row_id"]: r for r in data["rows"]}
-        self.assertEqual(by_row[1]["status"], "unresolved")
-        self.assertIn("exception", by_row[1]["evidence"])
-        self.assertEqual(by_row[2]["status"], "proposed")
-        self.assertEqual(by_row[2]["proposed_value"], "Avery Example")
+        self.assertEqual(by_row[1]["status"], "error")
+        self.assertIn(
+            "cell_history_read_failed:RuntimeError", by_row[1]["evidence"]
+        )
+        self.assertNotIn(2, by_row)
+        self.assertEqual(data["summary"]["read_failures"], 1)
+        self.assertTrue(data["summary"]["aborted"])
+        self.assertIn((_SHEET_ID, 1, 1001), fake_ss.call_log)
+        self.assertNotIn((_SHEET_ID, 2, 1001), fake_ss.call_log)
 
     def test_unresolvable_sheet_id_leaves_row_unresolved_no_smartsheet_call(self):
         rows = [_report_row(row_id=999)]

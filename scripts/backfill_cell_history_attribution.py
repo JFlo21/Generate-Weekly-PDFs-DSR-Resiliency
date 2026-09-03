@@ -41,6 +41,34 @@ candidate is marked unresolved WITHOUT spending a second request on
 the name column -- there is no claimer to look for on a row that was
 never actually completed for this role.
 
+Week scoping / claim events (review fix, 12-04 wave 2): a candidate's
+own week is week_start..(no upper bound), where
+week_start = week_ending - 6 days. Only checkbox-history transitions
+(a falsy->truthy change, including a truthy first entry with no prior
+entry) whose Smartsheet modified_at date falls on/after week_start
+count as a claim event for this row's week -- an earlier transition
+belongs to a prior week's claim (a re-dated row keeps its old-week
+history under the same row_id) and is ignored. There is no upper
+bound: a late tick after week_ending is still this row's own claim.
+See ``_resolve_one_candidate``'s docstring for the full
+proposed/conflict/unresolved outcome rules.
+
+Pacing / caps: default CELL_HISTORY_BACKFILL_PACE_SEC is 0.5 seconds
+(120 req/min, 40% of the 300 req/min budget shared with the billing
+cron). CELL_HISTORY_BACKFILL_MAX_REQUESTS and the
+CELL_HISTORY_BACKFILL_MAX_MINUTES wall-clock deadline are both
+re-checked immediately before EVERY Smartsheet request -- not once
+per candidate -- so a cap can trip between a single candidate's own
+checkbox and name-column requests. The Smartsheet SDK's own internal
+429 retries are never counted against these caps: they happen inside
+one ``get_cell_history`` call, which this script always counts as
+exactly one request. When a cap trips mid-run, the
+triggering candidate and every not-yet-attempted candidate are left
+OUT of this run's report (``summary.cap_reached`` /
+``summary.candidates_deferred`` record it) -- they stay
+unresolved/conflict in the sources 1-4 report and are simply retried
+on the next invocation.
+
 Reused, never duplicated, from ``scripts/backfill_claim_time_attribution.py``
 (12-01): the report writer (``_write_reports``, under this script's
 own ``own03_cell_history_report`` filename stem), the ``--apply``
@@ -65,7 +93,9 @@ never construct a Smartsheet client) plus ``SUPABASE_URL`` /
 
 Exit codes:
     0  success (including a run whose every candidate is unresolved,
-       and --check-backlog)
+       --check-backlog with a determinable count, and a run where a
+       request/deadline cap tripped mid-run -- see
+       summary.cap_reached / summary.candidates_deferred)
     2  SMARTSHEET_API_TOKEN not set while candidates are in scope
     3  --apply: the billing_audit.attribution_snapshot_backup_<YYYYMMDD>
        table for the run's UTC date is absent (definitively missing)
@@ -74,8 +104,14 @@ Exit codes:
     6  --apply: a raised RPC exception, or a non-zero server-reported
        per-row error count, occurred while calling
        billing_audit.backfill_attribution
-    7  --apply: the backup-table probe failed for a reason other than
-       the table being definitively absent (connectivity / auth)
+    7  a Smartsheet cell-history read, a pipeline_memory mapping read,
+       or the backup-table probe failed. For a cell-history/mapping
+       read failure the report is still written: the failing
+       candidate is marked status="error" with evidence
+       "cell_history_read_failed:<ExceptionTypeName>", and
+       summary.read_failures / summary.aborted record it. For
+       --check-backlog, 7 means the Supabase client was unavailable
+       or the bounded fallback scan itself failed.
 """
 
 from __future__ import annotations
@@ -101,12 +137,13 @@ from scripts import backfill_claim_time_attribution as bca  # noqa: E402
 
 
 # ── Role -> (completion checkbox title, name-column title candidates)
-# Per spec §2 / this plan's Task 1 action text. "Foreman Assigned?" is
-# tried first for primary and falls back to "Foreman" -- mirrors
-# pipeline/fetch.py's effective-user fallback chain (never imported
-# here; this script pulls in no pipeline module by design).
+# Per spec §2 / this plan's Task 1 action text. Review fix (12-04 wave
+# 2, LOW-08): "Foreman Assigned?" was NOT a canonical column title in
+# pipeline/discovery.py's _validate_single_sheet mappings and has been
+# removed -- "Foreman" is the sole, verified name-column title for the
+# primary role.
 _ROLE_COLUMNS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "primary": ("Units Completed?", ("Foreman Assigned?", "Foreman")),
+    "primary": ("Units Completed?", ("Foreman",)),
     "helper": ("Helping Foreman Completed Unit?", ("Foreman Helping?",)),
     "vac_crew": ("Vac Crew Completed Unit?", ("VAC Crew Helping?",)),
 }
@@ -138,6 +175,29 @@ def _float_env(name: str, default: float) -> float:
         return float(os.getenv(name, str(default)) or default)
     except (TypeError, ValueError):
         return default
+
+
+# ── Internal control-flow / failure signaling ────────────────────────
+
+class _CapReached(Exception):
+    """Raised by ``_fetch_history`` when the request cap or wall-clock
+    deadline trips immediately BEFORE a Smartsheet call would be
+    issued -- checked before every request, not once per candidate, so
+    a cap can trip between one candidate's own checkbox and
+    name-column requests. Caught once in ``main()``: the triggering
+    candidate and every not-yet-attempted candidate are left OUT of
+    this run's own report entirely (never given an unresolved row) --
+    they stay unresolved/conflict in the sources 1-4 report and are
+    simply retried on the next invocation."""
+
+
+class _RetryExhausted(RuntimeError):
+    """Raised when a ``pipeline_memory`` mapping read's
+    ``with_retry(...)`` call returns ``None`` (retries exhausted /
+    circuit breaker open) while resolving a candidate's sheet id or
+    column mapping. Never swallowed -- propagates to ``main()``'s
+    single read-failure handler alongside a raised
+    ``client.Cells.get_cell_history`` exception."""
 
 
 # ── CLI argument parsing ─────────────────────────────────────────────
@@ -309,13 +369,24 @@ def _check_backlog_via_bounded_supabase_scan() -> int:
     is hit so an operator knows the true count may be larger; running
     sources 1-4 first (which produces the report this fallback exists
     to substitute for) gives an exact count instead.
+
+    Returns ``-1`` (never a false "zero backlog") when the Supabase
+    client is unavailable or the scan itself raises -- the caller
+    (``main()``, ``--check-backlog``) treats a negative result as a
+    fatal, exit-7 condition, so a broken backend can never make a
+    weekly job silently report an empty queue forever.
     """
     from billing_audit.client import get_client as _get_ba_client
     from scripts.backfill_claim_time_attribution import _is_named_sentinel
 
     client = _get_ba_client()
     if client is None:
-        return 0
+        logging.error(
+            "❌ Supabase client unavailable — cannot run the bounded "
+            "backlog fallback scan (no sources-1-4 report file and no "
+            "billing_audit connection)."
+        )
+        return -1
     try:
         with sentry_sdk.start_span(
             op="own03_cell_history.backlog_fallback_scan",
@@ -330,8 +401,8 @@ def _check_backlog_via_bounded_supabase_scan() -> int:
             )
     except Exception as exc:
         sentry_sdk.capture_exception()
-        logging.warning(f"⚠️ backlog fallback scan failed: {type(exc).__name__}")
-        return 0
+        logging.error(f"❌ backlog fallback scan failed: {type(exc).__name__}")
+        return -1
 
     data = getattr(result, "data", None) or []
     if len(data) >= _BACKLOG_FALLBACK_SCAN_LIMIT:
@@ -364,10 +435,15 @@ def _prefetch_sheet_and_columns(row_ids: "list[int]", cache: dict) -> None:
 
     This is a Supabase-only prefetch, entirely OUTSIDE the Smartsheet
     request/row/wall-clock caps: it never issues a Smartsheet call.
-    Best-effort -- a client-unavailable or read-failure leaves the
-    affected ids unresolved in the cache, which downstream candidate
-    resolution treats as "sheet/columns unavailable" (an unresolved
-    report row), never as a fatal run failure.
+    A ``get_client()`` returning ``None`` (pipeline_memory not
+    configured) is a normal, non-fatal "not available" state -- the
+    affected ids stay unresolved in the cache, which downstream
+    candidate resolution treats as "sheet/columns unavailable" (an
+    unresolved report row). Review fix (12-04 wave 2, HIGH-01): once a
+    client exists, a read raising or ``with_retry`` returning ``None``
+    is a genuine READ FAILURE and is NEVER swallowed here -- it
+    propagates to ``main()``'s single read-failure handler (exit 7),
+    exactly like a Smartsheet cell-history read failure.
     """
     pending = sorted({rid for rid in row_ids if ("row_sheet", rid) not in cache})
     if not pending:
@@ -402,22 +478,13 @@ def _prefetch_sheet_and_columns(row_ids: "list[int]", cache: dict) -> None:
             op="own03_cell_history.read_row_state",
             name=f"row_ids={len(chunk)}",
         ):
-            try:
-                result = _pm_with_retry(_invoke, op="own03_cell_history_row_state_read")
-            except Exception:
-                sentry_sdk.capture_exception()
-                logging.warning(
-                    "⚠️ row_state read raised while resolving sheet ids "
-                    "for cell-history candidates; affected rows stay "
-                    "unresolved."
-                )
-                continue
-        if result is None:
-            logging.warning(
-                "⚠️ row_state read exhausted retries while resolving "
-                "sheet ids; affected rows stay unresolved."
+            result = _pm_with_retry(
+                _invoke, op="own03_cell_history_row_state_read"
             )
-            continue
+        if result is None:
+            raise _RetryExhausted(
+                "pipeline_memory.row_state read exhausted retries"
+            )
         for row in getattr(result, "data", None) or []:
             if not isinstance(row, dict):
                 continue
@@ -452,24 +519,13 @@ def _prefetch_sheet_and_columns(row_ids: "list[int]", cache: dict) -> None:
             op="own03_cell_history.read_sheet_registry",
             name=f"sheet_ids={len(chunk)}",
         ):
-            try:
-                result = _pm_with_retry(
-                    _invoke_reg, op="own03_cell_history_sheet_registry_read"
-                )
-            except Exception:
-                sentry_sdk.capture_exception()
-                logging.warning(
-                    "⚠️ sheet_registry read raised while resolving "
-                    "column ids; affected sheets' rows stay unresolved."
-                )
-                continue
-        if result is None:
-            logging.warning(
-                "⚠️ sheet_registry read exhausted retries while "
-                "resolving column ids; affected sheets' rows stay "
-                "unresolved."
+            result = _pm_with_retry(
+                _invoke_reg, op="own03_cell_history_sheet_registry_read"
             )
-            continue
+        if result is None:
+            raise _RetryExhausted(
+                "pipeline_memory.sheet_registry read exhausted retries"
+            )
         for row in getattr(result, "data", None) or []:
             if not isinstance(row, dict):
                 continue
@@ -536,6 +592,25 @@ def _entry_value(entry: Any) -> Any:
     return getattr(entry, "value", None)
 
 
+def _entry_name_value(entry: Any) -> Any:
+    """Same shape as ``_entry_value`` but for the role's NAME column
+    only: prefers ``display_value`` when present and non-blank, else
+    falls back to ``value`` -- mirrors ``pipeline/fetch.py``'s own
+    display_value-first read (e.g. a CONTACT_LIST column's ``value``
+    is the person's email address; ``display_value`` is the
+    human-readable name). The completion checkbox always reads
+    ``value`` via ``_entry_value`` -- never this function."""
+    if isinstance(entry, dict):
+        display = entry.get("display_value")
+        if display is not None and str(display).strip():
+            return display
+        return entry.get("value")
+    display = getattr(entry, "display_value", None)
+    if display is not None and str(display).strip():
+        return display
+    return getattr(entry, "value", None)
+
+
 def _entry_modified_at(entry: Any) -> "datetime.datetime | None":
     raw = (
         entry.get("modified_at") if isinstance(entry, dict)
@@ -578,7 +653,7 @@ def _make_report_row(
         "role": candidate["role"],
         "current_value": candidate.get("current_value") or "",
         "proposed_value": proposed_value,
-        "source": "operator" if status == "proposed" else "",
+        "source": "backfill_cell_history" if status == "proposed" else "",
         "name_fidelity": "exact" if status == "proposed" else "",
         "status": status,
         "evidence": evidence,
@@ -592,11 +667,40 @@ def _unresolved_row(candidate: "dict[str, Any]", reason: str) -> "dict[str, Any]
 def _resolve_one_candidate(
     candidate: "dict[str, Any]", cache: dict, fetch_history: Any,
 ) -> "dict[str, Any]":
-    """Resolve ONE candidate. Discards a sentinel proposal
-    (``is_sentinel_claimer``) and never looks outside the candidate's
-    own week (the checkbox/name history reads are both scoped to this
-    ONE row's own cell history; there is no cross-row/cross-week
-    lookup anywhere in this function)."""
+    """Resolve ONE candidate from Smartsheet cell history, scoped to
+    this row's own week only (D-12-A: no cross-week inference, ever;
+    both the checkbox and name history reads are scoped to this ONE
+    row's own cell history -- there is no cross-row lookup anywhere in
+    this function).
+
+    Week scoping / claim events (review fix, 12-04 wave 2, HIGH-03):
+    ``week_start = week_ending - 6 days`` (no upper bound). The
+    checkbox history is walked in ascending ``modified_at`` order and
+    every falsy->truthy TRANSITION (an entry that is truthy whose
+    immediately preceding entry was falsy or absent) whose date is
+    ``>= week_start`` is a qualifying claim event; an earlier
+    transition belongs to a prior week's claim (a re-dated row keeps
+    its old-week history under the same row_id) and is ignored. There
+    is no upper bound -- a late tick after week_ending is still this
+    row's own claim.
+
+    For each qualifying transition, the name in effect is the LAST
+    name-history entry (``_entry_name_value``, ``display_value``
+    preferred) whose timestamp is ``<=`` that transition's timestamp
+    -- a name change AFTER a transition never overrides the name that
+    was in effect when the box was actually checked. Blank and
+    sentinel (``is_sentinel_claimer``) names are skipped.
+
+    Outcome:
+    - zero qualifying names -> ``unresolved`` (evidence states which
+      of: no in-window transition, no name in effect, or every
+      resolved name was a sentinel)
+    - exactly one distinct name across all qualifying transitions
+      (compared ``.strip().casefold()``-insensitive) -> ``proposed``
+    - two or more distinct names -> ``conflict``, ``proposed_value``
+      stays empty, and the evidence lists only the transition
+      timestamps that produced a name -- never the names themselves.
+    """
     resolved = _resolve_candidate_columns(candidate, cache)
     if resolved is None:
         return _unresolved_row(
@@ -607,15 +711,29 @@ def _resolve_one_candidate(
     sheet_id, checkbox_col, name_col = resolved
     row_id = candidate["row_id"]
 
+    week_ending_raw = candidate.get("week_ending")
+    try:
+        week_ending_date = datetime.date.fromisoformat(str(week_ending_raw))
+    except (TypeError, ValueError):
+        return _unresolved_row(
+            candidate,
+            f"week_ending {week_ending_raw!r} is not a parseable ISO date",
+        )
+    week_start = week_ending_date - datetime.timedelta(days=6)
+
     checkbox_history = _sorted_history_entries(
         fetch_history(sheet_id, row_id, checkbox_col)
     )
-    checked_at = None
+    transitions: "list[datetime.datetime]" = []
+    prev_truthy = False
     for entry in checkbox_history:
-        if _is_truthy_checkbox_value(_entry_value(entry)):
-            checked_at = _entry_modified_at(entry)
-            break
-    if checked_at is None:
+        truthy = _is_truthy_checkbox_value(_entry_value(entry))
+        if truthy and not prev_truthy:
+            entry_ts = _entry_modified_at(entry)
+            if entry_ts is not None:
+                transitions.append(entry_ts)
+        prev_truthy = truthy
+    if not transitions:
         # Efficiency: no point spending a second request on the name
         # column when this role's completion box never became checked
         # in cell history -- there is no claim event to attribute.
@@ -625,36 +743,73 @@ def _resolve_one_candidate(
             "Smartsheet cell history",
         )
 
+    in_window = [ts for ts in transitions if ts.date() >= week_start]
+    if not in_window:
+        return _unresolved_row(
+            candidate,
+            "no in-window check: every completion checkbox check "
+            f"transition predates this row's own week (week_start="
+            f"{week_start.isoformat()})",
+        )
+
     name_history = _sorted_history_entries(
         fetch_history(sheet_id, row_id, name_col)
     )
-    best_value = None
-    for entry in name_history:
-        entry_ts = _entry_modified_at(entry)
-        if entry_ts is not None and entry_ts <= checked_at:
-            best_value = _entry_value(entry)
-    if best_value is None or not str(best_value).strip():
-        return _unresolved_row(
-            candidate,
-            "no name value was in effect at the moment the completion "
-            "checkbox was checked",
-        )
 
     from billing_audit.writer import is_sentinel_claimer
 
-    if is_sentinel_claimer(best_value):
+    distinct_names: "dict[str, str]" = {}
+    claim_timestamps: "list[datetime.datetime]" = []
+    latest_ts: "datetime.datetime | None" = None
+    name_found = False
+    for ts in in_window:
+        name_value = None
+        for entry in name_history:
+            entry_ts = _entry_modified_at(entry)
+            if entry_ts is not None and entry_ts <= ts:
+                name_value = _entry_name_value(entry)
+        if name_value is None or not str(name_value).strip():
+            continue
+        name_found = True
+        if is_sentinel_claimer(name_value):
+            continue
+        stripped = str(name_value).strip()
+        distinct_names.setdefault(stripped.casefold(), stripped)
+        claim_timestamps.append(ts)
+        if latest_ts is None or ts > latest_ts:
+            latest_ts = ts
+
+    if not distinct_names:
+        if not name_found:
+            return _unresolved_row(
+                candidate,
+                "no name in effect: no name-history entry was in "
+                "effect at any in-window checkbox transition",
+            )
         return _unresolved_row(
             candidate,
-            f"resolved cell-history value is itself a sentinel ({best_value!r})",
+            "only sentinels: every name resolved from cell history "
+            "for an in-window transition is itself a sentinel",
         )
 
+    if len(distinct_names) > 1:
+        ts_list = ",".join(ts.isoformat() for ts in claim_timestamps)
+        return _make_report_row(
+            candidate,
+            status="conflict",
+            proposed_value="",
+            evidence=f"cell_history|conflicting_claims_at={ts_list}",
+        )
+
+    (only_name,) = distinct_names.values()
     return _make_report_row(
         candidate,
         status="proposed",
-        proposed_value=str(best_value).strip(),
+        proposed_value=only_name,
         evidence=(
-            f"cell_history|checkbox_checked_at={checked_at.isoformat()}"
-            f"|sheet_id={sheet_id}|name_col={name_col}"
+            f"cell_history|checkbox_checked_at={latest_ts.isoformat()}"
+            f"|claims={len(claim_timestamps)}|sheet_id={sheet_id}"
+            f"|name_col={name_col}"
         ),
     )
 
@@ -670,6 +825,14 @@ def main(argv: "list[str] | None" = None) -> int:
 
     if args.check_backlog:
         n = _check_backlog(args.report)
+        if n < 0:
+            logging.error(
+                "❌ --check-backlog could not determine a backlog count "
+                "(Supabase client unavailable or the bounded fallback "
+                "scan failed). Exiting non-zero so a broken backend is "
+                "never mistaken for an empty queue."
+            )
+            return 7
         print(f"backlog_rows={n}")
         return 0
 
@@ -710,43 +873,45 @@ def main(argv: "list[str] | None" = None) -> int:
         return 0
 
     max_rows = _int_env("CELL_HISTORY_BACKFILL_MAX_ROWS", 1200)
-    pace_sec = _float_env("CELL_HISTORY_BACKFILL_PACE_SEC", 0.25)
+    pace_sec = _float_env("CELL_HISTORY_BACKFILL_PACE_SEC", 0.5)
     max_minutes = _float_env("CELL_HISTORY_BACKFILL_MAX_MINUTES", 45.0)
     max_requests = (
         args.max_requests if args.max_requests is not None
         else _int_env("CELL_HISTORY_BACKFILL_MAX_REQUESTS", 3000)
     )
 
-    # Pre-flight session-budget guard (pipeline/snapshot_drift.py
-    # lines 374-396 shape, reimplemented locally -- no pipeline
-    # import): degrades the WHOLE run to "no fetching, all
-    # unresolved" rather than stalling when the shared Actions job's
-    # remaining time budget is already tight.
-    session_start = datetime.datetime.now()
-    time_budget_minutes = _float_env("TIME_BUDGET_MINUTES", 0.0)
-    github_actions_mode = os.getenv("GITHUB_ACTIONS") == "true"
-    degrade_all = False
-    degrade_reason = ""
-    if time_budget_minutes and github_actions_mode:
-        elapsed_min = (
-            datetime.datetime.now() - session_start
-        ).total_seconds() / 60.0
-        remaining_min = time_budget_minutes - elapsed_min
-        if remaining_min < max_minutes:
-            degrade_all = True
-            degrade_reason = (
-                f"session budget low ({remaining_min:.1f}min remaining, "
-                f"need >= {max_minutes:.1f}min sub-budget)"
-            )
-            logging.warning(
-                f"⏩ Cell-history backfill skipped for this run: {degrade_reason}"
-            )
-
     cache: dict = {}
-    client = None
-    if not degrade_all:
-        _prefetch_sheet_and_columns([c["row_id"] for c in candidates], cache)
+    report_rows: "list[dict[str, Any]]" = []
+    read_failures = 0
+    aborted = False
+    cap_reached = False
+    candidates_deferred = 0
+    requests_used = 0
 
+    try:
+        _prefetch_sheet_and_columns([c["row_id"] for c in candidates], cache)
+    except Exception as exc:
+        # HIGH-01 review fix: a pipeline_memory mapping read failure
+        # is a genuine read failure, never "unresolved". No Smartsheet
+        # call has been issued yet at this point, so the whole run
+        # aborts here; the first candidate (deterministic, sorted
+        # order) carries the error row.
+        sentry_sdk.capture_exception()
+        logging.error(
+            "❌ pipeline_memory mapping read failed while resolving "
+            f"sheet/column ids for cell-history candidates: "
+            f"{type(exc).__name__}"
+        )
+        report_rows.append(
+            _make_report_row(
+                candidates[0], status="error", proposed_value="",
+                evidence=f"cell_history_read_failed:{type(exc).__name__}",
+            )
+        )
+        read_failures = 1
+        aborted = True
+
+    if not aborted:
         api_token = os.getenv("SMARTSHEET_API_TOKEN")
         if not api_token:
             logging.error(
@@ -760,42 +925,45 @@ def main(argv: "list[str] | None" = None) -> int:
         client = smartsheet.Smartsheet(api_token)
         client.errors_as_exceptions(True)
 
-    request_counter = [0]
-    called_once = [False]
+        request_counter = [0]
+        called_once = [False]
+        deadline = (
+            datetime.datetime.now() + datetime.timedelta(minutes=max_minutes)
+        )
 
-    def _fetch_history(sheet_id: int, row_id: int, column_id: int) -> Any:
-        # Self-pacing: sleep between calls, never before the first one
-        # this run. The ONLY client.Cells.get_cell_history call site
-        # in this script (Task 2's structural test pins this).
-        if called_once[0]:
-            time.sleep(pace_sec)
-        called_once[0] = True
-        request_counter[0] += 1
-        with sentry_sdk.start_span(
-            op="own03_cell_history.get_cell_history",
-            name=f"sheet={sheet_id} row={row_id} col={column_id}",
-        ):
-            return client.Cells.get_cell_history(
-                sheet_id, row_id, column_id, include_all=True
-            )
-
-    deadline = datetime.datetime.now() + datetime.timedelta(minutes=max_minutes)
-    report_rows: "list[dict[str, Any]]" = []
-
-    if degrade_all:
-        for candidate in candidates:
-            report_rows.append(_unresolved_row(candidate, degrade_reason))
-    else:
-        for index, candidate in enumerate(candidates):
+        def _fetch_history(sheet_id: int, row_id: int, column_id: int) -> Any:
+            # HIGH-04 review fix: cap/deadline are re-checked BEFORE
+            # EVERY request -- not once per candidate -- so either can
+            # trip between one candidate's own checkbox and
+            # name-column requests. Neither counts the Smartsheet
+            # SDK's own internal 429 retries; those happen inside this
+            # one client.Cells.get_cell_history(...) call.
             if request_counter[0] >= max_requests:
-                report_rows.append(
-                    _unresolved_row(
-                        candidate,
-                        "request cap reached "
-                        f"(CELL_HISTORY_BACKFILL_MAX_REQUESTS={max_requests})",
-                    )
+                raise _CapReached(
+                    "request cap reached "
+                    f"(CELL_HISTORY_BACKFILL_MAX_REQUESTS={max_requests})"
                 )
-                continue
+            if datetime.datetime.now() >= deadline:
+                raise _CapReached(
+                    "wall-clock deadline reached "
+                    f"(CELL_HISTORY_BACKFILL_MAX_MINUTES={max_minutes})"
+                )
+            # Self-pacing: sleep between calls, never before the first
+            # one this run. The ONLY client.Cells.get_cell_history call
+            # site in this script (Task 2's structural test pins this).
+            if called_once[0]:
+                time.sleep(pace_sec)
+            called_once[0] = True
+            request_counter[0] += 1
+            with sentry_sdk.start_span(
+                op="own03_cell_history.get_cell_history",
+                name=f"sheet={sheet_id} row={row_id} col={column_id}",
+            ):
+                return client.Cells.get_cell_history(
+                    sheet_id, row_id, column_id, include_all=True
+                )
+
+        for index, candidate in enumerate(candidates):
             if index >= max_rows:
                 report_rows.append(
                     _unresolved_row(
@@ -804,47 +972,73 @@ def main(argv: "list[str] | None" = None) -> int:
                     )
                 )
                 continue
-            if datetime.datetime.now() >= deadline:
-                report_rows.append(
-                    _unresolved_row(
-                        candidate,
-                        "wall-clock deadline reached "
-                        f"(CELL_HISTORY_BACKFILL_MAX_MINUTES={max_minutes})",
-                    )
-                )
-                continue
             try:
                 report_rows.append(
                     _resolve_one_candidate(candidate, cache, _fetch_history)
                 )
+            except _CapReached:
+                # This candidate and every remaining one are left OUT
+                # of the report -- they stay unresolved/conflict in
+                # the sources 1-4 report and are retried next run.
+                cap_reached = True
+                candidates_deferred = len(candidates) - index
+                break
             except Exception as exc:
+                # HIGH-01 review fix: never launder a read failure
+                # into "unresolved". Stop issuing further Smartsheet
+                # calls, mark this candidate as a genuine error, and
+                # abort the run (exit 7 below) -- any not-yet-attempted
+                # candidates are left OUT of the report.
                 sentry_sdk.capture_exception()
-                logging.warning(
-                    "⚠️ cell-history resolution raised for candidate "
+                logging.error(
+                    "❌ cell-history read failed for candidate "
                     f"wr={candidate.get('wr')} "
                     f"week={candidate.get('week_ending')} "
                     f"row_id={candidate.get('row_id')} "
                     f"role={candidate.get('role')}: {type(exc).__name__}"
                 )
+                error_type = type(exc).__name__
                 report_rows.append(
-                    _unresolved_row(
-                        candidate,
-                        f"exception during resolution: {type(exc).__name__}",
+                    _make_report_row(
+                        candidate, status="error", proposed_value="",
+                        evidence=f"cell_history_read_failed:{error_type}",
                     )
                 )
+                read_failures += 1
+                aborted = True
+                break
+
+        requests_used = request_counter[0]
 
     json_path, csv_path = bca._write_reports(
         args.report_dir, report_rows, run_id,
         filename_stem=_OUTPUT_FILENAME_STEM,
         extra_summary={
             "candidates_considered": len(candidates),
-            "requests_used": request_counter[0],
+            "requests_used": requests_used,
+            "read_failures": read_failures,
+            "aborted": aborted,
+            "cap_reached": cap_reached,
+            "candidates_deferred": candidates_deferred,
         },
     )
+
+    if aborted:
+        logging.error(
+            f"❌ Report written with {read_failures} read failure(s); "
+            f"run aborted: {json_path}"
+        )
+        return 7
+
     logging.info(f"✅ Report written: {json_path}")
     logging.info(f"                    {csv_path}")
     logging.info(f"   Candidates considered: {len(candidates)}")
-    logging.info(f"   Smartsheet requests used: {request_counter[0]}")
+    logging.info(f"   Smartsheet requests used: {requests_used}")
+    if cap_reached:
+        logging.warning(
+            f"⏩ Cap/deadline reached mid-run — {candidates_deferred} "
+            "candidate(s) deferred to the next invocation."
+        )
 
     if not args.apply:
         return 0
@@ -893,7 +1087,7 @@ def main(argv: "list[str] | None" = None) -> int:
         filename_stem=_OUTPUT_FILENAME_STEM,
         extra_summary={
             "candidates_considered": len(candidates),
-            "requests_used": request_counter[0],
+            "requests_used": requests_used,
             "apply": tallies,
         },
     )
