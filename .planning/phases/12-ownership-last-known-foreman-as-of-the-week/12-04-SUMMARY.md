@@ -231,3 +231,30 @@ None yet for Tasks 1-2 (no external service configuration required; `SUPABASE_UR
 - VERIFIED: `python -m pytest tests/ -q` — 2017 passed, 1 skipped, 365 subtests
 - VERIFIED: `python -m py_compile scripts/backfill_cell_history_attribution.py` — no errors
 - VERIFIED: `python scripts/backfill_cell_history_attribution.py --help` — contains both `--check-backlog` and `--max-requests`
+
+## Pre-checkpoint review fixes
+
+An independent Opus production-risk review of Tasks 1-2 (before merge and before the
+Task 3 decision) returned FIX-FIRST (4 HIGH / 4 MEDIUM); one fix round, commit
+`101489d`, orchestrator-decided rules:
+
+- **HIGH — laundered read failures:** any cell-history / mapping read failure now
+  marks the candidate `status="error"` (evidence carries the exception TYPE only),
+  stops further Smartsheet calls, still writes the report with
+  `summary.read_failures` / `summary.aborted`, and exits 7 — never `unresolved`.
+- **HIGH — name column read `value`:** `_entry_name_value` prefers `display_value`
+  (a CONTACT_LIST `value` is an email) for the name column only.
+- **HIGH — no week guard:** rule decided: a checkbox falsy→truthy transition counts
+  only when its timestamp is on/after `week_ending - 6 days` (earlier ticks belong to
+  a prior week's claim on a re-dated row); no upper bound (late ticks are still this
+  row's week). One distinct in-window name → proposed (`claims=<n>`); differing names
+  → `conflict` (timestamps only in evidence); none → unresolved.
+- **HIGH — pacing 80% of the shared budget:** default pace 0.25s → 0.5s (120 req/min);
+  request/deadline caps now checked inside the fetch before every request; a trip
+  defers the remaining candidates (`cap_reached`, `candidates_deferred`), exit 0.
+- **MEDIUM:** dead `TIME_BUDGET_MINUTES` pre-flight removed; provenance tag
+  `operator` → `backfill_cell_history` (12-03's RPC vocabulary extended in `f3b6db3`);
+  `--check-backlog` exits 7 on a broken backend instead of reporting 0.
+- **LOW:** non-canonical `Foreman Assigned?` synonym dropped.
+- Tests: +11 (ordering, recheck cycles, conflict, name-after-check, week window,
+  display_value, failure exit, cap deferral, backlog failure). Full suite: 2025 passed.
