@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: September 2, 2026 (updated automatically)_
+_Last updated: September 3, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,8 +14,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 2, 2026
+### 📋 Changelog — September 3, 2026
 
+- 📄 Help guides updated: align instruction files (run 1)
 - ⚡ The system now runs faster (bound validation read to 3 rows (G-11.1-4))
 - ✅ Problem fixed: detach abandoned shadow-parity probe workers at interpreter exit
 - ⚡ The system now runs faster (warm-start the frozen-row cache from the attribution prefetch)
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: resolve&#95;claimer week-key coercion + review fixes
 - ✅ Problem fixed: sentinel is never a claimer (Phase 12 / OWN-02, policy A)
 - ⚡ The system now runs faster (fix post-INC-05 runtime regressions (discovery skip + attachment pre-seed))
-- ✨ New capability: parity streak counts weekend + manual runs
 
 <!-- /runbook-repo -->
 
@@ -480,4 +480,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
