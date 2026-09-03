@@ -127,19 +127,33 @@ $$;
 -- is_sentinel_claimer). Update BOTH sides in the same PR if either
 -- changes -- tests/test_own03_backfill_sql_contract.py asserts every
 -- member of the Python frozenset appears in this SQL body.
+--
+-- The Python twin strips ALL whitespace (str.strip(), not just plain
+-- spaces) before its blank / '#' / vocabulary checks, then collapses
+-- any remaining internal whitespace run to a single space. `stripped`
+-- mirrors that with a full-whitespace-set btrim (E' \t\r\n\f\v', not
+-- the 1-arg btrim(text) default of space-only) so both sides agree
+-- byte-for-byte on tab/newline-padded values -- every place below
+-- that treats a value as blank reads from `stripped.v`, never the raw
+-- `p_value`.
 CREATE OR REPLACE FUNCTION billing_audit.is_sentinel_value(p_value TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
 SET search_path = ''
 AS $$
+    WITH stripped AS (
+        SELECT pg_catalog.btrim(p_value, E' \t\r\n\f\v') AS v
+    )
     SELECT
         p_value IS NULL
-        OR pg_catalog.btrim(p_value) = ''
-        OR pg_catalog.btrim(p_value) LIKE '#%'
+        OR stripped.v = ''
+        OR stripped.v LIKE '#%'
         OR pg_catalog.lower(
                pg_catalog.regexp_replace(
-                   pg_catalog.btrim(pg_catalog.replace(p_value, '_', ' ')),
+                   pg_catalog.btrim(
+                       pg_catalog.replace(stripped.v, '_', ' ')
+                   ),
                    '\s+', ' ', 'g'
                )
            ) IN (
@@ -148,7 +162,8 @@ AS $$
                'unknown helper',
                'unknown vac crew',
                'no match'
-           );
+           )
+    FROM stripped;
 $$;
 
 
@@ -174,6 +189,7 @@ LANGUAGE plpgsql
 VOLATILE
 SET search_path = ''
 AS $$
+#variable_conflict use_column
 -- ============================================================
 -- ADJUST HERE -- STEP 0 correction region. If STEP 0's output showed
 -- write-side role column names OTHER than frozen_primary /
@@ -206,8 +222,8 @@ BEGIN
         END IF;
         IF billing_audit.is_sentinel_value(v_row.value) THEN
             RAISE EXCEPTION
-                'backfill_attribution: proposed value % for wr=% week_ending=% smartsheet_row_id=% role=% is a sentinel value, refusing to write it',
-                v_row.value, v_row.wr, v_row.week_ending, v_row.smartsheet_row_id, v_row.role;
+                'backfill_attribution: proposed value for role=% (wr=% week_ending=% smartsheet_row_id=%) is a sentinel value, refusing to write it',
+                v_row.role, v_row.wr, v_row.week_ending, v_row.smartsheet_row_id;
         END IF;
         IF v_row.backfill_source IS NULL
            OR v_row.backfill_source NOT IN (

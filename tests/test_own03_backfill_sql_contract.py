@@ -15,6 +15,7 @@ Mirrors the ``_read_source`` / ``_collapse_ws`` idiom in
 
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -149,6 +150,78 @@ class SentinelVocabularyParityTests(unittest.TestCase):
         for value in _SENTINEL_CLAIMERS:
             with self.subTest(value=value):
                 self.assertIn(value, body)
+
+
+def _parse_jsonb_recordset_columns(sql_text: str) -> list[str]:
+    """Parse the typed column names from the first
+    ``jsonb_to_recordset(p_rows) AS q(...)`` column list in *sql_text*
+    -- the exact keys the RPC reads from each ``p_rows`` element."""
+    match = re.search(
+        r"jsonb_to_recordset\(p_rows\)\s+AS\s+q\(([^)]*)\)",
+        sql_text,
+        re.IGNORECASE,
+    )
+    assert match, "no jsonb_to_recordset(p_rows) AS q(...) column list"
+    columns = []
+    for part in match.group(1).split(","):
+        part = part.strip()
+        if part:
+            columns.append(part.split()[0])
+    return columns
+
+
+def _parse_case_result_vocabulary(sql_text: str) -> set[str]:
+    """Parse the string literals the RPC's ``CASE ... END AS result``
+    classification can return -- the RPC's per-row result vocabulary."""
+    match = re.search(
+        r"CASE\s+(.*?)END\s+AS\s+result",
+        sql_text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    assert match, "no CASE ... END AS result block found"
+    return set(
+        re.findall(r"(?:THEN|ELSE)\s+'([a-zA-Z_]+)'", match.group(1))
+    )
+
+
+class ApplyPayloadSqlParityTests(unittest.TestCase):
+    """Cross-checks scripts/backfill_claim_time_attribution.py against
+    this SQL file so the Python ``--apply`` payload builder and the
+    RPC's typed column list / result vocabulary never silently drift
+    apart from each other."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.raw = _read_source(_SQL_RELPATH)
+
+    def test_build_apply_payload_keys_match_sql_column_list(self):
+        from scripts.backfill_claim_time_attribution import (
+            _build_apply_payload,
+        )
+
+        report_row = {
+            "wr": "19073866", "week_ending": "2026-08-24",
+            "row_id": 700001, "role": "primary",
+            "current_value": "Unknown Foreman",
+            "proposed_value": "Avery Example",
+            "source": "backfill_hash_history", "status": "proposed",
+        }
+        payload = _build_apply_payload([report_row], run_id="test-run")
+        self.assertEqual(len(payload), 1)
+
+        sql_columns = set(_parse_jsonb_recordset_columns(self.raw))
+        self.assertEqual(set(payload[0].keys()), sql_columns)
+
+    def test_apply_result_keys_appear_in_sql_case_vocabulary(self):
+        from scripts.backfill_claim_time_attribution import (
+            _APPLY_RESULT_KEYS,
+        )
+
+        sql_vocabulary = _parse_case_result_vocabulary(self.raw)
+        allowed = sql_vocabulary | {"error"}
+        for status in _APPLY_RESULT_KEYS:
+            with self.subTest(status=status):
+                self.assertIn(status, allowed)
 
 
 if __name__ == "__main__":
