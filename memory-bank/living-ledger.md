@@ -9089,4 +9089,13 @@ only); (4) caps CLAUDE.md ≤ 150 / project-state ≤ 120. Next: run the repair 
 - **Owner items:** paste the AGENTS.md header; confirm the April-2026 token rotation; decide on the full
   docs-update generation; track-or-ignore `.agents/`, `.serena/project*.yml`, `.planning/state.json`,
   `website/.claude/`; delete-or-keep `replit.md`, `Copilot-Processing.md`, `wiki.md`.
-- Final re-verification after the moves: (pending)
+- **Final re-verification after the moves:** trimmed CLAUDE.md 43/43; `docs/ai/architecture.md` 85/87 →
+  two carried-over stale claims fixed (the 2026-04-22 budget raise was 80→180 per `[2026-04-22 17:10]`,
+  and the artifact step globs `WR_*.xlsx` / `generated_docs/**/WR_*.xlsx`, not `WR_*_WeekEnding_*`) →
+  53/53; configuration quick reference 51/53 → citations + `DEBUG_MODE` (not read by any code; joins
+  the not-consumed list with `CLEANUP_ONLY`, `SYNTHETIC_WR_COUNT`, `SYNTHETIC_ROW_VARIANCE`,
+  `ENABLE_AUDIT_ANOMALIES`) → 20/20, with the legacy prompt text below it labeled design intent
+  (`run_summary.json` is a 24-key golden, no `cleanup_only` input, `AUDIT_SHEET_ID` not a workflow
+  secret); `docs/sentry-implementation.md` 20/22 after the `portal/` fix → `SENTRY_DEBUG` marked not
+  consumed and the sdk pin corrected (fix loop closed at 2 iterations). haiku-verifier: all 18
+  guardrail sentences from the old CLAUDE.md resolve to a home; caps and pointers PASS.
