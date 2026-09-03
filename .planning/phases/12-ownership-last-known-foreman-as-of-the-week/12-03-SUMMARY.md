@@ -91,8 +91,8 @@ Each task was committed atomically:
 
 1. **Task 1: Author the owner-deployed backfill_attribution SQL file** - `3fbd7bf` (feat)
 2. **Task 2: Add the backfill_attribution contract-as-comment block to billing_audit/schema.sql** - `f1a1099` (docs)
-3. **Task 3: DECISION — authorize the one-way Supabase DDL apply** - `gate="blocking-human"` — **AWAITING JUAN'S DECISION**, halted here.
-4. **Task 4: Juan applies the SQL and confirms the live schema** - not started (blocked by Task 3).
+3. **Task 3: DECISION — authorize the one-way Supabase DDL apply** - `gate="blocking-human"` — **DECIDED 2026-09-03: `approve`** (see Checkpoint below).
+4. **Task 4: Juan applies the SQL and confirms the live schema** - `gate="blocking-human"` — **AWAITING JUAN'S APPLY + seven-answer report**, halted here.
 
 **Plan metadata:** this SUMMARY.md commit follows.
 
@@ -129,7 +129,31 @@ None. Both automated `<verify>` commands (`python -m pytest tests/test_own03_bac
 
 **Resume signal:** Reply `approve`, `approve-with-correction` (and paste the three real column names), or `hold`.
 
-**Status:** No response received yet in this execution. `12-03-SUMMARY.md` is being committed now (per the atomic-close-out invariant for a designed checkpoint stop) so a continuation agent has the completed-tasks state on resume. Task 4 (`gate="blocking-human"`, the live Supabase apply + confirmation) is blocked on this decision and has not started.
+**Status (superseded):** No response was received in the original execution; the SUMMARY was committed at the checkpoint stop.
+
+**Decision recorded 2026-09-03 (post wave-2 merge, orchestrator session):** Juan selected option **`approve`** — verbatim
+selection from the structured checkpoint prompt: `approve (Recommended)` ("Apply as written after you run STEP 0 and
+confirm the three frozen_* column names and the UPDATE grant"). No column-name correction supplied, so the `ADJUST HERE`
+region of `billing_audit/own03_backfill_attribution.sql` is unchanged. Task 3 acceptance criteria met; the SQL file is
+not edited by this decision.
+
+## Checkpoint: Task 4 — human-verify awaiting Juan's apply
+
+**Gate:** `blocking-human`. Nothing in this repo executes the SQL; Juan runs
+`billing_audit/own03_backfill_attribution.sql` step by step in the Supabase SQL editor and reports the seven answers
+from the plan's `<how-to-verify>` step 7: (1) the STEP 0 write-side role column names, (2) the exact backup table name
+`attribution_snapshot_backup_<YYYYMMDD>` and its row count, (3) that the count equals the live `attribution_snapshot`
+count, (4) STEP 2 shows `backfill_source` / `backfill_run_id` in the STEP 0 output, (5) the STEP 3 spot check
+`true, true, false`, (6) STEP 4/5 applied + `NOTIFY pgrst, 'reload schema';`, (7) the STEP 6 no-op RPC call returned
+`skipped_no_row` with zero rows carrying a non-null `backfill_run_id`.
+
+**Pre-apply reminders (Opus review carry-overs):** the RPC is SECURITY INVOKER and the file grants EXECUTE only — confirm
+the applying role also holds UPDATE on `billing_audit.attribution_snapshot`; the 12-01 `--apply` backup-table probe is
+same-UTC-day only, so create the backup and run the 12-06 apply on the same UTC day; STEP 0 does not fail closed on
+column names — read its output before STEP 4.
+
+**Resume signal:** the seven answers, then `approved` — or the failing STEP. The continuation transcribes them here
+verbatim; the recorded backup table name is the exact string plan 12-06's precondition probe looks for.
 
 ## User Setup Required
 
