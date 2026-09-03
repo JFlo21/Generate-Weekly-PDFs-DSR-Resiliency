@@ -208,6 +208,7 @@ WHERE conname = 'attribution_snapshot_backfill_source_check';
 -- byte-for-byte on tab/newline-padded values -- every place below
 -- that treats a value as blank reads from `stripped.v`, never the raw
 -- `p_value`.
+-- >>>>>>>> STEP 3 SELECTION STARTS HERE -- select down to the "STEP 3 SELECTION ENDS HERE" marker >>>>>>>>
 CREATE OR REPLACE FUNCTION billing_audit.is_sentinel_value(p_value TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -237,6 +238,7 @@ AS $$
            )
     FROM stripped;
 $$;
+-- <<<<<<<< STEP 3 SELECTION ENDS HERE (include the `$$;` line above) <<<<<<<<
 
 
 -- ── STEP 4 -- THE RPC ─────────────────────────────────────────
@@ -251,6 +253,8 @@ $$;
 -- CREATE OR REPLACE FUNCTION cannot change a function's RETURNS TABLE
 -- column set, so a bare CREATE OR REPLACE over a differently-shaped
 -- prior version silently never deploys.
+-- >>>>>>>> STEP 4 SELECTION STARTS HERE -- select from this line down to the
+-- "STEP 4 SELECTION ENDS HERE" marker and run the selection as ONE statement. >>>>>>>>
 DROP FUNCTION IF EXISTS billing_audit.backfill_attribution(jsonb);
 
 CREATE FUNCTION billing_audit.backfill_attribution(
@@ -424,6 +428,7 @@ BEGIN
      AND e.smartsheet_row_id = q.smartsheet_row_id;
 END;
 $$;
+-- <<<<<<<< STEP 4 SELECTION ENDS HERE (the line above, `$$;`, must be included) <<<<<<<<
 
 
 -- ── STEP 5 -- GRANT ───────────────────────────────────────────
