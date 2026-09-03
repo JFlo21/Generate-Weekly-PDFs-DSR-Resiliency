@@ -409,3 +409,11 @@ files, untrusted results) and `Supabase PostgREST Integration Patterns` §3 (REV
 project page now say "Phase 12 waves 1–3 merged; 12-06 open". Vault log `[2026-09-03n]`–`[2026-09-03p]`.
 
 **2026-09-03 night — 12-06 dispatched, halted at Task 1:** the last Phase 12 plan is owner-run; the executor returned its blocking-human dry-run checkpoint without touching live systems. Plan text vs code: no full-scope dry-run mode exists (`--wr` + `--weeks` required, exit 8 otherwise) — use the runbook's scoped command. Backup must be re-created on the apply's UTC day. Tracking only; no code changed.
+
+**2026-09-03 night — 12-06 Task 1 dry-run REJECTED (no apply):** Juan ran the full-scope dry-run (207 WRs × 54
+weeks, exit 0, 5,829 rows). Source 3 proposed the literal "Unknown Foreman.xlsx" for 4,070 rows because
+`public.artifacts.filename` is the stable hash-less attachment name and the parser only strips a `_<6hex>.xlsx`
+tail; the RPC guard checks the current value only, so the apply would have frozen that string as a real name.
+Only 692 source-1 proposals (7 WRs) are sound. Also: `#NO MATCH` rows (945) are invisible to targeting via the
+lookup RPC, and the roadmap's sample WR 19073866 is a placeholder absent from Supabase. Root cause, gates that
+missed it, and rules: ledger `[2026-09-03 17:30]`. Next: `/gsd:plan-phase 12 --gaps`. No code changed.

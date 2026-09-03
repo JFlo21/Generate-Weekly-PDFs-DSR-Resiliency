@@ -8972,6 +8972,42 @@ advisory. Next: `/gsd-execute-phase 12`. Every live step (owner SQL apply, `--ap
 enable, post-run observation) is a blocking human checkpoint for Juan; execution ships as PRs, never
 direct to master.
 
+## [2026-09-03 17:30] OWN-03 dry-run REJECTED at 12-06 Task 1 — source 3 parsed `public.artifacts` filenames with a hash suffix they never have, so "Unknown Foreman.xlsx" was proposed as a real name for 4,070 rows; RPC guard cannot catch a bad proposed value
+
+- **Symptom:** the first full-scope dry-run (`scripts/backfill_claim_time_attribution.py`, 207 WRs × 54 weeks,
+  exit 0, 5,829 sentinel rows considered) reported proposed 4,762 / conflict 1,066 / unresolved 1 with only 8
+  distinct proposed names. 4,070 of the proposals (69 WRs, all `backfill_artifacts`) were the literal string
+  `Unknown Foreman.xlsx`; all 1,066 conflicts were between `.xlsx`-suffixed names. Only the 692 `live`
+  (source 1, `row_event`) proposals across 7 WRs were sound.
+- **Root cause:** `_extract_claimer_from_filename` cuts the name at `_FILENAME_HASH_SUFFIX_RE`
+  (`_[0-9a-fA-F]{6}\.xlsx$`). `public.artifacts.filename` is the STABLE attachment name written by
+  `scripts/publish_artifacts_to_supabase.py::_parse_stable` — `WR_<wr>_WeekEnding_<mmddyy>_User_<name>.xlsx`,
+  no timestamp, no hash (0 of 90,323 primary artifact rows for the sentinel pairs end in six hex). The regex
+  never matches, the whole remainder survives, and `is_sentinel_claimer("Unknown_Foreman.xlsx")` is False
+  because the sentinel family is matched exactly after `_`→space (`unknown foreman.xlsx` ∉ family).
+- **Why every gate missed it:** the 12-01 fixtures all use hash-suffixed names (`Avery_Example_aabbcc.xlsx`),
+  so the parser was tested against a filename shape production never stores; the haiku rubric, plan-checker
+  and the Opus review judged the plan's shape, not the live table. The server-side guard in
+  `billing_audit.backfill_attribution` is `is_sentinel_value(s.frozen_<role>)` — it inspects the CURRENT
+  value only, never `q.value`, so `--apply` would have written `Unknown Foreman.xlsx` into 4,070 rows as a
+  real frozen name (and "a real frozen name still wins" would have made it permanent until a manual UPDATE).
+- **Second scope gap:** `lookup_attribution_bulk` returns NULL for `#…` values, so the 935 primary + 10 helper
+  `#NO MATCH` rows are invisible to the script's named-sentinel targeting (5,829 considered vs 6,764 named
+  sentinels live); `--include-blank-roles` would sweep in genuinely blank roles too. Needs its own decision.
+- **Sample WR:** the roadmap's known-good WR 19073866 has zero rows in every Supabase store (the snapshot was
+  never rebuilt — `frozen_at` from 2026-04-24); the docs carry a placeholder number as they carry the
+  placeholder name. Only WR 89829163 has sentinel primary rows on exactly 082425/083125/091425/092125, and its
+  `group_content_hash` identifiers are sentinel-only, so SC3 "via backfill_hash_history" is not satisfiable
+  from Supabase; the retired `hash_history.json` is not on disk.
+- **Rules:** (1) any filename-derived candidate must be normalised with the file extension stripped BEFORE the
+  sentinel check, and a candidate that still contains `.xlsx` (or any extension) is never a name; (2) fixtures
+  for a live table must be copied from that table's real shape, not from the generator's docstring; (3) the
+  backfill RPC (or the script's payload builder) must also refuse a PROPOSED value that `is_sentinel_value`
+  rejects or that contains an extension — the current-value guard alone is not a write guard; (4) a dry-run
+  whose proposals collapse to a handful of distinct names across dozens of WRs is a defect signal, not a
+  result. Route: `/gsd:plan-phase 12 --gaps` (fix 12-01 source 3 + guard + real-shape fixtures) before any
+  apply; the live dry-run report is git-ignored under `generated_docs/`.
+
 ## [2026-09-02 20:20] ClaudeOS bootstrap audit — `docs/ai/` implementation-truth tier, Python module-architecture rule, context map rewritten, runtime caches gitignored
 
 `/global-project-bootstrap` run after Phase 12 planning. Present already: CLAUDE.md, `.claude/context-map.md`,

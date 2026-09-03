@@ -31,6 +31,28 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
 
 ## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; 12-06 owner-run remediation next on `feat/phase-12-remediation`
 
+- **2026-09-03 night — 12-06 Task 1 read-only evidence (Juan asked the main session to run it):** dry-run for the
+  plan's WR 19073866 exited 0 with 0 rows — that WR has zero rows in every Supabase store (snapshot, backup,
+  group_state, row_state, row_event, group_content_hash, artifacts); the snapshot was never rebuilt (frozen_at from
+  2026-04-24) and no Python path deletes snapshot rows, so the docs' WR is a placeholder or the rows were removed by
+  hand. Fingerprint: only WR 89829163 has sentinel primary rows on exactly 082425/083125/091425/092125, but its
+  `group_content_hash` identifiers are sentinel-only (2026-05-26) and `hash_history.json` is gone — ROADMAP SC3 "via
+  backfill_hash_history" is not satisfiable from Supabase (phase gap to record). The auto-mode classifier blocks the
+  script for any other WR; full-set lists are in the session scratchpad (`own03_wr_union.txt`, `own03_weeks_union.txt`).
+  Live inventory: 6,764 named-sentinel rows / 207 WRs / 391 pairs (Unknown Foreman 5,829 + #NO MATCH 935 primary,
+  10 helper, 0 vac; 52 non-8-digit WR keys; 0 backfilled). Source ceiling by SQL: sources 3/4 = 83 pairs / 32 WRs /
+  1,985 rows; sources 1/2 = 692 primary rows / 7 WRs; ~4,000 rows have sentinel-only history (source 5 territory).
+  Opus-MEDIUM check: 0 NULL-week / 0 stale-week row_state+row_event entries; 9 target rows without memory rows.
+  **Full-set dry-run (Juan ran it via `!`, 207 WRs × 54 weeks): exit 0, 5,829 rows considered, proposed 4,762 /
+  conflict 1,066 / unresolved 1 — and it is NOT safe to apply.** Source 3 (`backfill_artifacts`) strips a mandatory
+  `_<6hex>.xlsx` suffix, but `public.artifacts.filename` has no hash (e.g. `WR_<wr>_WeekEnding_<mmddyy>_User_<name>.xlsx`),
+  so the whole remainder survives and `Unknown_Foreman.xlsx` passes `is_sentinel_claimer`: all 4,070 artifact
+  proposals are the literal "Unknown Foreman.xlsx" (69 WRs) and all 1,066 conflicts are `.xlsx`-suffixed names; the
+  RPC guard only checks the CURRENT value (`is_sentinel_value(s.frozen_<role>)`), never `q.value`, so `--apply` would
+  have frozen that string as a real name. Only the 692 `live` (source 1) proposals across 7 WRs are sound. Second
+  scope gap: `lookup_attribution_bulk` nulls `#…` values, so the 935 primary + 10 helper `#NO MATCH` rows are
+  invisible to default targeting. Verdict for Task 1: REJECT → fix 12-01 source 3 (+ RPC/script guard on the
+  proposed value, fixtures with hash-less filenames) before any apply; ledger entry pending.
 - **2026-09-03 night — 12-06 dispatched, halted at Task 1 (blocking-human):** `/gsd-execute-phase 12` on `feat/phase-12-remediation` (sequential, worktree base-check degraded because HEAD is ahead of `origin/HEAD`); the Sonnet executor read the plan, 12-03-SUMMARY and the runbook, made zero live calls, and returned the Task 1 dry-run checkpoint for Juan. Finding: the plan's step 1 ("full-scope dry-run with no args") does not exist — `scripts/backfill_claim_time_attribution.py` exits 8 unless both `--wr` and `--weeks` are given (runbook § Running the backfill is correct); run scoped dry-runs (known-good WR 19073866 first, then the extended sample, then the remediation set). Owner reminder: the `--apply` probe wants `attribution_snapshot_backup_<today UTC>`; re-create the backup (SQL STEP 1) on the apply day. STATE.md tracking updated by `state.begin-phase`; no SUMMARY yet.
 - `/gsd-execute-phase 12` (wave filter 1) on branch `feat/phase-12-ownership` off `560115f`; GSD executor (Sonnet,
   harness worktree) delivered plan 12-01 in 6 commits: `scripts/backfill_claim_time_attribution.py` (dry-run default,
