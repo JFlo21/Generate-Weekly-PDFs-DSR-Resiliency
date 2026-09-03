@@ -219,6 +219,72 @@ ALTER TABLE billing_audit.group_content_hash
 -- smartsheet_row_id) PK shape; everything else on this table
 -- is opaque to the pipeline.
 
+-- ── backfill_attribution (RPC) ───────────────────────────────
+-- Phase 12 (Ownership — last known foreman as of the week),
+-- requirement OWN-03. The ``backfill_attribution`` Postgres function
+-- is NOT defined here — like ``freeze_attribution`` above, its body
+-- is owner-applied directly in the Supabase project (this file
+-- documents contracts, it does not carry every function body). The
+-- source of truth for the body is
+-- ``billing_audit/own03_backfill_attribution.sql``, a reviewable,
+-- owner-applied ``.sql`` file: nothing in this repo executes any
+-- statement it contains.
+--
+--   PARAMETER: p_rows jsonb — a jsonb array, each element carrying
+--   exactly these seven typed fields:
+--     wr                 TEXT
+--     week_ending        DATE
+--     smartsheet_row_id  BIGINT
+--     role               TEXT    ('primary' | 'helper' | 'vac_crew')
+--     value              TEXT    (the proposed real name; never a
+--                                 sentinel value)
+--     backfill_source    TEXT    (see the provenance vocabulary below)
+--     backfill_run_id    TEXT
+--
+--   RETURNS: one row per input row —
+--     (wr, week_ending, smartsheet_row_id, role, result)
+--   where ``result`` is one of ``updated``, ``skipped_real_name`` or
+--   ``skipped_no_row``.
+--
+-- Invariant enforced SERVER-SIDE, not by the Python caller: the
+-- function updates a role column only where the CURRENT value is a
+-- sentinel or NULL. A real (non-sentinel) frozen name is never
+-- overwritten, regardless of what the caller sends.
+--
+-- The Python caller is ``scripts/backfill_claim_time_attribution.py``
+-- (its ``--apply`` path). Its ``p_rows`` payload keys MUST NOT diverge
+-- from the seven-field typed list above — a mismatch fails loudly at
+-- the first apply call.
+--
+-- ``GRANT EXECUTE`` is restricted to ``service_role`` — this function
+-- can rewrite billing attribution and must never be reachable from a
+-- browser-facing client.
+--
+-- ``billing_audit.attribution_snapshot`` additionally gains two
+-- columns this RPC writes, ``backfill_source`` and
+-- ``backfill_run_id`` — their DDL is likewise owner-applied via
+-- ``billing_audit/own03_backfill_attribution.sql``, not asserted here
+-- as part of this opaque table's DDL. ``backfill_source`` is
+-- constrained to ``live``, ``backfill_artifacts``,
+-- ``backfill_hash_history``, ``backfill_cell_history`` and
+-- ``operator`` — ``backfill_cell_history`` is a machine inference
+-- sourced from Smartsheet cell history, distinct from ``operator``
+-- (human-entered) — the RPC honors that constraint as a contract, it
+-- does not itself define it.
+--
+-- SCOPE (D-12-A): Phase 12 does NOT ship a ``wr_week_ownership``
+-- table. OWN-01's claimer ladder is served by
+-- ``billing_audit.attribution_snapshot`` plus these two provenance
+-- columns; the ladder as implemented is ``observed_in_week ->
+-- backfill_artifacts -> backfill_hash_history -> operator ->
+-- sentinel`` with no cross-week rung — a row with no in-week evidence
+-- stays a sentinel, it is never inherited from an adjacent week.
+--
+-- OPERATOR: apply ``billing_audit/own03_backfill_attribution.sql`` in
+-- the Supabase SQL Editor, step by step, then run
+-- `NOTIFY pgrst, 'reload schema';` (already included at the end of
+-- that file).
+
 -- ── lookup_attribution (RPC) ────────────────────────────────
 -- Read surface for Phase 1.1 Bug C AND the universal claim-
 -- attribution effort (Foundation A, 2026-05-20). Returns ALL frozen
