@@ -8,7 +8,7 @@ status: executing
 stopped_at: Phase 11.1 complete, ready to plan Phase 12
 last_updated: "2026-09-03T17:15:09.997Z"
 last_activity: 2026-09-03
-last_activity_desc: Phase 12 wave 2 merged; 12-03/12-04 at checkpoints
+last_activity_desc: Phase 12 waves 2-3 done; gates + PR prep
 state_head: 77a675b5a07b938b093943295fb68216913d45ed
 progress:
   total_phases: 13
@@ -37,7 +37,7 @@ pipeline.
 
 Phase: 12 (Ownership — last known foreman as of the week) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 3 of 6 (12-02, 12-04 complete; 12-03 paused at its Task 4 owner-apply checkpoint)
+Plan: 4 of 6 (12-02, 12-04, 12-05 complete; 12-03 at its Task 4 owner-apply checkpoint; 12-06 owner-run after merge)
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
@@ -59,7 +59,7 @@ Status: Executing Phase 12
   built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
   mypy delta neutral 72->72, no re-baseline needed this plan); full
   suite 1886 passed / 1 skipped / 306 subtests.
-Last activity: 2026-09-03 — Phase 12 wave 2 merged (12-02 done; 12-03/12-04 awaiting Juan)
+Last activity: 2026-09-03 — Phase 12 waves 2-3 done; 12-04 dispatch-only; phase gates running
   GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
   Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
   under ~75 min) and SC-3's log-content confirmation remain POST-MERGE

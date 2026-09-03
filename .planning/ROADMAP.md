@@ -723,7 +723,7 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -738,7 +738,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 12-05-PLAN.md — OWN-04 documentation: the ownership-attribution runbook page, sidebar and reference updates, and the dated Living Ledger entry
+- [x] 12-05-PLAN.md — OWN-04 documentation: the ownership-attribution runbook page, sidebar and reference updates, and the dated Living Ledger entry
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
