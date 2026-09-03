@@ -9003,3 +9003,39 @@ pages 67–149 days old, zero dangling slash-qualified pointers after the contex
 regenerated, never via Codex; (2) non-ledger `memory-bank/*` pages collapse to ≤ 8-line pointer stubs after any
 surviving fact moves to `docs/ai/`; (3) cadence = milestone close + any Step 0 breach (phase closes run the check
 only); (4) caps CLAUDE.md ≤ 150 / project-state ≤ 120. Next: run the repair order on a docs branch → PR.
+
+## [2026-09-02 21:20] Historical import — memory-bank pages retired to pointer stubs (align-instruction-files run 1)
+
+- **What:** `memory-bank/{projectbrief,productContext,techContext,systemPatterns,progress,activeContext}.md`
+  collapsed to ≤8-line pointer stubs (skill `align-instruction-files` Step 2; owner decision
+  2026-09-02). Surviving implementation facts moved to `docs/ai/architecture.md` § "Domain model —
+  variants, grouping keys, metadata fields" and `docs/PROJECT_BRIEF.md`; the full prior text stays in
+  git history (the commit before this entry's PR).
+- **Facts preserved (verified against `pipeline/` this run):** three row variants
+  (primary / helper / vac_crew) detected per row, never per sheet — helper = `Foreman Helping?` +
+  `Helping Foreman Completed Unit?`; VAC = `VAC Crew Helping?` + `Vac Crew Completed Unit?` +
+  `Units Completed?`, gated by `sheet_has_vac_crew_columns` (`pipeline/fetch.py:554-570`);
+  metadata fields `__is_helper_row/__helper_foreman/__helper_dept/__helper_job` and
+  `__is_vac_crew/__vac_crew_name/__vac_crew_dept/__vac_crew_job/__vac_crew_email`; group keys
+  `MMDDYY_WR`, `MMDDYY_WR_HELPER_<name>`, `MMDDYY_WR_VACCREW[_<claimer>]`
+  (`pipeline/grouping.py:76-108`); rate CSV env vars `NEW_RATES_CSV` / `OLD_RATES_CSV` /
+  `SUBCONTRACTOR_RATES_CSV` (`pipeline/pricing.py:51-87`).
+- **Stale claims dropped (contradicted by code):** techContext said `VAC_CREW_FOLDER_IDS` was
+  removed — it is live (`pipeline/config.py:317`); `SMARTSHEET_ACCESS_TOKEN` → the real name is
+  `SMARTSHEET_API_TOKEN`; `generated_docs/hash_history.json` and the TTL discovery cache are retired
+  (Phase 11 Plan 08, INC-05); `portal/` v1 was removed in 03153c3; `CU List Contract - Arrowhead
+  Contract.csv` is not the subcontractor rate source (`data/subcontractor_rates.csv` is).
+- **History predating this ledger (first entry 2026-04-17), summarized so it is not lost:** April 2026
+  session — (1) `discover_folder_sheets` made recursive (depth 5); (2) discovery-cache freshness
+  check (since retired); (3) VAC crew moved from sheet-level tagging (`VAC_CREW_SHEET_IDS`) to
+  row-level detection mirroring the helper pattern. April 6, 2026 VAC-crew data isolation — the
+  Excel header branch fell through to primary for `vac_crew` (showed the primary foreman) and read
+  `Job #` (leaking the Arrowhead-contract job number); fixed with an explicit
+  `elif variant == 'vac_crew'` using `__vac_crew_name/_dept/_job`, group-key foreman =
+  `__vac_crew_name`, and `VACCREW=/VACCREW_DEPT=/VACCREW_JOB=` in the hash metadata. The
+  Railway→Render portal plan (`docs/railway-to-render-transition-plan.md`) is obsolete — `portal/`
+  was removed 2026-06-02; the 2026-04-18 dashboard pass is logged in
+  `docs/update-log-v2-dashboard-fixes.md`.
+- **Owner follow-up (not resolved by this run):** progress.md carried an April 2026 note that an API
+  token had been pasted into a chat and should be rotated — confirm the rotation happened.
+  `__vac_crew_email` is populated in `pipeline/fetch.py` but has no consumer in Excel output.

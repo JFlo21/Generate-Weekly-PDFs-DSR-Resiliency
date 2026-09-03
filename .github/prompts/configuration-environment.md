@@ -1,5 +1,41 @@
 # Configuration & Environment Prompts
 
+## Operator quick reference (moved from CLAUDE.md on 2026-09-02)
+
+All behavior is controlled by `os.getenv()` with defaults (implemented in `pipeline/config.py`,
+re-exported by the `generate_weekly_pdfs.py` facade). Env var NAMES only — never values.
+
+**Required:** `SMARTSHEET_API_TOKEN`.
+
+**Commonly touched:**
+- `TARGET_SHEET_ID` (default `5723337641643908`), `AUDIT_SHEET_ID`, `SENTRY_DSN`
+- `SKIP_UPLOAD`, `SKIP_CELL_HISTORY`
+- `RES_GROUPING_MODE` ∈ {`primary`, `helper`, `both`} (default `both`)
+- `TEST_MODE`, `FORCE_GENERATION`, `WR_FILTER` (comma list), `MAX_GROUPS`
+- `RESET_HASH_HISTORY=true` for full CI regeneration — forces the `pipeline_memory.group_state`-backed
+  change detection to treat every group as changed (D-02 trigger 5)
+- `REGEN_WEEKS` (MMDDYY list), `RESET_WR_LIST`, `KEEP_HISTORICAL_WEEKS`
+- `EXTENDED_CHANGE_DETECTION`
+- Discovery folders: `SUBCONTRACTOR_FOLDER_IDS`, `ORIGINAL_CONTRACT_FOLDER_IDS`, `VAC_CREW_FOLDER_IDS`
+  (`pipeline/config.py:317`); rate tables: `NEW_RATES_CSV`, `OLD_RATES_CSV`, `SUBCONTRACTOR_RATES_CSV`
+  (`pipeline/pricing.py:51-87`)
+- **Time-budget family (GitHub Actions only):** `TIME_BUDGET_MINUTES` — session graceful-stop budget,
+  default `0` (disabled) locally; the weekly workflow sets `165` and must stay strictly below the job's
+  `timeout-minutes` (`180`). Schedule and timeout history: `docs/ai/architecture.md` § Runtime.
+- Debug flags: `DEBUG_MODE`, `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`,
+  `FOREMAN_DIAGNOSTICS`, `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS`
+- Sentry Logs gate: `SENTRY_ENABLE_LOGS` (default `false`). Keep off by default because INFO-path logs
+  can embed row PII; the `before_send_log` sanitizer in `pipeline/observability.py` is the
+  defense-in-depth backstop.
+
+**Retired / no-op (Phase 11 Plan 08, INC-05 — setting them has no effect):** `USE_DISCOVERY_CACHE`,
+`DISCOVERY_CACHE_TTL_MIN`, `HASH_HISTORY_PATH`, `ATTACHMENT_PREFETCH_MAX_MINUTES`,
+`ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC`; `FORCE_REDISCOVERY` still exists on the facade for
+runbook/back-compat reasons but is a no-op (discovery validates every sheet every run).
+
+**Documented below but not currently consumed by the pipeline (aspirational until wired up):**
+`SKIP_FILE_OPERATIONS`, `DRY_RUN_UPLOADS`, `MOCK_SMARTSHEET_UPLOAD`.
+
 ## Environment Variable Deep Dive Prompt
 ```
 You are working with the Generate-Weekly-PDFs-DSR-Resiliency environment configuration system.

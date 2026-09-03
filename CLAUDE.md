@@ -1,369 +1,156 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code in this repository: rules, guardrails, and pointers only. Architecture,
+env vars, schedules, and history live in the files linked below (trimmed 2026-09-02 by the
+`align-instruction-files` skill — nothing deleted, only moved; see ledger `[2026-09-02 22:05]`).
 
-## Project Summary — Billing Automation & Excel Generation
+## What this repo is
 
-### Project Overview
-This repository's primary production workflow is a Python-based
-billing automation pipeline: data is fetched from Smartsheet, rows
-are filtered and grouped by billing logic, Excel workbooks are
-generated, and the finished files are uploaded back to Smartsheet as
-attachments. The main workflow processes roughly 550 rows across 13+
-sheets on a scheduled basis. Supabase is used in `portal-v2`, not as
-the core destination for the repository's main data pipeline.
+Production billing automation. `generate_weekly_pdfs.py` (a thin facade over the `pipeline/`
+package) pulls ~550 daily-status rows from 13+ Smartsheet sheets, groups them by Work Request +
+week ending (+ variant, foreman, dept, job), generates styled Excel workbooks with `openpyxl`,
+and uploads them back to Smartsheet as row attachments on a GitHub Actions cron roughly every
+2 hours on weekdays. It is **production-critical**: additive, surgical changes only. Never
+replace or redesign the Smartsheet → Excel → Smartsheet pipeline unless explicitly asked.
 
-### Tech Stack & Constraints
-* Primary Language: Python 3.10+
-* Core Production Systems: Smartsheet API, Excel generation
-  (`openpyxl`), GitHub Actions, Azure DevOps
-* Additional App Surfaces: `portal-v2/` (React + TypeScript frontend
-  using Supabase). Legacy Express `portal/` was removed in 03153c3
-  (2026-06-02) — never `cd portal` in install scripts.
-* Task Automation: Node.js & npm (for portal-v2 and utility
-  scripts)
-* Documentation: Docusaurus (runbook in `website/`)
-* Monitoring: Sentry (Python + Node + React)
-* Constraint: Do not suggest replacing or redesigning the core
-  Python/Smartsheet billing workflow unless explicitly requested.
-  Preserve the existing Smartsheet → Excel → Smartsheet attachment
-  pipeline.
+Three coupled components share one contract (full map: `docs/ai/architecture.md`):
+1. Python billing engine — `generate_weekly_pdfs.py` → `pipeline/`, plus `audit_billing_changes.py`
+   (price-anomaly audit) and the Supabase layers `billing_audit/` and `pipeline_memory/`.
+2. `portal-v2/` — React 18 + TypeScript + Vite + Tailwind + Supabase; deploys to Vercel.
+3. `website/` — Docusaurus living runbook; deploys to Vercel.
 
-### Architecture Decisions
-* Preserve the production billing pipeline: Smartsheet API → row
-  filtering → WR grouping → Excel generation → upload.
-* Keep changes additive and operationally safe: optimize within the
-  existing workflow rather than replacing the transport or storage
-  model described by the production scripts.
-* Sentry Telemetry: Environment and release variables must be
-  standardized. Wrap new optimizations in Sentry error handling for
-  instant visibility and rollback.
+Legacy Express `portal/` was removed in 03153c3 (2026-06-02) — never `cd portal`; Cloud Agent
+installs use `scripts/cloud-agent-install.sh`. Also: `scripts/` (6-gate harness, backfills, Notion
+sync) and `tests/` (pytest).
 
-### Development Conventions
-* Code Style: Adhere to strict PEP 8 guidelines. Enforce comprehensive
-  type hinting.
-* Additive Logic Only: Improve or extend the existing billing
-  workflow without changing its fundamental behavior unless
-  explicitly requested.
-* Release Tagging: Updates must be compatible with GitHub Actions
-  release workflows.
+## Role
 
-### Boundaries & Guardrails
-* Smartsheet Formula Restriction: NEVER use, write, or suggest the
-  `@cell` function when writing Python scripts or interacting with
-  the Smartsheet API. It is strictly an internal UI formula and will
-  fail.
-* Data Integrity: Do not drop tables or overwrite production logic
-  without explicit verification.
+Act as a senior software engineer, data analyst, technical PM, and operational PM: elite, secure,
+optimized solutions that also track delivery and operational efficiency — strict typing, clean
+architecture, OWASP; high data integrity (Python + Supabase for heavy processing; Power BI, Hex, or
+spreadsheets for reporting); delivery in Linear, architecture in Visio; KPIs, crew efficiency, and
+resource allocation via Smartsheet, MS Project, Notion, Todoist (Acrobat for document distribution).
+For a new workflow, compare the current stack with modern alternatives and give a definitive
+recommendation (security, scalability, integration effort). Integrate with the existing
+architecture; never break it.
 
-### Validation Commands
-Current (authoritative):
-* Run Tests: `pytest tests/ -v`
-* Syntax check: `python -m py_compile generate_weekly_pdfs.py`
+## Production safety (hard rules)
 
-Aspirational (future `uv` migration — not yet wired up):
-* `uv run pytest tests/`
-* `uv run ruff check .`
-* `uv run mypy .`
+- **Do not break production.** `generate_weekly_pdfs.py` processes real billing data on a cron.
+  Preserve existing behavior; refactor only to improve output, security, or performance; never
+  delete production code unless it is definitively broken or causing bugs.
+- **Minimal, surgical changes.** Establish exactly where you are in the codebase and state what
+  is being modified and what must stay untouched (`.github/instructions/taming-copilot.instructions.md`).
+- **Additive logic only** for the billing workflow unless a behavior change is explicitly requested.
+- **Data integrity:** never drop tables or overwrite production logic without explicit verification.
+- **Python module rules:** `.claude/rules/python-module-architecture.md` — the facade stays thin;
+  new behavior goes in the owning `pipeline/*`, `pipeline_memory/*`, or `billing_audit/*` module.
 
-## ⚠️ AUTONOMOUS CLOUD MEMORY INJECTION (CRITICAL)
+## Guardrails (billing-pipeline footguns)
 
-**You are self-documenting in the cloud.** When triggered via `@claude` in a GitHub issue or CLI to implement a fix or feature, you must evaluate if the solution introduced a new architectural standard, a recurring fix, or a new operational rule. If it did, you MUST autonomously append that new rule to the bottom of the **Living Ledger** at `memory-bank/living-ledger.md` (NOT this `CLAUDE.md` file — keep `CLAUDE.md` lean). **You must include a Date and Timestamp for every new entry (`[YYYY-MM-DD HH:MM]`).** Include the `memory-bank/living-ledger.md` modification as a commit in the exact same Pull Request as the code changes. Never open a PR without capturing critical new context.
+Index: `.claude/rules/billing-pipeline-guardrails.md`. History and incident root causes:
+`memory-bank/living-ledger.md` (grep the header you need; never load the whole file).
 
-## Role & Persona ("God-Mode")
+- The change-detection key is `(WR, week_ending, variant, foreman, dept, job)`. Never shorten it
+  back to `(WR, week, variant, foreman)`; helper files regenerate on new past-week rows because of it.
+- Helper rows need both `helper_dept` and `helper_foreman` (Job # optional). Rows with both
+  "Helping Foreman Completed Unit?" and "Units Completed?" checked appear only in helper Excel
+  files, never the main file — that prevents double-counting under `RES_GROUPING_MODE=both|helper`.
+- Excel: always `safe_merge_cells()` (overlap detection); never write `oddFooter.right.text`.
+- Never use, write, or suggest the Smartsheet `@cell` formula in Python or API payloads. It is a
+  UI-only formula and fails server-side.
+- Smartsheet API: 300 req/min; `PARALLEL_WORKERS` ≤ 8; rely on the SDK's 429 retries; paginate
+  properly; token only via env. Never guess column names — verify against the
+  `_validate_single_sheet()` mappings in `pipeline/discovery.py`.
+- Job # is resolved from several column synonyms (`Job #`, `Job#`, `Job Number`, …); do not
+  collapse them.
+- Keep the `advanced_options` `key:value,key:value` parser in
+  `.github/workflows/weekly-excel-generation.yml` even when the input count is under GitHub's
+  limit — operational runbooks depend on that exact format.
+- `TIME_BUDGET_MINUTES` (Python graceful stop, production `165`) must stay strictly below the
+  job's `timeout-minutes` (`180`). Raise both together or Actions hard-kills the job first.
+- Change detection is backed by `pipeline_memory.group_state` (Supabase), not a local JSON cache;
+  `RESET_HASH_HISTORY=true` forces full regeneration. Attachment identity resolves from
+  `group_state` with a per-row on-demand fallback (Phase 11 Plan 08, INC-05).
+- Sentry: `SENTRY_ENABLE_LOGS` stays `false` by default (INFO-path logs can embed row PII;
+  `before_send_log` in `pipeline/observability.py` is the backstop); `environment` / `release`
+  tags are standardized; wrap new optimizations in Sentry error handling for visibility and rollback.
 
-Act as a Senior Software Engineer, Data Analyst, Technical Project Manager (TPM), and Operational Project Manager (OPM). Provide elite, highly optimized, and secure solutions while simultaneously managing technical delivery, data visualization, and tracking business-level operational efficiency.
-
-## Production Safety & Code Modification
-
-- **Do Not Break Production:** Maintain absolute context of existing creations. Never alter core logic that could damage current production workflows. `generate_weekly_pdfs.py` runs on a cron schedule every 2 hours on weekdays and processes real billing data — treat it as production-critical.
-- **Safe Refactoring:** Only upgrade or refactor code to improve output, security, or performance. Do not delete production code unless it is definitively broken or causing bugs.
-- **Contextual Awareness:** Always establish exactly where you are in the codebase. Clearly indicate what is being safely modified and what must remain untouched to prevent system degradation.
-- **Minimal, surgical changes.** Preserve existing structure; integrate rather than replace. See `.github/instructions/taming-copilot.instructions.md`.
-
-## Repository Layout (3 Coupled Components)
-
-This repo is not a single app — it contains three deployable components that share a contract:
-
-1. **`generate_weekly_pdfs.py`** — Python billing engine (~3100 lines, production entry point). Processes ~550 rows across 13+ Smartsheet source sheets, groups by Work Request + week ending, generates styled Excel, uploads attachments back to Smartsheet. Sibling module `audit_billing_changes.py` (price anomaly / risk-level detection) is imported by the main script.
-2. **`portal/` (removed)** — Legacy Express backend deleted in 03153c3 (2026-06-02). Do not assume this directory exists; Cloud Agent install must skip it when `portal/package.json` is absent.
-3. **`portal-v2/`** — Modern React 18 + TypeScript + Vite + Tailwind + Supabase frontend. Deploys to Vercel.
-
-Also present: **`website/`** (Docusaurus living runbook, deploys to Vercel), **`scripts/`** (Notion sync + runbook + manifest utilities), **`tests/`** (pytest suite for the Python engine).
-
-## Build, Test, and Run Commands
-
-### Python core engine (the production pipeline)
+## Validation commands (authoritative)
 
 ```bash
 pip install -r requirements.txt
-pytest tests/ -v                          # full suite — must pass before push
-pytest tests/test_subcontractor_pricing.py -v      # run one file
-pytest tests/test_vac_crew.py::test_name -v        # run a single test
-pytest tests/ --cov                       # with coverage
-python -m py_compile generate_weekly_pdfs.py       # syntax-only check
-
-# Local dry run (no Smartsheet upload)
-SKIP_UPLOAD=true python generate_weekly_pdfs.py
-
-# Synthetic test mode (no API token required)
-TEST_MODE=true python generate_weekly_pdfs.py
-TEST_MODE=true WR_FILTER=WR_12345,WR_67890 python generate_weekly_pdfs.py
-
-# Diagnostics
-python diagnose_pricing_issues.py
-python audit_billing_changes.py
-python cleanup_excels.py
-python run_info.py                        # shows available scripts
+pytest tests/ -v                                  # full suite — must pass before push
+python -m py_compile generate_weekly_pdfs.py      # syntax check
+SKIP_UPLOAD=true python generate_weekly_pdfs.py   # local dry run, no upload
+TEST_MODE=true python generate_weekly_pdfs.py     # synthetic data, no token needed
+bash scripts/run_6_gates.sh                       # 6-gate harness after any module move
 ```
 
-`.github/hooks/pre-push-tests.json` is a **Claude Code hook** (not a standard Git `pre-push` hook). When running Claude Code, it denies the terminal `git push` tool if `pytest tests/` fails. Developers pushing from a normal shell are not gated by it — run `pytest tests/` manually before pushing.
+Full command list (portal-v2, website, diagnostics, single-test forms, aspirational `uv`,
+protected areas): `docs/ai/safe-commands.md`. `.github/hooks/pre-push-tests.json` is a Claude Code
+hook that blocks the `git push` tool if `pytest tests/` fails; a plain shell push is not gated.
 
-### Portal (Express backend, `portal/`)
+## Configuration
 
-Removed in 03153c3 (2026-06-02). Environment install scripts must
-not `cd portal` unconditionally.
+Required: `SMARTSHEET_API_TOKEN`. Everything else is `os.getenv()` with defaults. The full catalog
+(commonly touched flags, discovery folders and rate tables, the time-budget family, debug flags,
+retired no-op vars, and flags documented but not yet consumed) lives in
+`.github/prompts/configuration-environment.md` § Operator quick reference.
 
-### Portal-v2 (React frontend, `portal-v2/`)
+## Pipeline flow (one screen)
 
-```bash
-cd portal-v2 && npm install
-cp .env.example .env.local                # set VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
-npm run dev      # Vite on :5173, proxies /api → :3000 (requires Express running)
-npm run build    # tsc -b && vite build
-npm run lint     # eslint, --max-warnings 0
-npm run preview
-```
+Smartsheet folder discovery (every sheet validated every run; the discovery cache is retired) →
+parallel fetch (≤ 8 workers) → filter and group by `(WR, week_ending, variant, foreman, dept, job)`
+→ attachment identity from `pipeline_memory.group_state` → SHA-256 change detection → Excel
+(`openpyxl`; `generated_docs/WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant_suffix}_{hash}.xlsx`)
+→ billing audit (`audit_billing_changes.py`, LOW/MEDIUM/HIGH risk) → delete the old attachment,
+then upload to `TARGET_SHEET_ID`. Module map, data stores, schedule/timeouts, variant/grouping
+model: `docs/ai/architecture.md`. Verified behavior notes: `docs/ai/implementation-truth.md`.
 
-### Docusaurus runbook (`website/`)
+## Conventions
 
-```bash
-cd website && npm install
-npm run start        # local dev
-npm run build
-npm run typecheck
-```
+- **Python:** PEP 8, type hints, 4-space indent, ≤ 79-char lines, PEP 257 docstrings
+  (`.github/instructions/python.instructions.md`). Release tagging stays compatible with the
+  GitHub Actions release workflows.
+- **Node (`portal-v2/`):** ES2022+ ESM, `async`/`await` only, prefer `undefined` over `null`,
+  functions over classes, minimal deps. Tests use Vitest; never change production code to make
+  it testable (`.github/instructions/nodejs-javascript-vitest.instructions.md`).
+- **Subcontractor pricing:** folder-based discovery is the primary path
+  (`.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`).
+- **Commits:** Conventional Commits, subject ≤ 50 chars, bulleted body for complex changes.
+  **PR titles** reference the tracking issue (`feat: implement Smartsheet sync (#42)`).
+  **PR descriptions** have three sections: Objective · Changes Made · Production Safety Check.
+- **Runbook edits** (`website/`): `.claude/rules/documentation-maintenance.md`.
 
-## Data Pipeline Architecture (Python core)
+## Living Ledger and cloud memory injection
 
-Understanding the flow requires reading across several files — the "big picture":
+`memory-bank/living-ledger.md` is the dated ledger of repo learnings, incident root causes, and
+established rules (moved out of this file on 2026-05-28 to keep it lean). When a fix or feature —
+including an `@claude` run triggered from a GitHub issue — introduces a new architectural
+standard, recurring fix, or operational rule, append a `[YYYY-MM-DD HH:MM]` entry to the BOTTOM
+of the ledger in the same PR. Never inline the ledger back into this file. The other
+`memory-bank/*.md` pages are retired pointer stubs.
 
-```
-Smartsheet API
-   ↓ (folder-based discovery via SUBCONTRACTOR_FOLDER_IDS,
-   ↓  ORIGINAL_CONTRACT_FOLDER_IDS, and VAC_CREW_FOLDER_IDS. Every
-   ↓  candidate sheet is validated in full every run — the local
-   ↓  discovery-cache JSON file and its TTL are retired (Phase 11
-   ↓  Plan 08, INC-05); cross-run sheet identity now lives solely in
-   ↓  `pipeline_memory.sheet_registry`. FORCE_REDISCOVERY still exists
-   ↓  on the facade for runbook/back-compat reasons but is a no-op.)
-Auto-discover source sheets → validate column mappings (synonyms for
-   "Weekly Reference Logged Date", helper_dept, helper_foreman, Job #)
-   ↓
-Fetch rows in parallel (ThreadPoolExecutor, PARALLEL_WORKERS≤8; SDK handles
-   429 retries under Smartsheet's 300 req/min limit)
-   ↓
-Filter + group by (WR, week_ending, variant, foreman, dept, job)
-   ↓
-Resolve attachment identity from `pipeline_memory.group_state`
-   (`get_group_state_attachments_by_wr` — the `attachment_id` /
-   `attachment_name` this pipeline itself uploaded for each group it
-   previously flushed). Replaces the retired bulk Smartsheet attachment
-   pre-fetch (Phase 11 Plan 08, INC-05 — `ATTACHMENT_PREFETCH_MAX_MINUTES`
-   / `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` no longer exist).
-   `_has_existing_week_attachment` / `delete_old_excel_attachments` prefer
-   the group_state-resolved identity and fall back to a per-row on-demand
-   `list_row_attachments` lookup on any miss (cold cache, Supabase outage,
-   or a WR group_state has never flushed). `cleanup_untracked_sheet_
-   attachments` always uses the per-row on-demand lookup — group_state
-   only knows what this pipeline wrote, never an off-contract or legacy
-   attachment it needs to prune.
-   ↓
-Change detection: SHA256 hash per group key →
-   skip unchanged (`pipeline_memory.group_state.content_hash`, keyed
-   `wr, week_ending, variant, identifier`; the local hash-history JSON
-   cache this replaced is retired — Phase 11 Plan 08, INC-05)
-   ↓
-Excel generation (openpyxl) — logo, headers, formatting, totals
-   Use safe_merge_cells() (overlap detection); never write oddFooter.right.text
-   Output to generated_docs/WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant_suffix}_{hash}.xlsx
-   (variant_suffix ∈ {``, `_User_<foreman>`, `_Helper_<foreman>`, `_VacCrew`};
-    the workflow's artifact organizer globs WR_*_WeekEnding_*)
-   ↓
-Audit (audit_billing_changes.py) — price anomaly detection, LOW/MEDIUM/HIGH
-   risk levels with delta tracking, optional selective cell-history enrichment
-   ↓
-Upload back to TARGET_SHEET_ID (parallel; delete old attachment, then upload)
-```
+## Second-brain write-back
 
-**Change-detection key includes `foreman, dept, job`.** Helper Excel files regenerate when new rows are added for past weeks because the hash key includes these fields — do not shorten the key back to `(WR, week, variant, foreman)`.
+Repo-scoped subagents never edit Juan's second brain (the OneDrive `my-wiki` vault) directly.
+They return a compact write-back packet (what changed · why it matters · target vault page),
+dropping a file in `.claude/writeback-pending/` when needed; the main session applies vault
+edits via `global-second-brain-writeback-bridge` / `global-context-continuity` and clears the
+packet (audited by the global `~/.claude/hooks/audit_vault_writes.js` hook). Never place secrets
+in a packet. Repo status: `.claude/project-state.md`; navigation map: `.claude/context-map.md`.
 
-**Helper rows:** require both `helper_dept` and `helper_foreman` (Job # optional). Rows with both "Helping Foreman Completed Unit?" and "Units Completed?" checkboxes checked appear **only** in helper Excel files, never the main file — that exclusion prevents double-counting when `RES_GROUPING_MODE` is `both` or `helper`.
+## Where to read next
 
-## Configuration — 30+ Environment Variables
-
-All behavior is controlled by `os.getenv()` with defaults. Full reference lives in `.github/instructions/copilot-setup.instructions.md` and `.github/prompts/configuration-environment.md`.
-
-**Required:** `SMARTSHEET_API_TOKEN`.
-
-**Commonly touched (implemented in `generate_weekly_pdfs.py`):**
-- `TARGET_SHEET_ID` (default `5723337641643908`), `AUDIT_SHEET_ID`, `SENTRY_DSN`
-- `SKIP_UPLOAD`, `SKIP_CELL_HISTORY`
-- `RES_GROUPING_MODE` ∈ {`primary`, `helper`, `both`} (default `both`)
-- `TEST_MODE`, `FORCE_GENERATION`, `WR_FILTER` (comma list), `MAX_GROUPS`
-- `RESET_HASH_HISTORY=true` for full CI regeneration (forces `group_state`-backed change detection to treat every group as changed; D-02 trigger 5)
-- `REGEN_WEEKS` (MMDDYY list), `RESET_WR_LIST`, `KEEP_HISTORICAL_WEEKS`
-- `EXTENDED_CHANGE_DETECTION` — `DISCOVERY_CACHE_TTL_MIN` / `USE_DISCOVERY_CACHE` retired (Phase 11 Plan 08, INC-05; discovery now validates every sheet every run)
-- Time-budget family (GitHub Actions only):
-  - `TIME_BUDGET_MINUTES` — session graceful-stop budget. Default `0`
-    (disabled) for local runs; the weekly workflow sets `165` (2h45m).
-    Most recently raised `95` → `165` on 2026-05-26 (alongside the runner
-    `timeout-minutes` `110` → `180`); an earlier `80`→ raise on 2026-04-22
-    followed a pre-fetch stall that consumed the whole session with zero
-    output. Must stay strictly less than the workflow's `timeout-minutes`
-    (currently `180`). The bulk attachment pre-fetch this budget once
-    protected (`ATTACHMENT_PREFETCH_MAX_MINUTES` /
-    `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC`) was retired in Phase 11
-    Plan 08 (INC-05) — attachment identity now resolves from
-    `pipeline_memory.group_state`, and neither env var has any effect.
-- Debug flags: `DEBUG_MODE`, `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`, `FOREMAN_DIAGNOSTICS`, `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS`
-- Sentry Logs gate: `SENTRY_ENABLE_LOGS` (default `false`). Keep off by
-  default because INFO-path logs can embed row PII; the `before_send_log`
-  sanitizer in `generate_weekly_pdfs.py` is the defense-in-depth backstop.
-
-**Documented in `.github/prompts/` but not currently consumed by `generate_weekly_pdfs.py`:** `SKIP_FILE_OPERATIONS`, `DRY_RUN_UPLOADS`, `MOCK_SMARTSHEET_UPLOAD`. Treat these as aspirational until they are wired up — setting them today has no effect on the production pipeline.
-
-## GitHub Actions Workflow — `advanced_options` Parser
-
-`.github/workflows/weekly-excel-generation.yml` drives production. The `workflow_dispatch` surface packs rarely-used controls into a single `advanced_options` field parsed with `tr`/`cut` so operators don't have to hunt through a long input list:
-
-```
-max_groups:50,regen_weeks:081725;082425,reset_wr_list:WR123;WR456
-```
-
-Do not delete this parser even if the top-level input count is below GitHub's limit today — several operational runbooks depend on this exact `key:value,key:value` format.
-
-**Schedule (UTC crons, `TZ: America/Chicago` inside the job):**
-- Weekdays (Mon–Fri): 7 runs/day at UTC `13,15,17,19,21,23,01` (`0 13,15,17,19,21,23,1 * * 1-5`) → roughly every 2 hours during US business hours.
-- Weekends (Sat, Sun): 3 runs/day at UTC `15,19,23` (`0 15,19,23 * * 0,6`).
-- Weekly deep run: `0 5 * * 1` (UTC Monday 05:00 = Sunday 23:00 CST / Monday 00:00 CDT Central). The job classifies this run by cron identity — `github.event.schedule == '0 5 * * 1'` — rather than wall-clock time, so a GitHub scheduling delay cannot mislabel it, and manual dispatches (empty `github.event.schedule`) always stay `manual`.
-
-**Runner timeouts (the `core` job in `weekly-excel-generation.yml`):**
-- `timeout-minutes: 180` — hard Actions ceiling.
-- `TIME_BUDGET_MINUTES: '165'` — Python graceful-stop budget.
-- The 15-minute gap is reserved for post-job cache-save and artifact-
-  upload steps. Never raise `TIME_BUDGET_MINUTES` without also raising
-  `timeout-minutes` by at least as much — otherwise Actions hard-kills
-  the job before the graceful stop fires and cache/attachment-upload
-  progress is lost.
-
-Other workflows: `docs-changelog.yml` (appends runbook changelog on every merge to `master`), `notion-sync.yml`, `snyk-security.yml`, `system-health-check.yml`, `azure-pipelines.yml` (GitHub → Azure DevOps mirror).
-
-## Smartsheet API & Integration Standards
-
-- Deeply understand and optimize for the Smartsheet API when adding new scripts.
-- Account for API rate limits (**300 req/min; PARALLEL_WORKERS capped at 8**), proper pagination, and secure token handling via environment variables.
-- Acknowledge platform-specific constraints (e.g. `@cell` does **not** work in certain Smartsheet formula contexts) when writing automated data syncs.
-- Never guess column names — always verify against `_validate_single_sheet()` mappings in `generate_weekly_pdfs.py`.
-
-## Current Stack & Ecosystem Context
-
-- **Frontend:** React 18, Vite, TypeScript, Tailwind CSS, Framer Motion (`portal-v2/`).
-- **Backend/Database:** Python 3.12 in CI (3.11+ locally is fine), Supabase (auth + Postgres + RLS for `portal-v2`). Legacy Express `portal/` was removed in 03153c3.
-- **Data Analytics & Visualization:** Power BI, Hex, Excel (`openpyxl`), Google Sheets, `pandas` + `pandera`.
-- **CI/CD, Source Control & Error Tracking:** GitHub Actions, Azure DevOps mirror, Sentry (Python + Node + React with source-map upload).
-- **Project Management, Operations & Task Tracking:** Smartsheet, Linear, Notion, Todoist, Microsoft Project, Planner.
-- **Architecture & Document Management:** Visio, Adobe Acrobat.
-- **Constraint:** Respect this existing architecture; integrate seamlessly without breaking changes.
-
-## Conventions (Language-Specific)
-
-- **Python:** PEP 8, type hints, 4-space indent, ≤79 char lines, PEP 257 docstrings. See `.github/instructions/python.instructions.md`.
-- **Node.js:** `portal-v2/` is ES2022+ ESM. Use `async`/`await` only (no callbacks), **prefer `undefined` over `null`**, prefer functions over classes, minimize external deps. See `.github/instructions/nodejs-javascript-vitest.instructions.md`.
-- **Testing (Node):** Vitest. Never change production code to make it testable — write tests around the code as-is.
-- **Subcontractor pricing:** folder-based discovery is the primary path; see `.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`.
-
-## Architectural Consultant & Language Selection
-
-When proposing new workflows, dynamically evaluate the absolute best technology. Provide a comparative analysis of the current stack versus modern alternatives (e.g. Elixir/Phoenix, Go, Swift) with a definitive recommendation factoring in security, scalability, and integration effort.
-
-## Multi-Disciplinary Best Practices
-
-- **Software Engineering:** Enforce strict typing, clean architecture, modularity, OWASP security standards.
-- **Data Analytics:** Ensure high data integrity and accuracy. Use Python + Supabase for heavy processing; leverage Power BI, Hex, or spreadsheet logic for precise operational reporting.
-- **Technical Project Management (TPM):** Align architecture with delivery milestones, manage technical debt, ensure seamless CI/CD execution. Map ticketing workflows via Linear; map architecture via Visio.
-- **Operational Project Management (OPM):** Track KPIs, crew efficiency, resource allocation. Optimize automated reporting scorecards. Leverage Smartsheet, MS Project, Notion, Todoist. Manage document distribution via Adobe Acrobat.
-
-## GitHub Cloud Action & PR Standards
-
-- **Commit messages:** Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`). Subject line ≤ 50 characters. Detailed bulleted body for complex changes.
-- **PR titles:** Clear, descriptive, reference the tracking issue number (e.g. `feat: implement Smartsheet sync (#42)`).
-- **PR descriptions** must include three sections:
-  1. **Objective** — brief summary of what the PR solves.
-  2. **Changes Made** — bulleted list of file-level modifications.
-  3. **Production Safety Check** — definitive confirmation that existing production logic remains unbroken.
-
-## Critical Pitfalls (Known Footguns)
-
-- **Change detection is `pipeline_memory.group_state`-backed, not a local JSON cache** — the local hash-history/discovery-cache/billing-audit-frozen-rows JSON files and their GitHub Actions cache steps were retired in Phase 11 Plan 08 (INC-05); set `RESET_HASH_HISTORY=true` to force full regeneration regardless.
-- **Excel corruption** — always use `safe_merge_cells()` (overlap-detecting); never write `oddFooter.right.text`.
-- **Job #** — populated by checking multiple column-name variations (`Job #`, `Job#`, `Job Number`, …); do not collapse the synonyms.
-- **GitHub Actions 10-input limit** — keep the `advanced_options` `key:value,key:value` parser intact.
-- **Rate limits** — don't raise `PARALLEL_WORKERS` above 8.
-- **Do not break the pipeline** — `generate_weekly_pdfs.py` is production-critical. See `.github/prompts/change-detection-troubleshooting.md` and `.github/prompts/error-handling-resilience.md`.
-- **Cloud Agent install must not `cd portal`** — that directory was removed in 03153c3. Use `scripts/cloud-agent-install.sh`.
-
-## Detailed References
-
-- `.github/copilot-instructions.md` — workspace-level Copilot guide (sibling to this file; keep in sync).
-- `.github/prompts/architecture-analysis.md` — full system decomposition.
-- `.github/prompts/data-processing-business-logic.md` — domain rules.
-- `.github/prompts/testing-and-validation.md` — test strategy.
-- `.github/prompts/configuration-environment.md` — full env-var reference.
-- `.github/instructions/copilot-setup.instructions.md` — extended setup & component inventory.
-- `.github/instructions/performance-optimization.instructions.md` — perf guidance.
-- `.github/instructions/github-actions-ci-cd-best-practices.instructions.md` — CI/CD conventions.
-- `.github/instructions/subcontractor-pricing-folder-discovery.instructions.md` — folder-based discovery.
-- `.github/agents/smartsheet-debugger.agent.md` — pipeline-debugging specialist agent.
-- `memory-bank/` — longer-form project context (`projectbrief.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`, `productContext.md`).
-- `memory-bank/living-ledger.md` — **the Living Ledger**: full dated history of repo-specific learnings, incident root-causes, and established engineering rules. Append new `[YYYY-MM-DD HH:MM]` entries here (not to `CLAUDE.md`).
-- `AZURE_ARCHITECTURE.md`, `AZURE_PIPELINE_SETUP.md`, `AZURE_QUICKSTART.md`, `README_AZURE.md` — Azure DevOps mirror.
-- `portal-v2/README.md` — Supabase schema, auth flow, role assignment, Vercel deployment.
-- `docs/sentry-implementation.md` — Sentry wiring across Python, Node, and React.
-- `docs/ai/` — repo-local implementation truth (`architecture`, `implementation-truth`, `safe-commands`, `decisions` pointers, `known-bugs`); verified from code, outranks second-brain notes.
-- `.claude/rules/python-module-architecture.md` — Python edits: module-cohesion posture (facade stays thin; new behavior lives in the owning `pipeline/` module).
-
-## Living Ledger (Auto-Updated Context)
-
-> **The full Living Ledger (47+ dated entries) now lives in
-> [`memory-bank/living-ledger.md`](memory-bank/living-ledger.md).** It was moved out of
-> `CLAUDE.md` on 2026-05-28 to keep this file lean: the ledger had grown to ~3,500 lines
-> (~56K tokens, 92% of this file) and was being injected into *every* context window,
-> degrading performance. No content was deleted — only relocated.
->
-> **Read [`memory-bank/living-ledger.md`](memory-bank/living-ledger.md) when you need the
-> history or the established rule for a specific subsystem** — claim attribution
-> (Foundation A / Sub-projects B/C/D/E), rate recalc, attachment pre-fetch budgets,
-> `billing_audit` Supabase integration, the Supabase hash-store / clean-filename migration,
-> WR sanitization & collision quarantine, etc. Many entries encode billing-critical
-> guardrails whose violation has caused production incidents — consult it before changing
-> grouping, hashing, filename, attachment-cleanup, or attribution code.
->
-> **Self-documenting:** per "Autonomous Cloud Memory Injection" above, append new dated
-> `[YYYY-MM-DD HH:MM]` entries to the BOTTOM of `memory-bank/living-ledger.md` — do NOT
-> inline the ledger back into this file.
-
-## Second-Brain Write-Back (Repo Convention)
-
-Repo-scoped subagents MUST NOT edit Juan's second brain (the OneDrive `my-wiki`
-vault) directly. When a subagent produces durable, cross-session knowledge
-(architecture decisions, incident root-causes, new operational rules), it
-**RETURNS a compact Second-Brain Write-Back Packet** (what changed · why it
-matters · target vault page) in its final message and, if a file is needed,
-drops it in `.claude/writeback-pending/<topic>.md`. The **main session** applies
-vault edits via the `global-second-brain-writeback-bridge` /
-`global-context-continuity` skills, then clears the packet. Never place secrets,
-tokens, or env values in a packet. This mirrors the global ClaudeOS contract and
-keeps vault writes auditable via the `audit_vault_writes.js` hook. Repo status
-itself lands in `.claude/project-state.md`; the navigation map is
-`.claude/context-map.md`.
+- `.claude/context-map.md` (read order) · `.claude/project-state.md` (current status).
+- `docs/ai/` — `architecture.md`, `implementation-truth.md`, `safe-commands.md`, `known-bugs.md`,
+  `decisions.md` (pointer index into the ledger).
+- `.github/copilot-instructions.md` — Copilot summary regenerated from this file; keep in sync.
+- `.github/prompts/` — `architecture-analysis`, `data-processing-business-logic`,
+  `testing-and-validation`, `configuration-environment`, `change-detection-troubleshooting`,
+  `error-handling-resilience`. `.github/instructions/` — `copilot-setup`,
+  `performance-optimization`, `github-actions-ci-cd-best-practices`, and the files cited above.
+- `.github/agents/smartsheet-debugger.agent.md` (pipeline-debugging agent) · `AZURE_*.md` and
+  `README_AZURE.md` (Azure DevOps mirror) · `portal-v2/README.md` (Supabase schema, auth, roles,
+  Vercel) · `docs/sentry-implementation.md` (Sentry wiring across Python, Node, and React).

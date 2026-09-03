@@ -39,9 +39,19 @@ Repo-local implementation truth — outranks second-brain notes; verified from r
 
 ## Runtime / deploy targets
 
-- **Python billing engine** — runs on GitHub Actions runners (`ubuntu`, per `weekly-excel-generation.yml`),
-  scheduled cron (weekdays every ~2h, weekends 3x/day, weekly deep run) + `workflow_dispatch`.
-  `timeout-minutes: 180` job ceiling; mirrored to Azure DevOps via `azure-pipelines.yml`.
+- **Python billing engine** — GitHub Actions `ubuntu` runner, job `core` in
+  `.github/workflows/weekly-excel-generation.yml` (`TZ: America/Chicago` inside the job). Schedule
+  (UTC crons, moved here from CLAUDE.md 2026-09-02): weekdays 7 runs/day `0 13,15,17,19,21,23,1 * * 1-5`
+  (≈ every 2 h US business hours); weekends `0 15,19,23 * * 0,6`; weekly deep run `0 5 * * 1`
+  (Sun 23:00 CST / Mon 00:00 CDT), classified by cron identity (`github.event.schedule == '0 5 * * 1'`)
+  never wall clock, so a scheduling delay cannot mislabel it and manual dispatches stay `manual`.
+  Runner timeouts: `timeout-minutes: 180` hard ceiling; `TIME_BUDGET_MINUTES: '165'` Python graceful
+  stop (raised 95→165 on 2026-05-26 together with the runner 110→180; an earlier 80→95 on 2026-04-22
+  followed a pre-fetch stall). The 15-minute gap is reserved for post-job cache-save / artifact-upload
+  steps — never raise the budget without raising `timeout-minutes` by at least as much. The artifact
+  organizer step globs `WR_*_WeekEnding_*`. Mirrored to Azure DevOps via `azure-pipelines.yml`.
+  Other workflows: `docs-changelog.yml` (appends the runbook changelog on every merge to `master`),
+  `notion-sync.yml`, `snyk-security.yml`, `system-health-check.yml`.
 - **`portal-v2/`** — static Vite build, deployed to Vercel (README/CLAUDE.md).
 - **`website/`** — Docusaurus static build, deployed to Vercel.
 - **Supabase** — hosted Postgres + PostgREST; two independently-gated schemas (`pipeline_memory`,
@@ -78,8 +88,33 @@ scrubs PII from logs/breadcrumbs. Separately, `portal-v2/` (React + Supabase) re
 for a searchable dashboard, and `website/` (Docusaurus) hosts the operator runbook — neither writes back
 into the Smartsheet pipeline.
 
+## Domain model — variants, grouping keys, metadata fields
+
+- **Three row variants, detected per row (never per sheet):** `primary` (default); `helper` when
+  `Foreman Helping?` is non-blank and `Helping Foreman Completed Unit?` is checked; `vac_crew` when
+  `VAC Crew Helping?` is non-blank and `Vac Crew Completed Unit?` + `Units Completed?` are checked,
+  gated by `sheet_has_vac_crew_columns` (`pipeline/fetch.py:554-570`). VAC-crew rows live in the same
+  sheets as primary/helper rows; `VAC_CREW_FOLDER_IDS` (`pipeline/config.py:317`) is a discovery
+  folder list, not a row tag.
+- **Row metadata set during fetch:** helper → `__is_helper_row`, `__helper_foreman`, `__helper_dept`,
+  `__helper_job`; VAC → `__is_vac_crew`, `__vac_crew_name`, `__vac_crew_dept`, `__vac_crew_job`,
+  `__vac_crew_email` (populated, no Excel consumer). Each variant's Excel header reads its own fields
+  (`pipeline/excel.py` `elif variant == 'vac_crew'`) — no fallthrough to the primary foreman or `Job #`
+  (the April-2026 Arrowhead job-number leak; ledger `[2026-09-02 21:20]`).
+- **Group keys** (`pipeline/grouping.py:76-108`): `MMDDYY_WR`, `MMDDYY_WR_HELPER_<sanitized>`,
+  `MMDDYY_WR_VACCREW[_<sanitized claimer>]`; filenames
+  `WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{|_User_<x>|_Helper_<x>|_VacCrew}_{hash}.xlsx`.
+  Change-detection identity stays `(WR, week_ending, variant, foreman, dept, job)`.
+- **Rates** (`pipeline/pricing.py:51-87`): `NEW_RATES_CSV` (default
+  `New Contract Rates copy regenerated again.csv`, committed), `OLD_RATES_CSV` (default
+  `CU List - Corpus North & South.csv`, not committed), `SUBCONTRACTOR_RATES_CSV` (default
+  `data/subcontractor_rates.csv`); sheets under `SUBCONTRACTOR_FOLDER_IDS` price at subcontractor rates.
+
 ## Last verified
 
+- Domain model section added 2026-09-02 (align run 1) from `pipeline/fetch.py:554-570`,
+  `pipeline/grouping.py:76-108`, `pipeline/excel.py:345,567`, `pipeline/pricing.py:51-87`,
+  `pipeline/config.py:317`; replaces the retired `memory-bank/systemPatterns.md`.
 - Last verified: 2026-09-02 — read `CLAUDE.md`, `README.md` (repo layout table), `pipeline/`,
   `pipeline_memory/`, `billing_audit/` module docstrings, both `schema.sql` files (table/RPC names +
   header comments only), `.github/workflows/weekly-excel-generation.yml` (triggers/timeouts), and

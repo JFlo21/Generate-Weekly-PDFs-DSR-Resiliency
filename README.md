@@ -29,7 +29,8 @@ cron schedule (roughly every 2 hours on weekdays), it:
 3. **Filters and groups rows** by Work Request #, week-ending date,
    variant, foreman, department, and job.
 4. **Detects changes** with SHA256 hashes per group so unchanged weeks
-   are skipped (`generated_docs/hash_history.json`).
+   are skipped (hashes live in Supabase `pipeline_memory.group_state`; the
+   local `hash_history.json` cache was retired in Phase 11, INC-05).
 5. **Generates styled Excel workbooks** (`openpyxl`) with the LineTec
    logo, formatted headers, and totals.
 6. **Audits financial data** (`audit_billing_changes.py`) for price

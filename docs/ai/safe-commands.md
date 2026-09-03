@@ -40,6 +40,12 @@ docs. 4. Global second brain. 5. Global wiki. 6. `raw/` (data only). 7. Chat his
 - `bash scripts/run_6_gates.sh` — full 6-gate validation harness (see below)
 - Status: **VERIFIED** — `CLAUDE.md`, `scripts/run_6_gates.sh`
 
+### Aspirational (future `uv` migration — not yet wired up)
+- `uv run pytest tests/` · `uv run ruff check .` · `uv run mypy .`
+- Status: **NOT WIRED** — `pyproject.toml` exists but there is no `uv.lock` and CI does not invoke
+  `uv`; carried over from `CLAUDE.md` "Validation Commands (aspirational)" on 2026-09-02. Treat as
+  NEEDS_VERIFICATION before relying on any of them.
+
 ### 6-gate harness (`scripts/run_6_gates.sh`) — gate order
 1. `python scripts/check_api_equality.py` — AST import equality
 2. `python scripts/check_facade_completeness.py` — facade completeness
@@ -68,9 +74,12 @@ docs. 4. Global second brain. 5. Global wiki. 6. `raw/` (data only). 7. Chat his
 - Status: **VERIFIED** — `CLAUDE.md`
 
 ### Run / dev (frontend surfaces)
-- `cd portal-v2 && npm run dev` — Vite on `:5173`
-- `cd website && npm run start` — Docusaurus local dev
-- Status: **VERIFIED** — `CLAUDE.md`
+- `cd portal-v2 && cp .env.example .env.local` then set `VITE_SUPABASE_URL` and
+  `VITE_SUPABASE_ANON_KEY` (names only; never commit values)
+- `cd portal-v2 && npm run dev` — Vite on `:5173` (no `/api` proxy — the Express backend was removed in 03153c3)
+- `cd portal-v2 && npm run preview`
+- `cd website && npm run start` — Docusaurus local dev · `cd website && npm run typecheck`
+- Status: **VERIFIED** — `portal-v2/package.json`, `website/package.json`, `portal-v2/.env.example` (moved from `CLAUDE.md` 2026-09-02)
 
 ### Deploy
 - Python engine: no manual deploy command — runs on GitHub Actions cron

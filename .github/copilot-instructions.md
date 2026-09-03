@@ -1,67 +1,66 @@
 # Project Guidelines
 
+<!-- Generated from CLAUDE.md on 2026-09-02 by the align-instruction-files skill. Do not hand-edit;
+     regenerate from CLAUDE.md when it changes. -->
+
 ## Overview
 
-Production billing automation: Smartsheet API → row filtering → WR grouping → Excel generation → upload. Processes ~550 rows across 13+ sheets on a cron schedule. **Do not break the pipeline.**
+Production billing automation: `generate_weekly_pdfs.py` (thin facade over `pipeline/`) → Smartsheet
+row fetch (~550 rows, 13+ sheets) → grouping by Work Request + week ending (+ variant, foreman, dept,
+job) → Excel generation (`openpyxl`) → upload back to Smartsheet as row attachments, on a GitHub
+Actions cron every ~2 hours on weekdays. **Do not break the pipeline.** Additive, surgical changes
+only; never redesign the Smartsheet → Excel → Smartsheet flow unless explicitly asked.
 
-Three components:
-- **`generate_weekly_pdfs.py`** — Core Python billing engine (production entry point)
-- **`portal/`** — Removed in 03153c3 (2026-06-02). Do not `cd portal` in install scripts.
-- **`portal-v2/`** — React + TypeScript + Supabase frontend (Vite, Tailwind, **ESM**)
+Components: Python engine (`generate_weekly_pdfs.py`, `pipeline/`, `audit_billing_changes.py`,
+`billing_audit/`, `pipeline_memory/`), `portal-v2/` (React 18 + TS + Vite + Tailwind + Supabase →
+Vercel), `website/` (Docusaurus runbook → Vercel). Legacy Express `portal/` was removed (03153c3) —
+never `cd portal`. Full map: `docs/ai/architecture.md`.
 
-## Build and Test
+## Hard guardrails
+
+- Change-detection key is `(WR, week_ending, variant, foreman, dept, job)` — never shorten it.
+- Helper rows need both `helper_dept` and `helper_foreman`; rows with both "Helping Foreman Completed
+  Unit?" and "Units Completed?" checked appear only in helper Excel files, never the main file.
+- Excel: always `safe_merge_cells()`; never write `oddFooter.right.text`.
+- Never use the Smartsheet `@cell` formula in Python or API payloads (UI-only; fails server-side).
+- Smartsheet: 300 req/min, `PARALLEL_WORKERS` ≤ 8, SDK 429 retries, token only via env; verify column
+  names against `_validate_single_sheet()` in `pipeline/discovery.py` — never guess.
+- Job # comes from several column synonyms (`Job #`, `Job#`, `Job Number`, …); do not collapse them.
+- Keep the `advanced_options` `key:value,key:value` parser in
+  `.github/workflows/weekly-excel-generation.yml`.
+- `TIME_BUDGET_MINUTES` (`165`) must stay strictly below the job's `timeout-minutes` (`180`).
+- Change detection is `pipeline_memory.group_state`-backed (Supabase), not a local JSON cache;
+  `RESET_HASH_HISTORY=true` forces full regeneration.
+- `SENTRY_ENABLE_LOGS` stays `false` by default (row PII); standardize Sentry `environment`/`release`.
+- New behavior goes in the owning `pipeline/*`, `pipeline_memory/*`, or `billing_audit/*` module,
+  never back into the facade (`.claude/rules/python-module-architecture.md`).
+
+## Validation
 
 ```bash
-# Python (core engine)
 pip install -r requirements.txt
-pytest tests/ -v                          # full suite — all must pass before push
-python -m py_compile generate_weekly_pdfs.py  # syntax check
-
-# Portal v2 (React frontend)
-cd portal-v2 && npm install && npm run build
+pytest tests/ -v                                  # must pass before push
+python -m py_compile generate_weekly_pdfs.py
+SKIP_UPLOAD=true python generate_weekly_pdfs.py   # dry run
+TEST_MODE=true python generate_weekly_pdfs.py     # synthetic data, no token
+bash scripts/run_6_gates.sh                       # after any module move
 ```
 
-## Architecture
-
-- **Data flow**: `generate_weekly_pdfs.py` auto-discovers source sheets via folder IDs, validates columns, fetches rows in parallel (ThreadPoolExecutor), groups by WR + week, generates styled Excel with openpyxl, uploads to Smartsheet
-- **Change detection**: SHA256 hash per (WR, week, variant, foreman, dept, job) — skips unchanged groups
-- **Audit**: `audit_billing_changes.py` tracks price anomalies with risk levels (LOW/MEDIUM/HIGH)
-- **CI/CD**: GitHub Actions scheduled runs (every 2 hrs weekdays), Azure DevOps sync on push
-- See `.github/prompts/architecture-analysis.md` for full decomposition
+Full command list: `docs/ai/safe-commands.md`. Env-var catalog:
+`.github/prompts/configuration-environment.md` § Operator quick reference.
 
 ## Conventions
 
-- **Python**: PEP 8, type hints, 4-space indent, max 79 chars. See `.github/instructions/python.instructions.md`
-- **Node.js**: `portal-v2/` is **ES2022+ ESM**. Use async/await, no callbacks, prefer `undefined` over `null`. See `.github/instructions/nodejs-javascript-vitest.instructions.md`
-- **Config**: All behavior controlled by 30+ env vars via `os.getenv()` with defaults. See `.github/instructions/copilot-setup.instructions.md` for full list
-- **Editing philosophy**: Minimal, surgical changes. Preserve existing structure. See `.github/instructions/taming-copilot.instructions.md`
-- **Subcontractor sheets**: Folder-based discovery is primary. See `.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`
+- Python: PEP 8, type hints, 4-space indent, ≤ 79-char lines, PEP 257 docstrings.
+- Node (`portal-v2/`): ES2022+ ESM, `async`/`await` only, prefer `undefined` over `null`, functions
+  over classes, Vitest; never change production code to make it testable.
+- Commits: Conventional Commits, subject ≤ 50 chars. PR titles reference the issue. PR body sections:
+  Objective · Changes Made · Production Safety Check.
+- New rules and incident root causes go to the bottom of `memory-bank/living-ledger.md` as dated
+  `[YYYY-MM-DD HH:MM]` entries, in the same PR as the code change.
 
-## Critical Pitfalls
+## Pointers
 
-- **Smartsheet rate limit**: 300 req/min — parallel workers capped at 8; SDK handles 429 retries
-- **Hash history is ephemeral in CI** — set `RESET_HASH_HISTORY=true` for full regeneration
-- **Helper rows**: Require `helper_dept` + `helper_foreman`; Job # is optional
-- **Excel corruption**: Use `safe_merge_cells()` with overlap detection; never write `oddFooter.right.text`
-- **GitHub Actions 10-input limit**: `advanced_options` field parses `key:value,key:value` format
-- See `.github/prompts/change-detection-troubleshooting.md` and `.github/prompts/error-handling-resilience.md`
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `generate_weekly_pdfs.py` | Core billing engine (~3100 lines) |
-| `audit_billing_changes.py` | Price anomaly detection, imported by main |
-| `.github/workflows/weekly-excel-generation.yml` | Production cron + manual dispatch |
-| `generated_docs/hash_history.json` | Change detection cache |
-| `portal-v2/src/` | React dashboard (Supabase auth, RLS) |
-| `portal-v2/supabase/schema.sql` | Database schema with RLS policies |
-
-## Detailed References
-
-Domain-specific guides live in `.github/prompts/` and `.github/instructions/`. Key ones:
-- **Business logic**: `.github/prompts/data-processing-business-logic.md`
-- **Performance**: `.github/instructions/performance-optimization.instructions.md`
-- **Testing**: `.github/prompts/testing-and-validation.md`
-- **Config/env vars**: `.github/prompts/configuration-environment.md`
-- **CI/CD**: `.github/instructions/github-actions-ci-cd-best-practices.instructions.md`
+`CLAUDE.md` (canonical rules) · `.claude/rules/*.md` · `.claude/context-map.md` (read order) ·
+`.claude/project-state.md` (status) · `docs/ai/` (implementation truth) · `.github/prompts/` and
+`.github/instructions/` (deep guides) · `.github/agents/smartsheet-debugger.agent.md`.

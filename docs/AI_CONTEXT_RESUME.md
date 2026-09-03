@@ -5,8 +5,9 @@
 > live chat history. This is a snapshot; update it before you stop working
 > (see the bottom of this file and `PROJECT_HANDOFF.md`).
 >
-> **Authoritative project rules live in [`/CLAUDE.md`](../CLAUDE.md)** (and the
-> Codex mirror [`/AGENTS.md`](../AGENTS.md)). This file is the *status / resume*
+> **Authoritative project rules live in [`/CLAUDE.md`](../CLAUDE.md)** plus
+> `.claude/rules/*.md`; verified implementation truth is in `docs/ai/`. (`AGENTS.md` is a
+> frozen Codex-side pointer, not maintained by ClaudeOS.) This file is the *status / resume*
 > layer, not the rulebook.
 
 _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot)._
@@ -16,6 +17,24 @@ _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot).
 > `.planning/STATE.md` (GSD position, session continuity), with dated evidence in
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
+>
+> **Snapshot 2026-09-02 (22:05 CDT) — instruction files aligned (run 1, branch
+> `docs/align-instruction-files`, docs-only PR):** the new `align-instruction-files` skill ran its
+> repair order. GSD health is HEALTHY (a `(INSERTED)` tag placement hid Phase 01.1 from the roadmap
+> parser; one-line fix `d9740f2`). CLAUDE.md went 369 → ~140 lines with nothing deleted: pipeline
+> flow, cron schedule and runner timeouts now live in `docs/ai/architecture.md`, the env-var catalog in
+> `.github/prompts/configuration-environment.md` § Operator quick reference, command lists in
+> `docs/ai/safe-commands.md`; `.github/copilot-instructions.md` was regenerated. `.claude/project-state.md`
+> was cut 1,555 → ≤ 120 lines (all dropped history already in the ledger; the one uncovered day,
+> 2026-08-15, is recorded in `[2026-09-02 22:05]`). The six non-ledger `memory-bank/*` pages are now
+> ≤ 8-line pointer stubs — their surviving facts moved to `docs/ai/architecture.md` § Domain model and a
+> rewritten `docs/PROJECT_BRIEF.md`, and their pre-ledger April-2026 history to `[2026-09-02 21:20]`.
+> gsd-doc-verifier fact-checked the docs a fresh session reads (CLAUDE.md 71/74 → stale claims fixed by
+> the trim; `docs/ai/*` 234/235 → WR-01 wording corrected: `pipeline/discovery.py` never imports
+> `AttachmentParentType`, so Plan 12-02's "same path" comparison is wrong). Two things did NOT happen:
+> `AGENTS.md` could not be frozen (the harness-boundary hook denies every ClaudeOS write; Juan pastes the
+> header from the PR body), and GSD canonical-doc generation was skipped on purpose (it would add five
+> duplicate docs). Next: `/clear` → `/gsd-execute-phase 12`.
 >
 > **Snapshot 2026-09-02 (19:40 CDT) — Phase 12 PLANNED:** `/gsd-plan-phase 12` produced 6 plans
 > in 4 waves (research `7191676`, plans `f0ed36c` + `ed49ab4`, closeout `f6ff88e`); the plan
