@@ -155,3 +155,27 @@ None yet — Task 4 (when unblocked) requires Juan to run the SQL by hand in the
 - FOUND commit: `f1a1099` (Task 2)
 - VERIFIED: `python -m pytest tests/test_own03_backfill_sql_contract.py -q` — 14 passed, 12 subtests passed
 - VERIFIED: `python -m pytest tests/ -q` — 2012 passed, 1 skipped, 377 subtests passed
+
+## Pre-checkpoint review fixes
+
+An independent Opus production-risk review of Tasks 1-2 (before merge and before
+the Task 3 decision) returned FIX-FIRST; one fix round, commit `1e1c28d`:
+
+- **HIGH — PII in RAISE:** the sentinel-refusal exception interpolated the proposed
+  name; the message now carries role / wr / week_ending / smartsheet_row_id only.
+- **MEDIUM — whitespace drift:** `is_sentinel_value` trimmed spaces only (`btrim`)
+  while `is_sentinel_claimer` strips all whitespace; the predicate now trims
+  `E' 	
+'` before every blank / `#`-prefix / vocabulary check.
+- **LOW — OUT-param shadowing:** `#variable_conflict use_column` added as the first
+  line of the RPC body.
+- **Test gap:** `ApplyPayloadSqlParityTests` parses the seven `jsonb_to_recordset`
+  columns and the CASE result vocabulary from the SQL text and pins them against
+  `_build_apply_payload` output keys and `_APPLY_RESULT_KEYS`. Suite: 2014 passed.
+
+Carried to the Task 3 decision / plan 12-06 (not code changes in this plan):
+the RPC is SECURITY INVOKER and the file grants EXECUTE only — confirm the applying
+role holds UPDATE on `billing_audit.attribution_snapshot`; the script's backup-table
+probe is same-UTC-day only (`attribution_snapshot_backup_<today>`), so apply STEP 1
+and run `--apply` on the same UTC day or add a `--backup-table` override in 12-06;
+STEP 0 column-name verification does not fail closed — run it first, by hand.
