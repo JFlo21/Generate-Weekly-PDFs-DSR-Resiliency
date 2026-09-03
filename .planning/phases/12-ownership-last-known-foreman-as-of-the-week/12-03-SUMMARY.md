@@ -179,3 +179,15 @@ role holds UPDATE on `billing_audit.attribution_snapshot`; the script's backup-t
 probe is same-UTC-day only (`attribution_snapshot_backup_<today>`), so apply STEP 1
 and run `--apply` on the same UTC day or add a `--backup-table` override in 12-06;
 STEP 0 column-name verification does not fail closed — run it first, by hand.
+
+
+### Vocabulary extension for source 5 (`f3b6db3`)
+
+The Opus review of plan 12-04 flagged that source 5 tagged its proposals `operator`
+(human-entered) although they are a machine inference from Smartsheet cell history.
+Orchestrator decision: add a fifth provenance tag, `backfill_cell_history`, to BOTH
+accepted-value lists in this file (the STEP 2 CHECK constraint and the RPC guard) and
+to the schema.sql contract comment; the contract test now parses both lists and pins
+the five-tag set. A commented re-apply snippet (DROP CONSTRAINT IF EXISTS + ADD)
+covers an environment where STEP 2 already ran with the four-value list. This is a
+vocabulary decision for the owner to confirm at the Task 3 checkpoint before applying.
