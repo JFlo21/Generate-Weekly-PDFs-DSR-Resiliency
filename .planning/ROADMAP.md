@@ -42,7 +42,7 @@
   WR groups, dual-target routing, shadow-foreman/helper support. Original
   6 plans + 8 gap-closure plans (CR/WR/IN review findings).
 
-- [x] **Phase 01.1 (INSERTED): Subcontractor Helper-Shadow Rescue + Variant
+- [x] **Phase 01.1: (INSERTED) Subcontractor Helper-Shadow Rescue + Variant
   Partition + Claim-History Attribution** (5/5 plans) — hotfix for three
   post-Phase-1 production bugs (pre-acceptance rescue, variant partitioning,
   PPP cleanup whitelist) + per-row claim-history attribution.
