@@ -197,6 +197,50 @@ flows are unaffected; the `pipeline_run.variant` column records
 `primary` for every group. **No code revert is required** — the
 kill switch is the intentional rollback path.
 
+## `cell-history-backfill.yml`
+
+*(Added 2026-09-03, Phase 12 Plan 04 — OWN-03 source 5.)*
+
+**Component owner:** one-time / off-hours remediation job running
+`scripts/backfill_cell_history_attribution.py`. **Not** the Python billing
+pipeline — `generate_weekly_pdfs.py` and `pipeline/*` never call cell history
+for this feature and never read a `CELL_HISTORY_BACKFILL_*` variable (a
+structural test enforces both) — **not** Notion sync, **not** `portal-v2`.
+
+Manual `workflow_dispatch` only, with inputs `dry_run` (default `true`;
+`false` is rejected with an error before any call because this workflow never
+passes `--apply`), `wr_filter` and `max_requests`. There is no cron: the Sunday
+05:00 UTC schedule in the 2026-09-01 design was re-decided to dispatch-only by
+the owner on 2026-09-03 and is deferred to plan 12-06, where it returns only
+together with a real candidate source for the backfill step.
+
+It shares `SMARTSHEET_API_TOKEN` — and therefore the 300 req/min budget — with
+`weekly-excel-generation.yml`. That is why it is capped and isolated rather
+than folded into the billing run:
+
+- `permissions: contents: read`. Its own concurrency group,
+  `cell-history-backfill-` plus the git ref, in queue mode, so it never queues
+  behind or blocks `weekly-excel-*`. `timeout-minutes: 60`, strictly above the
+  script's 45-minute cap so the graceful stop writes the report first.
+- The job env pins `CELL_HISTORY_BACKFILL_MAX_REQUESTS=3000`,
+  `CELL_HISTORY_BACKFILL_MAX_ROWS=1200`, `CELL_HISTORY_BACKFILL_PACE_SEC=0.5`
+  (120 req/min, 40% of the budget) and `CELL_HISTORY_BACKFILL_MAX_MINUTES=45` —
+  see the
+  [Environment reference](../reference/environment.md#ownership-attribution-backfill-source-5).
+- A **backlog gate** step runs `--check-backlog` with only the Supabase
+  secrets bound (zero Smartsheet calls). The backfill step is skipped when the
+  count is `0`; a broken backend exits 7 and fails the job rather than reading
+  as an empty queue. The Smartsheet token is bound only in the backfill step,
+  never at job level.
+- The report is uploaded as the `own03-cell-history-report-run<N>` artifact
+  (30 days) and never enters git.
+
+Dispatch it outside the billing crons. Known precondition: the backfill step
+takes candidates only from `generated_docs/own03_backfill_report.json`, which a
+fresh runner does not have, so a dispatch today is a bounded no-op (Supabase
+reads only, zero Smartsheet calls) — see the warning on
+[Ownership and claim-time attribution](ownership-attribution.md#the-dispatch-job-cell-history-backfillyml).
+
 ## `system-health-check.yml`
 
 Daily 02:00 UTC smoke test. Installs deps, verifies

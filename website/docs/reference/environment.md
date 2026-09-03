@@ -641,9 +641,13 @@ sweeps. The resolved state is printed at startup alongside
 
 **Since the Phase 12 sentinel fix (2026-09-01, owner policy A):** a frozen
 `Unknown Foreman` / `#NO MATCH` claimer is no longer honoured — the next
-scheduled run resolves such rows from the CURRENT Smartsheet foreman and
-regenerates the file under the real name as soon as the WR is assigned.
-No hash reset is needed for that. Since the owner-approved follow-up
+scheduled run resolves such rows from a provenance-tagged value the OWN-03
+backfill has written when one exists, otherwise from the CURRENT Smartsheet
+foreman, and regenerates the file under the real name as soon as the WR is
+assigned. No hash reset is needed for that. The ladder, the two backfill
+scripts and the rollback path are on
+[Ownership and claim-time attribution](../runbook/ownership-attribution.md).
+Since the owner-approved follow-up
 (2026-09-01), the every-run cleanup also removes the stale placeholder
 file itself: a `*_Unknown_Foreman*` / `*_Unknown_Helper*` /
 `*_Unknown_VAC_Crew*` / `*__NO_MATCH*` attachment that this run did not
@@ -841,6 +845,30 @@ stored watermark.
 All sub-budgets sit inside `TIME_BUDGET_MINUTES` (165) under the runner's
 180-minute ceiling; a guard that fires logs `⏩ Skipping …` and records
 `skipped` — it never fails the run.
+
+## Ownership attribution backfill (source 5)
+
+*(Added 2026-09-03, Phase 12 Plan 04 — OWN-03.)*
+
+**Component owner:** `scripts/backfill_cell_history_attribution.py`, run only
+from the manual-dispatch
+[`cell-history-backfill.yml`](../runbook/workflows.md#cell-history-backfillyml)
+workflow. **No production run reads these variables:** neither
+`generate_weekly_pdfs.py` nor any `pipeline/*` module consults them, and a
+structural test in `tests/test_backfill_cell_history_attribution.py` fails if
+one starts to. Procedure, caveats and rollback:
+[Ownership and claim-time attribution](../runbook/ownership-attribution.md).
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CELL_HISTORY_BACKFILL_MAX_REQUESTS` | `3000` | Hard cap on Smartsheet cell-history requests per run, re-checked before every request. Read only by the source-5 script, never by the production run. |
+| `CELL_HISTORY_BACKFILL_MAX_ROWS` | `1200` | Hard cap on candidate rows attempted per run. Read only by the source-5 script, never by the production run. |
+| `CELL_HISTORY_BACKFILL_PACE_SEC` | `0.5` | Sleep between cell-history requests (120 req/min, 40% of the shared 300 req/min budget); the first request of a run never sleeps. Never set it lower. Read only by the source-5 script, never by the production run. |
+| `CELL_HISTORY_BACKFILL_MAX_MINUTES` | `45` | Wall-clock deadline, re-checked before every request; the workflow's `timeout-minutes: 60` must stay strictly above it. Read only by the source-5 script, never by the production run. |
+
+When a cap trips mid-run the remaining candidates are deferred
+(`summary.cap_reached`, `summary.candidates_deferred`) and the run exits 0;
+they are simply retried on the next dispatch.
 
 ## Execution controls
 
