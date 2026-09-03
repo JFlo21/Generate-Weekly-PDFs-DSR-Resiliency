@@ -14,15 +14,16 @@ provides:
   - "--check-backlog: bounded, zero-Smartsheet-call backlog count (report-file count, or a LIMIT-capped Supabase scan fallback)"
   - "A permanent structural test proving no production module (generate_weekly_pdfs.py, pipeline/*.py, audit_billing_changes.py) calls get_cell_history or reads a CELL_HISTORY_BACKFILL_* env var"
   - "scripts/backfill_claim_time_attribution.py::_write_reports gained an optional filename_stem parameter (default unchanged) so a sibling script can reuse it under its own report name"
+  - ".github/workflows/cell-history-backfill.yml -- the isolated, budget-capped, self-disabling Sunday 05:00 UTC cron + workflow_dispatch runner for source 5 (dry-run only; never --apply)"
 affects: [12-05, 12-06]
 
 # Actuals (#2632) -- pairs with the plan's estimate to calibrate future estimates.
-# estimateTokens scale (chars/4 over the realized diff) for Tasks 1-2 only;
-# Tasks 3-4 have not run yet (checkpoint pause).
+# estimateTokens scale (chars/4 over the realized diff of every file this
+# plan touched, master..HEAD, including the pre-checkpoint review hardening).
 actuals:
-  tokens: 15300
-  tasks: 2
-  commits: 3
+  tokens: 24285
+  tasks: 4
+  commits: 5
 
 # Tech tracking
 tech-stack:
@@ -36,6 +37,7 @@ key-files:
   created:
     - scripts/backfill_cell_history_attribution.py
     - tests/test_backfill_cell_history_attribution.py
+    - .github/workflows/cell-history-backfill.yml
   modified:
     - scripts/backfill_claim_time_attribution.py
 
@@ -44,8 +46,11 @@ key-decisions:
   - "Sheet id / column id resolution reuses pipeline_memory.row_state + sheet_registry rather than inventing new Supabase schema or performing a live full-sheet Smartsheet discovery read. IMPORTANT CAVEAT recorded here because it materially affects source 5's real-world effectiveness today: per STATE.md, RUN_MEMORY_WRITE_ENABLED is currently OFF in production, so pipeline_memory.row_state/sheet_registry are effectively EMPTY on the live Supabase project outside isolated shadow/experiment runs. Until that flag flips on (a documented upcoming milestone precondition, unrelated to this plan), every real candidate this script considers will resolve to unresolved with reason 'sheet id or column mapping unavailable for this row' -- a truthful, non-silent degradation, never a crash or a wrong answer. Once RUN_MEMORY_WRITE_ENABLED is on and at least one full production run has populated the registry, source 5 will begin resolving real candidates with zero code changes to this script."
   - "The --check-backlog Supabase-fallback scan (used only when the sources-1-4 report file is absent) counts a row via the NAMED-sentinel check (scripts.backfill_claim_time_attribution._is_named_sentinel, reused not duplicated) rather than the raw is_sentinel_claimer, so a blank/never-populated helper or vac_crew column is not over-counted as backlog -- matches sources 1-4's own default targeting rule (12-01's post-merge review fix)."
   - "Task 2's isolation test is a test-only commit (no implementation half) -- Task 1's script already satisfies the invariant by construction (it imports nothing from pipeline.*, per its own module docstring), so there is no production code to change to make the guard pass. Verified locally (not committed) that the guard fails when get_cell_history is temporarily added to pipeline/orchestrate.py, then reverted."
+  - "Task 3 checkpoint: Juan selected `approve-cron` (2026-09-03) -- the workflow ships with the single Sunday 05:00 UTC cron plus workflow_dispatch, as agreed in the 2026-09-01 design spec."
+  - "Workflow structural test parses the YAML with validate_system_health.py's comment-stripped line reader (_strip_comment / _find_key_value / _find_timeout_minutes) instead of PyYAML: PyYAML is not declared in requirements.txt (the only file ci-checks.yml installs) and is importable locally only via an unrelated venv on PATH, so a top-level `import yaml` would have failed collection of the whole test module in CI."
+  - "The --check-backlog gate step binds SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (never SMARTSHEET_API_TOKEN): on a fresh runner generated_docs/own03_backfill_report.json is git-ignored and absent, so the gate always takes the bounded Supabase fallback scan and would exit 7 every Sunday without them. The Smartsheet token is bound only in the backfill step, and no secret is bound at job level."
 
-requirements-completed: []  # OWN-03 NOT yet marked complete -- Tasks 3-4 remain; see Checkpoint below.
+requirements-completed: [OWN-03]
 
 coverage:
   - id: D1
@@ -108,27 +113,42 @@ coverage:
         status: pass
     human_judgment: false
   - id: D5
-    description: "Task 3 (the GitHub Actions workflow authorization decision) and Task 4 (authoring the workflow) -- NOT YET DONE, paused at a mandatory human decision checkpoint"
+    description: ".github/workflows/cell-history-backfill.yml is isolated from the production run (own concurrency group, timeout-minutes > CELL_HISTORY_BACKFILL_MAX_MINUTES), self-disables on an empty backlog, binds every dispatch input to env:, and never passes --apply"
     requirement: "OWN-03"
-    verification: []
+    verification:
+      - kind: unit
+        ref: "tests/test_backfill_cell_history_attribution.py::CellHistoryWorkflowStructureTests::test_concurrency_group_is_isolated_from_production"
+        status: pass
+      - kind: unit
+        ref: "tests/test_backfill_cell_history_attribution.py::CellHistoryWorkflowStructureTests::test_timeout_exceeds_max_minutes_budget"
+        status: pass
+      - kind: unit
+        ref: "tests/test_backfill_cell_history_attribution.py::CellHistoryWorkflowStructureTests::test_backfill_step_is_gated_and_never_applies"
+        status: pass
+      - kind: unit
+        ref: "tests/test_backfill_cell_history_attribution.py::CellHistoryWorkflowStructureTests::test_every_dispatch_input_is_bound_to_env"
+        status: pass
+      - kind: unit
+        ref: "tests/test_backfill_cell_history_attribution.py::CellHistoryWorkflowStructureTests::test_single_sunday_cron"
+        status: pass
     human_judgment: true
-    rationale: "gate=blocking-human on Task 3 requires Juan's explicit written decision before any workflow file is authored; this plan cannot proceed past this point without that answer."
+    rationale: "Task 3 (gate=blocking-human) was decided by Juan on 2026-09-03: approve-cron. The schedule's existence is a human authorization, not a testable fact; the tests above prove the authored file honours the decision's constraints."
 
-duration: ~35min (Tasks 1-2 only; paused before Task 3)
+duration: ~35min (Tasks 1-2) + ~40min (Task 4 continuation)
 completed: 2026-09-03
-status: halted
+status: complete
 ---
 
 # Phase 12 Plan 04: OWN-03 Cell-History Attribution Backfill (Source 5) Summary
 
-**Paced, capped Smartsheet cell-history resolver for the rows sources 1-4 could not name, fully isolated from the production billing run -- Tasks 1-2 shipped and verified; PAUSED at Task 3's mandatory human decision gate before any GitHub Actions workflow is authored.**
+**Paced, capped Smartsheet cell-history resolver for the rows sources 1-4 could not name, fully isolated from the production billing run, plus its own budget-capped, self-disabling Sunday 05:00 UTC GitHub Actions workflow (dry-run only) -- all 4 tasks shipped; Task 3's blocking-human gate was decided by Juan (`approve-cron`).**
 
 ## Performance
 
-- **Duration:** ~35 min for Tasks 1-2 (Task 3 is a blocking-human checkpoint; Task 4 not started)
+- **Duration:** ~35 min for Tasks 1-2, a pause at Task 3 (blocking-human decision), then ~40 min for the Task 4 continuation
 - **Started:** 2026-09-03 (session start)
-- **Tasks:** 2 of 4 completed (Task 3 paused for human decision; Task 4 not started)
-- **Files modified:** 3 (`scripts/backfill_cell_history_attribution.py`, `tests/test_backfill_cell_history_attribution.py`, `scripts/backfill_claim_time_attribution.py`)
+- **Tasks:** 4 of 4 completed (Task 3 decided by Juan: `approve-cron`)
+- **Files modified:** 4 (`scripts/backfill_cell_history_attribution.py`, `tests/test_backfill_cell_history_attribution.py`, `scripts/backfill_claim_time_attribution.py`, `.github/workflows/cell-history-backfill.yml`)
 
 ## Accomplishments
 
@@ -138,24 +158,30 @@ status: halted
 - `--check-backlog` performs a bounded read (report-file count, or a `.limit()`-capped `attribution_snapshot` scan fallback when the report is absent) and issues zero Smartsheet calls.
 - Task 2 added a permanent structural test proving `get_cell_history` appears in exactly one production file (`pipeline/snapshot_drift.py`, the pre-existing legitimate caller) and no production module reads `CELL_HISTORY_BACKFILL_*` -- verified live by temporarily adding a call to `pipeline/orchestrate.py` and confirming the guard fires, then reverting.
 - 19 tests in `tests/test_backfill_cell_history_attribution.py`; full repo suite 2017 passed / 1 skipped / 365 subtests (up from 2014 passed / 365 subtests before this plan's Tasks 1-2).
+- Task 4 authored `.github/workflows/cell-history-backfill.yml` per the `approve-cron` decision: `permissions: contents: read`; its own `cell-history-backfill-${{ github.ref }}` concurrency group (queue mode) so it can neither queue behind nor block `weekly-excel-*`; a single `'0 5 * * 0'` cron (Sunday 05:00 UTC, no overlap with the 15:00/19:00/23:00 UTC weekend billing crons) plus `workflow_dispatch` inputs `dry_run` / `wr_filter` / `max_requests`; `timeout-minutes: 60` strictly above the 45-minute script cap; job env pins the request/row/pace/minute caps; a `--check-backlog` gate step (Supabase only, zero Smartsheet calls) writes `backlog_rows=<N>` to `$GITHUB_OUTPUT` and the backfill step is skipped when it is `0`; every dispatch input is bound to `env:` and read as a shell variable (no `${{` inside any `run:`); the backfill step never passes `--apply` and is the only place `SMARTSHEET_API_TOKEN` is bound; the report is uploaded with `actions/upload-artifact@v4` and never enters git.
+- 9 structural tests (`CellHistoryWorkflowStructureTests`) grade the workflow with `validate_system_health.py`'s comment-stripped line reader; each guard was proven to fire under mutation (injected `${{` in `run:`, `--apply`, `timeout-minutes: 45`, a `weekly-excel-` group). File total: 36 tests; full repo suite 2065 passed / 1 skipped / 395 subtests.
 
 ## Task Commits
 
 1. **Task 1 RED: add failing test for cell-history resolver** — `e3d3208` (test)
 2. **Task 1 GREEN: implement paced/capped cell-history resolver** — `2a4b45e` (feat)
 3. **Task 2: guard production isolation of source 5** — `4bfa0d9` (test)
+4. **Pre-checkpoint review hardening** — `101489d` (fix; see "Pre-checkpoint review fixes" below)
+5. **Task 3: decision checkpoint** — no commit (decided by Juan: `approve-cron`, 2026-09-03)
+6. **Task 4: add cell-history backfill workflow** — `43f52ce` (feat)
 
-**Plan metadata:** this SUMMARY.md's own commit follows (worktree mode -- STATE.md/ROADMAP.md/REQUIREMENTS.md are NOT touched by this executor; the orchestrator owns those centrally after the wave, and this plan is not complete regardless).
+**Plan metadata:** this SUMMARY.md's own commit follows separately (`docs(12-04): record Task 4 and checkpoint decision`); STATE.md/ROADMAP.md/REQUIREMENTS.md are owned centrally by the orchestrator after the wave.
 
 ## Files Created/Modified
 
 - `scripts/backfill_cell_history_attribution.py` — OWN-03 source 5 CLI: paced/capped cell-history resolver, `--check-backlog`, the `--apply` write path (reused, not duplicated).
-- `tests/test_backfill_cell_history_attribution.py` — 19 tests: pacing/caps, checkbox-first efficiency, sentinel discard, exception isolation, `--check-backlog` (both paths), structural import/single-call-site contracts, and the Task 2 production-isolation guard.
+- `tests/test_backfill_cell_history_attribution.py` — 36 tests: pacing/caps, checkbox-first efficiency, sentinel discard, exception isolation, `--check-backlog` (both paths), structural import/single-call-site contracts, and the Task 2 production-isolation guard, plus the Task 4 `CellHistoryWorkflowStructureTests` workflow contract (9 tests).
 - `scripts/backfill_claim_time_attribution.py` — `_write_reports` gained an optional `filename_stem` parameter (default `"own03_backfill_report"`, byte-for-byte preserving every pre-existing call site) so this sibling script can reuse it under `own03_cell_history_report` instead of duplicating the sort/serialize/summary logic.
+- `.github/workflows/cell-history-backfill.yml` — the isolated OWN-03 source 5 runner (Task 4): Sunday 05:00 UTC cron + `workflow_dispatch`, own concurrency group, backlog gate, dry-run only, artifact upload.
 
 ## Decisions Made
 
-See `key-decisions` in frontmatter — summarized: (1) primary role's name-column resolution tries `Foreman Assigned?` then `Foreman`, matching spec §2 even though `Foreman Assigned?` is not in today's stored `column_mapping` (forward-compatible, documented gap); (2) sheet/column resolution reuses `pipeline_memory.row_state`/`sheet_registry` rather than inventing new schema or live full-sheet discovery, with an important caveat that this surface is empty in production until `RUN_MEMORY_WRITE_ENABLED` flips on; (3) the `--check-backlog` fallback scan uses the NAMED-sentinel check (reused from 12-01), not the raw `is_sentinel_claimer`, to avoid over-counting blank roles; (4) Task 2 is a test-only commit since Task 1's script already satisfies the isolation invariant by construction.
+See `key-decisions` in frontmatter — summarized: (1) primary role's name-column resolution tries `Foreman Assigned?` then `Foreman`, matching spec §2 even though `Foreman Assigned?` is not in today's stored `column_mapping` (forward-compatible, documented gap); (2) sheet/column resolution reuses `pipeline_memory.row_state`/`sheet_registry` rather than inventing new schema or live full-sheet discovery, with an important caveat that this surface is empty in production until `RUN_MEMORY_WRITE_ENABLED` flips on; (3) the `--check-backlog` fallback scan uses the NAMED-sentinel check (reused from 12-01), not the raw `is_sentinel_claimer`, to avoid over-counting blank roles; (4) Task 2 is a test-only commit since Task 1's script already satisfies the isolation invariant by construction; (5) Task 3: Juan chose `approve-cron`; (6) the workflow structural test uses `validate_system_health.py`'s line reader, not PyYAML (an undeclared dependency); (7) the backlog gate step binds the Supabase secrets (required for its fallback scan on a fresh runner) while the Smartsheet token stays bound only in the backfill step.
 
 ## Deviations from Plan
 
@@ -185,10 +211,31 @@ See `key-decisions` in frontmatter — summarized: (1) primary role's name-colum
 - **Verification:** Test now asserts the correct `backlog_rows=2`.
 - **Committed in:** `2a4b45e` (Task 1 GREEN commit)
 
+**4. [Approved deviation] `CELL_HISTORY_BACKFILL_PACE_SEC: '0.5'` in the workflow job env (plan text said `'0.25'`)**
+- **Found during:** Task 4
+- **Issue:** The pre-checkpoint review hardening (`101489d`) raised the script's default pace from 0.25 s to 0.5 s (120 req/min, 40% of the shared 300 req/min budget instead of 80%). A workflow pinning `'0.25'` would have silently undercut the script's own default.
+- **Fix:** The job env pins `'0.5'` with a comment saying never to set it lower than the script default. Approved by the orchestrator in the continuation brief.
+- **Files modified:** `.github/workflows/cell-history-backfill.yml`
+- **Commit:** `43f52ce`
+
+**5. [Rule 3 - Blocking] Workflow structural test uses the repo's line reader, not PyYAML**
+- **Found during:** Task 4, before writing the test
+- **Issue:** The plan/brief assumed PyYAML was available because `tests/test_validate_system_health.py` "uses it". It does not: no file in the repo imports `yaml`, PyYAML is absent from `requirements.txt` (the only file `ci-checks.yml` installs) and from `requirements-dev.txt`, and `import yaml` works locally only because an unrelated venv (`hermes-agent`) is first on PATH. A top-level `import yaml` would have errored the whole 36-test module at collection in CI.
+- **Fix:** The test reuses `validate_system_health._strip_comment` / `_find_key_value` / `_find_timeout_minutes` (exactly "the config-parsing approach already used by ... production workflow checks" the plan asks for) plus three small local helpers (`_step_blocks`, `_run_block`, `_dispatch_input_names`). Adding PyYAML to `requirements.txt` was rejected: it would install a new package into the production cron runner to satisfy a test. Corollary: the plan's `sorted(d)` verify one-liner raises `TypeError` under PyYAML 6 because the bare `on:` key parses as boolean `True` (same as the production workflow); it was run as `sorted(map(str, d))` and the key list includes `jobs`.
+- **Files modified:** `tests/test_backfill_cell_history_attribution.py`
+- **Commit:** `43f52ce`
+
+**6. [Rule 2 - Missing critical functionality] Supabase secrets bound in the `--check-backlog` gate step**
+- **Found during:** Task 4, tracing `_check_backlog` on a fresh runner
+- **Issue:** The plan binds all three secrets only in the backfill step. But `generated_docs/own03_backfill_report.json` is git-ignored and never present on a fresh runner, so `_check_backlog` always takes `_check_backlog_via_bounded_supabase_scan`, which returns -1 without a Supabase client -> exit 7 -> the job fails every Sunday and the gate never runs.
+- **Fix:** The gate step binds `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` only (still zero Smartsheet calls); `SMARTSHEET_API_TOKEN` is bound solely in the backfill step, and no secret is bound at job level -- `test_gate_step_writes_backlog_rows_output` and `test_smartsheet_token_bound_only_in_backfill_step` pin both facts (T-12-19 intent preserved).
+- **Files modified:** `.github/workflows/cell-history-backfill.yml`
+- **Commit:** `43f52ce`
+
 ---
 
-**Total deviations:** 3 auto-fixed (1 blocking/reuse gap, 2 bugs)
-**Impact on plan:** All three necessary for correctness or to fulfill the plan's own explicit reuse instruction. No scope creep -- no architectural changes, no new dependencies, no behavior outside this plan's `<threat_model>` and `<must_haves>`.
+**Total deviations:** 6 (3 auto-fixed in Tasks 1-2; 1 approved, 1 blocking, 1 missing-functionality in Task 4)
+**Impact on plan:** All necessary for correctness or to fulfill the plan's own instructions. No architectural changes, no new dependencies, no behavior outside this plan's `<threat_model>` and `<must_haves>`.
 
 ## Issues Encountered
 
@@ -198,39 +245,52 @@ None beyond the auto-fixed deviations above. `python -m pytest tests/test_backfi
 
 None. Every function in `scripts/backfill_cell_history_attribution.py` has a real implementation; nothing is hardcoded to a placeholder value.
 
-## Checkpoint: Paused at Task 3 (blocking-human decision)
+## Checkpoint: Task 3 decision (blocking-human) -- RECORDED
 
-**This plan did NOT complete.** Task 3 is `type="checkpoint:decision" gate="blocking-human"` -- per the executor's checkpoint protocol, a `gate="blocking-human"` checkpoint is NEVER auto-approved, in any mode (auto-mode is not even active in this project's config: `workflow._auto_chain_active: false`). Execution stopped here; no `.github/workflows/cell-history-backfill.yml` has been created. Task 4 (authoring that workflow) is entirely unstarted and depends on Task 3's answer.
+Task 3 is `type="checkpoint:decision" gate="blocking-human"`; it was never auto-approved. Execution paused after Tasks 1-2 (plus the pre-checkpoint review hardening) and resumed only after Juan answered.
 
-**Decision needed from Juan:** Add `.github/workflows/cell-history-backfill.yml` with a recurring cron (Sunday 05:00 UTC) that consumes the same `SMARTSHEET_API_TOKEN` and shared 300 req/min budget as the production billing pipeline, OR a `workflow_dispatch`-only variant with no schedule, OR hold and ship no workflow at all this plan. See the structured checkpoint returned alongside this SUMMARY for the full decision context and options (`approve-cron` / `approve-dispatch-only` / `hold`).
+- **Selected option id:** `approve-cron`
+- **Decided by / on:** Juan, 2026-09-03
+- **Verbatim selection from the structured checkpoint prompt:** `approve-cron (Recommended)` ("Sunday 05:00 UTC schedule plus workflow_dispatch, as agreed in the 2026-09-01 design spec")
+- **Consequence:** Task 4 authored `.github/workflows/cell-history-backfill.yml` with the single `'0 5 * * 0'` cron plus `workflow_dispatch` (commit `43f52ce`). The `approve-dispatch-only` and `hold` variants were not built.
 
-**Not yet recorded:** Juan's verbatim answer. This section will be updated (by the continuation executor) once he responds, per Task 3's own acceptance criteria ("12-04-SUMMARY.md records the selected option id and Juan's verbatim response").
+## Known limitations (operator-visible, not defects of this plan)
+
+- **The cron cannot self-produce its candidate list.** The cell-history script reads candidates only from the sources 1-4 report (`generated_docs/own03_backfill_report.json`), which is git-ignored and absent on a fresh runner, and `scripts/backfill_claim_time_attribution.py` refuses to enumerate candidates without explicit `--wr` and `--weeks` scoping (exit 8, a 12-01 design constraint). So a Sunday run today gates on the Supabase fallback count, then the backfill step finds zero in-scope candidates, writes an empty report, emits a `::warning::` annotation naming this precondition, and exits 0 -- safe and cheap (Supabase reads only, zero Smartsheet calls), but not yet useful. Producing that report on the runner (a scoped sources-1-4 step, or plan 12-05/12-06 supplying it) is a scope decision for Juan, not something this plan may add unilaterally (Rule 4).
+- **`RUN_MEMORY_WRITE_ENABLED` is still off in production**, so even with a report present every candidate resolves to `unresolved` ("sheet id or column mapping unavailable") until `pipeline_memory.row_state` / `sheet_registry` are populated (unchanged from the Tasks 1-2 caveat).
+- **`dry_run=false` does not apply anything.** The workflow never passes `--apply`; the input only produces a `::warning::` and still runs dry. The live write stays plan 12-06's human checkpoint.
 
 ## User Setup Required
 
-None yet for Tasks 1-2 (no external service configuration required; `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`SMARTSHEET_API_TOKEN` are read from the existing environment contract every `billing_audit`/`pipeline_memory` script already uses). Task 3's decision and Task 4's workflow (once authored) may introduce new GitHub Actions secrets/schedule considerations -- not yet applicable.
+- Repository secrets `SMARTSHEET_API_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` must exist (they already do for `weekly-excel-generation.yml`; no new secret is introduced).
+- The Sunday 05:00 UTC cron starts on merge to the default branch. Deleting or disabling the workflow stops it; nothing else needs configuring.
 
 ## Next Phase Readiness
 
-- NOT ready to proceed to plans 12-05/12-06 -- this plan is incomplete. A continuation executor must present Task 3's decision to Juan (or receive it if already communicated out-of-band), record the answer in this SUMMARY, then execute Task 4 accordingly (or skip it entirely if `hold` is selected).
-- Tasks 1-2 are fully shippable on their own: `scripts/backfill_cell_history_attribution.py` works standalone today (dry-run, `--check-backlog`, and eventually `--apply` once plan 12-03's RPC/backup table exist) even with no GitHub Actions workflow -- Juan (or CI) can invoke it manually. The workflow (Task 4) only adds unattended, scheduled/dispatched automation on top.
-- IMPORTANT operational caveat for whoever runs this script for real: `pipeline_memory.row_state`/`sheet_registry` are currently EMPTY in production (`RUN_MEMORY_WRITE_ENABLED` is OFF per STATE.md) -- every real candidate will resolve to `unresolved` with reason "sheet id or column mapping unavailable for this row" until that flag flips on and at least one full production run has populated the registry. This is a truthful, documented degradation, not a defect in this plan.
+- Ready for plans 12-05/12-06: OWN-03's source 5 resolver and its isolated workflow both exist, are dry-run only, and are pinned by 36 tests.
+- Open decision for Juan (see Known limitations): how the Sunday run obtains the sources 1-4 candidate report on a fresh runner. Until then the cron is a safe no-op that reports its own precondition.
+- Operational caveat carried forward: `RUN_MEMORY_WRITE_ENABLED` must be on (and one full production run completed) before source 5 can resolve real candidates.
 
 ---
 *Phase: 12-ownership-last-known-foreman-as-of-the-week*
-*Completed: 2026-09-03 (Tasks 1-2 only; plan halted at Task 3)*
+*Completed: 2026-09-03 (all 4 tasks; Task 3 decided by Juan: approve-cron)*
 
 ## Self-Check: PASSED
 
 - FOUND: `scripts/backfill_cell_history_attribution.py`
 - FOUND: `tests/test_backfill_cell_history_attribution.py`
+- FOUND: `.github/workflows/cell-history-backfill.yml`
 - FOUND commit: `e3d3208` (Task 1 RED)
 - FOUND commit: `2a4b45e` (Task 1 GREEN)
 - FOUND commit: `4bfa0d9` (Task 2)
-- VERIFIED: `python -m pytest tests/test_backfill_cell_history_attribution.py -q` — 19 passed
-- VERIFIED: `python -m pytest tests/ -q` — 2017 passed, 1 skipped, 365 subtests
-- VERIFIED: `python -m py_compile scripts/backfill_cell_history_attribution.py` — no errors
-- VERIFIED: `python scripts/backfill_cell_history_attribution.py --help` — contains both `--check-backlog` and `--max-requests`
+- FOUND commit: `101489d` (pre-checkpoint review hardening)
+- FOUND commit: `43f52ce` (Task 4)
+- VERIFIED: `python -m pytest tests/test_backfill_cell_history_attribution.py -q` — 36 passed, 9 subtests passed
+- VERIFIED: `python -m pytest tests/test_backfill_cell_history_attribution.py -q -k CellHistoryWorkflowStructureTests` — 9 passed
+- VERIFIED: `python -m pytest tests/ -q` — 2065 passed, 1 skipped, 395 subtests passed
+- VERIFIED: PyYAML `safe_load` of the workflow (local env only) — keys `concurrency, jobs, name, permissions, on`; inputs `dry_run, max_requests, wr_filter`; cron `0 5 * * 0`; `timeout-minutes` 60; steps `Checkout, Setup Python, Install dependencies, backlog, run_backfill, Upload cell-history report`
+- VERIFIED: `git diff --name-only master..HEAD | grep weekly-excel-generation` — empty (production workflow untouched)
+- VERIFIED: mutation checks — injected `${{` in `run:`, `--apply`, `timeout-minutes: 45`, and a `weekly-excel-` group are each caught by the structural helpers
 
 ## Pre-checkpoint review fixes
 
