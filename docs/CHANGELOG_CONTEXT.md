@@ -407,3 +407,5 @@ on `attribution_snapshot` behind RLS. Ledger `[2026-09-03 15:55]`.
 files, untrusted results) and `Supabase PostgREST Integration Patterns` §3 (REVOKE before GRANT, verify with
 `has_function_privilege`, dated backups expire, provenance grain = write grain); dashboard, index, current-state and the
 project page now say "Phase 12 waves 1–3 merged; 12-06 open". Vault log `[2026-09-03n]`–`[2026-09-03p]`.
+
+**2026-09-03 night — 12-06 dispatched, halted at Task 1:** the last Phase 12 plan is owner-run; the executor returned its blocking-human dry-run checkpoint without touching live systems. Plan text vs code: no full-scope dry-run mode exists (`--wr` + `--weeks` required, exit 8 otherwise) — use the runbook's scoped command. Backup must be re-created on the apply's UTC day. Tracking only; no code changed.

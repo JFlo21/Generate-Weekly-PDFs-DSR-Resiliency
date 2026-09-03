@@ -31,6 +31,7 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
 
 ## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; 12-06 owner-run remediation next on `feat/phase-12-remediation`
 
+- **2026-09-03 night — 12-06 dispatched, halted at Task 1 (blocking-human):** `/gsd-execute-phase 12` on `feat/phase-12-remediation` (sequential, worktree base-check degraded because HEAD is ahead of `origin/HEAD`); the Sonnet executor read the plan, 12-03-SUMMARY and the runbook, made zero live calls, and returned the Task 1 dry-run checkpoint for Juan. Finding: the plan's step 1 ("full-scope dry-run with no args") does not exist — `scripts/backfill_claim_time_attribution.py` exits 8 unless both `--wr` and `--weeks` are given (runbook § Running the backfill is correct); run scoped dry-runs (known-good WR 19073866 first, then the extended sample, then the remediation set). Owner reminder: the `--apply` probe wants `attribution_snapshot_backup_<today UTC>`; re-create the backup (SQL STEP 1) on the apply day. STATE.md tracking updated by `state.begin-phase`; no SUMMARY yet.
 - `/gsd-execute-phase 12` (wave filter 1) on branch `feat/phase-12-ownership` off `560115f`; GSD executor (Sonnet,
   harness worktree) delivered plan 12-01 in 6 commits: `scripts/backfill_claim_time_attribution.py` (dry-run default,
   4-source week-scoped ladder, conflict/unresolved outcomes, gated `--apply` → owner RPC), 40 fixture tests,
