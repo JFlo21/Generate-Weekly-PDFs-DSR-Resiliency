@@ -308,3 +308,6 @@ the env-var catalog now lives in the configuration prompt, the cron schedule in 
 `[2026-09-02 22:05]`); WR-01's wrong discovery.py comparison corrected. **Blocked:** `AGENTS.md` freeze —
 the harness-boundary hook denies ClaudeOS writes; owner pastes the header by hand.
 
+**Merged:** PR #385 squash `26b3c4f` (2026-09-02 23:08 CDT) after a Greptile fix (`deac60e`) — CLAUDE.md,
+`docs/ai/*`, and the config quick reference now state the D-11.1-01 registry-version skip gate instead of
+"every sheet validated every run". Local `master` reset to `origin/master`; the branch is deleted.

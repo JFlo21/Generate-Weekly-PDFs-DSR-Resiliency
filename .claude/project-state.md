@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-02 22:05 CDT (2026-09-03 03:05Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-03 00:35 CDT (05:35Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -27,7 +27,7 @@ _Latest ledger entries: `[2026-09-02 22:05]` (instruction-file alignment run 1 �
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
 
-## Latest work (2026-09-02 evening) — instruction-file alignment, run 1 (branch `docs/align-instruction-files`)
+## Latest work (2026-09-02 evening) — instruction-file alignment, run 1 — **merged: PR #385 squash `26b3c4f` (23:08 CDT)**
 
 - **Step 0 before:** CLAUDE.md 369 lines (> 150), this file 1,555 (> 120), both mirrors stale since
   2026-08-17, memory-bank pages 67–149 days old, 0 dangling pointers.
@@ -51,12 +51,17 @@ _Latest ledger entries: `[2026-09-02 22:05]` (instruction-file alignment run 1 �
 - **Step 4** this file cut to ≤ 120 lines; every dropped dated section has a ledger entry except
   2026-08-15 (#340 merge, health system complete) — recorded in `[2026-09-02 22:05]`.
 - **Steps 5–7** `docs/AI_CONTEXT_RESUME.md` snapshot added; Step 0 re-run clean; ledger,
-  `docs/CHANGELOG_CONTEXT.md`, vault project page + `wiki/log.md` updated; docs-only PR opened
-  (nothing pushed to `master`).
+  `docs/CHANGELOG_CONTEXT.md`, vault project page + `wiki/log.md` updated; docs-only PR #385 opened.
+- **Merge (2026-09-02 23:08 CDT):** Greptile review issue fixed first (`deac60e` — discovery is NOT
+  "validated every run"; D-11.1-01 registry-version skip gate documented in CLAUDE.md, `docs/ai/*`, and
+  the config quick reference). PR #385 squash-merged as `26b3c4f`; origin's runbook bot added `e7852d6`
+  / `560115f`. Local `master` reset to `origin/master`, the branch deleted (all 15 local-only docs commits
+  were inside the squash).
 
 ## Next
 
-1. Owner: review/merge the docs PR; paste the `FROZEN MIRROR` header into `AGENTS.md` by hand.
+1. Owner: paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the
+   harness-boundary hook denies every ClaudeOS write to that file).
 2. `/clear` → `/gsd-execute-phase 12` — wave 1 = 12-01 tracer
    (`scripts/backfill_claim_time_attribution.py`, dry-run WR 19073866 → `_User_Avery_Example` via
    source 4) on a branch → PR.
