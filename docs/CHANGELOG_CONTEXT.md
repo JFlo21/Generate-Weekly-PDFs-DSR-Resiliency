@@ -332,3 +332,18 @@ now selects `week_ending` and `_in_target_week()` gates both loops; a NULL week 
 unresolved). Four cross-week tests added; full suite 1,998; commit `988680a`. Juan confirmed the named-sentinel-only targeting default
 (2026-09-03); PR #386 closed because its commit rides in #387. **Lesson:** per-row history sources need a same-row
 cross-week fixture in their contract tests — neither the rubric verifiers nor the Opus round exercised one.
+
+## 2026-09-03 — Phase 12 wave 2 started (branch `feat/phase-12-wave-2`, in progress)
+**What:** PR #387 merged to master (`e1b6302`); wave 2 dispatched from a fresh branch off `77a675b` via `/gsd-execute-phase 12`
+(three Sonnet executors, harness worktrees). 12-02 landed the CR-01 sentinel-predicate narrowing (`_SANITIZED_ERROR_IDENTIFIERS`
+allowlist, normalized like `is_sentinel_claimer`) and the WR-01 function-local `AttachmentParentType` import. The pre-merge Opus
+production-risk review found that the narrowing had *widened* the sibling side of the sentinel-superseded delete gate (an unlisted
+sanitized error spelling such as `_DATE_EXPECTED` would have counted as a real-name replacement and deleted a stale
+`Unknown_Foreman` attachment); fix `98b5ea3` adds `_is_real_name_identifier` so leading-underscore tokens are neutral on both
+sides, hardens the predicate against non-str/whitespace tokens, and logs once when the SDK import falls back. 12-03 authored the
+owner-deployed backfill SQL + contract test and halted at its blocking-human decision; its review round (PII out of the RAISE,
+full-whitespace `btrim`, `#variable_conflict use_column`, payload-key pins) is in flight. 12-04 (source-5 cell history) still
+executing. **Operator impact:** none yet — nothing merged to master; the SQL is never applied by automation.
+**Verified:** 12-02 suite 2011 passed after the fix round. **Open:** wave merge + post-merge gate; Juan's decisions at the 12-03
+and 12-04 checkpoints; Opus MEDIUM carried to 12-06 (backup-table probe is same-UTC-day only; RPC runs SECURITY INVOKER with no
+UPDATE grant in the file — verify grants before applying).

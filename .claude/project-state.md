@@ -43,6 +43,15 @@ _Latest ledger entries: `[2026-09-03 11:05]` (Greptile source-1 in-week guard fi
   findings; named-sentinel-only targeting is now the default with `--include-blank-roles` opt-in — **Juan to confirm
   that default before 12-06**. Deferred design items: `--from-report` approval binding, public `ROLE_BY_VARIANT`.
 - Also this session: local `master` reset to `origin/master` after PR #385; PR #386 (docs: record the #385 merge).
+- **2026-09-03 afternoon — Phase 12 wave 2 IN PROGRESS** on `feat/phase-12-wave-2` (off master `77a675b`, PR #387
+  squash `e1b6302` merged 12:11 CDT; `feat/phase-12-ownership` deleted). Three GSD executors in harness worktrees:
+  12-02 complete (CR-01 allowlist predicate + WR-01 lazy import, RED→GREEN, suite 2007) then an Opus review FIX-FIRST
+  round on its branch (`98b5ea3`: unlisted leading-underscore tokens are now neutral on BOTH sides of the sentinel-
+  superseded delete gate via `_is_real_name_identifier`; non-str/whitespace hardening; one-time WARNING on the
+  `AttachmentParentType` fallback; suite 2011); 12-03 halted at its Task 3 blocking-human decision (SQL + contract test
+  authored; Opus FIX-FIRST round delegated to a Sonnet worker: PII out of the RAISE, full-whitespace btrim, `#variable_conflict`,
+  contract test pins payload keys to `_build_apply_payload`); 12-04 still executing. Not yet merged; wave manifest in the
+  session scratchpad. Next: merge via `worktree.cleanup-wave`, post-merge gate, present the 12-03/12-04 checkpoints to Juan.
 - **2026-09-03 late morning — Greptile fix on PR #387 (`988680a`):** source 1 never matched a `row_event`/`row_state` row's own
   `week_ending` to the target week (cross-week owner leak, D-12-A violation missed by every prior gate). Fixed with
   `_in_target_week()` + `week_ending` in the bulk select; NULL week = not in-week; 4 tests added, suite 1,998. Opus
