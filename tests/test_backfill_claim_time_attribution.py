@@ -273,9 +273,31 @@ class _FakeTable:
         self.update = _RaisingWrite("update")
         self.upsert = _RaisingWrite("upsert")
         self.delete = _RaisingWrite("delete")
+        # Incremented on every .select(...) call -- one query issued
+        # per call. Used by the batched-reads tests to assert the
+        # script never issues one query per row_id.
+        self.select_calls = 0
 
     def select(self, *a, **kw):
+        self.select_calls += 1
         return _FakeQuery(self._rows).select(*a, **kw)
+
+
+class _FakeQueryIgnoreOrder(_FakeQuery):
+    """Same filtering/eq/in_ behavior as ``_FakeQuery`` but ``.order()``
+    is a no-op -- simulates a server that does not guarantee row order
+    for tied sort-key values, so the determinism test proves the
+    SCRIPT's own Python-side sort (not this fake's convenience
+    auto-sort-on-.order()) is what makes two runs byte-identical."""
+
+    def order(self, column, desc: bool = False, **_kw):
+        return self
+
+
+class _FakeTableIgnoreOrder(_FakeTable):
+    def select(self, *a, **kw):
+        self.select_calls += 1
+        return _FakeQueryIgnoreOrder(self._rows).select(*a, **kw)
 
 
 class _FakeRpcCall:
@@ -390,7 +412,7 @@ class KnownGoodSampleDryRunTests(unittest.TestCase):
 
     def _run_dry_run(
         self, tmp_dir: str, rpc_rows=None, gch_rows=None, gs_rows=None,
-        roles: str = "primary",
+        roles: str = "primary", include_blank_roles: bool = False,
     ):
         from scripts import backfill_claim_time_attribution as bf
 
@@ -419,6 +441,8 @@ class KnownGoodSampleDryRunTests(unittest.TestCase):
                 "--roles", roles,
                 "--report-dir", tmp_dir,
             ]
+            if include_blank_roles:
+                argv.append("--include-blank-roles")
             exit_code = bf.main(argv)
         return exit_code, ba_client
 
@@ -534,8 +558,11 @@ class KnownGoodSampleDryRunTests(unittest.TestCase):
     def test_default_roles_scope_covers_all_three_roles(self):
         """A row with no helper/vac_crew observation at all still has
         None for those columns, which satisfies is_sentinel_claimer --
-        the default --roles (all three) surfaces them as unresolved
-        candidates rather than silently dropping them."""
+        with --include-blank-roles, the default --roles (all three)
+        surfaces them as unresolved candidates rather than silently
+        dropping them. (Post-merge review fix: a blank role is NOT a
+        target by default any more -- see BlankRoleTargetingTests for
+        the new default behavior.)"""
         with tempfile.TemporaryDirectory() as tmp_dir:
             exit_code, _client = self._run_dry_run(
                 tmp_dir,
@@ -543,6 +570,7 @@ class KnownGoodSampleDryRunTests(unittest.TestCase):
                 gch_rows=[_gch_row("082425")],
                 gs_rows=[],
                 roles="primary,helper,vac_crew",
+                include_blank_roles=True,
             )
             self.assertEqual(exit_code, 0)
             json_path = Path(tmp_dir) / "own03_backfill_report.json"
@@ -569,6 +597,25 @@ class KnownGoodSampleDryRunTests(unittest.TestCase):
                 encoding="utf-8"
             )
             self.assertEqual(json_a, json_b)
+
+    def test_report_dir_outside_generated_docs_warns_not_refuses(self):
+        """Post-merge review fix (LOW): a --report-dir outside
+        generated_docs/ (every test fixture's tmp_dir qualifies) must
+        WARN, not refuse -- the run still exits 0 and writes the
+        report."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertLogs(level="WARNING") as log_ctx:
+                exit_code, _client = self._run_dry_run(tmp_dir)
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(
+                any(
+                    "--report-dir" in msg and "generated_docs" in msg
+                    for msg in log_ctx.output
+                )
+            )
+            self.assertTrue(
+                (Path(tmp_dir) / "own03_backfill_report.json").exists()
+            )
 
 
 class ScopeRequiredTests(unittest.TestCase):
@@ -597,6 +644,37 @@ class ScopeRequiredTests(unittest.TestCase):
             self.assertEqual(
                 bf.main(["--wr", _WR, "--weeks", "082425"]), 2
             )
+
+
+class DiscoveryStatusTests(unittest.TestCase):
+    """Post-merge review fix (MED): any prefetch_attribution status
+    outside {'success', 'no_row'} is fatal -- 'unavailable' and
+    'rpc_missing' used to fall through silently and yield zero
+    targets (exit 0)."""
+
+    def setUp(self):
+        _reset_all_clients()
+
+    def tearDown(self):
+        _reset_all_clients()
+
+    def test_prefetch_unavailable_and_rpc_missing_exit_7(self):
+        from scripts import backfill_claim_time_attribution as bf
+
+        ba_client = _make_billing_audit_fake_client([], [])
+        for status in ("unavailable", "rpc_missing"):
+            with self.subTest(status=status):
+                with mock.patch(
+                    "billing_audit.client.get_client",
+                    return_value=ba_client,
+                ), mock.patch(
+                    "billing_audit.writer.prefetch_attribution",
+                    return_value=({}, status),
+                ):
+                    exit_code = bf.main(
+                        ["--wr", _WR, "--weeks", "082425"]
+                    )
+                self.assertEqual(exit_code, 7)
 
 
 class SourceStubTests(unittest.TestCase):
@@ -900,6 +978,11 @@ class SourcesOneTwoThreeTests(unittest.TestCase):
         sheets, exactly the class of gap OWN-03 exists to close."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             rpc_row = _attribution_row("082425")
+            # Post-merge review fix: a blank helper is no longer a
+            # target by default -- use a NAMED sentinel so this row
+            # still qualifies (helper WAS populated once, then frozen
+            # sentinel, the realistic OWN-03 scenario).
+            rpc_row["helper"] = "Unknown Helper"
             exit_code = self._run(
                 tmp_dir,
                 rpc_rows=[rpc_row],
@@ -923,9 +1006,14 @@ class SourcesOneTwoThreeTests(unittest.TestCase):
         _Helper_ token -- NOT be double-counted as a reduced_sub_helper
         candidate too (specificity-ordered token matching, longest first)."""
         with tempfile.TemporaryDirectory() as tmp_dir:
+            rpc_row = _attribution_row("082425")
+            # Post-merge review fix: use a NAMED sentinel so role
+            # "helper" is still a target under the new default
+            # (blank-role-excluded) targeting rule.
+            rpc_row["helper"] = "Unknown Helper"
             exit_code = self._run(
                 tmp_dir,
-                rpc_rows=[_attribution_row("082425")],
+                rpc_rows=[rpc_row],
                 artifacts_rows=[
                     _artifact_row(
                         "082425",
@@ -1016,6 +1104,236 @@ class SourcesOneTwoThreeTests(unittest.TestCase):
             self.assertEqual(row["status"], "unresolved")
             self.assertTrue(row["evidence"])
             self.assertEqual(row["proposed_value"], "")
+
+
+class BlankRoleTargetingTests(unittest.TestCase):
+    """Post-merge review fix (targeting, HIGH): a role whose CURRENT
+    frozen value is blank/None is NOT a sentinel target by default --
+    only a NAMED sentinel (e.g. 'Unknown Foreman') is. The
+    --include-blank-roles flag restores the pre-hardening behavior."""
+
+    def setUp(self):
+        _reset_all_clients()
+
+    def tearDown(self):
+        _reset_all_clients()
+
+    def _run(self, tmp_dir: str, include_blank_roles: bool):
+        from scripts import backfill_claim_time_attribution as bf
+
+        rpc_rows = [_attribution_row("082425")]  # helper/vac_crew: None
+        ba_client = _make_billing_audit_fake_client(rpc_rows, [])
+        pm_client = _make_pipeline_memory_fake_client([])
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=ba_client
+        ), mock.patch(
+            "billing_audit.client.get_client", return_value=ba_client
+        ), mock.patch(
+            "pipeline_memory.client.get_client", return_value=pm_client
+        ):
+            argv = [
+                "--wr", _WR, "--weeks", "082425",
+                "--roles", "helper,vac_crew",
+                "--report-dir", tmp_dir,
+            ]
+            if include_blank_roles:
+                argv.append("--include-blank-roles")
+            exit_code = bf.main(argv)
+        return exit_code
+
+    def test_blank_roles_excluded_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(tmp_dir, include_blank_roles=False)
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(
+                (Path(tmp_dir) / "own03_backfill_report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(payload["rows"], [])
+            self.assertEqual(payload["summary"]["total_rows"], 0)
+            self.assertFalse(payload["summary"]["include_blank_roles"])
+
+    def test_blank_roles_included_with_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(tmp_dir, include_blank_roles=True)
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(
+                (Path(tmp_dir) / "own03_backfill_report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(len(payload["rows"]), 2)
+            self.assertTrue(payload["summary"]["include_blank_roles"])
+            for row in payload["rows"]:
+                self.assertEqual(row["status"], "unresolved")
+
+
+class BatchedReadsTests(unittest.TestCase):
+    """Post-merge review fix (batched reads, HIGH): source 1 must issue
+    chunked .in_() reads over the in-scope row_ids, never one
+    row_event/row_state query per row."""
+
+    def setUp(self):
+        _reset_all_clients()
+
+    def tearDown(self):
+        _reset_all_clients()
+
+    def test_source_1_batches_row_event_and_row_state_reads(self):
+        import math
+
+        from scripts import backfill_claim_time_attribution as bf
+
+        rpc_rows = [_attribution_row(t) for t in _WEEK_TOKENS]
+        row_event_rows = [
+            _row_event(
+                _ROW_IDS[t], "2026-07-01T00:00:00+00:00",
+                units_completed=True, foreman_observed="Avery Example",
+            )
+            for t in _WEEK_TOKENS
+        ]
+        ba_client = _make_billing_audit_fake_client(rpc_rows, [])
+        pm_client = _make_pipeline_memory_fake_client(
+            [], row_event_rows=row_event_rows,
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with mock.patch(
+                "billing_audit.writer.get_client", return_value=ba_client
+            ), mock.patch(
+                "billing_audit.client.get_client", return_value=ba_client
+            ), mock.patch(
+                "pipeline_memory.client.get_client", return_value=pm_client
+            ):
+                argv = [
+                    "--wr", _WR,
+                    "--weeks", ",".join(_WEEK_TOKENS),
+                    "--roles", "primary",
+                    "--report-dir", tmp_dir,
+                ]
+                exit_code = bf.main(argv)
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(
+                (Path(tmp_dir) / "own03_backfill_report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            for row in payload["rows"]:
+                self.assertEqual(row["status"], "proposed")
+                self.assertEqual(row["source"], "live")
+
+        n = len(_WEEK_TOKENS)
+        expected_max_calls = math.ceil(n / bf._ROW_ID_CHUNK_SIZE)
+        row_event_table = pm_client._schema_obj._tables["row_event"]
+        row_state_table = pm_client._schema_obj._tables["row_state"]
+        self.assertGreater(row_event_table.select_calls, 0)
+        self.assertLessEqual(
+            row_event_table.select_calls, expected_max_calls
+        )
+        self.assertLessEqual(
+            row_state_table.select_calls, expected_max_calls
+        )
+        # Never one query per row: strictly fewer calls than targets
+        # whenever more than one row_id shares a chunk.
+        self.assertLess(row_event_table.select_calls, n)
+
+
+class SourceReadFailureTests(unittest.TestCase):
+    """Post-merge review fix (silent read failure, HIGH): with_retry()
+    returning None (retries exhausted / circuit breaker open) must
+    exit 7, never be treated as "no evidence"."""
+
+    def setUp(self):
+        _reset_all_clients()
+
+    def tearDown(self):
+        _reset_all_clients()
+
+    def test_row_event_with_retry_none_exits_7(self):
+        from scripts import backfill_claim_time_attribution as bf
+
+        rpc_rows = [_attribution_row("082425")]
+        ba_client = _make_billing_audit_fake_client(rpc_rows, [])
+        pm_client = _make_pipeline_memory_fake_client([])
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with mock.patch(
+                "billing_audit.writer.get_client", return_value=ba_client
+            ), mock.patch(
+                "billing_audit.client.get_client", return_value=ba_client
+            ), mock.patch(
+                "pipeline_memory.client.get_client",
+                return_value=pm_client,
+            ), mock.patch(
+                "pipeline_memory.client.with_retry", return_value=None
+            ):
+                argv = [
+                    "--wr", _WR, "--weeks", "082425",
+                    "--roles", "primary", "--report-dir", tmp_dir,
+                ]
+                exit_code = bf.main(argv)
+        self.assertEqual(exit_code, 7)
+
+
+class DeterminismTests(unittest.TestCase):
+    """Post-merge review fix (determinism, MED must_have): two runs
+    over the SAME rows produce byte-identical reports regardless of
+    server row order, even when the server does not honor .order()
+    (simulated here via _FakeTableIgnoreOrder)."""
+
+    def setUp(self):
+        _reset_all_clients()
+
+    def tearDown(self):
+        _reset_all_clients()
+
+    def _run_once(self, gch_rows_order: list[dict], tmp_dir: str) -> str:
+        from scripts import backfill_claim_time_attribution as bf
+
+        rpc_rows = [_attribution_row("082425")]
+        ba_client = _make_billing_audit_fake_client(rpc_rows, [])
+        ba_client._schema_obj._tables["group_content_hash"] = (
+            _FakeTableIgnoreOrder(gch_rows_order)
+        )
+        pm_client = _make_pipeline_memory_fake_client([])
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=ba_client
+        ), mock.patch(
+            "billing_audit.client.get_client", return_value=ba_client
+        ), mock.patch(
+            "pipeline_memory.client.get_client", return_value=pm_client
+        ):
+            argv = [
+                "--wr", _WR, "--weeks", "082425", "--roles", "primary",
+                "--report-dir", tmp_dir,
+            ]
+            exit_code = bf.main(argv)
+        self.assertEqual(exit_code, 0)
+        return (Path(tmp_dir) / "own03_backfill_report.json").read_text(
+            encoding="utf-8"
+        )
+
+    def test_shuffled_tied_rows_produce_identical_report(self):
+        # Two rows tied on updated_at (both pre-defect) that resolve
+        # to the SAME desanitized name via two different variants --
+        # the tie-break among them must not depend on input order.
+        row_primary = _gch_row(
+            "082425", identifier="Avery_Example", variant="primary",
+            updated_at=_PRE_DEFECT_UPDATED_AT,
+        )
+        row_reduced_sub = _gch_row(
+            "082425", identifier="Avery_Example", variant="reduced_sub",
+            updated_at=_PRE_DEFECT_UPDATED_AT,
+        )
+        with tempfile.TemporaryDirectory() as tmp_a, \
+                tempfile.TemporaryDirectory() as tmp_b:
+            json_a = self._run_once(
+                [row_primary, row_reduced_sub], tmp_a
+            )
+            _reset_all_clients()
+            json_b = self._run_once(
+                [row_reduced_sub, row_primary], tmp_b
+            )
+            self.assertEqual(json_a, json_b)
 
 
 # ── Task 3: the --apply write path ────────────────────────────────────
@@ -1176,6 +1494,36 @@ class ApplyPathTests(unittest.TestCase):
                 rpc_handlers={"backfill_attribution": _raising_handler},
             )
             self.assertEqual(exit_code, 6)
+
+    def test_apply_rpc_result_count_mismatch_returns_6(self):
+        """Post-merge review fix (apply reconciliation, MED): a
+        response whose per-row result count does not match the
+        chunk's payload size must never be trusted -- treated as a
+        chunk failure, exit 6."""
+
+        def _truncated_handler(params):
+            # One row was proposed/sent; return zero results -- a
+            # response shorter than the chunk it answered.
+            return [
+                {**row, "result": "updated"}
+                for row in params["p_rows"][:-1]
+            ]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertLogs(level="ERROR") as log_ctx:
+                exit_code, _client = self._run_apply(
+                    tmp_dir,
+                    rpc_rows=[_attribution_row("082425")],
+                    gch_rows=[_gch_row("082425")],
+                    backup_table={"name": _BACKUP_TABLE_NAME, "rows": []},
+                    rpc_handlers={
+                        "backfill_attribution": _truncated_handler
+                    },
+                )
+            self.assertEqual(exit_code, 6)
+            self.assertTrue(
+                any("result(s)" in msg for msg in log_ctx.output)
+            )
 
     def test_apply_skipped_real_name_logs_warning_and_returns_0(self):
         def _skipped_handler(params):

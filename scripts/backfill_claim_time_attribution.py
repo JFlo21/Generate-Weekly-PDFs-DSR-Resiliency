@@ -210,6 +210,20 @@ class _Conflict(NamedTuple):
     evidence: str
 
 
+class _SourceReadConnectivityError(RuntimeError):
+    """Raised when a source read's ``with_retry(...)`` call returns
+    ``None`` (retries exhausted / circuit breaker open for that op).
+
+    Post-merge review fix: every source fetcher used to treat a
+    ``None`` result the same as a genuine zero-row response, so an
+    outage silently produced "no evidence" (an incorrect
+    ``unresolved`` report row) instead of a fatal read. Callers let
+    this propagate to ``main()``'s existing connectivity try/except so
+    the run exits 7 instead of shipping a report built on a partial,
+    unconfirmed read.
+    """
+
+
 # ── CLI argument parsing ─────────────────────────────────────────────
 
 def _parse_wr_csv(token: str) -> list[str]:
@@ -368,10 +382,63 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="generated_docs",
         help="Directory for the dry-run report (default: generated_docs).",
     )
+    parser.add_argument(
+        "--include-blank-roles",
+        dest="include_blank_roles",
+        action="store_true",
+        default=False,
+        help=(
+            "Opt-in: also target roles whose CURRENT frozen value is "
+            "blank/None, not just a NAMED sentinel (e.g. 'Unknown "
+            "Foreman'). OFF by default -- treating an ordinary row's "
+            "never-populated helper/vac_crew as a sentinel target can "
+            "propose the primary claimer's name into a role that never "
+            "had a helper."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 # ── Shared helpers ────────────────────────────────────────────────────
+
+_GENERATED_DOCS_DIR = _REPO_ROOT / "generated_docs"
+
+
+def _is_named_sentinel(value: Any) -> bool:
+    """True only when *value* is a non-blank string AND
+    ``billing_audit.writer.is_sentinel_claimer`` classifies it as a
+    sentinel -- excludes ``None`` / blank so an ordinary row whose
+    helper/vac_crew role was never populated is NOT treated as a
+    sentinel TARGET by default (post-merge review fix; see
+    ``--include-blank-roles`` for the opt-in that restores the
+    blank-is-a-target behavior)."""
+    from billing_audit.writer import is_sentinel_claimer
+
+    if value is None or not str(value).strip():
+        return False
+    return is_sentinel_claimer(value)
+
+
+def _warn_if_report_dir_outside_generated_docs(report_dir: str) -> None:
+    """Post-merge review fix (LOW): ``--report-dir`` is not restricted
+    to ``generated_docs/`` -- warn (never refuse) when it resolves
+    outside that directory, since only ``generated_docs/`` is
+    git-ignored for claimer PII."""
+    try:
+        resolved = Path(report_dir).resolve()
+        generated_docs = _GENERATED_DOCS_DIR.resolve()
+    except OSError:
+        return
+    try:
+        resolved.relative_to(generated_docs)
+    except ValueError:
+        logging.warning(
+            f"⚠️ --report-dir {report_dir!r} resolves outside "
+            f"{generated_docs} — its report files will NOT be covered "
+            "by the generated_docs/ .gitignore rule. Confirm git "
+            "status before committing anything from this run."
+        )
+
 
 def _desanitize(identifier: str) -> str:
     """Reverse the pipeline's filename sanitizer well enough to recover a
@@ -431,8 +498,24 @@ def _resolve_single_name(
     """
     from billing_audit.writer import is_sentinel_claimer
 
+    # Post-merge review fix (determinism, must_have): sort the INPUT
+    # rows before grouping -- the server's row order for a given
+    # filter is otherwise unspecified (especially across ties on the
+    # read's own .order() column), so without this a shuffled server
+    # response could flip which tied entry _pick_best_entry() picks,
+    # or reorder the conflict evidence string, between two runs over
+    # the identical row set.
+    sorted_rows = sorted(
+        rows,
+        key=lambda r: (
+            str(r.get("identifier") or ""),
+            str(r.get("variant") or ""),
+            str(r.get("updated_at") or ""),
+        ),
+    )
+
     candidates: dict[str, list[tuple[Any, str]]] = {}
-    for row in rows:
+    for row in sorted_rows:
         identifier = row.get("identifier")
         if not identifier:
             continue
@@ -451,7 +534,7 @@ def _resolve_single_name(
     if len(candidates) > 1:
         names = tuple(sorted(candidates.keys()))
         all_evidence = "; ".join(
-            ev for entries in candidates.values() for _ts, ev in entries
+            ev for name in names for _ts, ev in candidates[name]
         )
         return _Conflict(names=names, evidence=all_evidence)
 
@@ -511,6 +594,11 @@ def _fetch_group_content_hash_rows(
                 # _WEEK_SCOPED: filters on week_ending -- this row's own
                 # week only, never an adjacent one.
                 .eq("week_ending", week_ending.isoformat())
+                # Explicit order (determinism must_have) -- the
+                # Python-side sort in _resolve_single_name is still
+                # the authoritative guarantee; this is belt-and-
+                # suspenders against a large result set.
+                .order("identifier")
                 .execute()
             )
 
@@ -525,9 +613,18 @@ def _fetch_group_content_hash_rows(
             except Exception:
                 sentry_sdk.capture_exception()
                 raise
-        if result is not None:
-            data = getattr(result, "data", None) or []
-            rows = [r for r in data if isinstance(r, dict)]
+        if result is None:
+            # Post-merge review fix: with_retry() exhausted / circuit
+            # breaker open is a READ FAILURE, never "zero rows" --
+            # raise so main()'s connectivity try/except exits 7
+            # instead of silently reporting "no evidence".
+            raise _SourceReadConnectivityError(
+                "group_content_hash read failed (with_retry exhausted "
+                f"/ circuit breaker open) for wr={wr!r} "
+                f"week_ending={week_ending.isoformat()}"
+            )
+        data = getattr(result, "data", None) or []
+        rows = [r for r in data if isinstance(r, dict)]
 
     cache[cache_key] = rows
     return rows
@@ -558,6 +655,9 @@ def _fetch_group_state_rows(
                 # _WEEK_SCOPED: filters on week_ending -- this row's own
                 # week only, never an adjacent one.
                 .eq("week_ending", week_ending.isoformat())
+                # Explicit order (determinism must_have) -- see
+                # _fetch_group_content_hash_rows.
+                .order("identifier")
                 .execute()
             )
 
@@ -570,9 +670,14 @@ def _fetch_group_state_rows(
             except Exception:
                 sentry_sdk.capture_exception()
                 raise
-        if result is not None:
-            data = getattr(result, "data", None) or []
-            rows = [r for r in data if isinstance(r, dict)]
+        if result is None:
+            raise _SourceReadConnectivityError(
+                "group_state read failed (with_retry exhausted / "
+                f"circuit breaker open) for wr={wr!r} "
+                f"week_ending={week_ending.isoformat()}"
+            )
+        data = getattr(result, "data", None) or []
+        rows = [r for r in data if isinstance(r, dict)]
 
     cache[cache_key] = rows
     return rows
@@ -609,82 +714,155 @@ def resolve_source_4(
 # present and non-sentinel; that is the moment the row was actually
 # claimed. row_event is preferred (full history); row_state (the
 # latest snapshot only) is the fallback when no event qualifies.
+#
+# Post-merge review fix (batched reads, HIGH): both tables are
+# bulk-prefetched ONCE for every in-scope row_id via
+# _prefetch_row_events_and_states's chunked .in_() reads -- never one
+# query per row. _fetch_row_events / _fetch_row_states below are
+# CACHE-ONLY reads of that prefetch; a cache miss (e.g. a caller that
+# invokes resolve_source_1 directly without prefetching, as isolated
+# unit tests do) reads as "no events for this row", matching the
+# pre-batching no-client behavior.
 
-def _fetch_row_events(row_id: int, cache: dict) -> list[dict[str, Any]]:
-    cache_key = ("row_event_raw", row_id)
-    if cache_key in cache:
-        return cache[cache_key]
+_ROW_ID_CHUNK_SIZE = 500
+
+
+def _prefetch_row_events_and_states(
+    row_ids: "list[int]", cache: dict
+) -> None:
+    """Bulk-populate the per-row_id ``row_event`` / ``row_state`` cache
+    entries source 1 reads, via chunked ``.in_("row_id", chunk)`` reads
+    over *row_ids* (chunk size mirrors
+    ``pipeline_memory.reader._MAPPING_CHUNK_SIZE``) -- NEVER one query
+    per row.
+
+    Idempotent: row_ids that already have BOTH cache entries populated
+    are skipped on a repeat call. Every row_id passed in ends up with
+    a cache entry (possibly an empty list) so a downstream cache read
+    can never mistake "not yet fetched" for "confirmed zero rows".
+
+    Raises ``_SourceReadConnectivityError`` on any chunk's
+    ``with_retry`` failure -- the caller (``main``) already wraps the
+    resolution loop in a try/except that treats this as a fatal read
+    (exit 7), never as "no events for these rows".
+    """
+    pending = sorted(
+        {
+            rid for rid in row_ids
+            if ("row_event_raw", rid) not in cache
+            or ("row_state_raw", rid) not in cache
+        }
+    )
+    if not pending:
+        return
 
     from pipeline_memory.client import get_client as _get_pm_client
     from pipeline_memory.client import with_retry as _pm_with_retry
 
-    rows: list[dict[str, Any]] = []
+    events_by_row: dict[int, list[dict[str, Any]]] = {
+        rid: [] for rid in pending
+    }
+    states_by_row: dict[int, list[dict[str, Any]]] = {
+        rid: [] for rid in pending
+    }
+
     client = _get_pm_client()
     if client is not None:
+        chunks = [
+            pending[i:i + _ROW_ID_CHUNK_SIZE]
+            for i in range(0, len(pending), _ROW_ID_CHUNK_SIZE)
+        ]
+        for chunk in chunks:
+            def _invoke_events(_ids=chunk):
+                return (
+                    client.schema("pipeline_memory")
+                    .table("row_event")
+                    .select("row_id,observed_at,after_image")
+                    .in_("row_id", list(_ids))
+                    .order("observed_at")
+                    .execute()
+                )
 
-        def _invoke():
-            return (
-                client.schema("pipeline_memory")
-                .table("row_event")
-                .select("row_id,observed_at,after_image")
-                .eq("row_id", row_id)
-                .order("observed_at")
-                .execute()
-            )
-
-        with sentry_sdk.start_span(
-            op="own03.read_row_event",
-            name=f"row_id={row_id}",
-        ):
-            try:
-                result = _pm_with_retry(_invoke, op="own03_row_event_read")
-            except Exception:
-                sentry_sdk.capture_exception()
-                raise
-        if result is not None:
+            with sentry_sdk.start_span(
+                op="own03.read_row_event_bulk",
+                name=f"row_ids={len(chunk)}",
+            ):
+                try:
+                    result = _pm_with_retry(
+                        _invoke_events, op="own03_row_event_read"
+                    )
+                except Exception:
+                    sentry_sdk.capture_exception()
+                    raise
+            if result is None:
+                raise _SourceReadConnectivityError(
+                    "row_event bulk read failed (with_retry exhausted "
+                    f"/ circuit breaker open) for {len(chunk)} "
+                    "row_id(s)"
+                )
             data = getattr(result, "data", None) or []
-            rows = [r for r in data if isinstance(r, dict)]
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                rid = row.get("row_id")
+                if rid in events_by_row:
+                    events_by_row[rid].append(row)
 
-    cache[cache_key] = rows
-    return rows
+            def _invoke_states(_ids=chunk):
+                return (
+                    client.schema("pipeline_memory")
+                    .table("row_state")
+                    .select("*")
+                    .in_("row_id", list(_ids))
+                    .order("row_modified_at")
+                    .execute()
+                )
+
+            with sentry_sdk.start_span(
+                op="own03.read_row_state_bulk",
+                name=f"row_ids={len(chunk)}",
+            ):
+                try:
+                    result = _pm_with_retry(
+                        _invoke_states, op="own03_row_state_read"
+                    )
+                except Exception:
+                    sentry_sdk.capture_exception()
+                    raise
+            if result is None:
+                raise _SourceReadConnectivityError(
+                    "row_state bulk read failed (with_retry exhausted "
+                    f"/ circuit breaker open) for {len(chunk)} "
+                    "row_id(s)"
+                )
+            data = getattr(result, "data", None) or []
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                rid = row.get("row_id")
+                if rid in states_by_row:
+                    states_by_row[rid].append(row)
+
+    for rid in pending:
+        # Defensive re-sort in Python (determinism must_have) -- two
+        # runs must be byte-identical regardless of whether the server
+        # actually honors .order() for a given row_id's bucket.
+        events_by_row[rid].sort(
+            key=lambda r: str(r.get("observed_at") or "")
+        )
+        states_by_row[rid].sort(
+            key=lambda r: str(r.get("row_modified_at") or "")
+        )
+        cache[("row_event_raw", rid)] = events_by_row[rid]
+        cache[("row_state_raw", rid)] = states_by_row[rid]
+
+
+def _fetch_row_events(row_id: int, cache: dict) -> list[dict[str, Any]]:
+    return cache.get(("row_event_raw", row_id), [])
 
 
 def _fetch_row_states(row_id: int, cache: dict) -> list[dict[str, Any]]:
-    cache_key = ("row_state_raw", row_id)
-    if cache_key in cache:
-        return cache[cache_key]
-
-    from pipeline_memory.client import get_client as _get_pm_client
-    from pipeline_memory.client import with_retry as _pm_with_retry
-
-    rows: list[dict[str, Any]] = []
-    client = _get_pm_client()
-    if client is not None:
-
-        def _invoke():
-            return (
-                client.schema("pipeline_memory")
-                .table("row_state")
-                .select("*")
-                .eq("row_id", row_id)
-                .execute()
-            )
-
-        with sentry_sdk.start_span(
-            op="own03.read_row_state",
-            name=f"row_id={row_id}",
-        ):
-            try:
-                result = _pm_with_retry(_invoke, op="own03_row_state_read")
-            except Exception:
-                sentry_sdk.capture_exception()
-                raise
-        if result is not None:
-            data = getattr(result, "data", None) or []
-            rows = [r for r in data if isinstance(r, dict)]
-
-    cache[cache_key] = rows
-    return rows
+    return cache.get(("row_state_raw", row_id), [])
 
 
 def resolve_source_1(
@@ -803,6 +981,9 @@ def _fetch_artifacts_rows(
                 .eq("work_request", wr)
                 # _WEEK_SCOPED: this row's own week only.
                 .eq("week_ending", week_ending.isoformat())
+                # Explicit order (determinism must_have) -- see
+                # _fetch_group_content_hash_rows.
+                .order("filename")
                 .execute()
             )
 
@@ -815,9 +996,14 @@ def _fetch_artifacts_rows(
             except Exception:
                 sentry_sdk.capture_exception()
                 raise
-        if result is not None:
-            data = getattr(result, "data", None) or []
-            rows = [r for r in data if isinstance(r, dict)]
+        if result is None:
+            raise _SourceReadConnectivityError(
+                "artifacts read failed (with_retry exhausted / "
+                f"circuit breaker open) for wr={wr!r} "
+                f"week_ending={week_ending.isoformat()}"
+            )
+        data = getattr(result, "data", None) or []
+        rows = [r for r in data if isinstance(r, dict)]
 
     cache[cache_key] = rows
     return rows
@@ -1016,20 +1202,35 @@ def _probe_backup_table_readable(run_date: datetime.date) -> "tuple[bool, str]":
 
 
 def _build_apply_payload(
-    report_rows: list[dict[str, Any]], run_id: str
+    report_rows: list[dict[str, Any]], run_id: str,
+    include_blank_roles: bool = False,
 ) -> list[dict[str, Any]]:
     """Include an entry only for rows whose ``status`` is ``proposed``
-    AND whose ``current_value`` satisfies ``is_sentinel_claimer`` -- a
-    second, defensive, CLIENT-SIDE filter (T-12-01) even though the RPC
+    AND whose ``current_value`` is a sentinel target -- a second,
+    defensive, CLIENT-SIDE filter (T-12-01) even though the RPC
     enforces the same rule server-side. Never trusts the caller's own
-    ``status`` classification alone."""
+    ``status`` classification alone.
+
+    Post-merge review fix (targeting, HIGH): by default only a NAMED
+    sentinel (a non-blank string classified by ``is_sentinel_claimer``,
+    e.g. ``'Unknown Foreman'``) qualifies as a target -- a blank/None
+    ``current_value`` is excluded unless *include_blank_roles* is set,
+    matching ``_discover_sentinel_targets``'s targeting rule so the
+    apply path never writes a proposal derived from a role that was
+    never populated in the first place.
+    """
     from billing_audit.writer import is_sentinel_claimer
 
     payload: list[dict[str, Any]] = []
     for row in report_rows:
         if row.get("status") != "proposed":
             continue
-        if not is_sentinel_claimer(row.get("current_value")):
+        current_value = row.get("current_value")
+        if include_blank_roles:
+            is_target = is_sentinel_claimer(current_value)
+        else:
+            is_target = _is_named_sentinel(current_value)
+        if not is_target:
             continue
         payload.append(
             {
@@ -1046,7 +1247,8 @@ def _build_apply_payload(
 
 
 def _apply_backfill(
-    report_rows: list[dict[str, Any]], run_id: str
+    report_rows: list[dict[str, Any]], run_id: str,
+    include_blank_roles: bool = False,
 ) -> "tuple[dict[tuple, str], dict[str, int], int]":
     """Call ``billing_audit.backfill_attribution(p_rows)`` in chunks of
     at most 500 entries, mirroring ``freeze_row``'s call shape
@@ -1063,7 +1265,10 @@ def _apply_backfill(
       the Python-side guard removed before the RPC ever saw them).
     - ``local_exceptions``: chunks where the RPC call itself did not
       return a usable response (an exception, or ``with_retry``
-      exhausting retries) -- mirrors
+      exhausting retries), OR where the response's per-row result
+      count did not match the chunk's payload size (post-merge review
+      fix, MED -- an RPC that returns a partial/over-long response is
+      never trusted implicitly) -- mirrors
       ``scripts/backfill_attribution_snapshot.py``'s local-exception
       counter that ORs into the final exit gate alongside the
       server-reported tally.
@@ -1072,7 +1277,9 @@ def _apply_backfill(
     from billing_audit.client import with_retry as _ba_with_retry
 
     all_proposed = sum(1 for r in report_rows if r.get("status") == "proposed")
-    payload = _build_apply_payload(report_rows, run_id)
+    payload = _build_apply_payload(
+        report_rows, run_id, include_blank_roles=include_blank_roles
+    )
     skipped_client_side_real_name = all_proposed - len(payload)
 
     tallies: dict[str, int] = {
@@ -1118,6 +1325,19 @@ def _apply_backfill(
         data = getattr(result, "data", None) or []
         if isinstance(data, dict):
             data = [data]
+        if len(data) != len(chunk):
+            # Post-merge review fix (apply reconciliation, MED): never
+            # trust a response whose per-row result count doesn't
+            # match the chunk sent -- a partial/over-long response
+            # means we cannot reliably map results back onto rows.
+            local_exceptions += 1
+            logging.error(
+                "❌ backfill_attribution returned "
+                f"{len(data)} result(s) for a chunk of {len(chunk)} "
+                "row(s) -- refusing to trust a partial/over-long RPC "
+                "response; treating this chunk as failed."
+            )
+            continue
         for row_result in data:
             if not isinstance(row_result, dict):
                 tallies["error"] += 1
@@ -1155,14 +1375,25 @@ def _discover_sentinel_targets(
     roles: list[str],
     week_fmt_by_date: dict[datetime.date, str],
     cache: dict,
+    include_blank_roles: bool = False,
 ) -> "tuple[list[SentinelTarget], str]":
     """Read the currently frozen per-row roles for every in-scope
     (wr, week_ending) pair through ``billing_audit.writer.prefetch_attribution``
     (a bulk RPC over the SAME lookup_attribution read surface
     ``_lookup_attribution_all`` uses for a single row) -- never a raw
     Supabase table-select on the attribution_snapshot table -- and
-    select the (row_id, role) pairs whose CURRENT value satisfies
-    ``billing_audit.writer.is_sentinel_claimer``.
+    select the (row_id, role) pairs whose CURRENT value is a sentinel
+    target.
+
+    Post-merge review fix (targeting, HIGH): by default a role only
+    targets when its CURRENT value is a NAMED sentinel -- a non-blank
+    string that ``billing_audit.writer.is_sentinel_claimer`` classifies
+    as a sentinel (e.g. ``'Unknown Foreman'``). A blank/None value
+    (a role that was never populated -- ``is_sentinel_claimer(None)``
+    is also True) is EXCLUDED unless *include_blank_roles* is set,
+    since treating an ordinary row's never-populated helper/vac_crew
+    as a target risks proposing the primary claimer's name into a
+    role that never had one. See ``--include-blank-roles``.
 
     Every row's full frozen dict is also cached under
     ``("attribution_row", wr, week_ending, row_id)`` -- for EVERY row
@@ -1170,9 +1401,9 @@ def _discover_sentinel_targets(
     real name off the SAME already-fetched row without a second RPC.
 
     Returns ``(targets, status)`` where status mirrors
-    ``prefetch_attribution``'s own status vocabulary. A caller MUST
-    treat ``'fetch_failure'`` as a connectivity failure (exit 7), never
-    as "zero sentinel rows".
+    ``prefetch_attribution``'s own status vocabulary. The caller
+    (``main``) MUST treat any status outside ``{'success', 'no_row'}``
+    as a connectivity failure (exit 7), never as "zero sentinel rows".
     """
     from billing_audit.writer import is_sentinel_claimer, prefetch_attribution
 
@@ -1195,7 +1426,11 @@ def _discover_sentinel_targets(
         for role in roles:
             column = _ROLE_TO_SNAPSHOT_COLUMN[role]
             current_value = row.get(column)
-            if not is_sentinel_claimer(current_value):
+            if include_blank_roles:
+                is_target = is_sentinel_claimer(current_value)
+            else:
+                is_target = _is_named_sentinel(current_value)
+            if not is_target:
                 continue
             targets.append(
                 SentinelTarget(
@@ -1272,6 +1507,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
+    _warn_if_report_dir_outside_generated_docs(args.report_dir)
+
     # Cheapest, highest-risk gate first -- a pure argument-shape check
     # that needs no Supabase client, so a malformed --apply invocation
     # is refused before touching any credential or making any call.
@@ -1337,7 +1574,8 @@ def main(argv: list[str] | None = None) -> int:
     cache: dict = {}
     try:
         targets, discovery_status = _discover_sentinel_targets(
-            wr_week_pairs, args.roles, week_fmt_by_date, cache
+            wr_week_pairs, args.roles, week_fmt_by_date, cache,
+            include_blank_roles=args.include_blank_roles,
         )
     except Exception as exc:
         sentry_sdk.capture_exception(exc)
@@ -1347,16 +1585,25 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 7
 
-    if discovery_status == "fetch_failure":
+    if discovery_status not in ("success", "no_row"):
+        # Post-merge review fix (discovery status, MED): every status
+        # outside {success, no_row} -- fetch_failure, unavailable,
+        # rpc_missing -- is treated as fatal. unavailable/rpc_missing
+        # used to fall through silently and yield zero targets (exit
+        # 0), which is indistinguishable from a genuinely clean scope.
         logging.error(
-            "❌ Attribution discovery reported a definitive connectivity "
-            "failure (prefetch_attribution: fetch_failure). Not "
-            "proceeding with a partial/incorrect scope."
+            "❌ Attribution discovery did not return a definitive "
+            f"result (prefetch_attribution status={discovery_status!r}). "
+            "Not proceeding with a partial/incorrect scope."
         )
         return 7
 
     report_rows: list[dict[str, Any]] = []
     try:
+        if 1 in args.sources:
+            _prefetch_row_events_and_states(
+                sorted({t.row_id for t in targets}), cache
+            )
         for target in targets:
             report_rows.append(_resolve_target(target, args.sources, cache))
     except Exception as exc:
@@ -1367,7 +1614,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 7
 
-    json_path, csv_path = _write_reports(args.report_dir, report_rows, run_id)
+    json_path, csv_path = _write_reports(
+        args.report_dir, report_rows, run_id,
+        extra_summary={"include_blank_roles": args.include_blank_roles},
+    )
 
     logging.info(f"✅ Dry-run report written: {json_path}")
     logging.info(f"                            {csv_path}")
@@ -1402,7 +1652,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         outcome_by_key, tallies, local_exceptions = _apply_backfill(
-            report_rows, run_id
+            report_rows, run_id,
+            include_blank_roles=args.include_blank_roles,
         )
     except Exception as exc:
         sentry_sdk.capture_exception(exc)
@@ -1419,7 +1670,10 @@ def main(argv: list[str] | None = None) -> int:
     json_path, csv_path = _write_reports(
         args.report_dir, report_rows, run_id,
         csv_columns=_REPORT_COLUMNS + ("rpc_result",),
-        extra_summary={"apply": tallies},
+        extra_summary={
+            "include_blank_roles": args.include_blank_roles,
+            "apply": tallies,
+        },
     )
     logging.info(f"✅ Apply report rewritten: {json_path}")
     logging.info(f"                           {csv_path}")
