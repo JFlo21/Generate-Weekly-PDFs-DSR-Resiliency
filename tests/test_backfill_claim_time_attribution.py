@@ -224,6 +224,48 @@ class _RaisingWrite:
         self._name = name
 
 
+try:
+    from postgrest import APIError as _POSTGREST_API_ERROR_CLS  # type: ignore
+except Exception:
+    _POSTGREST_API_ERROR_CLS = None  # type: ignore[assignment]
+
+
+def _make_api_error(code: str, message: str = "") -> Exception:
+    """Build a real ``postgrest.APIError`` the same way postgrest-py does
+    when unwrapping a JSON error body -- mirrors
+    ``tests/test_billing_audit_shadow.py::PostgrestErrorClassificationTests
+    ._make_api_error``. Callers needing this MUST be skip-gated on
+    ``_POSTGREST_API_ERROR_CLS is None`` at the test/class level."""
+    return _POSTGREST_API_ERROR_CLS(
+        {"code": code, "message": message, "hint": "", "details": ""}
+    )
+
+
+class _RaisingTable:
+    """A fake table whose ``.select(...)`` chain raises *exc* on
+    ``.execute()`` -- simulates a missing relation (e.g. PGRST205) or a
+    connectivity error for the Task 3 backup-table probe."""
+
+    def __init__(self, exc: Exception):
+        self._exc = exc
+        self.insert = _RaisingWrite("insert")
+        self.update = _RaisingWrite("update")
+        self.upsert = _RaisingWrite("upsert")
+        self.delete = _RaisingWrite("delete")
+
+    def select(self, *_a, **_kw):
+        return self
+
+    def eq(self, *_a, **_kw):
+        return self
+
+    def limit(self, *_a, **_kw):
+        return self
+
+    def execute(self):
+        raise self._exc
+
+
 class _FakeTable:
     def __init__(self, rows: list[dict]):
         self._rows = rows
@@ -288,11 +330,27 @@ def _make_billing_audit_fake_client(
     rpc_rows: list[dict],
     group_content_hash_rows: list[dict],
     artifacts_rows: list[dict] | None = None,
+    rpc_handlers: dict | None = None,
+    backup_table: dict | None = None,
 ) -> _FakeClient:
-    schema_obj = _FakeSchema(
-        tables={"group_content_hash": _FakeTable(group_content_hash_rows)},
-        rpc_handlers={"lookup_attribution_bulk": lambda _params: rpc_rows},
-    )
+    """*backup_table*, when given, is
+    ``{"name": str, "rows": list[dict]}`` (readable, Task 3 apply-path
+    probe succeeds) or ``{"name": str, "raises": Exception}`` (probe
+    fails -- missing relation or connectivity error, depending on the
+    exception)."""
+    tables: dict = {"group_content_hash": _FakeTable(group_content_hash_rows)}
+    if backup_table is not None:
+        name = backup_table["name"]
+        if "raises" in backup_table:
+            tables[name] = _RaisingTable(backup_table["raises"])
+        else:
+            tables[name] = _FakeTable(backup_table.get("rows", []))
+
+    handlers: dict = {"lookup_attribution_bulk": lambda _params: rpc_rows}
+    if rpc_handlers:
+        handlers.update(rpc_handlers)
+
+    schema_obj = _FakeSchema(tables=tables, rpc_handlers=handlers)
     return _FakeClient(
         schema_obj, public_tables={"artifacts": _FakeTable(artifacts_rows or [])}
     )
@@ -958,3 +1016,231 @@ class SourcesOneTwoThreeTests(unittest.TestCase):
             self.assertEqual(row["status"], "unresolved")
             self.assertTrue(row["evidence"])
             self.assertEqual(row["proposed_value"], "")
+
+
+# ── Task 3: the --apply write path ────────────────────────────────────
+# A fixed run date, NOT wall-clock "today" -- the backup table name is
+# date-derived, so every apply-path test patches
+# scripts.backfill_claim_time_attribution._run_date to this constant
+# for a deterministic, known table name.
+_RUN_DATE = datetime.date(2026, 9, 3)
+_BACKUP_TABLE_NAME = "attribution_snapshot_backup_" + _RUN_DATE.strftime("%Y%m%d")
+
+
+class ApplyPathTests(unittest.TestCase):
+    """Task 3: approval gate, backup-table precondition, RPC caller,
+    never-overwrite-a-real-name guarantee."""
+
+    def setUp(self):
+        _reset_all_clients()
+
+    def tearDown(self):
+        _reset_all_clients()
+
+    def _run_apply(
+        self, tmp_dir: str, rpc_rows, gch_rows=None, backup_table=None,
+        rpc_handlers=None, apply: bool = True, approved: bool = True,
+        roles: str = "primary",
+    ):
+        from scripts import backfill_claim_time_attribution as bf
+
+        ba_client = _make_billing_audit_fake_client(
+            rpc_rows, gch_rows or [], rpc_handlers=rpc_handlers,
+            backup_table=backup_table,
+        )
+        pm_client = _make_pipeline_memory_fake_client([])
+
+        argv = [
+            "--wr", _WR, "--weeks", "082425", "--roles", roles,
+            "--report-dir", tmp_dir,
+        ]
+        if apply:
+            argv.append("--apply")
+        if approved:
+            argv.append("--i-approved-this")
+
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=ba_client
+        ), mock.patch(
+            "billing_audit.client.get_client", return_value=ba_client
+        ), mock.patch(
+            "pipeline_memory.client.get_client", return_value=pm_client
+        ), mock.patch(
+            "scripts.backfill_claim_time_attribution._run_date",
+            return_value=_RUN_DATE,
+        ):
+            exit_code = bf.main(argv)
+        return exit_code, ba_client
+
+    def test_apply_without_approval_returns_4_and_no_rpc_calls(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, ba_client = self._run_apply(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                gch_rows=[_gch_row("082425")],
+                apply=True, approved=False,
+            )
+            self.assertEqual(exit_code, 4)
+            rpc_names = {n for n, _p in ba_client._schema_obj.rpc_calls}
+            self.assertNotIn("backfill_attribution", rpc_names)
+
+    @unittest.skipIf(
+        _POSTGREST_API_ERROR_CLS is None,
+        "postgrest not installed -- cannot construct a real APIError to "
+        "simulate PGRST205 (table not found)",
+    )
+    def test_apply_missing_backup_table_returns_3(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, _client = self._run_apply(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                gch_rows=[_gch_row("082425")],
+                backup_table={
+                    "name": _BACKUP_TABLE_NAME,
+                    "raises": _make_api_error(
+                        "PGRST205",
+                        message=(
+                            "Could not find the table 'billing_audit."
+                            f"{_BACKUP_TABLE_NAME}' in the schema cache"
+                        ),
+                    ),
+                },
+            )
+            self.assertEqual(exit_code, 3)
+
+    def test_apply_backup_probe_connectivity_error_returns_7(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, _client = self._run_apply(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                gch_rows=[_gch_row("082425")],
+                backup_table={
+                    "name": _BACKUP_TABLE_NAME,
+                    "raises": RuntimeError("connection reset"),
+                },
+            )
+            self.assertEqual(exit_code, 7)
+
+    def test_build_apply_payload_excludes_real_current_value(self):
+        """Defense in depth (T-12-01): even a malformed report_rows entry
+        whose status is 'proposed' but current_value is a REAL name (a
+        state normal discovery could never produce) must never reach
+        p_rows -- the Python-side is_sentinel_claimer guard does not
+        trust the caller's own status classification."""
+        from scripts import backfill_claim_time_attribution as bf
+
+        rows = [
+            {
+                "wr": _WR, "week_ending": "2026-08-24",
+                "row_id": _ROW_IDS["082425"], "role": "primary",
+                "current_value": "Pat Example",
+                "proposed_value": "Sam Sample",
+                "source": "backfill_hash_history", "status": "proposed",
+            },
+        ]
+        payload = bf._build_apply_payload(rows, run_id="test-run")
+        self.assertEqual(payload, [])
+
+    def test_apply_payload_key_set_is_exact_seven_keys(self):
+        from scripts import backfill_claim_time_attribution as bf
+
+        rows = [
+            {
+                "wr": _WR, "week_ending": "2026-08-24",
+                "row_id": _ROW_IDS["082425"], "role": "primary",
+                "current_value": "Unknown Foreman",
+                "proposed_value": "Avery Example",
+                "source": "backfill_hash_history", "status": "proposed",
+            },
+        ]
+        payload = bf._build_apply_payload(rows, run_id="test-run")
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(
+            set(payload[0].keys()),
+            {
+                "wr", "week_ending", "smartsheet_row_id", "role", "value",
+                "backfill_source", "backfill_run_id",
+            },
+        )
+
+    def test_apply_raised_rpc_exception_returns_6(self):
+        def _raising_handler(_params):
+            raise RuntimeError("simulated RPC failure")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, _client = self._run_apply(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                gch_rows=[_gch_row("082425")],
+                backup_table={"name": _BACKUP_TABLE_NAME, "rows": []},
+                rpc_handlers={"backfill_attribution": _raising_handler},
+            )
+            self.assertEqual(exit_code, 6)
+
+    def test_apply_skipped_real_name_logs_warning_and_returns_0(self):
+        def _skipped_handler(params):
+            return [
+                {**row, "result": "skipped_real_name"}
+                for row in params["p_rows"]
+            ]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertLogs(level="WARNING") as log_ctx:
+                exit_code, _client = self._run_apply(
+                    tmp_dir,
+                    rpc_rows=[_attribution_row("082425")],
+                    gch_rows=[_gch_row("082425")],
+                    backup_table={"name": _BACKUP_TABLE_NAME, "rows": []},
+                    rpc_handlers={"backfill_attribution": _skipped_handler},
+                )
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(
+                any("skipped_real_name" in msg for msg in log_ctx.output)
+            )
+
+    def test_apply_updated_result_returns_0_and_report_gets_rpc_result(self):
+        def _updated_handler(params):
+            return [
+                {**row, "result": "updated"} for row in params["p_rows"]
+            ]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, _client = self._run_apply(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                gch_rows=[_gch_row("082425")],
+                backup_table={"name": _BACKUP_TABLE_NAME, "rows": []},
+                rpc_handlers={"backfill_attribution": _updated_handler},
+            )
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(
+                (Path(tmp_dir) / "own03_backfill_report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            row = payload["rows"][0]
+            self.assertEqual(row["rpc_result"], "updated")
+            self.assertIn("apply", payload["summary"])
+            self.assertEqual(payload["summary"]["apply"]["updated"], 1)
+
+    def test_dry_run_report_has_no_rpc_result_column(self):
+        """A plain dry-run (no --apply) must not introduce an rpc_result
+        column at all -- keeps the Task 1/2 CSV header contract stable."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code, _client = self._run_apply(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                gch_rows=[_gch_row("082425")],
+                apply=False, approved=False,
+            )
+            self.assertEqual(exit_code, 0)
+            csv_path = Path(tmp_dir) / "own03_backfill_report.csv"
+            header = csv_path.read_text(encoding="utf-8").splitlines()[0]
+            self.assertNotIn("rpc_result", header)
+
+
+class ApplyStructuralContractTests(unittest.TestCase):
+    def test_script_calls_backfill_attribution_rpc_never_freeze_row(self):
+        src = _read_source(_SCRIPT_RELPATH)
+        self.assertIn('rpc("backfill_attribution"', src)
+        self.assertNotIn("freeze_row(", src)
