@@ -723,6 +723,31 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
+**Plans:** 6 plans
+
+Plans:
+- [ ] 12-01-PLAN.md — OWN-03 claim-time backfill script: tracer dry-run for WR 19073866, sources 1–4 precedence, and the gated `--apply` write path
+- [ ] 12-02-PLAN.md — OWN-02 residuals: CR-01 sentinel-identifier narrowing and WR-01 lazy `AttachmentParentType` import, both with regression tests
+- [ ] 12-03-PLAN.md — Owner-deployed Supabase SQL: backup table, `backfill_source` / `backfill_run_id` columns, `is_sentinel_value`, and the sentinel-only `backfill_attribution` RPC
+- [ ] 12-04-PLAN.md — OWN-03 source 5: capped, self-paced cell-history backfill script plus its isolated off-hours workflow
+- [ ] 12-05-PLAN.md — OWN-04 documentation: the ownership-attribution runbook page, sidebar and reference updates, and the dated Living Ledger entry
+- [ ] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run
+
+**Planning decisions (2026-09-02, supersede the stale wording above):**
+
+- **D-12-A** — Phase 12 ships NO `wr_week_ownership` table. OWN-01's ladder is satisfied by
+  `billing_audit.attribution_snapshot` + `resolve_claimer` plus the new `backfill_source` /
+  `backfill_run_id` provenance columns; the table is deferred to Phase 13. The ladder as
+  implemented is `observed_in_week → backfill_artifacts → backfill_hash_history → operator
+  → sentinel`, with no cross-week rung (REQUIREMENTS.md OWN-01's wording is stale).
+- **D-12-B** — source 4 (`backfill_hash_history`) reads the Supabase hash store
+  (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), NOT a JSON file. No
+  `--hash-history` flag, no JSON fixture. Weeks never seen in a run since 2026-05-25 fall
+  through to sources 3 and 5.
+- Source 5 (Smartsheet cell history) is INCLUDED (2026-09-02 00:35), as a separate capped
+  off-hours job — never inside `generate_weekly_pdfs.py`. The "cell history optional,
+  pending" phrase in the **Depends on** paragraph above predates that decision.
+
 ### Phase 13: Audit Memory
 
 **Milestone:** v1.4
