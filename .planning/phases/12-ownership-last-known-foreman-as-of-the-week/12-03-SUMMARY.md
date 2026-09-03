@@ -294,5 +294,5 @@ Valid: the RPC updates one ROLE column per payload row but wrote the ROW-level `
 today, source 5 later, which is exactly Phase 12's shape) lost the earlier role's provenance. Fix: STEP 2 adds
 `backfill_provenance JSONB`; every role UPDATE merges `{"<role>": {"source", "run_id"}}` into it while the
 two row-level columns keep meaning "most recent backfill write". Contract test pins the column and the three
-merges; `schema.sql` and the runbook describe the three columns. **Owner re-apply required (idempotent):**
+merges; `schema.sql` and the runbook describe the three columns. **Owner re-apply required (idempotent) — DONE live the same evening through the Supabase MCP, see the live re-apply report above:**
 STEP 2 (adds the third column), STEP 4 (DROP + CREATE), then STEP 0 must list `backfill_provenance`.
