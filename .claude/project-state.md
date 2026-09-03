@@ -52,7 +52,11 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   have frozen that string as a real name. Only the 692 `live` (source 1) proposals across 7 WRs are sound. Second
   scope gap: `lookup_attribution_bulk` nulls `#…` values, so the 935 primary + 10 helper `#NO MATCH` rows are
   invisible to default targeting. Verdict for Task 1: REJECT → fix 12-01 source 3 (+ RPC/script guard on the
-  proposed value, fixtures with hash-less filenames) before any apply; ledger entry pending.
+  proposed value, fixtures with hash-less filenames) before any apply. Juan's verdict `reject: source-3 filename
+  parser defect` recorded; continuation executor wrote `12-06-SUMMARY.md` as `status: halted` (`090c5dc`), STATE +
+  ROADMAP show 12-06 HALTED (`417a085`); ledger `[2026-09-03 17:30]`; vault: PostgREST patterns §4, project page,
+  current-state, log `[2026-09-03q]`/`[2026-09-03r]`, global lessons-learned. Phase 12 is stuck on the halt: next is
+  the verifier → `/gsd:plan-phase 12 --gaps` → `/gsd:execute-phase 12 --gaps-only` → re-run 12-06.
 - **2026-09-03 night — 12-06 dispatched, halted at Task 1 (blocking-human):** `/gsd-execute-phase 12` on `feat/phase-12-remediation` (sequential, worktree base-check degraded because HEAD is ahead of `origin/HEAD`); the Sonnet executor read the plan, 12-03-SUMMARY and the runbook, made zero live calls, and returned the Task 1 dry-run checkpoint for Juan. Finding: the plan's step 1 ("full-scope dry-run with no args") does not exist — `scripts/backfill_claim_time_attribution.py` exits 8 unless both `--wr` and `--weeks` are given (runbook § Running the backfill is correct); run scoped dry-runs (known-good WR 19073866 first, then the extended sample, then the remediation set). Owner reminder: the `--apply` probe wants `attribution_snapshot_backup_<today UTC>`; re-create the backup (SQL STEP 1) on the apply day. STATE.md tracking updated by `state.begin-phase`; no SUMMARY yet.
 - `/gsd-execute-phase 12` (wave filter 1) on branch `feat/phase-12-ownership` off `560115f`; GSD executor (Sonnet,
   harness worktree) delivered plan 12-01 in 6 commits: `scripts/backfill_claim_time_attribution.py` (dry-run default,
