@@ -11,6 +11,17 @@
    the whole run, and its tokens are normalized to bare WR numbers
    (``_normalize_reset_wr``).
 
+CR-01 (2026-09, Phase 12 plan 02): ``_is_sentinel_identifier`` no longer
+treats every leading underscore as a sentinel. A real claimer name whose
+raw form began with a space, apostrophe or parenthesis (``" O'Brien"``,
+``"(Contractor) Smith"``, ``"'Ana Ruiz"``) sanitizes to a leading
+underscore too (``pipeline/excel.py`` never ``.strip()``s before
+sanitizing), and the old bare ``startswith('_')`` check could not tell
+that apart from a sanitized Smartsheet error token — a false positive
+that could delete a real person's billing attachment through the
+sentinel-superseded gate below. The fix narrows the leading-underscore
+branch to an explicit allowlist of sanitized error spellings.
+
 Fixture style mirrors ``tests/test_orphaned_primary_attachment.py``. All
 names are fictional (public-repo rule).
 """
@@ -109,6 +120,8 @@ class SentinelIdentifierPredicateTests(unittest.TestCase):
             ('_NO_MATCH', True),
             ('_REF_', True),        # sanitized '#REF!' (Codex, PR #377)
             ('_INVALID', True),     # sanitized '#INVALID'
+            ('_ref_', True),        # case-insensitive (CR-01)
+            ('_No_Match', True),    # case-insensitive (CR-01)
             ('Pat_Example', False),
             ('Sam_Sample', False),
             (None, False),
@@ -116,6 +129,18 @@ class SentinelIdentifierPredicateTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIs(_is_sentinel_identifier(token), expected)
+
+    def test_real_names_with_leading_punctuation_are_not_sentinels(self) -> None:
+        """CR-01: a real name sanitized from a raw leading space,
+        apostrophe or parenthesis must never classify as a sentinel."""
+        for token in (
+            '_O_Brien',              # sanitized " O'Brien"
+            '_Contractor__Smith',    # sanitized "(Contractor) Smith"
+            '_Ana_Ruiz',              # sanitized "'Ana Ruiz"
+            '_Zorblatt',              # unrecognised leading-underscore token
+        ):
+            with self.subTest(token=token):
+                self.assertIs(_is_sentinel_identifier(token), False)
 
 
 class SentinelSupersededCleanupTests(unittest.TestCase):
