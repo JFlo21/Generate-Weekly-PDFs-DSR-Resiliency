@@ -723,7 +723,8 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 5/6 plans executed (12-06 owner-run after PR #388 merges; 12-03 SQL applied live 2026-09-03)
+**Plans:** 5/6 executed; 12-06 HALTED at Task 1 (dry-run REJECTED 2026-09-03 — source-3 filename parser
+defect; gap-closure required via `/gsd:plan-phase 12 --gaps` before re-run; 12-03 SQL applied live 2026-09-03)
 
 Plans:
 **Wave 1**
@@ -742,7 +743,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run
+- [ ] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run — HALTED at Task 1 (dry-run REJECTED 2026-09-03; see 12-06-SUMMARY.md)
 
 **Planning decisions (2026-09-02, supersede the stale wording above):**
 

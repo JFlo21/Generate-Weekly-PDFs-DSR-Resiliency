@@ -5,16 +5,16 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 12
 current_phase_name: Ownership — last known foreman as of the week
 status: executing
-stopped_at: Phase 11.1 complete, ready to plan Phase 12
-last_updated: "2026-09-03T21:29:15.951Z"
+stopped_at: "Phase 12 Plan 06 HALTED at Task 1 (dry-run REJECTED) — gap-closure needed via /gsd:plan-phase 12 --gaps before re-run"
+last_updated: "2026-09-03T22:47:35.255Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 12 execution resumed (wave continue)
-state_head: b9d4d12cca96e17f34bf229f72fd6a4dc2e1ca9f
+state_head: 090c5dc2f410219b99ee1553d7d531124d61ba89
 progress:
   total_phases: 13
   completed_phases: 4
   total_plans: 56
-  completed_plans: 55
+  completed_plans: 56
   percent: 31
 ---
 
@@ -268,6 +268,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 11.1]: [Phase 11.1] 11.1-01: discovery registry-version skip fast path (D-11.1-01) ships INC-05-compatible -- registry hit requires exact version equality + valid stored column_mapping, any doubt falls back to full validation; Gate-4 mypy re-baselined 70->72 (zero accepted findings, pure annotation-note line drift)
 - [Phase 11.1]: [Phase 11.1] 11.1-02: bulk attachment pre-seed (D-11.1-02) pre-seeds the existing _live_row_attachments memo from 2 bulk list_all_attachments calls before the group loop -- _live_row_attachments and both call sites left byte-for-byte unmodified; total_count pre-flight + 25000 ceiling fallback to today's lazy per-row path (D-11.1-05); Phase 11.1 both fixes complete on feat/11.1-runtime-remediation
 - [Phase 11.1]: [Phase 11.1] 11.1-04: G-11.1-4 residual (b) RESOLVED — bounded discovery validation read (row_numbers=[1,2,3], reused as sample-row cache) replaces the unbounded full-sheet download; PR #384 merged 13e8e76; production canary (skip-MISS run 33683979474) confirms Phase 1 37.7s (was 3,214-4,999s) and Python Duration 50.8min (< 75min SC-1); fix candidate (b) column-set-hash skip key stays DEFERRED, motivation removed by cheap-miss result
+- [Phase 12]: 12-06 Task 1: Juan REJECTED the OWN-03 live dry-run (reason: source-3 filename parser defect proposing 'Unknown Foreman.xlsx' as a real name for 4,070 rows); no --apply run; routed to /gsd:plan-phase 12 --gaps
 
 ### Roadmap Evolution
 
@@ -356,6 +357,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - Vercel preview vs production hCaptcha keys: verify environment-scoped env var
   isolation before Phase 04 ships.
+- Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED). scripts/backfill_claim_time_attribution.py source 3 must strip file extensions before the sentinel check + add a proposed-value guard + rebuild fixtures from the real hash-less filename shape before 12-06 can re-run. See 12-06-SUMMARY.md.
 
 ### Quick Tasks Completed
 
@@ -432,9 +434,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-02T22:16:09.857Z
-**Stopped at:** Phase 11.1 complete, ready to plan Phase 12
-**Resume file:** None
+**Last session:** 2026-09-03T22:47:34.401Z
+**Stopped at:** Phase 12 Plan 06 HALTED at Task 1 (dry-run REJECTED) — gap-closure needed via /gsd:plan-phase 12 --gaps before re-run
+**Resume file:** .planning/phases/12-ownership-last-known-foreman-as-of-the-week/12-06-SUMMARY.md
 
 ## Session Continuity
 
