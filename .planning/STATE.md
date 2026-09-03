@@ -4,16 +4,16 @@ milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 12
 current_phase_name: Ownership — last known foreman as of the week
-status: planning
+status: executing
 stopped_at: Phase 11.1 complete, ready to plan Phase 12
-last_updated: "2026-09-02T22:32:52.148Z"
+last_updated: "2026-09-03T00:54:40.155Z"
 last_activity: 2026-09-02
 last_activity_desc: Phase 11.1 complete, transitioned to Phase 12
-state_head: 5717855fa11dd4dd4abb4f2d7781eace9cb05f23
+state_head: 34cac0d7d0aee94d02a019e01959728a423921b5
 progress:
   total_phases: 13
   completed_phases: 4
-  total_plans: 50
+  total_plans: 56
   completed_plans: 50
   percent: 31
 ---
@@ -35,7 +35,7 @@ pipeline.
 
 ## Current Position
 
-Phase: 12 — Ownership — last known foreman as of the week
+Phase: 12 (Ownership — last known foreman as of the week) — READY TO EXECUTE
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
 Plan: Not started
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
@@ -43,7 +43,7 @@ Plan: Not started
   master. Greptile round fixed on-branch (never-raising ceiling parse,
   typed skip index). Merged with 9 bot threads unresolved — see
   Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
-Status: Ready to plan
+Status: Ready to execute
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
   `column_mapping` is valid (D-11.1-01). Group-processing skip-gate

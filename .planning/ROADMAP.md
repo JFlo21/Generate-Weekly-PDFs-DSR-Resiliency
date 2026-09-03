@@ -726,11 +726,22 @@ approved as the next small PR.
 **Plans:** 6 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 12-01-PLAN.md — OWN-03 claim-time backfill script: tracer dry-run for WR 19073866, sources 1–4 precedence, and the gated `--apply` write path
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 12-02-PLAN.md — OWN-02 residuals: CR-01 sentinel-identifier narrowing and WR-01 lazy `AttachmentParentType` import, both with regression tests
 - [ ] 12-03-PLAN.md — Owner-deployed Supabase SQL: backup table, `backfill_source` / `backfill_run_id` columns, `is_sentinel_value`, and the sentinel-only `backfill_attribution` RPC
 - [ ] 12-04-PLAN.md — OWN-03 source 5: capped, self-paced cell-history backfill script plus its isolated off-hours workflow
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 12-05-PLAN.md — OWN-04 documentation: the ownership-attribution runbook page, sidebar and reference updates, and the dated Living Ledger entry
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run
 
 **Planning decisions (2026-09-02, supersede the stale wording above):**

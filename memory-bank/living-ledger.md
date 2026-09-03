@@ -8904,3 +8904,70 @@ harness-boundary hook rejects any shell command containing lowercase `review` in
 context (`init.code-review`, `gsd-code-reviewer`, commit text) as the cross-AI lane; the
 Claude-native path is plain git/node for scoping, the reviewer spawned via the Agent tool,
 and `git commit -F <msgfile>`.
+
+## [2026-09-02 18:15] Phase 12 plan-phase IN PROGRESS — research/pattern/validation artifacts landed; two owner decisions: no `wr_week_ownership` table (extend `attribution_snapshot`), source 4 = Supabase hash store
+
+`/gsd-plan-phase 12` (interactive, no CONTEXT.md — owner chose "continue without context" because the
+OWN-03 design spec + the `[2026-09-01 19:45]` / `[2026-09-02 00:35]` decisions already carry the design).
+Artifacts: `12-RESEARCH.md` (`7191676`), `12-VALIDATION.md` (`fbf2bf8`, Nyquist seed), `12-PATTERNS.md`
+(uncommitted until the plan commit). Planner (Opus) running; plan checker (Sonnet) next.
+
+**Owner decisions made during this run (Juan, 2026-09-02 ~18:05 CDT) — LOCKED for Phase 12:**
+
+- **D-12-A — OWN-01 deliverable is NOT a new table.** REQUIREMENTS.md / ROADMAP.md name a
+  `wr_week_ownership` table (2026-08-24 draft schema; `pipeline_memory/schema.sql` defers it to Phases
+  12/13), but the 2026-09-01 OWN-03 design spec never mentions it and writes backfilled owners straight
+  into `billing_audit.attribution_snapshot` (already read by `resolve_claimer`) with the two new
+  provenance columns `backfill_source` / `backfill_run_id` (spec §7). Decision: extend
+  `attribution_snapshot` only; `wr_week_ownership` stays deferred to Phase 13 audit memory. OWN-01's
+  ladder as implemented = observed_in_week → backfill sources → sentinel (no `last_known_before_week`,
+  per `[2026-09-01 19:55]`); REQUIREMENTS.md OWN-01/OWN-02 wording is stale on both points.
+- **D-12-B — OWN-03 source 4 (`backfill_hash_history`) reads the Supabase hash store, not a JSON file.**
+  Owner asked where hash history lives today: it is `billing_audit.group_content_hash` (Sub-project E,
+  dual-written every run since 2026-05-25, PK `wr, week_ending, variant, identifier`, `updated_at`) and
+  `pipeline_memory.group_state` (same key + `attachment_name`, `source` CHECK already allows
+  `backfill_hash_history`); the local `hash_history.json` was retired in Phase 11 Plan 08 and no archive
+  exists. Because `identifier` is part of the PK, the pre-defect real-name row survives when a later run
+  writes an `Unknown Foreman` row for the same (WR, week, variant). Spec §3 row 4 is amended: for each
+  sentinel key take the non-sentinel `identifier` rows in those two tables, keep the single-name rule,
+  prefer `updated_at` < 2026-08-24. No `--hash-history <path>` flag, no JSON fixture. Weeks never seen in
+  a run since 2026-05-25 stay uncovered by source 4 (fall to sources 3 and 5).
+
+Also confirmed from research (not new decisions): OWN-02's sentinel rule is SHIPPED (#375/#376/#377) —
+only CR-01 (`pipeline/cleanup.py:89-116`) and WR-01 (`pipeline/orchestrate.py:43-45`) residuals remain;
+`RESET_WR_LIST` scoping is shipped (`pipeline/orchestrate.py:412-430`); `audit_billing_changes.py`'s
+"selective cell-history" is a stub — the working paced pattern for source 5 is
+`pipeline/snapshot_drift.py:404-438`; `scripts/backfill_attribution_snapshot.py` must NOT be extended
+(its "current Smartsheet value wins" semantics were rejected). Spec-less edge probe: 7 unresolved edges
+handed to the planner (adjacency/empty/encoding/ordering on OWN-01; unclassified OWN-02/03/04).
+
+**Update 18:45 CDT — planner done, checker running.** gsd-planner (Opus) wrote six plans, committed
+`f0ed36c` (`docs(12): create phase plan`): 12-01 OWN-03 backfill script (wave 1, tracer: dry-run for
+WR 19073866 via source 4 → sources 1–3 → gated `--apply`); 12-02 OWN-02 residuals CR-01 + WR-01 (wave 2);
+12-03 owner-deployed Supabase SQL `billing_audit/own03_backfill_attribution.sql` + contract comment
+(wave 2, `autonomous: false`); 12-04 source-5 cell-history job `scripts/backfill_cell_history_
+attribution.py` + isolated `.github/workflows/cell-history-backfill.yml` (wave 2, `autonomous: false`);
+12-05 OWN-04 runbook + ledger (wave 3); 12-06 live rollout dry-run → decision → apply → post-run (wave 4,
+all human checkpoints). Planner notes worth keeping: `tests/test_sentinel_superseded_cleanup.py` already
+owns `_is_sentinel_identifier` tests (extend, do not add `tests/test_cleanup.py`); `generated_docs/` is
+only selectively gitignored, so 12-01 adds `own03_*` report patterns; CR-01 fix stays in
+`pipeline/cleanup.py` (a `.strip()` in `excel.py` would change filenames = change-detection identity);
+`COVERAGE.md` carries a "No external API integration" declaration. Both verify-command probes clean
+(31 commands, 0 blockers/warnings). gsd-plan-checker (Sonnet) in flight.
+
+**Update 19:10 CDT — checker round 1 and revision.** gsd-plan-checker (Sonnet) iteration 1: 0 blockers /
+4 warnings (W1 source-4 two-names conflict test missing from 12-01 Task 2; W2 research Open Questions not
+marked resolved; W3 93/5,824 vs 94/5,829 are point-in-time ledger counts — 12-06 Task 1's dry-run is the
+authoritative live figure; W4 12-03/12-04 at the 4-task threshold, half checkpoints, no change). Planner
+revision applied W1–W3 (`ed49ab4`); the orchestrator settled the last "NOT a settled decision" line in
+`12-RESEARCH.md` under D-12-A (`34cac0d`). Probes re-run clean (31 commands, 0/0). Checker iteration 2/3
+in flight; then requirements-coverage gate → `state.planned-phase` → roadmap wave annotation → plan commit.
+
+**Closeout 19:25 CDT — Phase 12 PLANNED (6 plans / 4 waves).** Checker iteration 2: 0 blockers / 1
+warning (12-VALIDATION.md lacked the 12-03-T2 row) — fixed inline by the orchestrator in its own seeded
+artifact; no third checker pass (override, recorded here). Requirements coverage 4/4 (OWN-01..04);
+decision-coverage gate skipped (no CONTEXT.md); `state.planned-phase` → STATE.md "Ready to execute";
+`roadmap.annotate-dependencies` → 4 wave headers, 0 cross-cutting constraints; plan:post gap-analysis gate
+advisory. Next: `/gsd-execute-phase 12`. Every live step (owner SQL apply, `--apply` backfill, source-5 cron
+enable, post-run observation) is a blocking human checkpoint for Juan; execution ships as PRs, never
+direct to master.
