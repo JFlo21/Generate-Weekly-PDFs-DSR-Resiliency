@@ -1009,6 +1009,64 @@ class CellHistoryWorkflowStructureTests(unittest.TestCase):
             with self.subTest(step=step_id):
                 self.assertNotIn("${{", _run_block(block))
 
+    def test_no_run_block_passes_apply(self):
+        """Review fix (Opus M3): --apply must be absent from EVERY
+        run: block, not only the backfill step's."""
+        for step_id, block in self.blocks.items():
+            with self.subTest(step=step_id):
+                self.assertNotIn("--apply", _run_block(block))
+
+    def test_permissions_declare_a_single_read_only_scope(self):
+        """Review fix (Opus M3): _find_key_value returns the FIRST
+        contents: key, so a second job-level `contents: write` would
+        have slipped past the read-only assertion."""
+        contents = [
+            line for line in self.live
+            if line.strip().startswith("contents:")
+        ]
+        self.assertEqual(len(contents), 1, contents)
+        writes = [
+            line for line in self.live
+            if re.match(r"^\s*[a-z-]+:\s*write\b", line)
+        ]
+        self.assertEqual(writes, [])
+
+    def test_budget_caps_are_pinned(self):
+        """Review fix (Opus M3): the caps that keep this job at ~40%
+        of the shared 300 req/min Smartsheet budget are asserted, so a
+        quiet edit (PACE_SEC 0.5 -> 0.05) fails CI."""
+        expected = {
+            "CELL_HISTORY_BACKFILL_MAX_REQUESTS": "3000",
+            "CELL_HISTORY_BACKFILL_MAX_ROWS": "1200",
+            "CELL_HISTORY_BACKFILL_PACE_SEC": "0.5",
+            "CELL_HISTORY_BACKFILL_MAX_MINUTES": "45",
+        }
+        for key, value in expected.items():
+            raw = vsh._find_key_value(self.live, key)
+            with self.subTest(env=key):
+                self.assertIsNotNone(raw)
+                self.assertEqual(raw.strip().strip("'\""), value)
+
+    def test_dry_run_false_fails_loudly(self):
+        """Review fix (Opus M2): selecting dry_run=false must fail the
+        run, never warn-and-continue as if a write had happened."""
+        run = _run_block(self.blocks[_BACKFILL_STEP_ID])
+        self.assertIn('"${DRY_RUN}" != "true"', run)
+        self.assertIn("::error::dry_run=", run)
+        self.assertNotIn("::warning::dry_run=", run)
+
+    def test_report_upload_requires_the_report_file(self):
+        """Review fix (Opus L6): the artifact step keys on hashFiles()
+        of the report, not on a step outcome that is '' for a step
+        never reached."""
+        joined = "\n".join(self.raw)
+        self.assertRegex(
+            joined,
+            r"if: always\(\) && hashFiles\('generated_docs/"
+            r"own03_cell_history_report\.json'\) != ''\s*\n"
+            r"\s*uses: actions/upload-artifact@v4",
+        )
+
     def test_every_dispatch_input_is_bound_to_env(self):
         names = _dispatch_input_names(self.live)
         self.assertEqual(

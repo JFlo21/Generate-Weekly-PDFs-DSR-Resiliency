@@ -28,7 +28,7 @@ on:
       dry_run:
         description: >-
           Dry run (true/false). This workflow never passes --apply, so
-          'false' only emits a warning and still runs dry; the live
+          'false' is REJECTED (the run fails before any call); the live
           write remains plan 12-06's human checkpoint.
         required: false
         default: 'true'
@@ -121,7 +121,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${DRY_RUN}" != "true" ]; then
-            echo "::warning::dry_run=${DRY_RUN} requested, but this workflow never applies writes; running as a dry run (live apply is plan 12-06's human checkpoint)."
+            echo "::error::dry_run=${DRY_RUN} is not supported: this workflow never applies writes (the live apply is plan 12-06's human checkpoint). Re-run with dry_run=true."
+            exit 1
           fi
           if [ ! -f generated_docs/own03_backfill_report.json ]; then
             echo "::warning::generated_docs/own03_backfill_report.json is absent on this runner, so there are no sources 1-4 candidates to resolve; an empty report will be written (see 12-04-SUMMARY.md, Known limitations)."
@@ -141,7 +142,10 @@ jobs:
           fi
           python scripts/backfill_cell_history_attribution.py "${args[@]}"
       - name: Upload cell-history report
-        if: always() && steps.run_backfill.outcome != 'skipped'
+        # hashFiles() is the only reliable "did the script get far enough
+        # to write a report" signal: steps.<id>.outcome is '' (not
+        # 'skipped') for a step never reached after an earlier failure.
+        if: always() && hashFiles('generated_docs/own03_cell_history_report.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: own03-cell-history-report-run${{ github.run_number }}

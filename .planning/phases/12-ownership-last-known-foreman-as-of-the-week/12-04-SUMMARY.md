@@ -318,3 +318,29 @@ Task 3 decision) returned FIX-FIRST (4 HIGH / 4 MEDIUM); one fix round, commit
 - **LOW:** non-canonical `Foreman Assigned?` synonym dropped.
 - Tests: +11 (ordering, recheck cycles, conflict, name-after-check, week window,
   display_value, failure exit, cap deferral, backlog failure). Full suite: 2025 passed.
+
+## Post-checkpoint review fixes (Opus production-risk review, 2026-09-03)
+
+The mandatory read-only Opus review of Task 4 (`43f52ce`) returned **FIX-FIRST**. Applied in the same
+fix round by the orchestrator:
+
+- **M2** `dry_run=false` no longer warns-and-continues: the backfill step exits 1 with a `::error::`
+  before any call, so an operator can never mistake a green run for a live write.
+- **M3** Test gaps closed by mutation: `--apply` is asserted absent from EVERY `run:` block (a mutation
+  adding it to the gate step passed before); exactly one `contents:` key and zero `*: write` scopes
+  (a job-level `contents: write` slipped past `_find_key_value`'s first-match); the four cap env values
+  (3000 / 1200 / 0.5 / 45) are pinned so a quiet `PACE_SEC` regression fails CI.
+- **L6** The artifact upload keys on `hashFiles()` of the report instead of `steps.run_backfill.outcome`,
+  which is `''` (not `'skipped'`) for a step never reached after a gate failure.
+- **L5** accepted as-is: the gate step needs `SUPABASE_*` for its bounded fallback scan; step-scoped,
+  never echoed, mirrors the production workflow.
+- **M4** carried to 12-06: a manual dispatch during a billing run would share the 300 req/min token;
+  nil exposure today (zero Smartsheet calls without a candidate report), real once 12-06 supplies one.
+
+**Open (Opus H1, owner decision, NOT applied):** the backlog gate counts sentinel rows via the bounded
+Supabase fallback while the backfill step consumes candidates only from
+`generated_docs/own03_backfill_report.json`, which never exists on a fresh runner — so the approved
+Sunday cron is a permanently green no-op (zero Smartsheet calls) until a candidate source exists, and the
+"self-disables when empty" property does not hold. Opus recommends dropping the `schedule:` block until
+12-06 lands a real candidate source (option b) and rejects a checked-in WR scope (option c). Juan chose
+`approve-cron` before this gap was known; the schedule stays in the file pending his re-decision.
