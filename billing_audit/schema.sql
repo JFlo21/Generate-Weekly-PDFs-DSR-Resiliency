@@ -266,8 +266,11 @@ ALTER TABLE billing_audit.group_content_hash
 -- ``billing_audit/own03_backfill_attribution.sql``, not asserted here
 -- as part of this opaque table's DDL. ``backfill_source`` is
 -- constrained to ``live``, ``backfill_artifacts``,
--- ``backfill_hash_history`` and ``operator`` — the RPC honors that
--- constraint as a contract, it does not itself define it.
+-- ``backfill_hash_history``, ``backfill_cell_history`` and
+-- ``operator`` — ``backfill_cell_history`` is a machine inference
+-- sourced from Smartsheet cell history, distinct from ``operator``
+-- (human-entered) — the RPC honors that constraint as a contract, it
+-- does not itself define it.
 --
 -- SCOPE (D-12-A): Phase 12 does NOT ship a ``wr_week_ownership``
 -- table. OWN-01's claimer ladder is served by

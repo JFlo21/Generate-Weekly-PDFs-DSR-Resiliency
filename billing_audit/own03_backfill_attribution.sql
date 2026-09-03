@@ -96,13 +96,36 @@ ALTER TABLE billing_audit.attribution_snapshot
 
 -- Named CHECK constraint, added only if it does not already exist so
 -- re-running STEP 2 is safe. Restricts backfill_source to NULL (a row
--- never touched by any backfill) or one of the four values
--- pipeline_memory.row_event.source / pipeline_memory.group_state.source
--- already accept (pipeline_memory/schema.sql:166-168, 204-206) -- the
--- SAME vocabulary, not a new one. D-12-A and the 2026-09-01 19:55
+-- never touched by any backfill) or one of five values. Four of them
+-- ('live', 'backfill_artifacts', 'backfill_hash_history', 'operator')
+-- are the SAME vocabulary pipeline_memory.row_event.source /
+-- pipeline_memory.group_state.source already accept
+-- (pipeline_memory/schema.sql:166-168, 204-206). The fifth,
+-- 'backfill_cell_history', is specific to this table: a machine
+-- inference sourced from Smartsheet cell history, distinct from
+-- 'operator' (human-entered). D-12-A and the 2026-09-01 19:55
 -- decision: this vocabulary deliberately has no cross-week ("last
 -- known before the week") rung -- a row with no in-week evidence stays
 -- a sentinel; it is never inherited from an adjacent week.
+--
+-- Re-apply note: if STEP 2 was already run against the OLD four-value
+-- list ('live', 'backfill_artifacts', 'backfill_hash_history',
+-- 'operator') before 'backfill_cell_history' was added, the DO block
+-- below is a no-op (the constraint already exists) and will NOT
+-- widen it. Drop and re-add it manually with the commented snippet
+-- below -- NOT executed by default:
+--
+-- ALTER TABLE billing_audit.attribution_snapshot
+--     DROP CONSTRAINT IF EXISTS attribution_snapshot_backfill_source_check;
+-- ALTER TABLE billing_audit.attribution_snapshot
+--     ADD CONSTRAINT attribution_snapshot_backfill_source_check
+--     CHECK (
+--         backfill_source IS NULL
+--         OR backfill_source IN (
+--             'live', 'backfill_artifacts', 'backfill_hash_history',
+--             'backfill_cell_history', 'operator'
+--         )
+--     );
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -114,7 +137,8 @@ BEGIN
             CHECK (
                 backfill_source IS NULL
                 OR backfill_source IN (
-                    'live', 'backfill_artifacts', 'backfill_hash_history', 'operator'
+                    'live', 'backfill_artifacts', 'backfill_hash_history',
+                    'backfill_cell_history', 'operator'
                 )
             );
     END IF;
@@ -227,7 +251,8 @@ BEGIN
         END IF;
         IF v_row.backfill_source IS NULL
            OR v_row.backfill_source NOT IN (
-               'live', 'backfill_artifacts', 'backfill_hash_history', 'operator'
+               'live', 'backfill_artifacts', 'backfill_hash_history',
+               'backfill_cell_history', 'operator'
            )
         THEN
             RAISE EXCEPTION 'backfill_attribution: invalid backfill_source %', v_row.backfill_source;

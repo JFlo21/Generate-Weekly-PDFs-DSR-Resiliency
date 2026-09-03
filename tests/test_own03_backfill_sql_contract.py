@@ -224,5 +224,55 @@ class ApplyPayloadSqlParityTests(unittest.TestCase):
                 self.assertIn(status, allowed)
 
 
+def _parse_backfill_source_check_values(sql_text: str) -> list[str]:
+    """Parse the accepted ``backfill_source`` values from the STEP 2
+    CHECK constraint's ``backfill_source IN (...)`` list (comments
+    stripped first so the commented "re-apply" snippet is never
+    picked up as the live list)."""
+    body = _strip_sql_comments(sql_text)
+    match = re.search(r"backfill_source IN \(([^)]*)\)", body)
+    assert match, "no backfill_source IN (...) CHECK list found"
+    return re.findall(r"'([a-zA-Z_]+)'", match.group(1))
+
+
+def _parse_backfill_source_guard_values(sql_text: str) -> list[str]:
+    """Parse the accepted ``backfill_source`` values from the RPC's
+    ``v_row.backfill_source NOT IN (...)`` validation guard."""
+    body = _strip_sql_comments(sql_text)
+    match = re.search(r"backfill_source NOT IN \(([^)]*)\)", body)
+    assert match, "no backfill_source NOT IN (...) guard found"
+    return re.findall(r"'([a-zA-Z_]+)'", match.group(1))
+
+
+class BackfillSourceVocabularyTests(unittest.TestCase):
+    """The CHECK constraint (STEP 2) and the RPC's validation guard
+    must accept the identical ``backfill_source`` vocabulary, and
+    that vocabulary must be exactly the five approved tags (Phase 12
+    Plan 03 Task 3: ``backfill_cell_history`` added as a machine
+    inference sourced from Smartsheet cell history, distinct from the
+    human-entered ``operator`` tag)."""
+
+    EXPECTED = {
+        "live",
+        "backfill_artifacts",
+        "backfill_hash_history",
+        "backfill_cell_history",
+        "operator",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.raw = _read_source(_SQL_RELPATH)
+
+    def test_check_and_guard_lists_match(self):
+        check_values = set(_parse_backfill_source_check_values(self.raw))
+        guard_values = set(_parse_backfill_source_guard_values(self.raw))
+        self.assertEqual(check_values, guard_values)
+
+    def test_vocabulary_has_exactly_five_tags(self):
+        check_values = set(_parse_backfill_source_check_values(self.raw))
+        self.assertEqual(check_values, self.EXPECTED)
+
+
 if __name__ == "__main__":
     unittest.main()
