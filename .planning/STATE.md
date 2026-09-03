@@ -37,7 +37,7 @@ pipeline.
 
 Phase: 12 (Ownership — last known foreman as of the week) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 4 of 6 (12-02, 12-04, 12-05 complete; 12-03 at its Task 4 owner-apply checkpoint; 12-06 owner-run after merge)
+Plan: 5 of 6 (12-02 … 12-05 complete; 12-03 SQL applied live 2026-09-03; 12-06 owner-run after merge)
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,

@@ -48,8 +48,9 @@ _Latest ledger entries: `[2026-09-03 13:55]` (Phase 12 ownership contract, waves
   only from the sources-1-4 report, which a fresh runner never has, so a cron would be a permanently green no-op; the
   Sunday cron returns in 12-06 with a candidate source), 12-05 ✓ (runbook `ownership-attribution.md`, 4 pages
   rewritten, 20 docs tests, Docusaurus typecheck + build green, ledger `[2026-09-03 13:55]`), 12-03 Tasks 1–3 ✓
-  (Juan `approve`d the DDL; Task 4 = owner apply IN PROGRESS — STEP 1 42P01 seen live: substitute the date in BOTH
-  statements; STEP 0b duplicate-key probe, STEP 1 VERIFY and STEP 2 VERIFY added after the Opus integration pass),
+  (Juan `approve`d the DDL and **applied it live 2026-09-03 — Task 4 APPROVED**: backup table
+  `attribution_snapshot_backup_20260903`, five-tag CHECK confirmed by STEP 2 VERIFY, predicate + RPC created; the
+  STEP 0/0b/3/6 answers and the grant list were not reported and are re-checked read-only in 12-06 Task 1),
   12-06 not started (owner-run after merge + apply). Gates: Opus whole-branch integration review **SHIP** (7 seams
   OK; 2 MEDIUM fixed in the SQL, LOW-1 carried), `/gsd-code-review 12` 0 critical / 3 warnings (WR-01 false-zero
   backlog + WR-02 fixed, WR-03 accepted), gsd-verifier **human_needed** (49/62 verified · 0 failed · 13 owner
@@ -111,10 +112,9 @@ _Latest ledger entries: `[2026-09-03 13:55]` (Phase 12 ownership contract, waves
 1. Owner: squash-merge PR #387 (wave 1; #386 closed, targeting default confirmed 2026-09-03);
    paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
    denies every ClaudeOS write to that file).
-2. Owner: merge PR #388 (waves 2–3); finish 12-03 Task 4 in the Supabase SQL editor from the branch's
-   `billing_audit/own03_backfill_attribution.sql` (STEP 0 → 0b zero rows → 1 with the date in BOTH statements →
-   1 VERIFY → 2 → 2 VERIFY five tags → 3 spot check → 4 → 5 → NOTIFY → 6 smoke test) and report the answers +
-   `approved`. Then a fresh session: `/clear` → `/gsd-execute-phase 12` → 12-06 (dry-run review → apply
+2. Owner: merge PR #388 (waves 2–3; 12-03 SQL already applied live). Then a fresh session: `/clear` →
+   `/gsd-execute-phase 12` → 12-06 (Task 1 first re-runs the read-only checks Juan did not report: STEP 0 column
+   names, STEP 0b zero rows, backup vs live count, spot check, smoke test, UPDATE grant; then dry-run review → apply
    decision → same-UTC-day apply → post-run check); restore the Sunday cron only together with a real candidate
    source. After 12-06: `/gsd-verify-work 12` → `phase.complete 12`.
 3. Owner-owned Phase 12 steps stay blocking checkpoints: read-only count of NULL/stale-week `row_event`/`row_state`

@@ -37,7 +37,7 @@ key-decisions:
   - "backfill_attribution's three per-role UPDATEs are expressed as data-modifying CTEs inside one WITH ... RETURN QUERY statement (each with its own RETURNING) rather than three standalone UPDATEs followed by a separate classification query — this makes the updated/skipped_real_name/skipped_no_row classification derive from the PRE-update sentinel predicate (what the plan's English description asks for: 'skipped_real_name for payload rows whose PK exists but whose role column failed the sentinel predicate') instead of a POST-update value comparison, which would misclassify an idempotent re-run of an already-correct row as 'updated'."
   - "The RPC's per-row validation loop (role/value/backfill_source) raises immediately (RAISE EXCEPTION) on any offending row, aborting the whole call so a malformed p_rows chunk fails loudly (surfaces as the Python caller's exit 6) rather than partially applying — matches the plan's 'never coerce and never fall through' instruction."
 
-requirements-completed: []  # Plan halted at Task 3 (blocking-human decision) before the live apply (Task 4) — OWN-01/OWN-03 are NOT marked complete by this partial run. Tasks 1-2 (SQL authored + documented) are done; the live Supabase objects do not exist yet.
+requirements-completed: [OWN-01, OWN-03]  # This plan's contribution: the live Supabase objects exist as of 2026-09-03 (Juan applied the SQL by hand and replied `approved`); OWN-03's live remediation itself finishes in 12-06.
 
 coverage:
   - id: D1
@@ -63,7 +63,7 @@ coverage:
 
 duration: ~18min (Tasks 1-2 only; halted before Tasks 3-4)
 completed: 2026-09-03
-status: halted
+status: complete
 ---
 
 # Phase 12 Plan 03: Owner-Deployed OWN-03 Backfill SQL (HALTED at Task 3 decision checkpoint) Summary
@@ -92,7 +92,7 @@ Each task was committed atomically:
 1. **Task 1: Author the owner-deployed backfill_attribution SQL file** - `3fbd7bf` (feat)
 2. **Task 2: Add the backfill_attribution contract-as-comment block to billing_audit/schema.sql** - `f1a1099` (docs)
 3. **Task 3: DECISION — authorize the one-way Supabase DDL apply** - `gate="blocking-human"` — **DECIDED 2026-09-03: `approve`** (see Checkpoint below).
-4. **Task 4: Juan applies the SQL and confirms the live schema** - `gate="blocking-human"` — **AWAITING JUAN'S APPLY + seven-answer report**, halted here.
+4. **Task 4: Juan applies the SQL and confirms the live schema** - `gate="blocking-human"` — **APPROVED 2026-09-03** (see "Task 4 — APPROVED" below).
 
 **Plan metadata:** this SUMMARY.md commit follows.
 
@@ -238,3 +238,30 @@ five-tag definition. Seams confirmed OK by the same review: p_rows keys/types, f
 placeholder must be substituted in BOTH the `CREATE TABLE` and the `GRANT` (the comment said "this statement").
 The comment now says so, and a **STEP 1 VERIFY** query lists the existing backup tables so a stray
 `attribution_snapshot_backup_yyyymmdd` (placeholder unreplaced in the CREATE) is visible and can be dropped.
+
+## Task 4 — APPROVED (2026-09-03, owner apply in the Supabase SQL editor)
+
+**Verbatim resume signal:** `approved` (after "everything in the sql was applied").
+
+**Answers recorded verbatim from Juan's replies:**
+
+- STEP 1 VERIFY returned one row: `attribution_snapshot_backup_20260903` — this exact string is the name plan
+  12-06's `--apply` precondition probe looks for (same UTC day as the apply, or re-create the backup that day).
+- STEP 2 VERIFY returned `attribution_snapshot_backfill_source_check` =
+  `CHECK (((backfill_source IS NULL) OR (backfill_source = ANY (ARRAY['live'::text, 'backfill_artifacts'::text,
+  'backfill_hash_history'::text, 'backfill_cell_history'::text, 'operator'::text]))))` — all five tags accepted.
+- STEP 3 `CREATE FUNCTION` returned no rows (expected).
+- STEP 4 failed twice with 42601 (run-under-cursor split the dollar-quoted body; a stray `;` after `AS $$` was
+  reverted) and succeeded once the whole block between the new SELECTION markers was run as one statement.
+
+**Answers NOT reported at approval (carried to 12-06 Task 1/3 preconditions, re-verifiable read-only):**
+
+- STEP 0 write-side role column names (the file's `frozen_primary` / `frozen_helper` / `frozen_vac_crew` assumption
+  was not corrected, so STEP 4 compiled against those names — a mismatch would have failed STEP 4).
+- STEP 0b duplicate-key probe result (must be zero rows before `--apply`).
+- Backup table row count vs live `attribution_snapshot` count.
+- STEP 3 spot check triple (`true, true, false`), the STEP 6 smoke-test row (`skipped_no_row`), the
+  `backfill_run_id IS NOT NULL` count (must be 0), and the `service_role` grant list on `attribution_snapshot`
+  (must include UPDATE — the RPC is SECURITY INVOKER).
+
+12-06 Task 1 re-runs the read-only checks above and records the numbers before any apply decision.

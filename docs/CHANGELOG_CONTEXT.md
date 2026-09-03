@@ -376,3 +376,10 @@ rubric PASS on each fix round. **Open:** PR #388 merge; 12-03 Task 4 answers; 12
 cron; carried: NULL/stale-week `row_event` count, RPC UPDATE grant for the applying role, source-5 blank-role tally
 naming (LOW-1). **Lesson:** parallel worktree plans need one integration review after the merge — the seams were
 clean, but the workflow/CLI candidate-source mismatch was only visible with both plans in one tree.
+
+**Addendum (same day, 19:30 UTC):** Juan applied `billing_audit/own03_backfill_attribution.sql` live and replied
+`approved` — 12-03 Task 4 closed. Confirmed: backup table `attribution_snapshot_backup_20260903`; the live CHECK
+accepts all five provenance tags. Two operator hiccups fixed in the file the same hour: the STEP 1 placeholder must
+be substituted in BOTH statements (42P01), and the STEP 3/4 function blocks now carry SELECTION START/END markers
+because the dashboard's run-under-cursor splits dollar-quoted bodies (42601 ×2). Unreported answers (STEP 0/0b,
+counts, spot check, smoke test, UPDATE grant) are re-verified read-only in 12-06 Task 1.
