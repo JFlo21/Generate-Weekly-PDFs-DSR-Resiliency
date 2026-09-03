@@ -571,5 +571,93 @@ class CandidateResolutionTests(unittest.TestCase):
         self.assertEqual(len(fake_ss.call_log), 0)
 
 
+# ── Task 2: production-isolation structural guard ────────────────────
+# Enforces RESEARCH.md Pitfall 5 / the 2026-09-02 00:35 decision that
+# source 5 (Smartsheet cell-history reads) runs ONLY in its own
+# workflow -- never inside generate_weekly_pdfs.py or any
+# pipeline/*.py module. Both scripts share ONE Smartsheet API token
+# and ONE 300 req/min budget; a get_cell_history call embedded in the
+# production run would silently spend that shared budget out of the
+# billing pipeline's own window. This is a PERMANENT guard: it must
+# fail the moment a future PR adds a second get_cell_history call
+# site, or reads a CELL_HISTORY_BACKFILL_* env var, in a production
+# module.
+
+_ISOLATION_ALLOWLIST: "frozenset[str]" = frozenset({"pipeline/snapshot_drift.py"})
+
+
+def _strip_comment_lines(source: str) -> str:
+    """Drop every line whose first non-space character is '#' before
+    counting/searching -- a comment mentioning the API text must never
+    silently satisfy or break this gate (mirrors
+    scripts/backfill_claim_time_attribution.py's own structural test
+    idiom, tests/test_backfill_claim_time_attribution.py:798-810)."""
+    return "\n".join(
+        line for line in source.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    )
+
+
+def _isolation_scanned_files() -> "list[Path]":
+    files = [
+        _REPO_ROOT / "generate_weekly_pdfs.py",
+        _REPO_ROOT / "audit_billing_changes.py",
+    ]
+    files += sorted((_REPO_ROOT / "pipeline").glob("*.py"))
+    return files
+
+
+class CellHistoryProductionIsolationTests(unittest.TestCase):
+    """Task 2: no production module may call
+    client.Cells.get_cell_history or read a CELL_HISTORY_BACKFILL_*
+    env var. audit_billing_changes.py's own
+    _selective_cell_history_enrichment is confirmed a stub (hardcodes
+    history_available=True, never calls the API) and must stay that
+    way -- this plan must not accidentally wire it into a real call."""
+
+    def test_get_cell_history_call_sites_are_exactly_the_allowlist(self):
+        found: "set[str]" = set()
+        for path in _isolation_scanned_files():
+            relpath = path.relative_to(_REPO_ROOT).as_posix()
+            non_comment = _strip_comment_lines(
+                path.read_text(encoding="utf-8")
+            )
+            if "get_cell_history" in non_comment:
+                found.add(relpath)
+        self.assertEqual(
+            found, set(_ISOLATION_ALLOWLIST),
+            "get_cell_history call sites in production files must be "
+            "EXACTLY the allowlist -- a new site must be added "
+            "deliberately, with a comment explaining why, per Task 2's "
+            "explicit instruction.",
+        )
+
+    def test_no_scanned_file_reads_cell_history_backfill_env_var(self):
+        offenders: "list[str]" = []
+        for path in _isolation_scanned_files():
+            non_comment = _strip_comment_lines(
+                path.read_text(encoding="utf-8")
+            )
+            if "CELL_HISTORY_BACKFILL" in non_comment:
+                offenders.append(path.relative_to(_REPO_ROOT).as_posix())
+        self.assertEqual(
+            offenders, [],
+            "no production module may read a CELL_HISTORY_BACKFILL_* "
+            "env var -- source 5's caps/pace/deadline knobs are for "
+            "its own standalone script and workflow only.",
+        )
+
+    def test_audit_billing_changes_stub_has_zero_get_cell_history_calls(self):
+        non_comment = _strip_comment_lines(
+            _read_source("audit_billing_changes.py")
+        )
+        self.assertEqual(
+            non_comment.count("get_cell_history"), 0,
+            "audit_billing_changes.py::_selective_cell_history_enrichment "
+            "must remain a stub -- it must never gain a real "
+            "get_cell_history call as a side effect of this plan.",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
