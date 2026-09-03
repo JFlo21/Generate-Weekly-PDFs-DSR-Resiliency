@@ -164,3 +164,23 @@ None — no external service configuration required. Both fixes are pure in-repo
 - FOUND commit: `41f0cb8` (Task 2 GREEN)
 - CONFIRMED: `git diff --name-only 77a675b HEAD` lists exactly `pipeline/cleanup.py`, `pipeline/orchestrate.py`, `tests/test_lazy_smartsheet_imports.py`, `tests/test_sentinel_superseded_cleanup.py`
 - CONFIRMED: full suite 2007 passed / 1 skipped / 371 subtests; `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED
+
+## Post-execution review fixes
+
+An independent Opus production-risk review of this plan's diff (before merge)
+returned FIX-FIRST; one fix round, commit `98b5ea3`:
+
+- **HIGH — sibling side widened:** narrowing `_is_sentinel_identifier` to the
+  allowlist made every unlisted leading-underscore token a "real name" by
+  negation on the sibling side of the sentinel-superseded delete gate, so an
+  unlisted sanitized error spelling (`_DATE_EXPECTED`, `_NO_WRITE_ACCESS`) would
+  have triggered deletion of a stale `Unknown_Foreman` attachment. New
+  `_is_real_name_identifier` keeps leading-underscore tokens neutral on BOTH
+  sides (never a victim unless allowlisted, never the replacement).
+- **MEDIUM — non-str token:** the predicate coerces + strips once; a non-str
+  identifier no longer raises inside the cleanup loop, and a whitespace-prefixed
+  allowlisted spelling still classifies.
+- **LOW — silent degrade:** the `AttachmentParentType` import fallback in
+  `pipeline/orchestrate.py` logs one WARNING per process.
+- Tests added: unlisted-underscore sibling, underscore real-name sibling,
+  non-str / whitespace tokens, fallback-warns-once. Full suite: 2011 passed.
