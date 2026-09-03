@@ -399,3 +399,5 @@ Surprise: the RPC was executable by `anon`/`authenticated` because Postgres gran
 STEP 5 now REVOKEs from PUBLIC/anon/authenticated before the service_role GRANT (`a227463`, contract test), verified
 with `has_function_privilege` (service_role + postgres only). Owner item: `anon`/`authenticated` also hold full DML
 on `attribution_snapshot` behind RLS. Ledger `[2026-09-03 15:55]`.
+
+**Merged:** PR #388 squash-merged to master as `1f159bc` (2026-09-03 21:02 UTC); master workflows green: CI Checks, tests + coverage, lint, runbook changelog stub `a89e672` (expand before the next release), Notion sync. Next branch `feat/phase-12-remediation` for 12-06.

@@ -29,7 +29,7 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
 
-## Latest work (2026-09-03 early) — Phase 12 wave 1 executed: OWN-03 backfill tracer → PR #387
+## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; 12-06 owner-run remediation next on `feat/phase-12-remediation`
 
 - `/gsd-execute-phase 12` (wave filter 1) on branch `feat/phase-12-ownership` off `560115f`; GSD executor (Sonnet,
   harness worktree) delivered plan 12-01 in 6 commits: `scripts/backfill_claim_time_attribution.py` (dry-run default,
@@ -43,7 +43,10 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   findings; named-sentinel-only targeting is now the default with `--include-blank-roles` opt-in — **Juan to confirm
   that default before 12-06**. Deferred design items: `--from-report` approval binding, public `ROLE_BY_VARIANT`.
 - Also this session: local `master` reset to `origin/master` after PR #385; PR #386 (docs: record the #385 merge).
-- **2026-09-03 afternoon → evening — Phase 12 waves 2–3 DONE, phase gates run, PR #388 open (Juan merges):**
+- **2026-09-03 evening — PR #388 MERGED** (squash `1f159bc`, 21:02 UTC; master CI Checks, tests + coverage, lint,
+  runbook changelog stub `a89e672`, Notion sync all green). 12-06 is the only open Phase 12 plan; next branch
+  `feat/phase-12-remediation` off master `e340288`.
+- **2026-09-03 afternoon → evening — Phase 12 waves 2–3 DONE, phase gates run, PR #388 (merged, see above):**
   12-02 ✓, 12-04 ✓ (workflow **dispatch-only** by owner re-decision after Opus H1 — the backfill step takes candidates
   only from the sources-1-4 report, which a fresh runner never has, so a cron would be a permanently green no-op; the
   Sunday cron returns in 12-06 with a candidate source), 12-05 ✓ (runbook `ownership-attribution.md`, 4 pages
@@ -116,8 +119,8 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
 1. Owner: squash-merge PR #387 (wave 1; #386 closed, targeting default confirmed 2026-09-03);
    paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
    denies every ClaudeOS write to that file).
-2. Owner: merge PR #388 (waves 2–3; 12-03 SQL fully applied and verified live). Then a fresh session: `/clear` →
-   `/gsd-execute-phase 12` → 12-06 (Task 1 re-runs the cheap read-only checks and MUST re-create the backup table
+2. PR #388 merged (`1f159bc`; 12-03 SQL fully applied and verified live). Next, a fresh session on
+   `feat/phase-12-remediation`: `/clear` → `/gsd-execute-phase 12` → 12-06 (Task 1 re-runs the cheap read-only checks and MUST re-create the backup table
    on apply day — live already drifted 226 rows past `attribution_snapshot_backup_20260903`; then dry-run review →
    apply decision → same-UTC-day apply → post-run check); restore the Sunday cron only together with a real
    candidate source. After 12-06: `/gsd-verify-work 12` → `phase.complete 12`. Owner security item seen live:
