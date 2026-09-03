@@ -723,7 +723,7 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 5/6 plans executed (12-03 Tasks 1–3 done, Task 4 owner SQL apply pending; 12-06 owner-run after merge)
+**Plans:** 5/6 plans executed (12-06 owner-run after PR #388 merges; 12-03 SQL applied live 2026-09-03)
 
 Plans:
 **Wave 1**
