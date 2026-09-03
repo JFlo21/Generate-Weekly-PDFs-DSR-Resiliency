@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-09-03T07:14:11.038Z",
+  "phase": "12",
+  "phase_name": "Ownership — last known foreman as of the week",
+  "phase_dir": ".planning/phases/12-ownership-last-known-foreman-as-of-the-week",
+  "plan": 1,
+  "task": 3,
+  "total_tasks": 3,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "12-01 Task 1: end-to-end dry-run tracer, source 4 only", "status": "done", "commit": "d49be6b"},
+    {"id": 2, "name": "12-01 Task 2: sources 1-3, conflict/unresolved/ordering rules", "status": "done", "commit": "7912fd2"},
+    {"id": 3, "name": "12-01 Task 3: --apply write path (backup precondition, RPC caller, never-overwrite)", "status": "done", "commit": "e047c02"},
+    {"id": 4, "name": "12-01 post-merge review fix round (named-sentinel targeting default, batched reads, None-read -> exit 7, .order() determinism, RPC count reconciliation)", "status": "done", "commit": "d922d29"}
+  ],
+  "remaining_tasks": [
+    {"id": 5, "name": "12-02 (wave 2): CR-01 sentinel-cleanup predicate + WR-01 lazy AttachmentParentType import — protected cleanup path; executor note: align WR-01 to discovery.py's lazy Sheet/Folder import pattern, the plan's 'same path' wording is wrong", "status": "not_started"},
+    {"id": 6, "name": "12-03 (wave 2, autonomous:false): owner-deployed SQL — backup table, backfill_source/backfill_run_id columns, backfill_attribution(p_rows) RPC; Supabase schema = protected, Juan applies", "status": "not_started"},
+    {"id": 7, "name": "12-04 (wave 2, autonomous:false): source-5 cell-history job + .github/workflows/cell-history-backfill.yml — GitHub Actions = protected, Juan approves", "status": "not_started"},
+    {"id": 8, "name": "12-05 (wave 3): OWN-04 runbook page + ledger + docs tests", "status": "not_started"},
+    {"id": 9, "name": "12-06 (wave 4, autonomous:false): owner-run remediation — dry-run report review, --apply, source-5 cron, attachment replacement", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "PR #387 (wave 1) and PR #386 (docs) are open and unmerged; wave 2 must branch from the merged master, not from feat/phase-12-ownership", "type": "human_action", "workaround": "merge #386 then #387 (either order is clean; if #387 first, close #386)"},
+    {"description": "Owner RPC billing_audit.backfill_attribution and the attribution_snapshot_backup_<YYYYMMDD> table do not exist; --apply returns exit 3 until plan 12-03 is applied by Juan", "type": "external", "workaround": "dry-run only until 12-03 lands"}
+  ],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Confirm the named-sentinel-only targeting default (empty helper/vac_crew roles skipped unless --include-blank-roles)", "context": "Opus review finding 1: is_sentinel_claimer(None) is True, so blank roles were backfill targets and source 2 would have copied the primary's name into them at --apply time; the fix made named sentinels the default", "blocking": true},
+    {"action": "Merge PR #386 then PR #387", "context": "wave 1 lives on feat/phase-12-ownership; GSD tracking commits are on that branch, not master", "blocking": true},
+    {"action": "Paste the FROZEN MIRROR header into AGENTS.md by hand (text in PR #385 body / .claude/project-state.md)", "context": "harness-boundary hook denies every ClaudeOS write to AGENTS.md", "blocking": false},
+    {"action": "Confirm live attribution_snapshot column names, then apply billing_audit/own03_backfill_attribution.sql (plan 12-03)", "context": "Supabase schema/RPC is owner-deployed only", "blocking": true},
+    {"action": "Triage 16 Dependabot alerts on master (11 high)", "context": "GitHub push output 2026-09-03", "blocking": false},
+    {"action": "Decide: full /gsd-core:docs-update generation; track-or-ignore .agents/skills, .serena/project.yml, .planning/state.json, website/.claude; delete-or-keep replit.md, Copilot-Processing.md, wiki.md; April-2026 token rotation confirmation", "context": "open owner items carried in .claude/project-state.md", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "Execute Phase 12 wave 1 only (--wave 1 semantics), on a dedicated branch feat/phase-12-ownership off origin/master, then PR", "rationale": "branching_strategy is none; running GSD verbs on local master previously created a 15-commit divergence; waves 2-4 touch protected areas that need Juan", "phase": "12"},
+    {"decision": "Named-sentinel-only targeting is the default; --include-blank-roles restores blank-role targeting (pending Juan's confirmation)", "rationale": "OWN-03's scope is the 5,824-row 'Unknown Foreman' defect; proposing names into roles that never existed fabricates attribution", "phase": "12"},
+    {"decision": "Independent Opus production-risk review is a mandatory gate before any PR that can write attribution_snapshot", "rationale": "plan-checker, executor self-check, and the haiku must_haves rubric all passed while the Opus review found three HIGH defects", "phase": "12"},
+    {"decision": "with_retry() returning None is a read failure (exit 7), never 'no evidence'", "rationale": "silent [] degradation would let lower-fidelity sources win and be written in the same run", "phase": "12"},
+    {"decision": "PR #386's docs commit was cherry-picked into feat/phase-12-ownership", "rationale": "identical hunks in both PRs merge cleanly in either order", "phase": "12"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "After PR #387 merges: git checkout master && git pull, create a fresh branch off origin/master (e.g. feat/phase-12-wave-2), then /clear and /gsd-execute-phase 12 (resumes at wave 2; expect pauses for 12-03 SQL and 12-04 workflow).",
+  "context_notes": "Wave 1 is complete and reviewed. STATE.md/ROADMAP.md show 12-01 complete (commit 9d93963 on the phase branch). The executor's 12-01-SUMMARY.md carries a 'Post-merge review fixes' addendum. Deferred design items for 12-06: --from-report approval binding; export a public ROLE_BY_VARIANT from billing_audit/writer.py instead of duplicating it (12-02 candidate). Line-length residual (~24 script / ~21 test lines > 79 cols) is cosmetic; python-lint is warn-only."
+}

@@ -9106,3 +9106,39 @@ only); (4) caps CLAUDE.md ≤ 150 / project-state ≤ 120. Next: run the repair 
   validation (row-bounded, Plan 11.1-04). Corrected in CLAUDE.md § Pipeline flow,
   `docs/ai/implementation-truth.md` (module row, data flow, behavior note), `docs/ai/architecture.md`
   § Diagram-in-words, and both mentions in `.github/prompts/configuration-environment.md`.
+
+## [2026-09-03 01:20] Phase 12 wave 1 executed — OWN-03 backfill tracer (PR #387); review-driven fix round
+
+- `/gsd-execute-phase 12` with a wave-1 filter, run on `feat/phase-12-ownership` (branched from `origin/master`
+  `560115f`) so GSD's tracking commits never land on local `master` again (the 15-commit divergence cleaned up
+  before PR #385 came from running GSD verbs on `master`). Executor: Sonnet in a harness worktree; merged with
+  `worktree.cleanup-wave`; tracking via `roadmap.update-plan-progress`.
+- **Rule (review before PR on attribution code):** the plan-checker, the executor's self-check, and the haiku
+  must_haves rubric all passed, yet the independent Opus production-risk review still found three HIGH defects —
+  `is_sentinel_claimer(None) is True` made every empty helper/vac_crew role a backfill target (source 2 would have
+  copied the primary's name into them at `--apply` time), source 1 issued two queries per row against the plan's
+  explicit batching rule, and `billing_audit.client.with_retry` returning `None` was silently read as "no evidence".
+  Rubric verifiers check what the plan names; they do not catch what the plan forgot. Keep the Opus review as a
+  mandatory gate for anything that can write `attribution_snapshot`, and treat `with_retry() is None` as a failure
+  everywhere it is called.
+- Fix round `d922d29` (Sonnet worker, one round): named-sentinel-only targeting default with `--include-blank-roles`
+  opt-in (Juan to confirm), chunked `.in_()` prefetch for source 1, `_SourceReadConnectivityError` → exit 7, prefetch
+  status gate, `.order()` + Python-side sort for byte-identical reports, RPC result-count reconciliation → exit 6,
+  report-dir warning. Tests 40 → 48; full suite 1,994. SUMMARY addendum `9607190`.
+- Deferred design items for 12-06: `--from-report` approval binding; export a public `ROLE_BY_VARIANT` from
+  `billing_audit/writer.py` instead of duplicating it. GitHub flags 16 Dependabot alerts on `master` — owner triage.
+
+## [2026-09-03 11:05] Greptile fix on PR #387 — source 1 must match the row's own week (D-12-A)
+
+- Greptile's review of PR #387 found a cross-week attribution leak that the plan-checker, executor self-check,
+  haiku rubric, AND the Opus production-risk round all missed: `resolve_source_1` in
+  `scripts/backfill_claim_time_attribution.py` returned the first qualifying `row_event` chronologically without
+  comparing the event's `week_ending` to `target.week_ending` (the bulk select omitted the column entirely). A row
+  re-dated after a data correction keeps its old-week events under the same `row_id`, so an earlier week's owner
+  could be proposed — and under `--apply`, written — for a later week.
+- Fix: select `week_ending`; `_in_target_week()` gates both the row_event and row_state loops; NULL/missing week is
+  never in-week evidence (row stays unresolved — under-attribute, never mis-attribute). Fixtures `_row_event` /
+  `_row_state` carry `week_ending` (default = the row's own week); four cross-week tests added; suite 1,998.
+- Rule: any per-row history source (row_event, row_state, cell history in 12-04) must (a) select the row's week
+  column and compare it to the target, and (b) ship a same-row, cross-week fixture in its contract tests. Reviewer
+  diversity matters — keep external bot reviews (Greptile/Copilot) on attribution-writer PRs alongside the Opus gate.

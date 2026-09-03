@@ -308,3 +308,27 @@ the env-var catalog now lives in the configuration prompt, the cron schedule in 
 `[2026-09-02 22:05]`); WR-01's wrong discovery.py comparison corrected. **Blocked:** `AGENTS.md` freeze —
 the harness-boundary hook denies ClaudeOS writes; owner pastes the header by hand.
 
+**Merged:** PR #385 squash `26b3c4f` (2026-09-02 23:08 CDT) after a Greptile fix (`deac60e`) — CLAUDE.md,
+`docs/ai/*`, and the config quick reference now state the D-11.1-01 registry-version skip gate instead of
+"every sheet validated every run". Local `master` reset to `origin/master`; the branch is deleted.
+
+## 2026-09-03 — Phase 12 wave 1: OWN-03 claim-time attribution backfill script (PR #387)
+**What:** new standalone `scripts/backfill_claim_time_attribution.py` — dry-run by default; finds `Unknown Foreman`
+sentinel rows in `billing_audit.attribution_snapshot` and proposes the historically correct claimer through a
+week-scoped four-source ladder (row events/state → same-row role → artifact filenames → Supabase hash store);
+writes a git-ignored JSON/CSV report; `--apply` is gated behind `--i-approved-this`, a backup-table probe, and the
+owner-deployed `billing_audit.backfill_attribution` RPC (not deployed yet, plan 12-03). **Why:** the 2026-08-24
+defect froze ~5,824 rows under the sentinel; repairing the frozen values lets the next cron regenerate files under
+real names with no grouping change (D-12-A/B). **Operator impact:** none on the cron — nothing imports the script;
+`--apply` exits 3 against any real environment until 12-03 lands. **Verified:** full suite 1,994 passed; 6-gate
+harness; GSD wave-post gates; haiku rubric 10/10; an independent Opus production-risk review drove one fix round
+(named-sentinel-only targeting default + `--include-blank-roles`, chunked reads, None-read → exit 7, `.order()`
+determinism, RPC count reconciliation). **Open:** Juan confirms the targeting default before 12-06; waves 2–4 pending.
+
+**Review fix (Greptile, same PR):** source 1 read every historical `row_event`/`row_state` for a `row_id` without
+matching the row's own `week_ending` to the target week, so a row re-dated after a data correction could have an
+earlier week's owner proposed (and, under `--apply`, written) for a later week — a D-12-A violation. The bulk query
+now selects `week_ending` and `_in_target_week()` gates both loops; a NULL week is never in-week evidence (row stays
+unresolved). Four cross-week tests added; full suite 1,998; commit `988680a`. Juan confirmed the named-sentinel-only targeting default
+(2026-09-03); PR #386 closed because its commit rides in #387. **Lesson:** per-row history sources need a same-row
+cross-week fixture in their contract tests — neither the rubric verifiers nor the Opus round exercised one.
