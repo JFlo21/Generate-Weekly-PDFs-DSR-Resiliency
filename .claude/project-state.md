@@ -1,10 +1,11 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-03 00:35 CDT (05:35Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-03 01:25 CDT (06:25Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
-_Latest ledger entries: `[2026-09-02 22:05]` (instruction-file alignment run 1 — what moved where),
+_Latest ledger entries: `[2026-09-03 01:20]` (Phase 12 wave 1 — OWN-03 backfill tracer, review fix round, PR #387),
+`[2026-09-02 22:05]` (instruction-file alignment run 1 — what moved where),
 `[2026-09-02 21:20]` (memory-bank pages retired; pre-ledger April-2026 history imported),
 `[2026-09-02 20:45]` (align skill), `[2026-09-02 20:20]` (bootstrap audit), `[2026-09-02 18:15]`
 (Phase 12 plan-phase, D-12-A / D-12-B)._
@@ -15,7 +16,8 @@ _Latest ledger entries: `[2026-09-02 22:05]` (instruction-file alignment run 1 �
   2026-08-31 (8/8, INC-05 retirement shipped), Phase 11.1 closed 2026-09-02 (4/4; PR #384 `13e8e76`;
   canary run 33683979474 met SC-1 — `⚡ Phase 1 complete` 37.7 s, was 3,214 s). **Phase 12 (Ownership —
   last known foreman as of the week) is PLANNED:** 6 plans / 4 waves, checker 0 blockers,
-  `.planning/STATE.md` "Ready to execute". Phase 13 = the deferred `wr_week_ownership` table (D-12-A).
+  **wave 1 (12-01) EXECUTED 2026-09-03 → PR #387** (`feat/phase-12-ownership`; waves 2–4 not started; phase not
+  marked complete). Phase 13 = the deferred `wr_week_ownership` table (D-12-A).
 - **Production posture:** `pipeline_memory` write path ON since #353 (`RUN_MEMORY_WRITE_ENABLED: '1'` on
   the `Generate reports` step only); `RUN_MEMORY_INCREMENTAL_ENABLED` OFF; change detection and
   attachment identity are `group_state`-backed (local JSON caches retired, INC-05); the Supabase hash
@@ -27,7 +29,22 @@ _Latest ledger entries: `[2026-09-02 22:05]` (instruction-file alignment run 1 �
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
 
-## Latest work (2026-09-02 evening) — instruction-file alignment, run 1 — **merged: PR #385 squash `26b3c4f` (23:08 CDT)**
+## Latest work (2026-09-03 early) — Phase 12 wave 1 executed: OWN-03 backfill tracer → PR #387
+
+- `/gsd-execute-phase 12` (wave filter 1) on branch `feat/phase-12-ownership` off `560115f`; GSD executor (Sonnet,
+  harness worktree) delivered plan 12-01 in 6 commits: `scripts/backfill_claim_time_attribution.py` (dry-run default,
+  4-source week-scoped ladder, conflict/unresolved outcomes, gated `--apply` → owner RPC), 40 fixture tests,
+  `.gitignore` for the PII report. Merged via `worktree.cleanup-wave` (`c9edd5c`), tracking commit `9d93963`.
+- Gates: full suite 1,986 → 1,994 passed; 6-gate harness passed; GSD wave-post gates (schema drift, codebase drift,
+  UI) all clear; haiku-verifier 10/10 must_haves.
+- **Independent Opus production-risk review found real defects** (blank-role targeting → fabricated helper/vac_crew
+  proposals via source 2; per-row source-1 queries; `with_retry` None → silent `[]`; no `.order()` → non-deterministic
+  reports; RPC count not reconciled). One Sonnet fix round (`d922d29`, SUMMARY addendum `9607190`) closed all seven
+  findings; named-sentinel-only targeting is now the default with `--include-blank-roles` opt-in — **Juan to confirm
+  that default before 12-06**. Deferred design items: `--from-report` approval binding, public `ROLE_BY_VARIANT`.
+- Also this session: local `master` reset to `origin/master` after PR #385; PR #386 (docs: record the #385 merge).
+
+## Previous work (2026-09-02 evening) — instruction-file alignment, run 1 — **merged: PR #385 squash `26b3c4f` (23:08 CDT)**
 
 - **Step 0 before:** CLAUDE.md 369 lines (> 150), this file 1,555 (> 120), both mirrors stale since
   2026-08-17, memory-bank pages 67–149 days old, 0 dangling pointers.
@@ -60,14 +77,15 @@ _Latest ledger entries: `[2026-09-02 22:05]` (instruction-file alignment run 1 �
 
 ## Next
 
-1. Owner: paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the
-   harness-boundary hook denies every ClaudeOS write to that file).
-2. `/clear` → `/gsd-execute-phase 12` — wave 1 = 12-01 tracer
-   (`scripts/backfill_claim_time_attribution.py`, dry-run WR 19073866 → `_User_Avery_Example` via
-   source 4) on a branch → PR.
-3. Owner-owned Phase 12 steps stay blocking checkpoints: confirm live `attribution_snapshot` column
-   names, apply `billing_audit/own03_backfill_attribution.sql`, approve the dry-run report, run
-   `--apply`, enable the source-5 cell-history cron, attachment replacement.
+1. Owner: review/merge PR #387 (wave 1) and PR #386 (docs); confirm the named-sentinel-only targeting default;
+   paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
+   denies every ClaudeOS write to that file).
+2. After merge: `/clear` → `/gsd-execute-phase 12` resumes at wave 2 (12-02 CR-01/WR-01 — executor note: align
+   WR-01 to discovery.py's lazy `Sheet`/`Folder` pattern, the plan's "same path" wording is wrong; 12-03 owner SQL;
+   12-04 cell-history job — protected areas, pause for Juan), then 12-05 docs, 12-06 owner remediation.
+3. Owner-owned Phase 12 steps stay blocking checkpoints: confirm live `attribution_snapshot` column names, apply
+   `billing_audit/own03_backfill_attribution.sql`, approve the dry-run report, run `--apply`, enable the source-5
+   cell-history cron, attachment replacement.
 
 ## Open owner items
 
@@ -76,6 +94,7 @@ _Latest ledger entries: `[2026-09-02 22:05]` (instruction-file alignment run 1 �
 - Track-or-ignore: `.agents/skills/`, `.serena/project*.yml` + `memories/`, `.planning/state.json`,
   `website/.claude/`. Delete-or-keep: `replit.md`, `Copilot-Processing.md`, `wiki.md` (stale root docs).
 - Correct the WR-01 wording in `12-02-PLAN.md` line 25 through a GSD verb, or let the executor note it.
+- GitHub reports 16 Dependabot alerts on `master` (11 high) — triage (`dependency-auditor`).
 
 ## Protected areas (Juan's approval required)
 

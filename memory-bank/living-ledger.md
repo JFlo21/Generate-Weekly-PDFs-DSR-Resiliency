@@ -9106,3 +9106,24 @@ only); (4) caps CLAUDE.md ≤ 150 / project-state ≤ 120. Next: run the repair 
   validation (row-bounded, Plan 11.1-04). Corrected in CLAUDE.md § Pipeline flow,
   `docs/ai/implementation-truth.md` (module row, data flow, behavior note), `docs/ai/architecture.md`
   § Diagram-in-words, and both mentions in `.github/prompts/configuration-environment.md`.
+
+## [2026-09-03 01:20] Phase 12 wave 1 executed — OWN-03 backfill tracer (PR #387); review-driven fix round
+
+- `/gsd-execute-phase 12` with a wave-1 filter, run on `feat/phase-12-ownership` (branched from `origin/master`
+  `560115f`) so GSD's tracking commits never land on local `master` again (the 15-commit divergence cleaned up
+  before PR #385 came from running GSD verbs on `master`). Executor: Sonnet in a harness worktree; merged with
+  `worktree.cleanup-wave`; tracking via `roadmap.update-plan-progress`.
+- **Rule (review before PR on attribution code):** the plan-checker, the executor's self-check, and the haiku
+  must_haves rubric all passed, yet the independent Opus production-risk review still found three HIGH defects —
+  `is_sentinel_claimer(None) is True` made every empty helper/vac_crew role a backfill target (source 2 would have
+  copied the primary's name into them at `--apply` time), source 1 issued two queries per row against the plan's
+  explicit batching rule, and `billing_audit.client.with_retry` returning `None` was silently read as "no evidence".
+  Rubric verifiers check what the plan names; they do not catch what the plan forgot. Keep the Opus review as a
+  mandatory gate for anything that can write `attribution_snapshot`, and treat `with_retry() is None` as a failure
+  everywhere it is called.
+- Fix round `d922d29` (Sonnet worker, one round): named-sentinel-only targeting default with `--include-blank-roles`
+  opt-in (Juan to confirm), chunked `.in_()` prefetch for source 1, `_SourceReadConnectivityError` → exit 7, prefetch
+  status gate, `.order()` + Python-side sort for byte-identical reports, RPC result-count reconciliation → exit 6,
+  report-dir warning. Tests 40 → 48; full suite 1,994. SUMMARY addendum `9607190`.
+- Deferred design items for 12-06: `--from-report` approval binding; export a public `ROLE_BY_VARIANT` from
+  `billing_audit/writer.py` instead of duplicating it. GitHub flags 16 Dependabot alerts on `master` — owner triage.
