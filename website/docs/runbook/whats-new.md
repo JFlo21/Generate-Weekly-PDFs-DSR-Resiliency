@@ -27,12 +27,21 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/JFlo21 -->
+## JFlo21
+
+> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — September 2, 2026
+### 📋 Changelog — September 3, 2026
 
 - ✨ New capability: active processing window on the queue admission gate (ignore Scope NA / pre-2026-07-01 completions, defer rows without a completion date) before any ProMax pull
 - ✅ Problem fixed: sidebar toggle at every width, pinned sidebar, GF Workbook label-row overflow, drawer focus + close (post- UI audit)
@@ -45,21 +54,12 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/JFlo21 -->
-## JFlo21
-
-> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 2, 2026
+### 📋 Changelog — September 3, 2026
 
 - • 📊 Audit: 2026-08-31T07:04:49Z
 
@@ -443,23 +443,28 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: Linetec-Services-LLC/runlog-linetec -->
-## Workflow runlog that explains the workflows &amp; coding workflows and changes at a lower level for users to understand
-
-> ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
-
-### 📋 Changelog — September 2, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: Linetec-Services-LLC/Todoist-gtd-ci-automations -->
 ## Todoist-gtd-ci-automations
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-_Running steadily — no meaningful changes were detected in this period._ ✅
+### 📋 Changelog — September 3, 2026
+
+- • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts
+- • Make standby rehearsal green: implement Todoist list API surface, tighten failure diagnostics, and fix workflow concurrency syntax
+- • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts ()
+- • Make standby rehearsal green: implement Todoist list API surface, tighten failure diagnostics, and fix workflow concurrency syntax ()
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: Linetec-Services-LLC/runlog-linetec -->
+## Workflow runlog that explains the workflows &amp; coding workflows and changes at a lower level for users to understand
+
+> ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
+
+### 📋 Changelog — September 3, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
@@ -480,3 +485,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
