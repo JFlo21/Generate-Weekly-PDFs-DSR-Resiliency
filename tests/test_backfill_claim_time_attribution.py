@@ -104,6 +104,54 @@ def _gs_row(
     }
 
 
+# ── Task 2 fixtures: row_event / row_state (source 1) and
+# public.artifacts (source 3) ─────────────────────────────────────────
+
+def _row_event(
+    row_id: int, observed_at: str,
+    units_completed: bool | None = None, foreman_observed: str | None = None,
+    helper_completed: bool | None = None, helper_observed: str | None = None,
+    vac_completed: bool | None = None, vac_crew_observed: str | None = None,
+) -> dict:
+    """One pipeline_memory.row_event row -- only the fields explicitly
+    passed are present in after_image, mirroring a real event whose
+    JSONB payload only ever carries the columns that changed."""
+    after_image: dict = {}
+    if units_completed is not None:
+        after_image["units_completed"] = units_completed
+    if foreman_observed is not None:
+        after_image["foreman_observed"] = foreman_observed
+    if helper_completed is not None:
+        after_image["helper_completed"] = helper_completed
+    if helper_observed is not None:
+        after_image["helper_observed"] = helper_observed
+    if vac_completed is not None:
+        after_image["vac_completed"] = vac_completed
+    if vac_crew_observed is not None:
+        after_image["vac_crew_observed"] = vac_crew_observed
+    return {"row_id": row_id, "observed_at": observed_at, "after_image": after_image}
+
+
+def _row_state(row_id: int, row_modified_at: str, **fields) -> dict:
+    """One pipeline_memory.row_state row."""
+    row = {"row_id": row_id, "row_modified_at": row_modified_at}
+    row.update(fields)
+    return row
+
+
+def _artifact_row(
+    token: str, filename: str, variant: str = "primary",
+) -> dict:
+    """One public.artifacts row."""
+    return {
+        "work_request": _WR,
+        "week_ending": _token_to_date(token).isoformat(),
+        "week_ending_fmt": token,
+        "variant": variant,
+        "filename": filename,
+    }
+
+
 # ── Filter-aware fake Supabase client ─────────────────────────────────
 # Deliberately small and self-contained. Unlike a Mock() with hardcoded
 # return values, .eq()/.in_() calls here ACTUALLY narrow the row set,
@@ -115,6 +163,8 @@ class _FakeQuery:
     def __init__(self, rows: list[dict]):
         self._rows = list(rows)
         self._filters: list[tuple] = []
+        self._order_key: str | None = None
+        self._order_desc: bool = False
 
     def select(self, *_a, **_kw):
         return self
@@ -127,7 +177,9 @@ class _FakeQuery:
         self._filters.append(("in", key, {str(v) for v in values}))
         return self
 
-    def order(self, *_a, **_kw):
+    def order(self, column, desc: bool = False, **_kw):
+        self._order_key = column
+        self._order_desc = desc
         return self
 
     def limit(self, *_a, **_kw):
@@ -145,6 +197,13 @@ class _FakeQuery:
 
     def execute(self):
         matched = [r for r in self._rows if self._matches(r)]
+        if self._order_key is not None:
+            key = self._order_key
+            matched = sorted(
+                matched,
+                key=lambda r: (r.get(key) is None, r.get(key)),
+                reverse=self._order_desc,
+            )
         resp = mock.Mock()
         resp.data = matched
         return resp
@@ -207,26 +266,49 @@ class _FakeSchema:
 
 
 class _FakeClient:
-    def __init__(self, schema_obj: _FakeSchema):
+    """Mirrors the real Supabase client's TWO table-access shapes:
+    ``client.schema(name).table(...)`` for a named schema (billing_audit,
+    pipeline_memory) and ``client.table(...)`` directly for the DEFAULT
+    ``public`` schema (``public.artifacts``, per RESEARCH.md Pattern --
+    "select it through the client's default schema, not
+    client.schema('billing_audit')")."""
+
+    def __init__(self, schema_obj: _FakeSchema, public_tables: dict | None = None):
         self._schema_obj = schema_obj
+        self._public_tables = public_tables or {}
 
     def schema(self, _name: str):
         return self._schema_obj
 
+    def table(self, name: str):
+        return self._public_tables.get(name, _FakeTable([]))
+
 
 def _make_billing_audit_fake_client(
-    rpc_rows: list[dict], group_content_hash_rows: list[dict]
+    rpc_rows: list[dict],
+    group_content_hash_rows: list[dict],
+    artifacts_rows: list[dict] | None = None,
 ) -> _FakeClient:
     schema_obj = _FakeSchema(
         tables={"group_content_hash": _FakeTable(group_content_hash_rows)},
         rpc_handlers={"lookup_attribution_bulk": lambda _params: rpc_rows},
     )
-    return _FakeClient(schema_obj)
+    return _FakeClient(
+        schema_obj, public_tables={"artifacts": _FakeTable(artifacts_rows or [])}
+    )
 
 
-def _make_pipeline_memory_fake_client(group_state_rows: list[dict]) -> _FakeClient:
+def _make_pipeline_memory_fake_client(
+    group_state_rows: list[dict],
+    row_event_rows: list[dict] | None = None,
+    row_state_rows: list[dict] | None = None,
+) -> _FakeClient:
     schema_obj = _FakeSchema(
-        tables={"group_state": _FakeTable(group_state_rows)},
+        tables={
+            "group_state": _FakeTable(group_state_rows),
+            "row_event": _FakeTable(row_event_rows or []),
+            "row_state": _FakeTable(row_state_rows or []),
+        },
         rpc_handlers={},
     )
     return _FakeClient(schema_obj)
@@ -460,10 +542,19 @@ class ScopeRequiredTests(unittest.TestCase):
 
 
 class SourceStubTests(unittest.TestCase):
-    """Sources 1-3 are declared but return no candidates in this task --
-    Task 2 of this plan fills in their bodies."""
+    """With no Supabase client configured (and no same-row attribution
+    cached), sources 1-3 have nothing to read and are silent -- proves
+    the ABSENCE-of-data path returns None rather than raising, distinct
+    from the source-4-only Task 1 behavior these sources exhibited
+    before Task 2 filled in their bodies."""
 
-    def test_sources_one_two_three_are_silent_stubs(self):
+    def setUp(self):
+        _reset_all_clients()
+
+    def tearDown(self):
+        _reset_all_clients()
+
+    def test_sources_one_two_three_are_silent_with_no_data(self):
         from scripts import backfill_claim_time_attribution as bf
 
         target = bf.SentinelTarget(
@@ -475,9 +566,11 @@ class SourceStubTests(unittest.TestCase):
             current_value="Unknown Foreman",
         )
         cache: dict = {}
-        self.assertIsNone(bf.resolve_source_1(target, cache))
-        self.assertIsNone(bf.resolve_source_2(target, cache))
-        self.assertIsNone(bf.resolve_source_3(target, cache))
+        with mock.patch("billing_audit.client.get_client", return_value=None), \
+                mock.patch("pipeline_memory.client.get_client", return_value=None):
+            self.assertIsNone(bf.resolve_source_1(target, cache))
+            self.assertIsNone(bf.resolve_source_2(target, cache))
+            self.assertIsNone(bf.resolve_source_3(target, cache))
 
 
 class CliHelpTests(unittest.TestCase):
@@ -533,3 +626,335 @@ class StructuralContractTests(unittest.TestCase):
         src = _read_source(_SCRIPT_RELPATH)
         self.assertNotIn('table("attribution_snapshot")', src)
         self.assertNotIn("table('attribution_snapshot')", src)
+
+    def test_no_last_known_before_week_literal_in_non_comment_lines(self):
+        """D-12-A dropped the cross-week ladder rung (ledger
+        [2026-09-01 19:55]) -- this asserts the literal token the
+        REQUIREMENTS.md-stale wording used never appears in executable
+        code (strip lines whose first non-space character is '#' before
+        counting, per the plan's own instruction)."""
+        src = _read_source(_SCRIPT_RELPATH)
+        non_comment_lines = [
+            line for line in src.splitlines()
+            if not line.lstrip().startswith("#")
+        ]
+        code_text = "\n".join(non_comment_lines)
+        self.assertNotIn("last_known_before_week", code_text)
+
+
+class SourcesOneTwoThreeTests(unittest.TestCase):
+    """Task 2: sources 1 (pipeline_memory.row_event/row_state), 2
+    (same-row cross-role), and 3 (public.artifacts filenames), plus the
+    total 1->2->3->4 precedence and the conflict/unresolved outcomes."""
+
+    def setUp(self):
+        _reset_all_clients()
+
+    def tearDown(self):
+        _reset_all_clients()
+
+    def _run(
+        self, tmp_dir: str, rpc_rows, gch_rows=None, gs_rows=None,
+        artifacts_rows=None, row_event_rows=None, row_state_rows=None,
+        roles: str = "primary", sources: str = "1,2,3,4",
+    ):
+        from scripts import backfill_claim_time_attribution as bf
+
+        ba_client = _make_billing_audit_fake_client(
+            rpc_rows, gch_rows or [], artifacts_rows or []
+        )
+        pm_client = _make_pipeline_memory_fake_client(
+            gs_rows or [], row_event_rows or [], row_state_rows or [],
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=ba_client
+        ), mock.patch(
+            "billing_audit.client.get_client", return_value=ba_client
+        ), mock.patch(
+            "pipeline_memory.client.get_client", return_value=pm_client
+        ):
+            argv = [
+                "--wr", _WR,
+                "--weeks", "082425",
+                "--roles", roles,
+                "--sources", sources,
+                "--report-dir", tmp_dir,
+            ]
+            exit_code = bf.main(argv)
+        return exit_code
+
+    def _first_row(self, tmp_dir: str) -> dict:
+        payload = json.loads(
+            (Path(tmp_dir) / "own03_backfill_report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        return payload["rows"][0]
+
+    # ── Source 1 ────────────────────────────────────────────────────
+
+    def test_source_1_resolves_from_earliest_qualifying_row_event(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                row_event_rows=[
+                    # Earlier event: not yet completed -- must NOT win.
+                    _row_event(
+                        _ROW_IDS["082425"], "2026-06-01T00:00:00+00:00",
+                        units_completed=False, foreman_observed="Avery Example",
+                    ),
+                    # Qualifying event: completed + non-sentinel name.
+                    _row_event(
+                        _ROW_IDS["082425"], "2026-07-01T00:00:00+00:00",
+                        units_completed=True, foreman_observed="Avery Example",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["proposed_value"], "Avery Example")
+            self.assertEqual(row["source"], "live")
+            self.assertEqual(row["name_fidelity"], "exact")
+            self.assertEqual(row["status"], "proposed")
+
+    def test_source_1_falls_back_to_row_state_when_no_qualifying_event(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                row_state_rows=[
+                    _row_state(
+                        _ROW_IDS["082425"], "2026-07-02T00:00:00+00:00",
+                        units_completed=True, foreman_observed="Avery Example",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["proposed_value"], "Avery Example")
+            self.assertEqual(row["source"], "live")
+
+    def test_source_1_ignores_event_without_completion_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                row_event_rows=[
+                    _row_event(
+                        _ROW_IDS["082425"], "2026-07-01T00:00:00+00:00",
+                        units_completed=False, foreman_observed="Avery Example",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["status"], "unresolved")
+
+    # ── Source 2 ────────────────────────────────────────────────────
+
+    def test_source_2_fills_from_same_row_other_role(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            rpc_row = _attribution_row("082425")
+            rpc_row["helper"] = "Sam Sample"  # real, on the SAME row
+            exit_code = self._run(tmp_dir, rpc_rows=[rpc_row])
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["proposed_value"], "Sam Sample")
+            self.assertEqual(row["source"], "live")
+            self.assertEqual(row["name_fidelity"], "exact")
+            self.assertIn("helper", row["evidence"])
+
+    def test_source_2_never_looks_at_another_row(self):
+        """A real name on a DIFFERENT row_id must never leak into this
+        row's proposal -- source 2 is confined to the same row_id."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            other_row = _attribution_row("082425")
+            other_row["smartsheet_row_id"] = 999999
+            other_row["helper"] = "Sam Sample"
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425"), other_row],
+            )
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(
+                (Path(tmp_dir) / "own03_backfill_report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            target_row = next(
+                r for r in payload["rows"] if r["row_id"] == _ROW_IDS["082425"]
+            )
+            self.assertEqual(target_row["status"], "unresolved")
+
+    # ── Source 3 ────────────────────────────────────────────────────
+
+    def test_source_3_single_name_resolves(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                artifacts_rows=[
+                    _artifact_row(
+                        "082425",
+                        "WR_19073866_WeekEnding_082425_120000_User_"
+                        "Avery_Example_aabbcc.xlsx",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["status"], "proposed")
+            self.assertEqual(row["proposed_value"], "Avery Example")
+            self.assertEqual(row["source"], "backfill_artifacts")
+            self.assertEqual(row["name_fidelity"], "desanitized")
+
+    def test_source_3_two_names_conflict(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                artifacts_rows=[
+                    _artifact_row(
+                        "082425",
+                        "WR_19073866_WeekEnding_082425_120000_User_"
+                        "Avery_Example_aabbcc.xlsx",
+                    ),
+                    _artifact_row(
+                        "082425",
+                        "WR_19073866_WeekEnding_082425_130000_User_"
+                        "Pat_Example_bbccdd.xlsx",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["status"], "conflict")
+            self.assertEqual(row["proposed_value"], "")
+            self.assertEqual(row["source"], "backfill_artifacts")
+
+    def test_source_3_matches_subcontractor_helper_token(self):
+        """Rule 2 (missing critical functionality): the subcontractor
+        helper filename tokens (_ReducedSub_Helper_ / _AEPBillable_Helper_)
+        map to role=helper and must resolve via source 3 even though the
+        plan's own enumerated token list named only the bare _Helper_
+        token -- omitting them would silently under-cover subcontractor
+        sheets, exactly the class of gap OWN-03 exists to close."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            rpc_row = _attribution_row("082425")
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[rpc_row],
+                artifacts_rows=[
+                    _artifact_row(
+                        "082425",
+                        "WR_19073866_WeekEnding_082425_120000_ReducedSub_"
+                        "Helper_Sam_Sample_aabbcc.xlsx",
+                        variant="reduced_sub_helper",
+                    ),
+                ],
+                roles="helper",
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["proposed_value"], "Sam Sample")
+            self.assertEqual(row["source"], "backfill_artifacts")
+
+    def test_source_3_does_not_confuse_helper_with_reduced_sub_helper(self):
+        """A bare _Helper_ filename must resolve only role=helper via the
+        _Helper_ token -- NOT be double-counted as a reduced_sub_helper
+        candidate too (specificity-ordered token matching, longest first)."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                artifacts_rows=[
+                    _artifact_row(
+                        "082425",
+                        "WR_19073866_WeekEnding_082425_120000_Helper_"
+                        "Sam_Sample_aabbcc.xlsx",
+                        variant="helper",
+                    ),
+                ],
+                roles="helper",
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["proposed_value"], "Sam Sample")
+            self.assertEqual(row["source"], "backfill_artifacts")
+
+    # ── Precedence and no-cross-week ───────────────────────────────
+
+    def test_source_1_wins_over_3_and_4_when_all_present(self):
+        """A row with candidates in sources 1, 3 and 4 resolves via
+        source 1; sources 3/4's DELIBERATELY DIFFERENT names never
+        surface, proving the later resolvers are not consulted."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                gch_rows=[_gch_row("082425", identifier="Pat_Example")],
+                artifacts_rows=[
+                    _artifact_row(
+                        "082425",
+                        "WR_19073866_WeekEnding_082425_120000_User_"
+                        "Sam_Sample_aabbcc.xlsx",
+                    ),
+                ],
+                row_event_rows=[
+                    _row_event(
+                        _ROW_IDS["082425"], "2026-07-01T00:00:00+00:00",
+                        units_completed=True, foreman_observed="Avery Example",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["proposed_value"], "Avery Example")
+            self.assertEqual(row["source"], "live")
+            self.assertEqual(row["name_fidelity"], "exact")
+
+    def test_no_source_ever_reads_an_adjacent_week(self):
+        """Fixture data for week 083125 must never leak into a row
+        scoped to week 082425 -- proves the _WEEK_SCOPED filtering in
+        every resolver's read site actually holds."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                gch_rows=[_gch_row("083125", identifier="Avery_Example")],
+                artifacts_rows=[
+                    _artifact_row(
+                        "083125",
+                        "WR_19073866_WeekEnding_083125_120000_User_"
+                        "Avery_Example_aabbcc.xlsx",
+                    ),
+                ],
+                row_event_rows=[
+                    _row_event(
+                        _ROW_IDS["083125"], "2026-07-01T00:00:00+00:00",
+                        units_completed=True, foreman_observed="Avery Example",
+                    ),
+                ],
+                row_state_rows=[
+                    _row_state(
+                        _ROW_IDS["083125"], "2026-07-01T00:00:00+00:00",
+                        units_completed=True, foreman_observed="Avery Example",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["status"], "unresolved")
+
+    def test_zero_candidates_across_all_sources_is_unresolved(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["status"], "unresolved")
+            self.assertTrue(row["evidence"])
+            self.assertEqual(row["proposed_value"], "")
