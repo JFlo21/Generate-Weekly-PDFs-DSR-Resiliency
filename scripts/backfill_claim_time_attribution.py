@@ -1485,13 +1485,22 @@ def _write_reports(
     report_dir: str, rows: list[dict[str, Any]], run_id: str,
     csv_columns: "tuple[str, ...]" = _REPORT_COLUMNS,
     extra_summary: dict[str, Any] | None = None,
+    filename_stem: str = "own03_backfill_report",
 ) -> "tuple[Path, Path]":
     """*csv_columns* / *extra_summary* let the Task 3 apply-path REWRITE
     the same two files with an added ``rpc_result`` column + tallies
     without changing the default (dry-run) shape: the JSON row dicts
     already carry whatever keys are present (``rpc_result`` simply
     doesn't exist on a dry-run row, so it never appears in that JSON),
-    and the CSV header only grows when a caller explicitly asks."""
+    and the CSV header only grows when a caller explicitly asks.
+
+    *filename_stem* (default ``"own03_backfill_report"``, byte-for-byte
+    preserving every pre-existing call site's output filename) lets a
+    sibling script reuse this exact sort/serialize/summary logic under
+    its OWN report name instead of duplicating it -- added for plan
+    12-04's source 5 (``scripts/backfill_cell_history_attribution.py``),
+    which must write ``own03_cell_history_report.{json,csv}`` rather
+    than overwrite sources 1-4's own report file."""
     from collections import Counter
 
     report_dir_path = Path(report_dir)
@@ -1514,8 +1523,8 @@ def _write_reports(
     if extra_summary:
         summary.update(extra_summary)
 
-    json_path = report_dir_path / "own03_backfill_report.json"
-    csv_path = report_dir_path / "own03_backfill_report.csv"
+    json_path = report_dir_path / f"{filename_stem}.json"
+    csv_path = report_dir_path / f"{filename_stem}.csv"
 
     payload = {"summary": summary, "rows": sorted_rows}
     json_path.write_text(

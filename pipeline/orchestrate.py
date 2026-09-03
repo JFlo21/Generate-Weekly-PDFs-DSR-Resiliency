@@ -36,13 +36,6 @@ from typing import Any
 
 from dateutil import parser
 import smartsheet
-# Phase 11.1 (D-11.1-02): the attachment parent-type enum, needed to
-# bucket a bulk attachment listing to ROW-parent entries only (see
-# _is_row_attachment below). Not previously imported anywhere in this
-# module.
-from smartsheet.models.enums.attachment_parent_type import (
-    AttachmentParentType,
-)
 import sentry_sdk
 from sentry_sdk.crons import capture_checkin
 from sentry_sdk.crons.consts import MonitorStatus
@@ -1279,6 +1272,29 @@ _BULK_ATTACHMENT_LISTING_MAX_TOTAL = _parse_bulk_listing_ceiling(
 )
 
 
+_ATTACHMENT_PARENT_TYPE_FALLBACK_WARNED = False
+
+
+def _warn_attachment_parent_type_fallback() -> None:
+    """Log ONCE when ``AttachmentParentType`` cannot be imported.
+
+    Review fix (Phase 12 plan 02): the string-comparison fallback in
+    ``_is_row_attachment`` is fail-safe (an enum that is not a ``str``
+    subclass buckets every attachment as non-row, so attachment-identity
+    seeding quietly stops) but it must never be silent -- the SDK
+    breakage used to fail loudly at module import.
+    """
+    global _ATTACHMENT_PARENT_TYPE_FALLBACK_WARNED
+    if _ATTACHMENT_PARENT_TYPE_FALLBACK_WARNED:
+        return
+    _ATTACHMENT_PARENT_TYPE_FALLBACK_WARNED = True
+    logging.warning(
+        "⚠️ smartsheet.models.enums AttachmentParentType import failed; "
+        "_is_row_attachment is falling back to plain-string comparison "
+        "(attachment-identity seeding may stop for enum parent types)"
+    )
+
+
 def _is_row_attachment(att: Any) -> bool:
     """Return True only for a ROW-parent attachment (Phase 11.1, D-11.1-02).
 
@@ -1290,10 +1306,25 @@ def _is_row_attachment(att: Any) -> bool:
     representation change degrades to "not a row attachment" (fail-safe:
     no seeding) rather than risk mis-bucketing a SHEET- or COMMENT-parent
     attachment onto a row id. Pure, no I/O, never raises.
+
+    WR-01 (Phase 12 plan 02): the deep ``smartsheet.models.enums``
+    import lives here, function-local, mirroring
+    ``pipeline/discovery.py``'s guarded function-local
+    ``smartsheet.models.*`` import pattern, instead of the module
+    preamble -- an SDK relocation now degrades this one helper (falls
+    back to the plain string comparison) instead of breaking the
+    production entry module's import.
     """
     parent_type = getattr(att, 'parent_type', None)
     if parent_type is None:
         return False
+    try:
+        from smartsheet.models.enums.attachment_parent_type import (  # noqa: PLC0415
+            AttachmentParentType,
+        )
+    except Exception:  # defensive: SDK path unavailable
+        _warn_attachment_parent_type_fallback()
+        return parent_type == 'ROW'
     return parent_type == AttachmentParentType.ROW or parent_type == 'ROW'
 
 

@@ -18,6 +18,17 @@ _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot).
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
 >
+> **Snapshot 2026-09-03 (afternoon → evening) — Phase 12 waves 2–3 DONE, PR #388 open:** 12-02 ✓, 12-04 ✓
+> (`cell-history-backfill.yml` is dispatch-only by owner re-decision; cron returns in 12-06 with a candidate
+> source), 12-05 ✓ (runbook `ownership-attribution.md`), 12-03 ✓ (Task 4 APPROVED: Juan hand-applied the SQL, then
+> the Greptile per-role provenance + a STEP 5 REVOKE were re-applied and verified live through the Supabase MCP —
+> smoke test `skipped_no_row`, 0 backfilled rows, EXECUTE = `service_role` only; live drifted 226 rows past the
+> backup, so 12-06 re-creates it on apply day). Gates: Opus integration SHIP, code review 0 critical, verifier human_needed 49/62 · 0
+> failed, suite 2,093. `phase.complete 12` refuses until 12-06 (owner-run: dry-run review → apply decision →
+> same-UTC-day apply → post-run check) has a summary. Next: merge #388 → fresh session
+> `/gsd-execute-phase 12` for 12-06 → `/gsd-verify-work 12`. Ledgers: project-state, CHANGELOG_CONTEXT, Living
+> Ledger `[2026-09-03 13:55]`.
+>
 > **Snapshot 2026-09-02 (22:05 CDT) — instruction files aligned (run 1, branch
 > `docs/align-instruction-files`, docs-only PR):** the new `align-instruction-files` skill ran its
 > repair order. GSD health is HEALTHY (a `(INSERTED)` tag placement hid Phase 01.1 from the roadmap

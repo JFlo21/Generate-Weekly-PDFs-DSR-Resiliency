@@ -86,34 +86,113 @@ def cleanup_stale_excels(output_folder: str, kept_filenames: set):
         # Non-conforming files left untouched
     return removed
 
+# Sanitized Smartsheet error-token family (Phase 12 / CR-01). Filename
+# identifiers are SANITIZED (``_RE_SANITIZE_HELPER_NAME`` /
+# ``_RE_SANITIZE_IDENTIFIER``: every non-word char -> ``_``), so a raw
+# error token such as ``#REF!`` / ``#INVALID`` / ``#NO MATCH`` arrives
+# as ``_REF_`` / ``_INVALID`` / ``_NO_MATCH``. This is the ONLY set a
+# leading underscore may match against — normalized (strip, ``_`` ->
+# space, whitespace-collapse, casefold) the same way
+# ``billing_audit.writer.is_sentinel_claimer`` normalizes, so a single
+# normalization rule governs both predicates.
+_SANITIZED_ERROR_IDENTIFIERS: frozenset[str] = frozenset({
+    'ref',
+    'invalid',
+    'no match',
+    'invalid value',
+    'invalid column value',
+    'invalid data type',
+    'invalid operation',
+    'invalid ref',
+    'divide by zero',
+    'unparseable',
+    'circular reference',
+    'blocked',
+    'empty',
+    'contact list',
+})
+
+
 def _is_sentinel_identifier(identifier: str | None) -> bool:
     """True when a filename identifier token is a placeholder claimer.
 
     ``build_group_identity`` yields the token after ``_User_`` /
     ``_Helper_`` / ``_VacCrew_`` verbatim (``Unknown_Foreman``,
     ``Unknown_Helper``, ``Unknown_VAC_Crew``, ``_NO_MATCH``, …). The
-    single source of truth for "is this a placeholder" is
+    single source of truth for the NAMED placeholder family
+    (``Unknown Foreman`` / ``Unknown`` / ``Unknown Helper`` /
+    ``Unknown VAC Crew`` / ``#NO MATCH``) is
     ``billing_audit.writer.is_sentinel_claimer`` (Phase 12 / OWN-02),
     imported lazily so this module keeps its import graph. A missing or
     empty identifier (a bare primary) is NOT a sentinel — it is simply
     unattributed and must never count as a real name either.
+
+    CR-01 (2026-09, ``11.1-REVIEW.md``): the prior rule treated ANY
+    leading underscore as a sentinel on the stated assumption that "a
+    real person's sanitized name never starts with ``_``". That
+    assumption is false — ``pipeline/excel.py``'s sanitization call
+    sites (``_RE_SANITIZE_IDENTIFIER`` / ``_RE_SANITIZE_HELPER_NAME``)
+    never ``.strip()`` the raw claimer name first, so a raw name
+    beginning with a space, apostrophe or parenthesis (``" O'Brien"``,
+    ``"(Contractor) Smith"``) sanitizes to a leading underscore too
+    (``_O_Brien``, ``_Contractor__Smith``) — indistinguishable from a
+    sanitized error token by a bare ``startswith('_')`` check. Through
+    the sentinel-superseded delete gate below, that false positive
+    could delete a REAL person's billing attachment. The fix narrows
+    the leading-underscore branch to the explicit
+    ``_SANITIZED_ERROR_IDENTIFIERS`` allowlist; a leading-underscore
+    token that is not a recognized error spelling now falls through to
+    the same lazy ``is_sentinel_claimer`` call every other identifier
+    uses, which returns False for a real name — the fail-safe direction
+    is "treat it as a real name and decline to delete".
     """
     if not identifier:
         return False
-    # Filename identifiers are SANITIZED (``_RE_SANITIZE_HELPER_NAME``:
-    # every non-word char -> ``_``), so a Smartsheet error token such as
-    # ``#REF!`` / ``#INVALID`` / ``#NO MATCH`` arrives as ``_REF_`` /
-    # ``_INVALID`` / ``_NO_MATCH``. ``is_sentinel_claimer`` recognizes the
-    # raw ``#`` prefix and the named family, but not every sanitized error
-    # spelling (Codex on PR #377). A real person's sanitized name never
-    # starts with ``_``, so a leading underscore IS the sanitized ``#``.
-    if identifier.startswith('_'):
+    # Review fix (Phase 12 plan 02): coerce + strip ONCE so a non-str
+    # token never raises AttributeError inside the cleanup loop and a
+    # whitespace-prefixed allowlisted spelling still classifies.
+    token = str(identifier).strip()
+    if not token:
+        return False
+    normalized = " ".join(token.replace('_', ' ').split()).casefold()
+    if (
+        token.startswith('_')
+        and normalized in _SANITIZED_ERROR_IDENTIFIERS
+    ):
         return True
     try:
         from billing_audit.writer import is_sentinel_claimer  # noqa: PLC0415
     except Exception:  # pragma: no cover - defensive: writer unavailable
         return False
-    return bool(is_sentinel_claimer(identifier))
+    return bool(is_sentinel_claimer(token))
+
+
+def _is_real_name_identifier(identifier: str | None) -> bool:
+    """True only for a token safe to treat as a LIVE REAL-NAME sibling
+    in the sentinel-superseded delete gate below.
+
+    Review fix (Phase 12 plan 02, production-risk review): narrowing
+    ``_is_sentinel_identifier`` to the explicit allowlist made every
+    leading-underscore token OUTSIDE that allowlist a "real name" by
+    negation on the sibling side of the gate -- so an unlisted
+    sanitized Smartsheet error spelling (``#DATE EXPECTED`` ->
+    ``_DATE_EXPECTED``, ``#NO WRITE ACCESS`` -> ``_NO_WRITE_ACCESS``)
+    would have *triggered* deletion of a stale ``Unknown_Foreman``
+    attachment. A leading-underscore token is therefore neutral on
+    BOTH sides: never a sentinel victim unless allowlisted (CR-01) and
+    never the real-name replacement either. Only a non-empty token with
+    no leading underscore that ``is_sentinel_claimer`` rejects counts
+    as a real name. The fail-safe direction stays "decline to delete";
+    the cost is that a real person whose raw name began with a space,
+    apostrophe or parenthesis leaves the stale sentinel file in place
+    until a plain-name file supersedes it.
+    """
+    if not identifier:
+        return False
+    token = str(identifier).strip()
+    if not token or token.startswith('_'):
+        return False
+    return not _is_sentinel_identifier(token)
 
 
 def cleanup_untracked_sheet_attachments(
@@ -501,7 +580,7 @@ def cleanup_untracked_sheet_attachments(
                             and _vw[1] == week
                             and _vw[2] == variant
                             and _vw[3]
-                            and not _is_sentinel_identifier(_vw[3])
+                            and _is_real_name_identifier(_vw[3])
                             and _vw in _row_attached_idents
                             for _vw in valid_wr_weeks
                         )

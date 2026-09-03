@@ -4,7 +4,7 @@ _Last updated: 2026-09-03 01:25 CDT (06:25Z) · **overwrite-in-place each sessio
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
-_Latest ledger entries: `[2026-09-03 11:05]` (Greptile source-1 in-week guard fix on PR #387), `[2026-09-03 01:20]` (Phase 12 wave 1 — OWN-03 backfill tracer, review fix round, PR #387),
+_Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; dated backups expire), `[2026-09-03 13:55]` (Phase 12 ownership contract, waves 2–3), `[2026-09-03 11:05]` (Greptile source-1 in-week guard fix on PR #387), `[2026-09-03 01:20]` (Phase 12 wave 1 — OWN-03 backfill tracer, review fix round, PR #387),
 `[2026-09-02 22:05]` (instruction-file alignment run 1 — what moved where),
 `[2026-09-02 21:20]` (memory-bank pages retired; pre-ledger April-2026 history imported),
 `[2026-09-02 20:45]` (align skill), `[2026-09-02 20:20]` (bootstrap audit), `[2026-09-02 18:15]`
@@ -43,6 +43,37 @@ _Latest ledger entries: `[2026-09-03 11:05]` (Greptile source-1 in-week guard fi
   findings; named-sentinel-only targeting is now the default with `--include-blank-roles` opt-in — **Juan to confirm
   that default before 12-06**. Deferred design items: `--from-report` approval binding, public `ROLE_BY_VARIANT`.
 - Also this session: local `master` reset to `origin/master` after PR #385; PR #386 (docs: record the #385 merge).
+- **2026-09-03 afternoon → evening — Phase 12 waves 2–3 DONE, phase gates run, PR #388 open (Juan merges):**
+  12-02 ✓, 12-04 ✓ (workflow **dispatch-only** by owner re-decision after Opus H1 — the backfill step takes candidates
+  only from the sources-1-4 report, which a fresh runner never has, so a cron would be a permanently green no-op; the
+  Sunday cron returns in 12-06 with a candidate source), 12-05 ✓ (runbook `ownership-attribution.md`, 4 pages
+  rewritten, 20 docs tests, Docusaurus typecheck + build green, ledger `[2026-09-03 13:55]`), 12-03 Tasks 1–3 ✓
+  (Juan `approve`d the DDL and **applied it live 2026-09-03 — Task 4 APPROVED**: backup table
+  `attribution_snapshot_backup_20260903`, five-tag CHECK confirmed by STEP 2 VERIFY, predicate + RPC created;
+  **Greptile on #388 (`27c7ca5`): per-role `backfill_provenance JSONB`; STEP 2 + STEP 4 re-applied live the same
+  evening through the Supabase MCP plus a STEP 5 REVOKE (`a227463`) — the RPC had been PUBLIC-executable. Full
+  read-only report in `12-03-SUMMARY.md`: STEP 0b 0 dups, live 220,236 vs backup 220,010 (cron drift — 12-06
+  re-creates the backup), spot check true/true/false, smoke `skipped_no_row`, 0 backfilled rows, EXECUTE =
+  `service_role` only**),
+  12-06 not started (owner-run after merge + apply). Gates: Opus whole-branch integration review **SHIP** (7 seams
+  OK; 2 MEDIUM fixed in the SQL, LOW-1 carried), `/gsd-code-review 12` 0 critical / 3 warnings (WR-01 false-zero
+  backlog + WR-02 fixed, WR-03 accepted), gsd-verifier **human_needed** (49/62 verified · 0 failed · 13 owner
+  items, `12-VERIFICATION.md`), full suite **2,093 passed / 1 skipped / 405 subtests**. `phase.complete 12`
+  correctly refuses until 12-06 has a summary. Branch: 41 commits, 30 files, +5.6k/−39.
+- **2026-09-03 afternoon — Phase 12 wave 2 executed** on `feat/phase-12-wave-2` (off master `77a675b`, PR #387
+  squash `e1b6302` merged 12:11 CDT; `feat/phase-12-ownership` deleted). Three GSD executors in harness worktrees:
+  12-02 complete (CR-01 allowlist predicate + WR-01 lazy import, RED→GREEN, suite 2007) then an Opus review FIX-FIRST
+  round on its branch (`98b5ea3`: unlisted leading-underscore tokens are now neutral on BOTH sides of the sentinel-
+  superseded delete gate via `_is_real_name_identifier`; non-str/whitespace hardening; one-time WARNING on the
+  `AttachmentParentType` fallback; suite 2011); 12-03 halted at its Task 3 blocking-human decision (SQL + contract test
+  authored; Opus FIX-FIRST round delegated to a Sonnet worker: PII out of the RAISE, full-whitespace btrim, `#variable_conflict`,
+  contract test pins payload keys to `_build_apply_payload`); 12-04 authored the source-5 cell-history job + 79-test suite,
+  halted at its Task 3 decision, then an Opus FIX-FIRST round (`101489d`: week window `week_ending - 6d`, conflict on
+  differing names, `display_value` first, read failure = `error` + exit 7, `_CapReached` defers). **WAVE 2 MERGED**
+  (`b00df03`/`683edb3`/`b037c3a`, 13 files, +3,712/-21) — post-merge gate: py_compile OK, suite **2056 passed / 1 skipped /
+  386 subtests**; schema-drift / codebase-drift / ui gates clear; 12-02 marked complete in ROADMAP. **Waiting on Juan:**
+  12-03 Task 3 (`approve` / `approve-with-correction` / `hold` the one-way Supabase DDL) and 12-04 Task 3 (`approve-cron` /
+  `approve-dispatch-only` / `hold` the cell-history workflow). Nothing pushed yet; no PR yet.
 - **2026-09-03 late morning — Greptile fix on PR #387 (`988680a`):** source 1 never matched a `row_event`/`row_state` row's own
   `week_ending` to the target week (cross-week owner leak, D-12-A violation missed by every prior gate). Fixed with
   `_in_target_week()` + `week_ending` in the bulk select; NULL week = not in-week; 4 tests added, suite 1,998. Opus
@@ -85,13 +116,17 @@ _Latest ledger entries: `[2026-09-03 11:05]` (Greptile source-1 in-week guard fi
 1. Owner: squash-merge PR #387 (wave 1; #386 closed, targeting default confirmed 2026-09-03);
    paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
    denies every ClaudeOS write to that file).
-2. After merge: `/clear` → `/gsd-execute-phase 12` resumes at wave 2 (12-02 CR-01/WR-01 — executor note: align
-   WR-01 to discovery.py's lazy `Sheet`/`Folder` pattern, the plan's "same path" wording is wrong; 12-03 owner SQL;
-   12-04 cell-history job — protected areas, pause for Juan), then 12-05 docs, 12-06 owner remediation.
+2. Owner: merge PR #388 (waves 2–3; 12-03 SQL fully applied and verified live). Then a fresh session: `/clear` →
+   `/gsd-execute-phase 12` → 12-06 (Task 1 re-runs the cheap read-only checks and MUST re-create the backup table
+   on apply day — live already drifted 226 rows past `attribution_snapshot_backup_20260903`; then dry-run review →
+   apply decision → same-UTC-day apply → post-run check); restore the Sunday cron only together with a real
+   candidate source. After 12-06: `/gsd-verify-work 12` → `phase.complete 12`. Owner security item seen live:
+   `anon`/`authenticated` hold full DML grants on `billing_audit.attribution_snapshot` behind RLS — confirm the
+   policies deny them before relying on it.
 3. Owner-owned Phase 12 steps stay blocking checkpoints: read-only count of NULL/stale-week `row_event`/`row_state`
    rows for the target row_ids before `--apply` (Opus MED, 2026-09-03); confirm live `attribution_snapshot` column names, apply
-   `billing_audit/own03_backfill_attribution.sql`, approve the dry-run report, run `--apply`, enable the source-5
-   cell-history cron, attachment replacement.
+   `billing_audit/own03_backfill_attribution.sql`, approve the dry-run report, run `--apply`, restore the source-5
+   cell-history cron only with a candidate source, attachment replacement.
 
 ## Open owner items
 

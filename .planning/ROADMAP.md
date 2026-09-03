@@ -723,7 +723,7 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 1/6 plans executed
+**Plans:** 5/6 plans executed (12-06 owner-run after PR #388 merges; 12-03 SQL applied live 2026-09-03)
 
 Plans:
 **Wave 1**
@@ -732,13 +732,13 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 12-02-PLAN.md — OWN-02 residuals: CR-01 sentinel-identifier narrowing and WR-01 lazy `AttachmentParentType` import, both with regression tests
-- [ ] 12-03-PLAN.md — Owner-deployed Supabase SQL: backup table, `backfill_source` / `backfill_run_id` columns, `is_sentinel_value`, and the sentinel-only `backfill_attribution` RPC
-- [ ] 12-04-PLAN.md — OWN-03 source 5: capped, self-paced cell-history backfill script plus its isolated off-hours workflow
+- [x] 12-02-PLAN.md — OWN-02 residuals: CR-01 sentinel-identifier narrowing and WR-01 lazy `AttachmentParentType` import, both with regression tests
+- [x] 12-03-PLAN.md — Owner-deployed Supabase SQL: backup table, `backfill_source` / `backfill_run_id` columns, `is_sentinel_value`, and the sentinel-only `backfill_attribution` RPC
+- [x] 12-04-PLAN.md — OWN-03 source 5: capped, self-paced cell-history backfill script plus its isolated off-hours workflow
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 12-05-PLAN.md — OWN-04 documentation: the ownership-attribution runbook page, sidebar and reference updates, and the dated Living Ledger entry
+- [x] 12-05-PLAN.md — OWN-04 documentation: the ownership-attribution runbook page, sidebar and reference updates, and the dated Living Ledger entry
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

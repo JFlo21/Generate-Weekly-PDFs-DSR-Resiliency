@@ -11,6 +11,17 @@
    the whole run, and its tokens are normalized to bare WR numbers
    (``_normalize_reset_wr``).
 
+CR-01 (2026-09, Phase 12 plan 02): ``_is_sentinel_identifier`` no longer
+treats every leading underscore as a sentinel. A real claimer name whose
+raw form began with a space, apostrophe or parenthesis (``" O'Brien"``,
+``"(Contractor) Smith"``, ``"'Ana Ruiz"``) sanitizes to a leading
+underscore too (``pipeline/excel.py`` never ``.strip()``s before
+sanitizing), and the old bare ``startswith('_')`` check could not tell
+that apart from a sanitized Smartsheet error token — a false positive
+that could delete a real person's billing attachment through the
+sentinel-superseded gate below. The fix narrows the leading-underscore
+branch to an explicit allowlist of sanitized error spellings.
+
 Fixture style mirrors ``tests/test_orphaned_primary_attachment.py``. All
 names are fictional (public-repo rule).
 """
@@ -109,6 +120,8 @@ class SentinelIdentifierPredicateTests(unittest.TestCase):
             ('_NO_MATCH', True),
             ('_REF_', True),        # sanitized '#REF!' (Codex, PR #377)
             ('_INVALID', True),     # sanitized '#INVALID'
+            ('_ref_', True),        # case-insensitive (CR-01)
+            ('_No_Match', True),    # case-insensitive (CR-01)
             ('Pat_Example', False),
             ('Sam_Sample', False),
             (None, False),
@@ -116,6 +129,28 @@ class SentinelIdentifierPredicateTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIs(_is_sentinel_identifier(token), expected)
+
+    def test_real_names_with_leading_punctuation_are_not_sentinels(self) -> None:
+        """CR-01: a real name sanitized from a raw leading space,
+        apostrophe or parenthesis must never classify as a sentinel."""
+        for token in (
+            '_O_Brien',              # sanitized " O'Brien"
+            '_Contractor__Smith',    # sanitized "(Contractor) Smith"
+            '_Ana_Ruiz',              # sanitized "'Ana Ruiz"
+            '_Zorblatt',              # unrecognised leading-underscore token
+        ):
+            with self.subTest(token=token):
+                self.assertIs(_is_sentinel_identifier(token), False)
+
+    def test_non_string_and_whitespace_prefixed_tokens(self) -> None:
+        """Review fix: a non-str token must not raise, and a
+        whitespace-prefixed allowlisted spelling is still a sentinel."""
+        self.assertIs(
+            _is_sentinel_identifier(123),  # type: ignore[arg-type]
+            False,
+        )
+        self.assertIs(_is_sentinel_identifier(' _REF_'), True)
+        self.assertIs(_is_sentinel_identifier('_REF_'), True)
 
 
 class SentinelSupersededCleanupTests(unittest.TestCase):
@@ -186,6 +221,31 @@ class SentinelSupersededCleanupTests(unittest.TestCase):
             {(_WR, _WEEK, 'primary', '_REF_')},
         )
         self.assertNotIn(10, deleted)
+
+    def test_unlisted_underscore_sibling_never_triggers(self) -> None:
+        """Review fix (Phase 12 plan 02): an unlisted sanitized error
+        spelling ('#DATE EXPECTED' -> '_DATE_EXPECTED') is neither a
+        sentinel victim nor a real-name replacement -- nothing fires."""
+        sib = (
+            'WR_90001_WeekEnding_041926_120001_User__DATE_EXPECTED'
+            '_ddeeff.xlsx'
+        )
+        deleted = _run_cleanup(
+            [_att(_STALE_UNKNOWN_PRIMARY, 10), _att(sib, 20)],
+            {(_WR, _WEEK, 'primary', '_DATE_EXPECTED')},
+        )
+        self.assertEqual(deleted, [])
+
+    def test_underscore_real_name_sibling_is_neutral(self) -> None:
+        """A real name that sanitized to a leading underscore (CR-01)
+        is never deleted as a sentinel AND never acts as the replacement
+        that deletes a stale sentinel file (fail-safe on both sides)."""
+        sib = 'WR_90001_WeekEnding_041926_120001_User__O_Brien_ddeeff.xlsx'
+        deleted = _run_cleanup(
+            [_att(_STALE_UNKNOWN_PRIMARY, 10), _att(sib, 20)],
+            {(_WR, _WEEK, 'primary', '_O_Brien')},
+        )
+        self.assertEqual(deleted, [])
 
     def test_live_bare_primary_is_not_a_real_name(self) -> None:
         deleted = _run_cleanup(

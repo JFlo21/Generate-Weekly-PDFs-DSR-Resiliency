@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
         'runbook/portals',
         'runbook/scripts',
         'runbook/operations',
+        'runbook/ownership-attribution',
         'runbook/auth-rbac-bootstrap',
         'runbook/vercel-deployment',
         'runbook/whats-new',

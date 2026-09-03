@@ -332,3 +332,70 @@ now selects `week_ending` and `_in_target_week()` gates both loops; a NULL week 
 unresolved). Four cross-week tests added; full suite 1,998; commit `988680a`. Juan confirmed the named-sentinel-only targeting default
 (2026-09-03); PR #386 closed because its commit rides in #387. **Lesson:** per-row history sources need a same-row
 cross-week fixture in their contract tests — neither the rubric verifiers nor the Opus round exercised one.
+
+## 2026-09-03 — Phase 12 wave 2 started (branch `feat/phase-12-wave-2`, in progress)
+**What:** PR #387 merged to master (`e1b6302`); wave 2 dispatched from a fresh branch off `77a675b` via `/gsd-execute-phase 12`
+(three Sonnet executors, harness worktrees). 12-02 landed the CR-01 sentinel-predicate narrowing (`_SANITIZED_ERROR_IDENTIFIERS`
+allowlist, normalized like `is_sentinel_claimer`) and the WR-01 function-local `AttachmentParentType` import. The pre-merge Opus
+production-risk review found that the narrowing had *widened* the sibling side of the sentinel-superseded delete gate (an unlisted
+sanitized error spelling such as `_DATE_EXPECTED` would have counted as a real-name replacement and deleted a stale
+`Unknown_Foreman` attachment); fix `98b5ea3` adds `_is_real_name_identifier` so leading-underscore tokens are neutral on both
+sides, hardens the predicate against non-str/whitespace tokens, and logs once when the SDK import falls back. 12-03 authored the
+owner-deployed backfill SQL + contract test and halted at its blocking-human decision; its review round (PII out of the RAISE,
+full-whitespace `btrim`, `#variable_conflict use_column`, payload-key pins) landed on its branch. 12-04 authored
+`scripts/backfill_cell_history_attribution.py` (source 5: `Cells.get_cell_history`, 0.5 s pacing, caps 3,000 req / 1,200 rows /
+45 min, week window `week_ending - 6 days`, falsy→truthy transitions only, conflict on differing names, read failure = `error`
++ exit 7) and its 79-test suite, halted at its Task 3 decision; the Opus round fixed four HIGH + four MEDIUM (`101489d`). The
+workflow YAML is NOT written until Juan decides. **Wave 2 merged to `feat/phase-12-wave-2`** through the manifest-scoped
+`worktree.cleanup-wave` (13 files, +3,712/-21). **Operator impact:** none yet — nothing on master; the SQL is never applied by
+automation and the cell-history script never passes `--apply`.
+**Verified:** post-merge py_compile + full suite 2056 passed / 1 skipped / 386 subtests; schema-drift, codebase-drift and UI
+gates clear. **Open:** Juan's decisions at the 12-03 (DDL apply) and 12-04 (workflow) checkpoints; carried to 12-06: backup-table
+probe is same-UTC-day only, RPC runs SECURITY INVOKER with only EXECUTE granted in the file (verify UPDATE on
+`attribution_snapshot` for the applying role), STEP 0 column check does not fail closed, NULL/stale-week `row_event` count
+before `--apply`, confirm the `backfill_cell_history` provenance tag.
+
+## 2026-09-03 — Phase 12 waves 2–3 complete, phase gates run, PR #388 open
+**What:** wave 2 merged through the manifest-scoped `worktree.cleanup-wave` (12-02 cleanup narrowing + lazy import;
+12-03 owner SQL + contract tests; 12-04 source-5 cell-history job + tests), then the two blocking-human decisions:
+Juan `approve`d the one-way DDL (12-03 Task 3) and chose `approve-cron` (12-04 Task 3); the workflow was authored,
+Opus-reviewed (FIX-FIRST → M2/M3/L6 fixed), and then **re-decided to dispatch-only** when the review showed the
+backfill step can never reach a candidate list on a fresh runner (the sources-1-4 CLI requires `--wr` + `--weeks` by
+design). Wave 3 (12-05) shipped the runbook page, four rewritten pages, 20 docs tests and the ledger entry. Phase
+gates: Opus whole-branch integration review SHIP (2 MEDIUM fixed in the SQL: UNION dedup + STEP 0b duplicate-key
+probe, STEP 2 VERIFY of the live CHECK), `/gsd-code-review 12` 0 critical / 3 warnings (WR-01 false-zero backlog on
+a corrupt report and WR-02 silent filter ignore fixed), gsd-verifier human_needed 49/62 · 0 failed. Juan's live
+STEP 1 42P01 (placeholder left in the GRANT) fixed in the file with a STEP 1 VERIFY query.
+**Why:** OWN-03 needs the SQL objects, the source-5 resolver and the docs in place before the owner-run remediation
+(12-06) can start; every write path stays behind a human.
+**Operator impact:** none on the scheduled run (12-02 is strictly narrowing: decline-to-delete on every branch). New
+manual-only workflow `cell-history-backfill.yml` (dispatch, never `--apply`). New runbook page
+`website/docs/runbook/ownership-attribution.md`. The SQL is applied by hand once per environment.
+**Verified:** full suite 2,093 passed / 1 skipped / 405 subtests; py_compile; Docusaurus typecheck + build; haiku
+rubric PASS on each fix round. **Open:** PR #388 merge; 12-03 Task 4 answers; 12-06; a candidate source before any
+cron; carried: NULL/stale-week `row_event` count, RPC UPDATE grant for the applying role, source-5 blank-role tally
+naming (LOW-1). **Lesson:** parallel worktree plans need one integration review after the merge — the seams were
+clean, but the workflow/CLI candidate-source mismatch was only visible with both plans in one tree.
+
+**Addendum (same day, 19:30 UTC):** Juan applied `billing_audit/own03_backfill_attribution.sql` live and replied
+`approved` — 12-03 Task 4 closed. Confirmed: backup table `attribution_snapshot_backup_20260903`; the live CHECK
+accepts all five provenance tags. Two operator hiccups fixed in the file the same hour: the STEP 1 placeholder must
+be substituted in BOTH statements (42P01), and the STEP 3/4 function blocks now carry SELECTION START/END markers
+because the dashboard's run-under-cursor splits dollar-quoted bodies (42601 ×2). Unreported answers (STEP 0/0b,
+counts, spot check, smoke test, UPDATE grant) are re-verified read-only in 12-06 Task 1.
+
+**Greptile on PR #388 (`27c7ca5`):** three valid findings fixed — (1) the RPC wrote ROW-level provenance per ROLE update, so a
+row filled by two sources/runs lost the first role's provenance: new `backfill_provenance JSONB` per-role map merged on every
+write (owner re-runs STEP 2 + STEP 4, idempotent); (2) the source-5 apply ignored the report's `include_blank_roles` mode and
+silently dropped blank-role proposals: mode now inherited from the report summary; (3) `max_requests=0` was a green no-op:
+workflow rejects it, script exits 4. Suite 2,098. **Lesson:** a provenance column must have the same grain as the write — a
+per-role write needs per-role provenance.
+
+**Live re-apply (same evening, Supabase MCP after Juan's OAuth):** the Greptile STEP 2 (per-role provenance column) and
+STEP 4 (new RPC) were applied on the billing project and every previously unreported answer was read back: STEP 0b 0
+duplicate keys; live 220,236 vs backup 220,010 (the cron froze 226 rows in six hours — a dated backup is valid only on
+its apply day, 12-06 re-creates it); spot check true/true/false; smoke test `skipped_no_row`; 0 backfilled rows.
+Surprise: the RPC was executable by `anon`/`authenticated` because Postgres grants EXECUTE to PUBLIC by default —
+STEP 5 now REVOKEs from PUBLIC/anon/authenticated before the service_role GRANT (`a227463`, contract test), verified
+with `has_function_privilege` (service_role + postgres only). Owner item: `anon`/`authenticated` also hold full DML
+on `attribution_snapshot` behind RLS. Ledger `[2026-09-03 15:55]`.

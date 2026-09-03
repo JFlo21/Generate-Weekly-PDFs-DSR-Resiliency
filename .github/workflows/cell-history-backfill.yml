@@ -1,0 +1,159 @@
+name: OWN-03 Cell History Attribution Backfill
+
+permissions:
+  contents: read
+
+# Deliberately its own group, distinct from the production
+# `weekly-excel-${{ github.ref }}` group in weekly-excel-generation.yml:
+# a slow backfill can neither queue behind nor block the billing run, and
+# the billing run never waits on a backfill. cancel-in-progress: false
+# (queue mode) so a paced run that is mid-report is never cut off by a
+# second dispatch — overlapping fires queue instead, and timeout-minutes
+# bounds how long a stuck run can hold the queue.
+concurrency:
+  group: cell-history-backfill-${{ github.ref }}
+  cancel-in-progress: false
+
+# DISPATCH-ONLY by owner decision (2026-09-03, 12-04 Task 3 re-decided
+# after the Opus production-risk review): the backfill step takes its
+# candidates only from generated_docs/own03_backfill_report.json (the
+# sources 1-4 dry-run output), which a fresh runner does not produce, so
+# an unattended cron would be a permanently green no-op. The Sunday
+# 05:00 UTC schedule ('0 5 * * 0' -- clear of the 15:00/19:00/23:00 UTC
+# weekend billing crons) returns in plan 12-06 together with a real
+# candidate source. Do not add a `schedule:` key here before then.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: >-
+          Dry run (true/false). This workflow never passes --apply, so
+          'false' is REJECTED (the run fails before any call); the live
+          write remains plan 12-06's human checkpoint.
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      wr_filter:
+        description: 'Comma-separated WR numbers to scope the run to (optional)'
+        required: false
+        default: ''
+        type: string
+      max_requests:
+        description: 'Override CELL_HISTORY_BACKFILL_MAX_REQUESTS for this run (optional, positive integer)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # Hard ceiling for the Actions runner. Must stay STRICTLY greater than
+    # CELL_HISTORY_BACKFILL_MAX_MINUTES (45, job env below) so the script's
+    # graceful wall-clock stop fires — and the report is written — before
+    # the runner is killed. Same relationship TIME_BUDGET_MINUTES (165)
+    # has to timeout-minutes (180) in weekly-excel-generation.yml. Raise
+    # both together, never one alone;
+    # tests/test_backfill_cell_history_attribution.py enforces the gap.
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: 1
+      CELL_HISTORY_BACKFILL_MAX_REQUESTS: '3000'
+      CELL_HISTORY_BACKFILL_MAX_ROWS: '1200'
+      # 0.5 s between cell-history reads = 120 req/min, 40% of the shared
+      # 300 req/min budget. Matches the script's own default (raised from
+      # 0.25 s in the pre-checkpoint review); never set it lower here.
+      CELL_HISTORY_BACKFILL_PACE_SEC: '0.5'
+      CELL_HISTORY_BACKFILL_MAX_MINUTES: '45'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      # No other workflow in this repo has a backlog pre-check. This one
+      # exists so a scheduled run (12-06) self-disables once the set is
+      # empty: --check-backlog is a bounded read (the sources 1-4 report
+      # when present, otherwise a LIMIT-capped Supabase scan) that issues
+      # ZERO Smartsheet calls, so an empty-backlog run spends nothing
+      # from the shared 300 req/min budget. Only the Supabase secrets are
+      # bound here; the Smartsheet token is not needed and is deliberately
+      # absent. A broken backend exits 7 and fails the job — it is never
+      # mistaken for an empty queue.
+      - name: Check backlog
+        id: backlog
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          rows=$(python scripts/backfill_cell_history_attribution.py --check-backlog \
+            | sed -n 's/^backlog_rows=\([0-9][0-9]*\)$/\1/p' | tail -n 1)
+          if [ -z "${rows}" ]; then
+            echo "::error::--check-backlog printed no backlog_rows=<N> line"
+            exit 1
+          fi
+          echo "backlog_rows=${rows}" >> "${GITHUB_OUTPUT}"
+          echo "Backlog rows remaining: ${rows}"
+      - name: Run cell-history backfill (dry run)
+        id: run_backfill
+        if: steps.backlog.outputs.backlog_rows != '0'
+        # Every dispatch input is bound to an env var so the ${{ }}
+        # expansion lands in the environment, NOT in the script text
+        # (prevents shell/command injection; mirrors the advanced_options
+        # handling in weekly-excel-generation.yml). Secrets are bound only
+        # at step level, never at job level. This step never passes
+        # --apply: the live write is plan 12-06's human checkpoint.
+        env:
+          SMARTSHEET_API_TOKEN: ${{ secrets.SMARTSHEET_API_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
+          WR_FILTER_INPUT: ${{ github.event.inputs.wr_filter }}
+          MAX_REQUESTS_INPUT: ${{ github.event.inputs.max_requests }}
+        run: |
+          set -euo pipefail
+          if [ "${DRY_RUN}" != "true" ]; then
+            echo "::error::dry_run=${DRY_RUN} is not supported: this workflow never applies writes (the live apply is plan 12-06's human checkpoint). Re-run with dry_run=true."
+            exit 1
+          fi
+          if [ ! -f generated_docs/own03_backfill_report.json ]; then
+            echo "::warning::generated_docs/own03_backfill_report.json is absent on this runner, so there are no sources 1-4 candidates to resolve; an empty report will be written (see 12-04-SUMMARY.md, Known limitations)."
+          fi
+          args=(--dry-run)
+          if [ -n "${WR_FILTER_INPUT}" ]; then
+            args+=(--wr "${WR_FILTER_INPUT}")
+          fi
+          if [ -n "${MAX_REQUESTS_INPUT}" ]; then
+            # Reject non-digits, a bare 0, and any leading-zero form:
+            # a zero cap defers every candidate behind a green run
+            # (Greptile, PR #388 issue 3). The script exits 4 on 0 too.
+            case "${MAX_REQUESTS_INPUT}" in
+              *[!0-9]*|0|0[0-9]*)
+                echo "::error::max_requests must be a positive integer with no leading zeros (got '${MAX_REQUESTS_INPUT}')"
+                exit 1
+                ;;
+            esac
+            args+=(--max-requests "${MAX_REQUESTS_INPUT}")
+          fi
+          python scripts/backfill_cell_history_attribution.py "${args[@]}"
+      - name: Upload cell-history report
+        # hashFiles() is the only reliable "did the script get far enough
+        # to write a report" signal: steps.<id>.outcome is '' (not
+        # 'skipped') for a step never reached after an earlier failure.
+        if: always() && hashFiles('generated_docs/own03_cell_history_report.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: own03-cell-history-report-run${{ github.run_number }}
+          path: |
+            generated_docs/own03_cell_history_report.json
+            generated_docs/own03_cell_history_report.csv
+          retention-days: 30
+          if-no-files-found: warn
