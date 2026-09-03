@@ -8990,3 +8990,16 @@ check: no emails, keys, or real `_User_` tokens). **Gitignored:** `.serena/cache
 **Owner items:** trim/archive `CLAUDE.md` (367 lines) and `.claude/project-state.md` (~1,550 lines); refresh
 `docs/PROJECT_BRIEF.md`; decide track-or-ignore for `.agents/skills/`, `.serena/project*.yml` + `memories/`,
 `.planning/state.json`, `website/.claude/`.
+
+## [2026-09-02 20:45] New project skill `align-instruction-files` (v1.0) — ownership map + drift check + repair order for CLAUDE.md / mirrors / .planning / ledgers; four owner decisions
+
+Extracted via `workflow-skill-extraction` from the bootstrap audit. Path: `.claude/skills/align-instruction-files/SKILL.md`.
+Step 0 drift check (embedded bash; dry-run 2026-09-02): CLAUDE.md 369 lines (cap 150), `.claude/project-state.md`
+1,555 lines (cap 120), `AGENTS.md` + `.github/copilot-instructions.md` stale since 2026-08-17, six `memory-bank/*`
+pages 67–149 days old, zero dangling slash-qualified pointers after the context-map rewrite. Repair order:
+`/gsd-core:health` → `/gsd-core:docs-update` → CLAUDE.md trim (move, never delete) + regenerate
+`copilot-instructions.md` → project-state cut → snapshot docs → pointer validation → write-back + docs PR.
+**Owner decisions (Juan, 2026-09-02):** (1) `AGENTS.md` FROZEN with a `FROZEN MIRROR` pointer header, never
+regenerated, never via Codex; (2) non-ledger `memory-bank/*` pages collapse to ≤ 8-line pointer stubs after any
+surviving fact moves to `docs/ai/`; (3) cadence = milestone close + any Step 0 breach (phase closes run the check
+only); (4) caps CLAUDE.md ≤ 150 / project-state ≤ 120. Next: run the repair order on a docs branch → PR.

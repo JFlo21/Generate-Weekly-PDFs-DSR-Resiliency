@@ -43,9 +43,15 @@ items 2–3 → re-open the 11-07 decision → `/gsd-execute-phase 11` resumes a
   `docs/superpowers/specs/` design docs; gitignored `.serena/cache/`, `.gsd/`, `.codex/`, the retired
   frozen-rows cache. Ledger `[2026-09-02 20:20]`. Owner items: trim CLAUDE.md (367 lines) / this file
   (~1,550 lines); track-or-ignore `.agents/`, `.serena/project*.yml`, `.planning/state.json`, `website/.claude/`.
-- **Next:** `/clear` → `/gsd-execute-phase 12` (wave 1 = 12-01 tracer: dry-run backfill for WR 19073866 on a
-  branch → PR). Live steps (owner SQL apply, `--apply` backfill, source-5 cron enable, attachment
-  replacement) stay blocking human checkpoints for Juan.
+- **20:45 — new project skill `align-instruction-files` v1.0** (`.claude/skills/`, ledger `[2026-09-02 20:45]`):
+  ownership map + Step 0 drift check + repair order; owner decisions: AGENTS.md frozen, memory-bank → stubs,
+  cadence milestone close + breach, caps 150/120. Dry run confirms the breaches (CLAUDE.md 369, this file 1,555,
+  both mirrors stale since 08-17). Registered in the vault skill registry.
+- **Next (docs lane, before `/clear`):** run the repair order on a docs branch — `/gsd-core:health` →
+  `/gsd-core:docs-update` → CLAUDE.md trim + `copilot-instructions.md` regen + `AGENTS.md` freeze →
+  project-state cut → pointer check → PR. Then `/clear` → `/gsd-execute-phase 12` (wave 1 = 12-01 tracer on a
+  branch → PR). Live steps (owner SQL apply, `--apply` backfill, source-5 cron enable, attachment replacement)
+  stay blocking human checkpoints for Juan.
 
 ## Earlier today (2026-09-02 17:45 CDT) — **Phase 11.1 CLOSED** via `/gsd-execute-phase 11.1 --gaps-only`: PR #384 merged `13e8e76` (20:52Z); skip-MISS canary run 33683979474 met SC-1; VERIFICATION 20/20, UAT 19/19; ROADMAP/STATE at **Phase 12** (unplanned)
 - **Canary (21:14Z cron, build `e2efdc0` ⊇ `13e8e76`, production_frequent):** skip index 121 / 0 eligible,
