@@ -329,6 +329,6 @@ determinism, RPC count reconciliation). **Open:** Juan confirms the targeting de
 matching the row's own `week_ending` to the target week, so a row re-dated after a data correction could have an
 earlier week's owner proposed (and, under `--apply`, written) for a later week — a D-12-A violation. The bulk query
 now selects `week_ending` and `_in_target_week()` gates both loops; a NULL week is never in-week evidence (row stays
-unresolved). Four cross-week tests added; full suite 1,998. Juan confirmed the named-sentinel-only targeting default
+unresolved). Four cross-week tests added; full suite 1,998; commit `988680a`. Juan confirmed the named-sentinel-only targeting default
 (2026-09-03); PR #386 closed because its commit rides in #387. **Lesson:** per-row history sources need a same-row
 cross-week fixture in their contract tests — neither the rubric verifiers nor the Opus round exercised one.

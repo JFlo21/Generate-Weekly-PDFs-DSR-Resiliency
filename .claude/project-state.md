@@ -43,7 +43,7 @@ _Latest ledger entries: `[2026-09-03 11:05]` (Greptile source-1 in-week guard fi
   findings; named-sentinel-only targeting is now the default with `--include-blank-roles` opt-in — **Juan to confirm
   that default before 12-06**. Deferred design items: `--from-report` approval binding, public `ROLE_BY_VARIANT`.
 - Also this session: local `master` reset to `origin/master` after PR #385; PR #386 (docs: record the #385 merge).
-- **2026-09-03 late morning — Greptile fix on PR #387:** source 1 never matched a `row_event`/`row_state` row's own
+- **2026-09-03 late morning — Greptile fix on PR #387 (`988680a`):** source 1 never matched a `row_event`/`row_state` row's own
   `week_ending` to the target week (cross-week owner leak, D-12-A violation missed by every prior gate). Fixed with
   `_in_target_week()` + `week_ending` in the bulk select; NULL week = not in-week; 4 tests added, suite 1,998. Opus
   production-risk review re-run on the fix (handoff constraint). Juan confirmed the named-sentinel-only targeting
