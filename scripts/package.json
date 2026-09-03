@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Standalone repo utility scripts (security probe, etc.)",
   "dependencies": {
-    "@supabase/supabase-js": "^2.112.3"
+    "@supabase/supabase-js": "^2.112.4"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
