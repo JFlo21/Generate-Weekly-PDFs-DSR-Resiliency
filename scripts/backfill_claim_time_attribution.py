@@ -43,16 +43,24 @@ environment (the same client contract every ``billing_audit`` /
 Exit codes:
     0  success (including a run whose every row is unresolved)
     2  no Supabase client available
-    7  a source read raised a connectivity error, or attribution
-       discovery reported a definitive fetch failure
+    3  --apply: the billing_audit.attribution_snapshot_backup_<YYYYMMDD>
+       table for the run's UTC date is absent (definitively missing,
+       not a connectivity blip) -- run plan 12-03's
+       billing_audit/own03_backfill_attribution.sql first
+    4  --apply was given without --i-approved-this -- zero Supabase
+       writes and zero RPC calls are made
+    6  --apply: a raised RPC exception, or a non-zero server-reported
+       per-row error count, occurred while calling
+       billing_audit.backfill_attribution
+    7  a source read raised a connectivity error, attribution
+       discovery reported a definitive fetch failure, or the --apply
+       backup-table probe failed for a reason other than the table
+       being definitively absent
     8  --wr and --weeks were not both provided -- no source in this
        script can enumerate "every WR with a sentinel role" without a
        raw ``attribution_snapshot`` scan (prohibited by this plan), so
        explicit scoping is required (documented limitation, not a spec
        gap -- see 12-01-SUMMARY.md)
-
-(Task 3 adds: 3 backup table absent, 4 apply without approval flag,
-6 RPC row errors -- see the module docstring update in that commit.)
 """
 
 from __future__ import annotations
@@ -925,6 +933,221 @@ def _make_report_row(
     }
 
 
+# ── --apply write path (Task 3) ──────────────────────────────────────
+# p_rows payload key list -- THIS EXACT SET, in THIS EXACT SPELLING, is
+# the contract plan 12-03's SQL file's jsonb_to_recordset column list
+# must match verbatim: wr, week_ending, smartsheet_row_id, role, value,
+# backfill_source, backfill_run_id.
+_APPLY_CHUNK_SIZE = 500
+_APPLY_RESULT_KEYS: tuple[str, ...] = (
+    "updated", "skipped_real_name", "skipped_no_row",
+)
+
+
+def _run_date() -> datetime.date:
+    """The run's UTC date -- a separate, mockable function (not an
+    inline ``datetime.datetime.now(...)`` call) so tests can pin the
+    backup table name without depending on real wall-clock time."""
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def _backup_table_name(run_date: datetime.date) -> str:
+    return f"attribution_snapshot_backup_{run_date.strftime('%Y%m%d')}"
+
+
+def _probe_backup_table_readable(run_date: datetime.date) -> "tuple[bool, str]":
+    """Bounded read-only probe of
+    ``billing_audit.attribution_snapshot_backup_<YYYYMMDD>``.
+
+    Returns ``(readable, status)`` where ``status`` is one of ``'ok'``,
+    ``'missing'`` or ``'connectivity_error'``. Mirrors the
+    with_retry-then-bounded-single-reprobe pattern
+    ``billing_audit.writer.prefetch_attribution`` uses to distinguish a
+    DEFINITIVELY missing PGRST202 RPC from a transient outage -- here
+    the target code is PGRST205 (table not found in the PostgREST
+    schema cache). The reprobe is bounded to ONE extra direct call,
+    only on the already-failed path, so it cannot reintroduce a retry
+    storm.
+    """
+    table_name = _backup_table_name(run_date)
+
+    from billing_audit.client import get_client as _get_ba_client
+    from billing_audit.client import with_retry as _ba_with_retry
+    from billing_audit import client as _ba_client_mod
+
+    client = _get_ba_client()
+    if client is None:
+        return False, "connectivity_error"
+
+    def _invoke():
+        return (
+            client.schema("billing_audit")
+            .table(table_name)
+            .select("wr")
+            .limit(1)
+            .execute()
+        )
+
+    with sentry_sdk.start_span(
+        op="own03.probe_backup_table",
+        name=f"table={table_name}",
+    ):
+        result = _ba_with_retry(_invoke, op="own03_backup_probe")
+        if result is not None:
+            return True, "ok"
+
+        try:
+            from postgrest import APIError as _APIError  # type: ignore
+        except Exception:
+            _APIError = ()
+        try:
+            _invoke()
+            # Re-invoke succeeded where with_retry didn't -- the
+            # original failure was transient, not a missing table.
+            return True, "ok"
+        except Exception as probe_exc:
+            if isinstance(probe_exc, _APIError) and (
+                _ba_client_mod._classify_postgrest_error(probe_exc)[2]
+                == "PGRST205"
+            ):
+                return False, "missing"
+            sentry_sdk.capture_exception()
+            return False, "connectivity_error"
+
+
+def _build_apply_payload(
+    report_rows: list[dict[str, Any]], run_id: str
+) -> list[dict[str, Any]]:
+    """Include an entry only for rows whose ``status`` is ``proposed``
+    AND whose ``current_value`` satisfies ``is_sentinel_claimer`` -- a
+    second, defensive, CLIENT-SIDE filter (T-12-01) even though the RPC
+    enforces the same rule server-side. Never trusts the caller's own
+    ``status`` classification alone."""
+    from billing_audit.writer import is_sentinel_claimer
+
+    payload: list[dict[str, Any]] = []
+    for row in report_rows:
+        if row.get("status") != "proposed":
+            continue
+        if not is_sentinel_claimer(row.get("current_value")):
+            continue
+        payload.append(
+            {
+                "wr": row["wr"],
+                "week_ending": row["week_ending"],
+                "smartsheet_row_id": row["row_id"],
+                "role": row["role"],
+                "value": row["proposed_value"],
+                "backfill_source": row["source"],
+                "backfill_run_id": run_id,
+            }
+        )
+    return payload
+
+
+def _apply_backfill(
+    report_rows: list[dict[str, Any]], run_id: str
+) -> "tuple[dict[tuple, str], dict[str, int], int]":
+    """Call ``billing_audit.backfill_attribution(p_rows)`` in chunks of
+    at most 500 entries, mirroring ``freeze_row``'s call shape
+    (``client.schema("billing_audit").rpc(name, params).execute()``).
+
+    Returns ``(outcome_by_key, tallies, local_exceptions)``:
+    - ``outcome_by_key``: ``(wr, week_ending, row_id, role) -> result``
+      for every payload row a response covered, used to add the
+      ``rpc_result`` column back onto the report.
+    - ``tallies``: counts by ``updated`` / ``skipped_real_name`` /
+      ``skipped_no_row`` / ``error`` (an ``error`` is any per-row
+      result string outside that known vocabulary -- defensive, never
+      silently ignored) plus ``skipped_client_side_real_name`` (rows
+      the Python-side guard removed before the RPC ever saw them).
+    - ``local_exceptions``: chunks where the RPC call itself did not
+      return a usable response (an exception, or ``with_retry``
+      exhausting retries) -- mirrors
+      ``scripts/backfill_attribution_snapshot.py``'s local-exception
+      counter that ORs into the final exit gate alongside the
+      server-reported tally.
+    """
+    from billing_audit.client import get_client as _get_ba_client
+    from billing_audit.client import with_retry as _ba_with_retry
+
+    all_proposed = sum(1 for r in report_rows if r.get("status") == "proposed")
+    payload = _build_apply_payload(report_rows, run_id)
+    skipped_client_side_real_name = all_proposed - len(payload)
+
+    tallies: dict[str, int] = {
+        "updated": 0,
+        "skipped_real_name": 0,
+        "skipped_no_row": 0,
+        "error": 0,
+        "skipped_client_side_real_name": skipped_client_side_real_name,
+    }
+    outcome_by_key: dict[tuple, str] = {}
+    local_exceptions = 0
+
+    if not payload:
+        return outcome_by_key, tallies, local_exceptions
+
+    client = _get_ba_client()
+    chunks = [
+        payload[i:i + _APPLY_CHUNK_SIZE]
+        for i in range(0, len(payload), _APPLY_CHUNK_SIZE)
+    ]
+    for chunk in chunks:
+        def _invoke(_c=chunk):
+            return (
+                client.schema("billing_audit")
+                .rpc("backfill_attribution", {"p_rows": _c})
+                .execute()
+            )
+
+        with sentry_sdk.start_span(
+            op="own03.apply_backfill",
+            name=f"rows={len(chunk)}",
+        ):
+            try:
+                result = _ba_with_retry(_invoke, op="own03_backfill_apply")
+            except Exception:
+                sentry_sdk.capture_exception()
+                result = None
+
+        if result is None:
+            local_exceptions += 1
+            continue
+
+        data = getattr(result, "data", None) or []
+        if isinstance(data, dict):
+            data = [data]
+        for row_result in data:
+            if not isinstance(row_result, dict):
+                tallies["error"] += 1
+                continue
+            key = (
+                str(row_result.get("wr")),
+                str(row_result.get("week_ending")),
+                row_result.get("smartsheet_row_id"),
+                row_result.get("role"),
+            )
+            outcome = row_result.get("result")
+            if outcome in _APPLY_RESULT_KEYS:
+                tallies[outcome] += 1
+            else:
+                tallies["error"] += 1
+                logging.warning(
+                    "⚠️ backfill_attribution returned an unrecognized "
+                    f"per-row result: {row_result!r}"
+                )
+            if outcome == "skipped_real_name":
+                logging.warning(
+                    "⚠️ backfill_attribution skipped a row because its "
+                    f"current value is a real name (server-side guard "
+                    f"held): {row_result!r}"
+                )
+            outcome_by_key[key] = outcome or "error"
+
+    return outcome_by_key, tallies, local_exceptions
+
+
 # ── Sentinel discovery ────────────────────────────────────────────────
 
 def _discover_sentinel_targets(
@@ -990,8 +1213,16 @@ def _discover_sentinel_targets(
 # ── Report writer ─────────────────────────────────────────────────────
 
 def _write_reports(
-    report_dir: str, rows: list[dict[str, Any]], run_id: str
+    report_dir: str, rows: list[dict[str, Any]], run_id: str,
+    csv_columns: "tuple[str, ...]" = _REPORT_COLUMNS,
+    extra_summary: dict[str, Any] | None = None,
 ) -> "tuple[Path, Path]":
+    """*csv_columns* / *extra_summary* let the Task 3 apply-path REWRITE
+    the same two files with an added ``rpc_result`` column + tallies
+    without changing the default (dry-run) shape: the JSON row dicts
+    already carry whatever keys are present (``rpc_result`` simply
+    doesn't exist on a dry-run row, so it never appears in that JSON),
+    and the CSV header only grows when a caller explicitly asks."""
     from collections import Counter
 
     report_dir_path = Path(report_dir)
@@ -1011,6 +1242,8 @@ def _write_reports(
         "rows_by_source": dict(sorted(by_source.items())),
         "rows_by_status": dict(sorted(by_status.items())),
     }
+    if extra_summary:
+        summary.update(extra_summary)
 
     json_path = report_dir_path / "own03_backfill_report.json"
     csv_path = report_dir_path / "own03_backfill_report.csv"
@@ -1022,10 +1255,10 @@ def _write_reports(
     )
 
     with csv_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(_REPORT_COLUMNS))
+        writer = csv.DictWriter(fh, fieldnames=list(csv_columns))
         writer.writeheader()
         for row in sorted_rows:
-            writer.writerow({k: row.get(k, "") for k in _REPORT_COLUMNS})
+            writer.writerow({k: row.get(k, "") for k in csv_columns})
 
     return json_path, csv_path
 
@@ -1038,6 +1271,17 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
+
+    # Cheapest, highest-risk gate first -- a pure argument-shape check
+    # that needs no Supabase client, so a malformed --apply invocation
+    # is refused before touching any credential or making any call.
+    if args.apply and not args.i_approved_this:
+        logging.error(
+            "❌ --apply requires --i-approved-this — this confirms a "
+            "human reviewed the dry-run report before any Supabase "
+            "write. Zero writes and zero RPC calls were made."
+        )
+        return 4
 
     # Load .env BEFORE constructing the Supabase client -- same
     # ImportError-vs-other-exception split as
@@ -1129,9 +1373,70 @@ def main(argv: list[str] | None = None) -> int:
     logging.info(f"                            {csv_path}")
     logging.info(f"   Sentinel rows considered: {len(report_rows)}")
 
-    # --apply / --i-approved-this handling and the live write path are
-    # implemented in this plan's Task 3. This task is dry-run-only by
-    # design (must_have: zero Supabase writes).
+    if not args.apply:
+        return 0
+
+    # --apply --i-approved-this: probe the backup table BEFORE building
+    # any payload (T-12-06 -- refuse to write with no rollback path).
+    run_date = _run_date()
+    readable, probe_status = _probe_backup_table_readable(run_date)
+    if probe_status == "missing":
+        table_name = _backup_table_name(run_date)
+        logging.error(
+            f"❌ billing_audit.{table_name} is not readable — the "
+            "backup table for this run's UTC date does not exist. "
+            "Run billing_audit/own03_backfill_attribution.sql (plan "
+            "12-03) to create it before applying. Zero writes were made."
+        )
+        return 3
+    if not readable:
+        logging.error(
+            "❌ Could not confirm the attribution_snapshot backup table "
+            "is readable (retries exhausted). This is a CONNECTIVITY / "
+            "AUTH issue, not a missing table — do not run the backfill "
+            "SQL in response. Check SUPABASE_URL, "
+            "SUPABASE_SERVICE_ROLE_KEY, and network reachability, then "
+            "re-run. Zero writes were made."
+        )
+        return 7
+
+    try:
+        outcome_by_key, tallies, local_exceptions = _apply_backfill(
+            report_rows, run_id
+        )
+    except Exception as exc:
+        sentry_sdk.capture_exception(exc)
+        logging.error(
+            f"❌ billing_audit.backfill_attribution raised an unexpected "
+            f"exception: {type(exc).__name__}"
+        )
+        return 6
+
+    for row in report_rows:
+        key = (row["wr"], row["week_ending"], row["row_id"], row["role"])
+        row["rpc_result"] = outcome_by_key.get(key, "")
+
+    json_path, csv_path = _write_reports(
+        args.report_dir, report_rows, run_id,
+        csv_columns=_REPORT_COLUMNS + ("rpc_result",),
+        extra_summary={"apply": tallies},
+    )
+    logging.info(f"✅ Apply report rewritten: {json_path}")
+    logging.info(f"                           {csv_path}")
+    logging.info(f"   Apply tallies: {tallies}")
+    logging.info(f"   Local RPC-call failures: {local_exceptions}")
+
+    if local_exceptions or tallies.get("error", 0):
+        logging.error(
+            f"❌ Apply finished with {local_exceptions} chunk RPC-call "
+            f"failure(s) + {tallies.get('error', 0)} unrecognized "
+            "per-row result(s). Investigate before re-running — "
+            "already-updated rows are idempotent no-ops on retry "
+            "(the RPC only ever writes over a sentinel or NULL)."
+        )
+        return 6
+
+    logging.info("✅ Apply complete.")
     return 0
 
 
