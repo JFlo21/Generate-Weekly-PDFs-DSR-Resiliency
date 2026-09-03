@@ -83,6 +83,10 @@ generated_docs/run_summary.json
 generated_docs/system_health.json
 !generated_docs/README.md
 
+# OWN-03 backfill dry-run reports carry claimer names (PII) — never commit.
+generated_docs/own03_*.json
+generated_docs/own03_*.csv
+
 # Notion integration local config (contains database IDs)
 scripts/notion_config.json
 
