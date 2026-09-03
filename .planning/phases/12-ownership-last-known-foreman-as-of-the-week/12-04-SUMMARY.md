@@ -356,3 +356,18 @@ No green no-ops on the production token." Applied by the orchestrator: the `sche
 `schedule:` key, `workflow_dispatch:` present). The earlier `approve-cron` records in this file are kept as
 history; the shipped shape is dispatch-only. Plan 12-06 owns restoring `'0 5 * * 0'` together with a candidate
 source and the M4 dispatch-time guard.
+
+## GSD code review fixes (12-REVIEW.md, 2026-09-03)
+
+`/gsd-code-review 12` (standard depth, 20 files): 0 critical, 3 warnings, 2 info. Applied before the PR:
+
+- **WR-01 (fixed)** `_check_backlog` treated a present-but-unparseable sources-1-4 report as an EMPTY backlog
+  (the file-absent path already refused a false zero). It now returns -1 → exit 7 for an unreadable file or a
+  report without a `rows` list; two tests pin it.
+- **WR-02 (fixed)** `--check-backlog` silently ignored `--wr` / `--weeks` / `--roles`; it now logs a WARNING that
+  the count is over the whole report/backlog; one test pins it.
+- **WR-03 (accepted)** `--dry-run` is an explicit no-op kept for symmetry with the 12-01 CLI and the workflow's
+  `args=(--dry-run)`; removing it would break the documented invocation for no safety gain.
+- **IN-01 / IN-02 (accepted)** raw-table fallback column names outside the RPC contract (bounded, read-only,
+  documented) and whitespace normalisation in cell-history conflict detection (fail-safe: more conflicts, never
+  fewer).

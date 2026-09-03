@@ -275,6 +275,65 @@ class CheckBacklogTests(unittest.TestCase):
             )
             self.assertIn("backlog_rows=2", printed)
 
+    def test_corrupt_report_file_is_never_a_zero_backlog(self):
+        """Review fix (12-REVIEW WR-01): a present-but-unparseable
+        report exits 7 and prints no backlog_rows= line."""
+        import tempfile
+        from scripts import backfill_cell_history_attribution as cha
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_path = Path(tmp_dir) / "own03_backfill_report.json"
+            report_path.write_text("{not json", encoding="utf-8")
+            with mock.patch("sys.stdout") as _stdout:
+                exit_code = cha.main(
+                    ["--check-backlog", "--report", str(report_path)]
+                )
+            self.assertEqual(exit_code, 7)
+            printed = "".join(
+                call.args[0] for call in _stdout.write.call_args_list
+                if call.args
+            )
+            self.assertNotIn("backlog_rows=", printed)
+
+    def test_report_without_rows_list_is_never_a_zero_backlog(self):
+        import tempfile
+        from scripts import backfill_cell_history_attribution as cha
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_path = Path(tmp_dir) / "own03_backfill_report.json"
+            report_path.write_text(
+                json.dumps({"summary": {}}), encoding="utf-8"
+            )
+            with mock.patch("sys.stdout"):
+                exit_code = cha.main(
+                    ["--check-backlog", "--report", str(report_path)]
+                )
+            self.assertEqual(exit_code, 7)
+
+    def test_check_backlog_warns_when_filters_are_ignored(self):
+        """Review fix (12-REVIEW WR-02)."""
+        import tempfile
+        from scripts import backfill_cell_history_attribution as cha
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_path = Path(tmp_dir) / "own03_backfill_report.json"
+            _write_candidate_report(
+                report_path, [_report_row(row_id=1, status="unresolved")]
+            )
+            with mock.patch("sys.stdout"), self.assertLogs(
+                level="WARNING"
+            ) as captured:
+                exit_code = cha.main(
+                    [
+                        "--check-backlog", "--wr", "12345",
+                        "--report", str(report_path),
+                    ]
+                )
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(
+                any("ignored for this count" in m for m in captured.output)
+            )
+
     def test_report_absent_falls_back_to_bounded_supabase_scan(self):
         import tempfile
         from scripts import backfill_cell_history_attribution as cha

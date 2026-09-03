@@ -340,14 +340,37 @@ def _select_candidates(
 # ── --check-backlog ────────────────────────────────────────────────
 
 def _check_backlog(report_path: str) -> int:
+    """Count sources-1-4 leftovers. Negative = undeterminable (exit 7).
+
+    Review fix (12-REVIEW WR-01): a report file that EXISTS but cannot
+    be read or parsed must never count as an EMPTY backlog -- the
+    workflow gate would then skip real work behind a green build. Only
+    a genuinely absent file falls back to the bounded Supabase scan.
+    """
     p = Path(report_path)
-    if p.exists():
-        rows, _summary = _load_candidate_report(report_path)
-        return sum(
-            1 for r in rows
-            if isinstance(r, dict) and r.get("status") in ("unresolved", "conflict")
+    if not p.exists():
+        return _check_backlog_via_bounded_supabase_scan()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.error(
+            f"❌ sources-1-4 report {report_path} exists but could not "
+            f"be read/parsed ({type(exc).__name__}); refusing to report "
+            "a zero backlog"
         )
-    return _check_backlog_via_bounded_supabase_scan()
+        return -1
+    rows = data.get("rows") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        logging.error(
+            f"❌ sources-1-4 report {report_path} has no 'rows' list; "
+            "refusing to report a zero backlog"
+        )
+        return -1
+    return sum(
+        1 for r in rows
+        if isinstance(r, dict)
+        and r.get("status") in ("unresolved", "conflict")
+    )
 
 
 def _check_backlog_via_bounded_supabase_scan() -> int:
@@ -824,13 +847,20 @@ def main(argv: "list[str] | None" = None) -> int:
     )
 
     if args.check_backlog:
+        if args.wr or args.weeks or args.roles:
+            # Review fix (12-REVIEW WR-02): the count is always over the
+            # whole report / backlog; filters apply to the resolver only.
+            logging.warning(
+                "⚠️ --check-backlog counts the whole report/backlog; "
+                "--wr / --weeks / --roles are ignored for this count"
+            )
         n = _check_backlog(args.report)
         if n < 0:
             logging.error(
                 "❌ --check-backlog could not determine a backlog count "
-                "(Supabase client unavailable or the bounded fallback "
-                "scan failed). Exiting non-zero so a broken backend is "
-                "never mistaken for an empty queue."
+                "(report file unreadable, Supabase client unavailable or "
+                "the bounded fallback scan failed). Exiting non-zero so a "
+                "broken backend is never mistaken for an empty queue."
             )
             return 7
         print(f"backlog_rows={n}")
