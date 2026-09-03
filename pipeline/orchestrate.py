@@ -36,13 +36,6 @@ from typing import Any
 
 from dateutil import parser
 import smartsheet
-# Phase 11.1 (D-11.1-02): the attachment parent-type enum, needed to
-# bucket a bulk attachment listing to ROW-parent entries only (see
-# _is_row_attachment below). Not previously imported anywhere in this
-# module.
-from smartsheet.models.enums.attachment_parent_type import (
-    AttachmentParentType,
-)
 import sentry_sdk
 from sentry_sdk.crons import capture_checkin
 from sentry_sdk.crons.consts import MonitorStatus
@@ -1290,10 +1283,24 @@ def _is_row_attachment(att: Any) -> bool:
     representation change degrades to "not a row attachment" (fail-safe:
     no seeding) rather than risk mis-bucketing a SHEET- or COMMENT-parent
     attachment onto a row id. Pure, no I/O, never raises.
+
+    WR-01 (Phase 12 plan 02): the deep ``smartsheet.models.enums``
+    import lives here, function-local, mirroring
+    ``pipeline/discovery.py``'s guarded function-local
+    ``smartsheet.models.*`` import pattern, instead of the module
+    preamble -- an SDK relocation now degrades this one helper (falls
+    back to the plain string comparison) instead of breaking the
+    production entry module's import.
     """
     parent_type = getattr(att, 'parent_type', None)
     if parent_type is None:
         return False
+    try:
+        from smartsheet.models.enums.attachment_parent_type import (  # noqa: PLC0415
+            AttachmentParentType,
+        )
+    except Exception:  # pragma: no cover - defensive: SDK path unavailable
+        return parent_type == 'ROW'
     return parent_type == AttachmentParentType.ROW or parent_type == 'ROW'
 
 
