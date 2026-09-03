@@ -17,13 +17,13 @@ re-exported by the `generate_weekly_pdfs.py` facade). Env var NAMES only — nev
 - `REGEN_WEEKS` (MMDDYY list), `RESET_WR_LIST`, `KEEP_HISTORICAL_WEEKS`
 - `EXTENDED_CHANGE_DETECTION`
 - Discovery folders: `SUBCONTRACTOR_FOLDER_IDS`, `ORIGINAL_CONTRACT_FOLDER_IDS`, `VAC_CREW_FOLDER_IDS`
-  (`pipeline/config.py:317`); rate tables: `NEW_RATES_CSV`, `OLD_RATES_CSV`, `SUBCONTRACTOR_RATES_CSV`
+  (`pipeline/config.py:309`, `:311`, `:317`); rate tables: `NEW_RATES_CSV`, `OLD_RATES_CSV`, `SUBCONTRACTOR_RATES_CSV`
   (`pipeline/pricing.py:51-87`)
 - **Time-budget family (GitHub Actions only):** `TIME_BUDGET_MINUTES` — session graceful-stop budget,
   default `0` (disabled) locally; the weekly workflow sets `165` and must stay strictly below the job's
   `timeout-minutes` (`180`). Schedule and timeout history: `docs/ai/architecture.md` § Runtime.
-- Debug flags: `DEBUG_MODE`, `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`,
-  `FOREMAN_DIAGNOSTICS`, `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS`
+- Debug flags: `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`, `FOREMAN_DIAGNOSTICS`,
+  `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS`
 - Sentry Logs gate: `SENTRY_ENABLE_LOGS` (default `false`). Keep off by default because INFO-path logs
   can embed row PII; the `before_send_log` sanitizer in `pipeline/observability.py` is the
   defense-in-depth backstop.
@@ -34,7 +34,14 @@ re-exported by the `generate_weekly_pdfs.py` facade). Env var NAMES only — nev
 runbook/back-compat reasons but is a no-op (discovery validates every sheet every run).
 
 **Documented below but not currently consumed by the pipeline (aspirational until wired up):**
-`SKIP_FILE_OPERATIONS`, `DRY_RUN_UPLOADS`, `MOCK_SMARTSHEET_UPLOAD`.
+`SKIP_FILE_OPERATIONS`, `DRY_RUN_UPLOADS`, `MOCK_SMARTSHEET_UPLOAD`, `DEBUG_MODE`, `CLEANUP_ONLY`,
+`SYNTHETIC_WR_COUNT`, `SYNTHETIC_ROW_VARIANCE`, `ENABLE_AUDIT_ANOMALIES` — none of these is read by
+`pipeline/*.py`, `generate_weekly_pdfs.py`, or the workflow YAML (gsd-doc-verifier, 2026-09-02).
+
+> **Legacy prompt text below — design intent, not verified truth.** The gsd-doc-verifier pass on
+> 2026-09-02 also found: `run_summary.json` is a 24-key Gate 6 golden (not 21); there is no
+> `cleanup_only` workflow input ("Basic Operation Controls" is `test_mode` + `force_generation`);
+> `AUDIT_SHEET_ID` is not wired as a workflow secret. The quick reference above is the maintained part.
 
 ## Environment Variable Deep Dive Prompt
 ```
