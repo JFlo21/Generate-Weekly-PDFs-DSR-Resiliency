@@ -140,7 +140,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/8 | In Progress|  |
-| 12. Ownership — last known foreman as of the week | v1.4 | OWN-02 slice shipped | In Progress |  |
+| 12. Ownership — last known foreman as of the week | v1.4 | OWN-02 slice shipped | In Progress|  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
 
 ---
@@ -723,12 +723,12 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 6 plans
+**Plans:** 1/6 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — OWN-03 claim-time backfill script: tracer dry-run for WR 19073866, sources 1–4 precedence, and the gated `--apply` write path
+- [x] 12-01-PLAN.md — OWN-03 claim-time backfill script: tracer dry-run for WR 19073866, sources 1–4 precedence, and the gated `--apply` write path
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
