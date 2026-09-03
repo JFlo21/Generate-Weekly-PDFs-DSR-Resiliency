@@ -383,3 +383,10 @@ accepts all five provenance tags. Two operator hiccups fixed in the file the sam
 be substituted in BOTH statements (42P01), and the STEP 3/4 function blocks now carry SELECTION START/END markers
 because the dashboard's run-under-cursor splits dollar-quoted bodies (42601 ×2). Unreported answers (STEP 0/0b,
 counts, spot check, smoke test, UPDATE grant) are re-verified read-only in 12-06 Task 1.
+
+**Greptile on PR #388 (`27c7ca5`):** three valid findings fixed — (1) the RPC wrote ROW-level provenance per ROLE update, so a
+row filled by two sources/runs lost the first role's provenance: new `backfill_provenance JSONB` per-role map merged on every
+write (owner re-runs STEP 2 + STEP 4, idempotent); (2) the source-5 apply ignored the report's `include_blank_roles` mode and
+silently dropped blank-role proposals: mode now inherited from the report summary; (3) `max_requests=0` was a green no-op:
+workflow rejects it, script exits 4. Suite 2,098. **Lesson:** a provenance column must have the same grain as the write — a
+per-role write needs per-role provenance.

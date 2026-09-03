@@ -50,7 +50,8 @@ _Latest ledger entries: `[2026-09-03 13:55]` (Phase 12 ownership contract, waves
   rewritten, 20 docs tests, Docusaurus typecheck + build green, ledger `[2026-09-03 13:55]`), 12-03 Tasks 1–3 ✓
   (Juan `approve`d the DDL and **applied it live 2026-09-03 — Task 4 APPROVED**: backup table
   `attribution_snapshot_backup_20260903`, five-tag CHECK confirmed by STEP 2 VERIFY, predicate + RPC created; the
-  STEP 0/0b/3/6 answers and the grant list were not reported and are re-checked read-only in 12-06 Task 1),
+  STEP 0/0b/3/6 answers and the grant list were not reported and are re-checked read-only in 12-06 Task 1;
+  **Greptile on #388 (`27c7ca5`): per-role `backfill_provenance JSONB` added — Juan must re-run STEP 2 + STEP 4**),
   12-06 not started (owner-run after merge + apply). Gates: Opus whole-branch integration review **SHIP** (7 seams
   OK; 2 MEDIUM fixed in the SQL, LOW-1 carried), `/gsd-code-review 12` 0 critical / 3 warnings (WR-01 false-zero
   backlog + WR-02 fixed, WR-03 accepted), gsd-verifier **human_needed** (49/62 verified · 0 failed · 13 owner
