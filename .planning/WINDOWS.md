@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 2
 waived_count: 0
 fixed_count: 1
-total_count: 2
-last_updated: 2026-08-26T22:13:12.208Z
+total_count: 3
+last_updated: 2026-09-03T18:57:24.860Z
 ---
 
 # Broken Windows Ledger
@@ -17,6 +17,7 @@ last_updated: 2026-08-26T22:13:12.208Z
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
 | 1 | quick-260812-jqx | unrun-verify | pipeline/snapshot_drift.py |  | Task 3 human-check (live operator verification of A1/A4 assumptions against a known-drifted Smartsheet row) not run — no SMARTSHEET_API_TOKEN available in this sandbox. Must be run by Juan before setting SNAPSHOT_DRIFT_HOLD_ENABLED=true in the workflow. | fixed |  | 2026-08-12T21:28:42.447Z | 2026-08-12T21:43:06.317Z |
 | 2 | 11 | deviation | pipeline/orchestrate.py |  | A (wr, week_ending) pair whose LAST remaining row is deleted by the deep run produces no group_state repair -- the group no longer exists for group_source_rows to build, so _repair_group_state_for_affected_pairs finds nothing to filter and the stale group_state row (last-known content_hash/row_count) is left as-is. Documented, out of scope for 11-06 -- needs a stored target_sheet_id reader to clean up safely. | open |  | 2026-08-26T22:13:12.208Z |  |
+| 3 | 12 | deviation | website/docs/runbook/ownership-attribution.md |  | 12-05: cell-history workflow documented as dispatch-only (no cron) per owner re-decision during execution; plan text assumed approve-cron | open |  | 2026-09-03T18:57:24.860Z |  |
 
 ````json
 [
@@ -42,6 +43,18 @@ last_updated: 2026-08-26T22:13:12.208Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-26T22:13:12.208Z",
+    "resolved_at": null
+  },
+  {
+    "id": 3,
+    "kind": "deviation",
+    "phase": "12",
+    "file": "website/docs/runbook/ownership-attribution.md",
+    "line": null,
+    "description": "12-05: cell-history workflow documented as dispatch-only (no cron) per owner re-decision during execution; plan text assumed approve-cron",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-03T18:57:24.860Z",
     "resolved_at": null
   }
 ]
