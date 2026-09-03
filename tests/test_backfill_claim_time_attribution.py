@@ -51,6 +51,17 @@ _ROW_IDS: dict[str, int] = {
     "092125": 700004,
 }
 _PRE_DEFECT_UPDATED_AT = "2026-07-15T00:00:00+00:00"
+_ROW_ID_TO_TOKEN: dict[int, str] = {rid: tok for tok, rid in _ROW_IDS.items()}
+# Fixture default: "this row's own week" (derived from _ROW_IDS). Pass an
+# explicit ISO string or None to model a re-dated row / unknown week.
+_OWN_WEEK = object()
+
+
+def _row_week(row_id: int, week_ending) -> str | None:
+    if week_ending is not _OWN_WEEK:
+        return week_ending
+    token = _ROW_ID_TO_TOKEN.get(row_id)
+    return _token_to_date(token).isoformat() if token else None
 
 
 def _token_to_date(token: str) -> datetime.date:
@@ -112,10 +123,14 @@ def _row_event(
     units_completed: bool | None = None, foreman_observed: str | None = None,
     helper_completed: bool | None = None, helper_observed: str | None = None,
     vac_completed: bool | None = None, vac_crew_observed: str | None = None,
+    week_ending=_OWN_WEEK,
 ) -> dict:
     """One pipeline_memory.row_event row -- only the fields explicitly
-    passed are present in after_image, mirroring a real event whose
-    JSONB payload only ever carries the columns that changed."""
+    passed are present in after_image. (The real RPC stores a FULL row
+    snapshot per event -- schema.sql's jsonb_build_object -- so this
+    sparse fixture is the stricter case for the resolver.) The
+    top-level ``week_ending`` column is the week the row belonged to
+    WHEN the event was observed (defaults to the row's own week)."""
     after_image: dict = {}
     if units_completed is not None:
         after_image["units_completed"] = units_completed
@@ -129,12 +144,24 @@ def _row_event(
         after_image["vac_completed"] = vac_completed
     if vac_crew_observed is not None:
         after_image["vac_crew_observed"] = vac_crew_observed
-    return {"row_id": row_id, "observed_at": observed_at, "after_image": after_image}
+    return {
+        "row_id": row_id,
+        "observed_at": observed_at,
+        "week_ending": _row_week(row_id, week_ending),
+        "after_image": after_image,
+    }
 
 
-def _row_state(row_id: int, row_modified_at: str, **fields) -> dict:
-    """One pipeline_memory.row_state row."""
-    row = {"row_id": row_id, "row_modified_at": row_modified_at}
+def _row_state(
+    row_id: int, row_modified_at: str, week_ending=_OWN_WEEK, **fields,
+) -> dict:
+    """One pipeline_memory.row_state row (``week_ending`` = the row's
+    CURRENT week; defaults to the row's own week)."""
+    row = {
+        "row_id": row_id,
+        "row_modified_at": row_modified_at,
+        "week_ending": _row_week(row_id, week_ending),
+    }
     row.update(fields)
     return row
 
@@ -277,9 +304,14 @@ class _FakeTable:
         # per call. Used by the batched-reads tests to assert the
         # script never issues one query per row_id.
         self.select_calls = 0
+        # Positional args of the most recent .select(...) -- the fake
+        # ignores projections, so tests that depend on a column being
+        # selected must pin it here.
+        self.last_select_args: tuple = ()
 
     def select(self, *a, **kw):
         self.select_calls += 1
+        self.last_select_args = a
         return _FakeQuery(self._rows).select(*a, **kw)
 
 
@@ -889,6 +921,115 @@ class SourcesOneTwoThreeTests(unittest.TestCase):
 
     # ── Source 2 ────────────────────────────────────────────────────
 
+    # ── Source 1: in-week guard (Greptile review on PR #387) ──────
+    # row_event / row_state each carry the week the row belonged to when
+    # observed. A row re-dated after a data correction keeps its old-week
+    # events under the SAME row_id, so source 1 must match the event's
+    # week to the target week (D-12-A: never infer across weeks) instead
+    # of taking the first qualifying event chronologically.
+
+    def test_source_1_ignores_row_event_from_another_week(self):
+        target_rid = _ROW_IDS["083125"]
+        other_week = _token_to_date("082425").isoformat()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("083125")],
+                row_event_rows=[
+                    # Earlier AND qualifying, but observed under week A.
+                    _row_event(
+                        target_rid, "2026-06-01T00:00:00+00:00",
+                        units_completed=True, foreman_observed="Week A Owner",
+                        week_ending=other_week,
+                    ),
+                    # Later, qualifying, observed under the target week.
+                    _row_event(
+                        target_rid, "2026-07-01T00:00:00+00:00",
+                        units_completed=True, foreman_observed="Week B Owner",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["proposed_value"], "Week B Owner")
+            self.assertEqual(row["source"], "live")
+            self.assertIn("observed_at=2026-07-01", row["evidence"])
+            summary = json.loads(
+                (Path(tmp_dir) / "own03_backfill_report.json").read_text(
+                    encoding="utf-8"
+                )
+            )["summary"]
+            self.assertEqual(summary["source_1_out_of_week_rows"], 1)
+
+    def test_source_1_stays_unresolved_with_only_other_week_evidence(self):
+        """Old-week evidence alone (event AND current row_state) must
+        not resolve the target week -- the row stays a sentinel."""
+        target_rid = _ROW_IDS["083125"]
+        other_week = _token_to_date("082425").isoformat()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("083125")],
+                row_event_rows=[
+                    _row_event(
+                        target_rid, "2026-06-01T00:00:00+00:00",
+                        units_completed=True, foreman_observed="Week A Owner",
+                        week_ending=other_week,
+                    ),
+                ],
+                row_state_rows=[
+                    _row_state(
+                        target_rid, "2026-06-02T00:00:00+00:00",
+                        week_ending=other_week,
+                        units_completed=True, foreman_observed="Week A Owner",
+                    ),
+                ],
+                sources="1",
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["status"], "unresolved")
+            self.assertFalse(row.get("proposed_value"))  # "" by convention
+
+    def test_source_1_ignores_row_state_from_another_week(self):
+        target_rid = _ROW_IDS["083125"]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("083125")],
+                row_state_rows=[
+                    _row_state(
+                        target_rid, "2026-07-02T00:00:00+00:00",
+                        week_ending=_token_to_date("091425").isoformat(),
+                        units_completed=True, foreman_observed="Week C Owner",
+                    ),
+                ],
+                sources="1",
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["status"], "unresolved")
+
+    def test_source_1_skips_event_whose_week_is_unknown(self):
+        """A NULL week_ending is not in-week evidence: never proposed."""
+        target_rid = _ROW_IDS["083125"]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("083125")],
+                row_event_rows=[
+                    _row_event(
+                        target_rid, "2026-07-01T00:00:00+00:00",
+                        units_completed=True, foreman_observed="Nobody Knows",
+                        week_ending=None,
+                    ),
+                ],
+                sources="1",
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["status"], "unresolved")
+
     def test_source_2_fills_from_same_row_other_role(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             rpc_row = _attribution_row("082425")
@@ -1236,6 +1377,13 @@ class BatchedReadsTests(unittest.TestCase):
         # Never one query per row: strictly fewer calls than targets
         # whenever more than one row_id shares a chunk.
         self.assertLess(row_event_table.select_calls, n)
+        # In-week guard follow-up (Opus review, HIGH): the guard depends
+        # on this projection and the fake ignores projections, so pin
+        # the column here -- a trimmed select would otherwise pass every
+        # test while production resolved nothing.
+        self.assertIn(
+            "week_ending", row_event_table.last_select_args[0].split(",")
+        )
 
 
 class SourceReadFailureTests(unittest.TestCase):

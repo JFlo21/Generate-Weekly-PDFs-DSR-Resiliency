@@ -4,7 +4,7 @@ _Last updated: 2026-09-03 01:25 CDT (06:25Z) · **overwrite-in-place each sessio
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
-_Latest ledger entries: `[2026-09-03 01:20]` (Phase 12 wave 1 — OWN-03 backfill tracer, review fix round, PR #387),
+_Latest ledger entries: `[2026-09-03 11:05]` (Greptile source-1 in-week guard fix on PR #387), `[2026-09-03 01:20]` (Phase 12 wave 1 — OWN-03 backfill tracer, review fix round, PR #387),
 `[2026-09-02 22:05]` (instruction-file alignment run 1 — what moved where),
 `[2026-09-02 21:20]` (memory-bank pages retired; pre-ledger April-2026 history imported),
 `[2026-09-02 20:45]` (align skill), `[2026-09-02 20:20]` (bootstrap audit), `[2026-09-02 18:15]`
@@ -43,6 +43,11 @@ _Latest ledger entries: `[2026-09-03 01:20]` (Phase 12 wave 1 — OWN-03 backfil
   findings; named-sentinel-only targeting is now the default with `--include-blank-roles` opt-in — **Juan to confirm
   that default before 12-06**. Deferred design items: `--from-report` approval binding, public `ROLE_BY_VARIANT`.
 - Also this session: local `master` reset to `origin/master` after PR #385; PR #386 (docs: record the #385 merge).
+- **2026-09-03 late morning — Greptile fix on PR #387:** source 1 never matched a `row_event`/`row_state` row's own
+  `week_ending` to the target week (cross-week owner leak, D-12-A violation missed by every prior gate). Fixed with
+  `_in_target_week()` + `week_ending` in the bulk select; NULL week = not in-week; 4 tests added, suite 1,998. Opus
+  production-risk review re-run on the fix (handoff constraint). Juan confirmed the named-sentinel-only targeting
+  default. PR #386 closed (commit rides in #387). Ledger `[2026-09-03 11:05]`.
 
 ## Previous work (2026-09-02 evening) — instruction-file alignment, run 1 — **merged: PR #385 squash `26b3c4f` (23:08 CDT)**
 
@@ -77,13 +82,14 @@ _Latest ledger entries: `[2026-09-03 01:20]` (Phase 12 wave 1 — OWN-03 backfil
 
 ## Next
 
-1. Owner: review/merge PR #387 (wave 1) and PR #386 (docs); confirm the named-sentinel-only targeting default;
+1. Owner: squash-merge PR #387 (wave 1; #386 closed, targeting default confirmed 2026-09-03);
    paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
    denies every ClaudeOS write to that file).
 2. After merge: `/clear` → `/gsd-execute-phase 12` resumes at wave 2 (12-02 CR-01/WR-01 — executor note: align
    WR-01 to discovery.py's lazy `Sheet`/`Folder` pattern, the plan's "same path" wording is wrong; 12-03 owner SQL;
    12-04 cell-history job — protected areas, pause for Juan), then 12-05 docs, 12-06 owner remediation.
-3. Owner-owned Phase 12 steps stay blocking checkpoints: confirm live `attribution_snapshot` column names, apply
+3. Owner-owned Phase 12 steps stay blocking checkpoints: read-only count of NULL/stale-week `row_event`/`row_state`
+   rows for the target row_ids before `--apply` (Opus MED, 2026-09-03); confirm live `attribution_snapshot` column names, apply
    `billing_audit/own03_backfill_attribution.sql`, approve the dry-run report, run `--apply`, enable the source-5
    cell-history cron, attachment replacement.
 

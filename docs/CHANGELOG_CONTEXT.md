@@ -324,3 +324,11 @@ real names with no grouping change (D-12-A/B). **Operator impact:** none on the 
 harness; GSD wave-post gates; haiku rubric 10/10; an independent Opus production-risk review drove one fix round
 (named-sentinel-only targeting default + `--include-blank-roles`, chunked reads, None-read → exit 7, `.order()`
 determinism, RPC count reconciliation). **Open:** Juan confirms the targeting default before 12-06; waves 2–4 pending.
+
+**Review fix (Greptile, same PR):** source 1 read every historical `row_event`/`row_state` for a `row_id` without
+matching the row's own `week_ending` to the target week, so a row re-dated after a data correction could have an
+earlier week's owner proposed (and, under `--apply`, written) for a later week — a D-12-A violation. The bulk query
+now selects `week_ending` and `_in_target_week()` gates both loops; a NULL week is never in-week evidence (row stays
+unresolved). Four cross-week tests added; full suite 1,998. Juan confirmed the named-sentinel-only targeting default
+(2026-09-03); PR #386 closed because its commit rides in #387. **Lesson:** per-row history sources need a same-row
+cross-week fixture in their contract tests — neither the rubric verifiers nor the Opus round exercised one.

@@ -119,12 +119,21 @@ _ROLE_TO_SNAPSHOT_COLUMN: dict[str, str] = {
 # role -> (completed-flag field, observed-name field) on a
 # pipeline_memory.row_event.after_image payload / pipeline_memory.row_state
 # row. Source 1 reads these; a row only "qualifies" when the completed
-# flag is truthy AND the observed name is present and non-sentinel.
+# flag is truthy AND the observed name is present and non-sentinel AND
+# the event's / state's own ``week_ending`` column equals the target
+# week (see _in_target_week -- D-12-A, never inferred across weeks).
 _ROLE_COMPLETION_FIELDS: dict[str, tuple[str, str]] = {
     "primary": ("units_completed", "foreman_observed"),
     "helper": ("helper_completed", "helper_observed"),
     "vac_crew": ("vac_completed", "vac_crew_observed"),
 }
+
+# Cache key under which resolve_source_1 tallies the row_event /
+# row_state rows it skipped because their own week_ending differed from
+# (or lacked) the target week. Surfaced in the report summary and the
+# run log so an all-unresolved run caused by a missing week column is
+# visible, never mistaken for "no evidence".
+_S1_OUT_OF_WEEK_KEY = "source_1_out_of_week_rows"
 
 # variant -> the filename token that immediately precedes the sanitized
 # claimer name segment, per pipeline/excel.py's variant-suffix
@@ -777,7 +786,7 @@ def _prefetch_row_events_and_states(
                 return (
                     client.schema("pipeline_memory")
                     .table("row_event")
-                    .select("row_id,observed_at,after_image")
+                    .select("row_id,observed_at,week_ending,after_image")
                     .in_("row_id", list(_ids))
                     .order("observed_at")
                     .execute()
@@ -865,16 +874,38 @@ def _fetch_row_states(row_id: int, cache: dict) -> list[dict[str, Any]]:
     return cache.get(("row_state_raw", row_id), [])
 
 
+def _in_target_week(row: dict[str, Any], week_iso: str) -> bool:
+    """True only when the row_event / row_state row's OWN ``week_ending``
+    column equals the target week (ISO ``YYYY-MM-DD``).
+
+    Both tables record the week the Smartsheet row belonged to at
+    observation time, so a row re-dated after a data correction keeps
+    its old-week events under the same ``row_id``. Without this guard
+    the first qualifying event chronologically -- possibly an earlier
+    week's owner -- would be written for the target week (Greptile
+    review on PR #387). A ``NULL`` / missing week is NOT in-week
+    evidence (D-12-A): such rows never resolve a target.
+    """
+    value = row.get("week_ending")
+    return value is not None and str(value)[:10] == week_iso
+
+
 def resolve_source_1(
     target: SentinelTarget, cache: dict
 ) -> "_Candidate | _Conflict | None":
     """Source 1 (tag ``live``): pipeline_memory.row_event / row_state
-    per-row observation. See module docstring for precedence."""
+    per-row observation, restricted to rows whose own ``week_ending``
+    equals ``target.week_ending``. See module docstring for precedence.
+    """
     from billing_audit.writer import is_sentinel_claimer
 
     completed_field, observed_field = _ROLE_COMPLETION_FIELDS[target.role]
+    week_iso = str(target.week_ending)[:10]
 
     for row in _fetch_row_events(target.row_id, cache):
+        if not _in_target_week(row, week_iso):
+            cache[_S1_OUT_OF_WEEK_KEY] = cache.get(_S1_OUT_OF_WEEK_KEY, 0) + 1
+            continue
         after = row.get("after_image") or {}
         if not after.get(completed_field):
             continue
@@ -888,6 +919,9 @@ def resolve_source_1(
         )
 
     for row in _fetch_row_states(target.row_id, cache):
+        if not _in_target_week(row, week_iso):
+            cache[_S1_OUT_OF_WEEK_KEY] = cache.get(_S1_OUT_OF_WEEK_KEY, 0) + 1
+            continue
         if not row.get(completed_field):
             continue
         observed = row.get(observed_field)
@@ -1614,14 +1648,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 7
 
+    out_of_week = cache.get(_S1_OUT_OF_WEEK_KEY, 0)
     json_path, csv_path = _write_reports(
         args.report_dir, report_rows, run_id,
-        extra_summary={"include_blank_roles": args.include_blank_roles},
+        extra_summary={
+            "include_blank_roles": args.include_blank_roles,
+            _S1_OUT_OF_WEEK_KEY: out_of_week,
+        },
     )
 
     logging.info(f"✅ Dry-run report written: {json_path}")
     logging.info(f"                            {csv_path}")
     logging.info(f"   Sentinel rows considered: {len(report_rows)}")
+    logging.info(f"   Source-1 rows skipped as out-of-week: {out_of_week}")
 
     if not args.apply:
         return 0
@@ -1672,6 +1711,7 @@ def main(argv: list[str] | None = None) -> int:
         csv_columns=_REPORT_COLUMNS + ("rpc_result",),
         extra_summary={
             "include_blank_roles": args.include_blank_roles,
+            _S1_OUT_OF_WEEK_KEY: out_of_week,
             "apply": tallies,
         },
     )

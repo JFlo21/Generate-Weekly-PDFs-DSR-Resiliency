@@ -279,3 +279,32 @@ Tests added/updated in `tests/test_backfill_claim_time_attribution.py`:
 `_Helper_` source-3 tests were updated to use `--include-blank-roles` / a named
 sentinel so they still exercise the intended behavior under the new default
 targeting rule. Full suite: 1994 passed, 1 skipped, 365 subtests passed.
+
+### Greptile review fix (PR #387) — source-1 in-week guard
+
+Greptile's review of PR #387 found that source 1 never compared a
+`row_event` / `row_state` row's own `week_ending` to `target.week_ending`:
+the bulk query selected `row_id,observed_at,after_image` only and
+`resolve_source_1` returned the first qualifying event chronologically, so a
+row re-dated after a data correction could have an EARLIER week's owner
+written for a later target week — a D-12-A violation that the GSD gates and
+the Opus round both missed. Fix: the query now also selects `week_ending`;
+`_in_target_week()` requires the row's own week to equal the target week in
+both loops; a NULL/missing week is never in-week evidence (the row stays
+unresolved — the safe direction). Fixture helpers `_row_event` / `_row_state`
+now carry a `week_ending` column defaulting to the row's own week. Four tests
+added in `SourcesOneTwoThreeTests`: `test_source_1_ignores_row_event_from_
+another_week`, `..._ignores_row_state_from_another_week`,
+`..._stays_unresolved_with_only_other_week_evidence`,
+`..._skips_event_whose_week_is_unknown`. Full suite: 1998 passed.
+
+The mandatory Opus production-risk review of the fix returned SHIP with one
+HIGH follow-up, closed in the same round: the fake client ignores column
+projections, so the batching test now pins `week_ending` in the row_event
+select (`_FakeTable.last_select_args`), and the resolver tallies skipped
+out-of-week rows into `summary.source_1_out_of_week_rows` plus one INFO log
+line, so an all-unresolved run caused by a missing week column is visible.
+Opus MEDIUM carried to 12-06: `week_ending` is nullable on both tables and
+`row_state.week_ending` refreshes only when `content_hash` changes, so before
+`--apply` is unblocked run a read-only count of NULL / stale-week
+`row_event` / `row_state` rows for the target `row_id`s and record it.
