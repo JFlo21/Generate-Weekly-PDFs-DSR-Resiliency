@@ -1,7 +1,7 @@
 ---
 id: vercel-deployment
 title: Vercel deployment
-sidebar_position: 8
+sidebar_position: 9
 ---
 
 # Vercel deployment

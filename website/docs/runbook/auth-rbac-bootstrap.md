@@ -1,7 +1,7 @@
 ---
 id: auth-rbac-bootstrap
 title: Auth & RBAC bootstrap
-sidebar_position: 7
+sidebar_position: 8
 ---
 
 # Auth & RBAC bootstrap
