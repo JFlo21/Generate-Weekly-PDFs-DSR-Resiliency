@@ -342,8 +342,15 @@ sanitized error spelling such as `_DATE_EXPECTED` would have counted as a real-n
 `Unknown_Foreman` attachment); fix `98b5ea3` adds `_is_real_name_identifier` so leading-underscore tokens are neutral on both
 sides, hardens the predicate against non-str/whitespace tokens, and logs once when the SDK import falls back. 12-03 authored the
 owner-deployed backfill SQL + contract test and halted at its blocking-human decision; its review round (PII out of the RAISE,
-full-whitespace `btrim`, `#variable_conflict use_column`, payload-key pins) is in flight. 12-04 (source-5 cell history) still
-executing. **Operator impact:** none yet — nothing merged to master; the SQL is never applied by automation.
-**Verified:** 12-02 suite 2011 passed after the fix round. **Open:** wave merge + post-merge gate; Juan's decisions at the 12-03
-and 12-04 checkpoints; Opus MEDIUM carried to 12-06 (backup-table probe is same-UTC-day only; RPC runs SECURITY INVOKER with no
-UPDATE grant in the file — verify grants before applying).
+full-whitespace `btrim`, `#variable_conflict use_column`, payload-key pins) landed on its branch. 12-04 authored
+`scripts/backfill_cell_history_attribution.py` (source 5: `Cells.get_cell_history`, 0.5 s pacing, caps 3,000 req / 1,200 rows /
+45 min, week window `week_ending - 6 days`, falsy→truthy transitions only, conflict on differing names, read failure = `error`
++ exit 7) and its 79-test suite, halted at its Task 3 decision; the Opus round fixed four HIGH + four MEDIUM (`101489d`). The
+workflow YAML is NOT written until Juan decides. **Wave 2 merged to `feat/phase-12-wave-2`** through the manifest-scoped
+`worktree.cleanup-wave` (13 files, +3,712/-21). **Operator impact:** none yet — nothing on master; the SQL is never applied by
+automation and the cell-history script never passes `--apply`.
+**Verified:** post-merge py_compile + full suite 2056 passed / 1 skipped / 386 subtests; schema-drift, codebase-drift and UI
+gates clear. **Open:** Juan's decisions at the 12-03 (DDL apply) and 12-04 (workflow) checkpoints; carried to 12-06: backup-table
+probe is same-UTC-day only, RPC runs SECURITY INVOKER with only EXECUTE granted in the file (verify UPDATE on
+`attribution_snapshot` for the applying role), STEP 0 column check does not fail closed, NULL/stale-week `row_event` count
+before `--apply`, confirm the `backfill_cell_history` provenance tag.

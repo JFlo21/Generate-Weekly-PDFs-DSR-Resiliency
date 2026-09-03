@@ -50,8 +50,13 @@ _Latest ledger entries: `[2026-09-03 11:05]` (Greptile source-1 in-week guard fi
   superseded delete gate via `_is_real_name_identifier`; non-str/whitespace hardening; one-time WARNING on the
   `AttachmentParentType` fallback; suite 2011); 12-03 halted at its Task 3 blocking-human decision (SQL + contract test
   authored; Opus FIX-FIRST round delegated to a Sonnet worker: PII out of the RAISE, full-whitespace btrim, `#variable_conflict`,
-  contract test pins payload keys to `_build_apply_payload`); 12-04 still executing. Not yet merged; wave manifest in the
-  session scratchpad. Next: merge via `worktree.cleanup-wave`, post-merge gate, present the 12-03/12-04 checkpoints to Juan.
+  contract test pins payload keys to `_build_apply_payload`); 12-04 authored the source-5 cell-history job + 79-test suite,
+  halted at its Task 3 decision, then an Opus FIX-FIRST round (`101489d`: week window `week_ending - 6d`, conflict on
+  differing names, `display_value` first, read failure = `error` + exit 7, `_CapReached` defers). **WAVE 2 MERGED**
+  (`b00df03`/`683edb3`/`b037c3a`, 13 files, +3,712/-21) — post-merge gate: py_compile OK, suite **2056 passed / 1 skipped /
+  386 subtests**; schema-drift / codebase-drift / ui gates clear; 12-02 marked complete in ROADMAP. **Waiting on Juan:**
+  12-03 Task 3 (`approve` / `approve-with-correction` / `hold` the one-way Supabase DDL) and 12-04 Task 3 (`approve-cron` /
+  `approve-dispatch-only` / `hold` the cell-history workflow). Nothing pushed yet; no PR yet.
 - **2026-09-03 late morning — Greptile fix on PR #387 (`988680a`):** source 1 never matched a `row_event`/`row_state` row's own
   `week_ending` to the target week (cross-week owner leak, D-12-A violation missed by every prior gate). Fixed with
   `_in_target_week()` + `week_ending` in the bulk select; NULL week = not in-week; 4 tests added, suite 1,998. Opus
