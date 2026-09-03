@@ -354,3 +354,25 @@ gates clear. **Open:** Juan's decisions at the 12-03 (DDL apply) and 12-04 (work
 probe is same-UTC-day only, RPC runs SECURITY INVOKER with only EXECUTE granted in the file (verify UPDATE on
 `attribution_snapshot` for the applying role), STEP 0 column check does not fail closed, NULL/stale-week `row_event` count
 before `--apply`, confirm the `backfill_cell_history` provenance tag.
+
+## 2026-09-03 — Phase 12 waves 2–3 complete, phase gates run, PR #388 open
+**What:** wave 2 merged through the manifest-scoped `worktree.cleanup-wave` (12-02 cleanup narrowing + lazy import;
+12-03 owner SQL + contract tests; 12-04 source-5 cell-history job + tests), then the two blocking-human decisions:
+Juan `approve`d the one-way DDL (12-03 Task 3) and chose `approve-cron` (12-04 Task 3); the workflow was authored,
+Opus-reviewed (FIX-FIRST → M2/M3/L6 fixed), and then **re-decided to dispatch-only** when the review showed the
+backfill step can never reach a candidate list on a fresh runner (the sources-1-4 CLI requires `--wr` + `--weeks` by
+design). Wave 3 (12-05) shipped the runbook page, four rewritten pages, 20 docs tests and the ledger entry. Phase
+gates: Opus whole-branch integration review SHIP (2 MEDIUM fixed in the SQL: UNION dedup + STEP 0b duplicate-key
+probe, STEP 2 VERIFY of the live CHECK), `/gsd-code-review 12` 0 critical / 3 warnings (WR-01 false-zero backlog on
+a corrupt report and WR-02 silent filter ignore fixed), gsd-verifier human_needed 49/62 · 0 failed. Juan's live
+STEP 1 42P01 (placeholder left in the GRANT) fixed in the file with a STEP 1 VERIFY query.
+**Why:** OWN-03 needs the SQL objects, the source-5 resolver and the docs in place before the owner-run remediation
+(12-06) can start; every write path stays behind a human.
+**Operator impact:** none on the scheduled run (12-02 is strictly narrowing: decline-to-delete on every branch). New
+manual-only workflow `cell-history-backfill.yml` (dispatch, never `--apply`). New runbook page
+`website/docs/runbook/ownership-attribution.md`. The SQL is applied by hand once per environment.
+**Verified:** full suite 2,093 passed / 1 skipped / 405 subtests; py_compile; Docusaurus typecheck + build; haiku
+rubric PASS on each fix round. **Open:** PR #388 merge; 12-03 Task 4 answers; 12-06; a candidate source before any
+cron; carried: NULL/stale-week `row_event` count, RPC UPDATE grant for the applying role, source-5 blank-role tally
+naming (LOW-1). **Lesson:** parallel worktree plans need one integration review after the merge — the seams were
+clean, but the workflow/CLI candidate-source mismatch was only visible with both plans in one tree.

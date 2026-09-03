@@ -240,6 +240,12 @@ $$;
 
 
 -- ── STEP 4 -- THE RPC ─────────────────────────────────────────
+-- HOW TO RUN (seen live 2026-09-03, 42601 "unterminated dollar-quoted
+-- string at or near AS $$"): the Supabase SQL editor's run-statement-
+-- under-cursor splits inside a dollar-quoted body. Select the WHOLE
+-- block from the DROP FUNCTION line through the closing `$$;` of the
+-- CREATE FUNCTION and run that selection (or paste only that block
+-- into a fresh query tab and run all). Same for STEP 3.
 -- The DROP-first form is mandatory: see the lookup_attribution
 -- incident note at billing_audit/schema.sql:246-256 -- Postgres
 -- CREATE OR REPLACE FUNCTION cannot change a function's RETURNS TABLE
