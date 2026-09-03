@@ -9142,3 +9142,81 @@ only); (4) caps CLAUDE.md ≤ 150 / project-state ≤ 120. Next: run the repair 
 - Rule: any per-row history source (row_event, row_state, cell history in 12-04) must (a) select the row's week
   column and compare it to the target, and (b) ship a same-row, cross-week fixture in its contract tests. Reviewer
   diversity matters — keep external bot reviews (Greptile/Copilot) on attribution-writer PRs alongside the Opus gate.
+
+## [2026-09-03 13:55] Phase 12 waves 1–3 (OWN-01/02/03/04): ownership ladder as shipped — D-12-A, D-12-B, amended Foundation A, CR-01, WR-01, source-5 isolation, the two-scripts trap
+
+Runbook: `website/docs/runbook/ownership-attribution.md` (plan 12-05) is the operator-facing account and is
+current wherever `REQUIREMENTS.md` OWN-01 or the 2026-09-01 spec disagree. Gate: `tests/test_own04_documentation.py`.
+
+- **D-12-A — no `wr_week_ownership` table, no cross-week rung.** Phase 12 ships no ownership table; OWN-01's
+  ladder is served by `billing_audit.attribution_snapshot` + `billing_audit.writer.resolve_claimer` + the two
+  provenance columns `backfill_source` / `backfill_run_id` added by `billing_audit/own03_backfill_attribution.sql`
+  (12-03; apply authorized 2026-09-03, live schema not yet confirmed). The table is deferred to Phase 13. There is
+  no "last known before the week" step (owner, `[2026-09-01 19:55]`): a week with no in-week evidence keeps its
+  sentinel. `REQUIREMENTS.md` OWN-01's `wr_week_ownership` and cross-week wording predates both decisions and is
+  stale — this entry supersedes it; do not re-open the question from that text. Every source in
+  `scripts/backfill_claim_time_attribution.py` filters on the row's OWN `week_ending` (source 1 selects the week
+  column and counts out-of-week rows in `summary.source_1_out_of_week_rows`, Greptile fix `[2026-09-03 11:05]`).
+- **D-12-B — source 4 reads the Supabase hash store.** `backfill_hash_history` reads
+  `billing_audit.group_content_hash` and `pipeline_memory.group_state` identifier tokens, not the retired
+  `hash_history.json`; there is no flag to point it at a file. Group-level single-name rule (shared with source 3
+  `backfill_artifacts`): two distinct real names for the same week and role → `conflict`, empty `proposed_value`,
+  the row is left for source 5. Tie-break among entries for the same winning name: prefer `updated_at` before the
+  2026-08-24 defect cutoff, then the earliest. Weeks never seen by a run since 2026-05-25 are outside source 4 and
+  fall through to sources 3 and 5.
+- **Amended Foundation A contract.** First-write-wins still protects a real name — nothing in the repo replaces
+  a frozen real name. A frozen SENTINEL is now read as no-claimer and may be replaced by a provenance-tagged
+  backfilled value. Enforced at three points that must agree: `billing_audit.writer.is_sentinel_claimer`
+  (Python; also filters the `--apply` payload), its SQL twin `billing_audit.is_sentinel_value` (trims all
+  whitespace, not only spaces — Opus fix), and the `is_sentinel_value` `WHERE` inside each per-role `UPDATE` of
+  `billing_audit.backfill_attribution(p_rows jsonb)` (three static statements, no dynamic SQL; per-row result
+  `updated | skipped_real_name | skipped_no_row`; PII-free RAISE; SECURITY INVOKER, EXECUTE to `service_role`
+  only, so the applying role also needs UPDATE on `attribution_snapshot`). `backfill_source` vocabulary is FIVE
+  tags: `live`, `backfill_artifacts`, `backfill_hash_history`, `backfill_cell_history`, `operator` —
+  `backfill_cell_history` was added for source 5 (a machine inference is not an operator entry); `operator` is
+  reserved and nothing writes it yet. Default targeting is named-sentinel only (`--include-blank-roles` opts in);
+  `--wr` and `--weeks` are both required (exit 8) because no source may enumerate targets with a raw
+  `attribution_snapshot` scan; `--apply` needs `--i-approved-this` (exit 4) and a readable same-UTC-day
+  `attribution_snapshot_backup_<YYYYMMDD>` (exit 3, connectivity blip → 7). Rollback = restore from that table.
+- **CR-01 rule — a sentinel classifier fails safe toward "real name, decline to delete".** A sanitized
+  identifier is lossy: `pipeline/excel.py` never strips the raw claimer before sanitizing, so a real name with a
+  leading space, apostrophe or parenthesis arrives as `_O_Brien` / `_Contractor__Smith` — indistinguishable from
+  `_REF_` / `_NO_MATCH` by `startswith('_')`. Fix (12-02): `pipeline/cleanup.py` `_is_sentinel_identifier`
+  classifies a leading underscore only against the explicit `_SANITIZED_ERROR_IDENTIFIERS` allowlist
+  (normalized exactly like `is_sentinel_claimer`), and `_is_real_name_identifier` keeps any unlisted
+  leading-underscore token neutral on BOTH sides of the sentinel-superseded attachment gate — never a deletion
+  victim, never the replacement that triggers one (Opus HIGH). Blast radius of the old rule: the gate could
+  delete a real person's billing attachment. The gate itself is unchanged.
+- **WR-01 rule — a deep third-party module path used by exactly one helper lives inside that helper, guarded.**
+  `AttachmentParentType` (`smartsheet.models.enums...`) moved from `pipeline/orchestrate.py`'s module top into
+  `_is_row_attachment`, `try`/`except`, degrading to the string comparison `'ROW'` with one WARNING per process;
+  an SDK relocation now degrades one function instead of breaking the production entry module's import.
+  Pattern source: `pipeline/discovery.py`'s guarded `Sheet` / `Folder` imports (not an `AttachmentParentType`
+  import there — correction in `[2026-09-02 22:05]`). Regression suite: `tests/test_lazy_smartsheet_imports.py`.
+- **Source 5 isolation.** `scripts/backfill_cell_history_attribution.py` (Smartsheet cell history; checkbox
+  history first, name column only if it was ever checked; falsy→truthy transitions on/after
+  `week_ending - 6 days`; `display_value`; differing in-window names → `conflict`; read failure → row `error` +
+  exit 7; cap trip defers the rest, exit 0) runs ONLY from `.github/workflows/cell-history-backfill.yml`, never
+  inside `generate_weekly_pdfs.py`, because both share one Smartsheet token and one 300 req/min ceiling: own
+  concurrency group `cell-history-backfill-<ref>` (queue mode), `permissions: contents: read`,
+  `timeout-minutes: 60` above the 45-minute script cap, job env `CELL_HISTORY_BACKFILL_MAX_REQUESTS=3000` /
+  `_MAX_ROWS=1200` / `_PACE_SEC=0.5` (120 req/min, 40% of the budget; raised from 0.25 in review) /
+  `_MAX_MINUTES=45`, a `--check-backlog` gate step (Supabase only, zero Smartsheet calls; broken backend → exit 7,
+  never "empty"), never `--apply`, `dry_run=false` rejected with an error, report as a 30-day artifact. Shipped
+  shape is `workflow_dispatch` ONLY: the Sunday 05:00 UTC cron was approved then re-decided to dispatch-only
+  (owner, 2026-09-03, Opus H1) because the backfill step takes candidates only from
+  `generated_docs/own03_backfill_report.json`, which a fresh runner never has — an unattended run would be a
+  permanently green no-op on the production token. The schedule returns in 12-06 together with a candidate
+  source. Structural guard: `tests/test_backfill_cell_history_attribution.py` fails if any production module
+  calls `get_cell_history` for this feature or reads a `CELL_HISTORY_BACKFILL_*` variable, and grades the
+  workflow file (no `--apply` in any `run:`, no `${{` in `run:`, timeout gap, group name, cap values).
+  Production caveat: source 5 resolves sheet/column ids from `pipeline_memory.row_state` / `sheet_registry`, empty
+  until `RUN_MEMORY_WRITE_ENABLED` is on and one full run has populated them — every candidate is `unresolved`
+  until then.
+- **The two-scripts trap.** `scripts/backfill_attribution_snapshot.py` freezes whatever Smartsheet shows TODAY
+  for a target week ("current always wins", rejected `[2026-09-01 19:45]`); `scripts/backfill_claim_time_attribution.py`
+  derives the claim-time claimer and never reads current row state. Never run the former against a remediated
+  WR — it freezes the current name into any role still NULL, the role the ladder may still be naming.
+- Not done in Phase 12 (carried to 12-06 / owner): 12-03 Task 4 live apply + seven-answer confirmation; the
+  NULL / stale-week `row_event` / `row_state` count before `--apply`; a candidate source for the dispatch job;
+  a public `ROLE_BY_VARIANT` export; `--from-report` approval binding; an operator override for a wrong real name.
