@@ -1,6 +1,6 @@
 # Project Guidelines
 
-<!-- Generated from CLAUDE.md @ 24206db on 2026-09-02 by the align-instruction-files skill. Do not hand-edit;
+<!-- Generated from CLAUDE.md @ deac60e on 2026-09-02 by the align-instruction-files skill. Do not hand-edit;
      regenerate from CLAUDE.md when it changes. -->
 
 ## Overview
