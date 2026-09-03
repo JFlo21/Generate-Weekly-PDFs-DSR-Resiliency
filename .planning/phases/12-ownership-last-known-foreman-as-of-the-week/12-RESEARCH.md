@@ -31,7 +31,7 @@ There is no `CONTEXT.md`. The binding decisions live in two artifacts named in t
 ### Claude's Discretion
 
 - Exact shape of `scripts/backfill_claim_time_attribution.py` (the spec gives CLI flags and a report schema in §5 but not an implementation).
-- Whether `wr_week_ownership` becomes a real new table or whether OWN-01 is satisfied by the existing `attribution_snapshot` + `resolve_claimer` read path plus the new `backfill_source`/`backfill_run_id` provenance columns — **see Open Questions, this is NOT a settled decision** and neither the ledger nor the design spec commits to building the table from the 2026-08-24 draft schema.
+- Whether `wr_week_ownership` becomes a real new table or whether OWN-01 is satisfied by the existing `attribution_snapshot` + `resolve_claimer` read path plus the new `backfill_source`/`backfill_run_id` provenance columns — **SETTLED 2026-09-02 by owner decision D-12-A (see Open Questions (RESOLVED) #1): no table in Phase 12 — extend `attribution_snapshot` only; `wr_week_ownership` deferred to Phase 13.**
 - Off-hours workflow YAML shape for source 5 (model after `weekly-excel-generation.yml`'s cron/dispatch pattern, per `.github/instructions/github-actions-ci-cd-best-practices.instructions.md`).
 
 ### Deferred Ideas (OUT OF SCOPE)
