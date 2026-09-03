@@ -260,9 +260,13 @@ ALTER TABLE billing_audit.group_content_hash
 -- can rewrite billing attribution and must never be reachable from a
 -- browser-facing client.
 --
--- ``billing_audit.attribution_snapshot`` additionally gains two
--- columns this RPC writes, ``backfill_source`` and
--- ``backfill_run_id`` — their DDL is likewise owner-applied via
+-- ``billing_audit.attribution_snapshot`` additionally gains three
+-- columns this RPC writes: ``backfill_source`` and ``backfill_run_id``
+-- (row-level — the MOST RECENT backfill write to the row) and
+-- ``backfill_provenance`` JSONB, a per-role map
+-- ``{"<role>": {"source": ..., "run_id": ...}}`` merged on every write
+-- so a row whose roles were filled by different sources or runs keeps
+-- each role's provenance — their DDL is likewise owner-applied via
 -- ``billing_audit/own03_backfill_attribution.sql``, not asserted here
 -- as part of this opaque table's DDL. ``backfill_source`` is
 -- constrained to ``live``, ``backfill_artifacts``,

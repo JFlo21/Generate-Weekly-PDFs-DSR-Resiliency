@@ -132,9 +132,12 @@ jobs:
             args+=(--wr "${WR_FILTER_INPUT}")
           fi
           if [ -n "${MAX_REQUESTS_INPUT}" ]; then
+            # Reject non-digits, a bare 0, and any leading-zero form:
+            # a zero cap defers every candidate behind a green run
+            # (Greptile, PR #388 issue 3). The script exits 4 on 0 too.
             case "${MAX_REQUESTS_INPUT}" in
-              *[!0-9]*)
-                echo "::error::max_requests must be a positive integer"
+              *[!0-9]*|0|0[0-9]*)
+                echo "::error::max_requests must be a positive integer with no leading zeros (got '${MAX_REQUESTS_INPUT}')"
                 exit 1
                 ;;
             esac

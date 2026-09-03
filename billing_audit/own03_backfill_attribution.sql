@@ -121,15 +121,30 @@ ORDER BY c.relname DESC;
 
 
 -- ── STEP 2 -- PROVENANCE COLUMNS ─────────────────────────────
--- Two nullable provenance columns, added the same backfill-safe way
+-- Three nullable provenance columns, added the same backfill-safe way
 -- billing_audit.group_content_hash's content_hash/updated_at columns
 -- were added (billing_audit/schema.sql:158-171): ADD COLUMN IF NOT
 -- EXISTS so this step is safe to re-run against an already-migrated
 -- table.
+--
+-- backfill_source / backfill_run_id are ROW-level: they describe the
+-- MOST RECENT backfill write to the row. Because the RPC in STEP 4
+-- updates one ROLE column per payload row, a row whose primary and
+-- helper were filled by different sources (or different runs -- e.g.
+-- sources 1-4 today, source 5 next week) would otherwise lose the
+-- earlier role's provenance (Greptile, PR #388 issue 1). So every
+-- write ALSO merges a per-role entry into backfill_provenance:
+--   {"primary":  {"source": "backfill_artifacts",     "run_id": "..."},
+--    "helper":   {"source": "backfill_cell_history",  "run_id": "..."}}
+-- Re-apply note: an environment that ran STEP 2 before this column
+-- existed must re-run STEP 2 (IF NOT EXISTS makes it a no-op for the
+-- first two columns) and then STEP 4, and STEP 0 must list all three.
 ALTER TABLE billing_audit.attribution_snapshot
     ADD COLUMN IF NOT EXISTS backfill_source TEXT;
 ALTER TABLE billing_audit.attribution_snapshot
     ADD COLUMN IF NOT EXISTS backfill_run_id TEXT;
+ALTER TABLE billing_audit.attribution_snapshot
+    ADD COLUMN IF NOT EXISTS backfill_provenance JSONB;
 
 -- Named CHECK constraint, added only if it does not already exist so
 -- re-running STEP 2 is safe. Restricts backfill_source to NULL (a row
@@ -334,7 +349,9 @@ BEGIN
         UPDATE billing_audit.attribution_snapshot AS s
         SET frozen_primary   = q.value,
             backfill_source  = q.backfill_source,
-            backfill_run_id  = q.backfill_run_id
+            backfill_run_id  = q.backfill_run_id,
+            backfill_provenance = COALESCE(s.backfill_provenance, '{}'::jsonb)
+                || pg_catalog.jsonb_build_object('primary', pg_catalog.jsonb_build_object('source', q.backfill_source, 'run_id', q.backfill_run_id))
         FROM pg_catalog.jsonb_to_recordset(p_rows) AS q(
             wr TEXT, week_ending DATE, smartsheet_row_id BIGINT, role TEXT,
             value TEXT, backfill_source TEXT, backfill_run_id TEXT
@@ -350,7 +367,9 @@ BEGIN
         UPDATE billing_audit.attribution_snapshot AS s
         SET frozen_helper    = q.value,
             backfill_source  = q.backfill_source,
-            backfill_run_id  = q.backfill_run_id
+            backfill_run_id  = q.backfill_run_id,
+            backfill_provenance = COALESCE(s.backfill_provenance, '{}'::jsonb)
+                || pg_catalog.jsonb_build_object('helper', pg_catalog.jsonb_build_object('source', q.backfill_source, 'run_id', q.backfill_run_id))
         FROM pg_catalog.jsonb_to_recordset(p_rows) AS q(
             wr TEXT, week_ending DATE, smartsheet_row_id BIGINT, role TEXT,
             value TEXT, backfill_source TEXT, backfill_run_id TEXT
@@ -366,7 +385,9 @@ BEGIN
         UPDATE billing_audit.attribution_snapshot AS s
         SET frozen_vac_crew  = q.value,
             backfill_source  = q.backfill_source,
-            backfill_run_id  = q.backfill_run_id
+            backfill_run_id  = q.backfill_run_id,
+            backfill_provenance = COALESCE(s.backfill_provenance, '{}'::jsonb)
+                || pg_catalog.jsonb_build_object('vac_crew', pg_catalog.jsonb_build_object('source', q.backfill_source, 'run_id', q.backfill_run_id))
         FROM pg_catalog.jsonb_to_recordset(p_rows) AS q(
             wr TEXT, week_ending DATE, smartsheet_row_id BIGINT, role TEXT,
             value TEXT, backfill_source TEXT, backfill_run_id TEXT

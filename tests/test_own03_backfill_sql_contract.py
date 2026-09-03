@@ -85,6 +85,29 @@ class RequiredContentTests(unittest.TestCase):
             self.body,
         )
 
+    def test_per_role_provenance_column_and_merge(self):
+        """Greptile (PR #388, issue 1): the row-level provenance pair is
+        overwritten by each role update, so per-role provenance lives
+        in a JSONB map merged on every write."""
+        self.assertIn(
+            "ADD COLUMN IF NOT EXISTS backfill_provenance JSONB",
+            self.body,
+        )
+        for role in ("primary", "helper", "vac_crew"):
+            with self.subTest(role=role):
+                self.assertIn(
+                    f"pg_catalog.jsonb_build_object('{role}', "
+                    "pg_catalog.jsonb_build_object('source', "
+                    "q.backfill_source, 'run_id', q.backfill_run_id))",
+                    self.body,
+                )
+        self.assertEqual(
+            self.body.count(
+                "COALESCE(s.backfill_provenance, '{}'::jsonb)"
+            ),
+            3,
+        )
+
     def test_typed_column_list_has_all_seven_names(self):
         for column in (
             "wr",

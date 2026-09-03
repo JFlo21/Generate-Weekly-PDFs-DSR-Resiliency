@@ -91,8 +91,10 @@ still describes the dropped rung; this page is current.
 The second half of D-12-A: Phase 12 ships **no** `wr_week_ownership` table —
 that table is deferred to Phase 13. The ladder above is served entirely by
 `billing_audit.attribution_snapshot` (one row per WR, week, Smartsheet row),
-`resolve_claimer`, and two provenance columns added in Phase 12:
-`backfill_source` and `backfill_run_id`. Anything you read elsewhere that
+`resolve_claimer`, and three provenance columns added in Phase 12:
+`backfill_source` and `backfill_run_id` (the most recent backfill write to the
+row) plus `backfill_provenance`, a per-role JSON map that keeps each role's own
+source and run id when roles are filled by different sources. Anything you read elsewhere that
 describes a shipped `wr_week_ownership` table is stale until Phase 13 builds it.
 :::
 

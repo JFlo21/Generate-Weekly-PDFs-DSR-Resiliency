@@ -265,3 +265,13 @@ The comment now says so, and a **STEP 1 VERIFY** query lists the existing backup
   (must include UPDATE — the RPC is SECURITY INVOKER).
 
 12-06 Task 1 re-runs the read-only checks above and records the numbers before any apply decision.
+
+## Greptile review fix (PR #388, issue 1) — per-role provenance
+
+Valid: the RPC updates one ROLE column per payload row but wrote the ROW-level `backfill_source` /
+`backfill_run_id`, so a row whose primary and helper were filled by different sources (or runs — sources 1-4
+today, source 5 later, which is exactly Phase 12's shape) lost the earlier role's provenance. Fix: STEP 2 adds
+`backfill_provenance JSONB`; every role UPDATE merges `{"<role>": {"source", "run_id"}}` into it while the
+two row-level columns keep meaning "most recent backfill write". Contract test pins the column and the three
+merges; `schema.sql` and the runbook describe the three columns. **Owner re-apply required (idempotent):**
+STEP 2 (adds the third column), STEP 4 (DROP + CREATE), then STEP 0 must list `backfill_provenance`.

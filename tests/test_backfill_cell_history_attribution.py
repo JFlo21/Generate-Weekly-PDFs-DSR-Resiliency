@@ -334,6 +334,56 @@ class CheckBacklogTests(unittest.TestCase):
                 any("ignored for this count" in m for m in captured.output)
             )
 
+    def test_inherit_blank_role_targeting_from_report_summary(self):
+        """Greptile (PR #388, issue 2)."""
+        from scripts import backfill_cell_history_attribution as cha
+
+        with self.assertLogs(level="INFO") as captured:
+            self.assertTrue(
+                cha._inherit_blank_role_targeting(
+                    {"include_blank_roles": True}
+                )
+            )
+        self.assertTrue(
+            any("blank roles INCLUDED" in m for m in captured.output)
+        )
+        self.assertFalse(cha._inherit_blank_role_targeting({}))
+        self.assertFalse(
+            cha._inherit_blank_role_targeting(
+                {"include_blank_roles": False}
+            )
+        )
+
+    def test_apply_call_passes_inherited_targeting(self):
+        source = (_REPO_ROOT / _SCRIPT_RELPATH).read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "include_blank_roles=_inherit_blank_role_targeting(", source
+        )
+
+    def test_zero_max_requests_exits_4_before_any_call(self):
+        """Greptile (PR #388, issue 3)."""
+        import tempfile
+        from scripts import backfill_cell_history_attribution as cha
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_path = Path(tmp_dir) / "own03_backfill_report.json"
+            _write_candidate_report(
+                report_path, [_report_row(row_id=1, status="unresolved")]
+            )
+            fake_ctor = _RaisingSmartsheetConstructor()
+            with mock.patch("smartsheet.Smartsheet", fake_ctor):
+                with mock.patch("sys.stdout"):
+                    exit_code = cha.main(
+                        [
+                            "--max-requests", "0",
+                            "--report", str(report_path),
+                            "--report-dir", tmp_dir,
+                        ]
+                    )
+            self.assertEqual(exit_code, 4)
+
     def test_report_absent_falls_back_to_bounded_supabase_scan(self):
         import tempfile
         from scripts import backfill_cell_history_attribution as cha
@@ -1109,6 +1159,11 @@ class CellHistoryWorkflowStructureTests(unittest.TestCase):
             with self.subTest(env=key):
                 self.assertIsNotNone(raw)
                 self.assertEqual(raw.strip().strip("'\""), value)
+
+    def test_zero_max_requests_is_rejected_by_the_workflow(self):
+        """Greptile (PR #388, issue 3)."""
+        run = _run_block(self.blocks[_BACKFILL_STEP_ID])
+        self.assertIn("*[!0-9]*|0|0[0-9]*)", run)
 
     def test_dry_run_false_fails_loudly(self):
         """Review fix (Opus M2): selecting dry_run=false must fail the

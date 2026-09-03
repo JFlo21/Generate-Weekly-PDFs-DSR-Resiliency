@@ -371,3 +371,13 @@ source and the M4 dispatch-time guard.
 - **IN-01 / IN-02 (accepted)** raw-table fallback column names outside the RPC contract (bounded, read-only,
   documented) and whitespace normalisation in cell-history conflict detection (fail-safe: more conflicts, never
   fewer).
+
+## Greptile review fixes (PR #388, issues 2 and 3)
+
+- **Issue 2 (valid, fixed):** the apply path called `_apply_backfill` with its named-sentinel-only default even
+  when the sources-1-4 report was produced with `--include-blank-roles`, silently dropping a cell-history
+  proposal for a blank role. `_inherit_blank_role_targeting(report_summary)` now reads the mode the 12-01 CLI
+  records in `summary.include_blank_roles` and passes it through (logged); this also closes Opus LOW-1.
+- **Issue 3 (valid, fixed):** `max_requests=0` passed the workflow's digit check and the script's `int` parser,
+  deferring every candidate behind a green run. The workflow now rejects `0` and leading-zero forms; the script
+  exits 4 for any cap below 1 from either the flag or the env var, before any Smartsheet call.

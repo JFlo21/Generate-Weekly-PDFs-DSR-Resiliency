@@ -254,7 +254,10 @@ def _parse_args(argv: "list[str] | None" = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--max-requests", dest="max_requests", type=int, default=None,
-        help="Override CELL_HISTORY_BACKFILL_MAX_REQUESTS for this run.",
+        help=(
+            "Override CELL_HISTORY_BACKFILL_MAX_REQUESTS for this run "
+            "(positive integer; 0 or less exits 4)."
+        ),
     )
     parser.add_argument(
         "--dry-run", dest="dry_run", action="store_true", default=True,
@@ -294,6 +297,22 @@ def _load_candidate_report(path: str) -> "tuple[list[dict[str, Any]], dict[str, 
         rows if isinstance(rows, list) else [],
         summary if isinstance(summary, dict) else {},
     )
+
+
+def _inherit_blank_role_targeting(
+    report_summary: "dict[str, Any]",
+) -> bool:
+    """Greptile (PR #388, issue 2): the sources-1-4 report records
+    whether blank roles were targeted (``summary.include_blank_roles``,
+    written by the 12-01 CLI). The apply path must honour the SAME mode
+    or a cell-history proposal for a blank role is silently dropped by
+    ``_apply_backfill``'s named-sentinel-only default."""
+    flag = bool(report_summary.get("include_blank_roles", False))
+    logging.info(
+        "ℹ️ apply targeting inherited from the sources-1-4 report: "
+        + ("blank roles INCLUDED" if flag else "named sentinels only")
+    )
+    return flag
 
 
 def _select_candidates(
@@ -887,7 +906,7 @@ def main(argv: "list[str] | None" = None) -> int:
                 "falling back to pre-exported env vars."
             )
 
-    rows, _report_summary = _load_candidate_report(args.report)
+    rows, report_summary = _load_candidate_report(args.report)
     candidates = _select_candidates(rows, args.wr, args.weeks, args.roles)
 
     run_id = bca._compute_run_id()
@@ -909,6 +928,15 @@ def main(argv: "list[str] | None" = None) -> int:
         args.max_requests if args.max_requests is not None
         else _int_env("CELL_HISTORY_BACKFILL_MAX_REQUESTS", 3000)
     )
+    if max_requests < 1:
+        # Greptile (PR #388, issue 3): a zero cap would defer every
+        # candidate behind a green run. Exit 4 = malformed invocation.
+        logging.error(
+            "❌ --max-requests / CELL_HISTORY_BACKFILL_MAX_REQUESTS must "
+            f"be a positive integer (got {max_requests}). No Smartsheet "
+            "call was made."
+        )
+        return 4
 
     cache: dict = {}
     report_rows: "list[dict[str, Any]]" = []
@@ -1098,6 +1126,9 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         outcome_by_key, tallies, local_exceptions = bca._apply_backfill(
             report_rows, run_id,
+            include_blank_roles=_inherit_blank_role_targeting(
+                report_summary
+            ),
         )
     except Exception as exc:
         sentry_sdk.capture_exception()
