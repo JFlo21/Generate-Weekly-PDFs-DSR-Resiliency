@@ -458,6 +458,11 @@ $$;
 -- roles -- those are reachable from the browser-facing portal-v2
 -- client and would turn an attribution rewrite into a public write
 -- surface (T-12-12).
+-- Postgres grants EXECUTE on a new function to PUBLIC by default, so a
+-- GRANT alone leaves anon / authenticated able to call the RPC (seen
+-- live 2026-09-03). The REVOKE makes the documented service_role-only
+-- contract true; re-run STEP 5 after every STEP 4 (DROP resets both).
+REVOKE ALL ON FUNCTION billing_audit.backfill_attribution(jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION billing_audit.backfill_attribution(jsonb) TO service_role;
 
 -- Required after STEP 4/5 so PostgREST picks up the new function

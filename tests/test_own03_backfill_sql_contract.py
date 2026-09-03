@@ -78,6 +78,16 @@ class RequiredContentTests(unittest.TestCase):
     def test_contains_set_search_path(self):
         self.assertIn("SET search_path = ''", self.body)
 
+    def test_revokes_execute_from_public_and_client_roles(self):
+        """Postgres grants EXECUTE to PUBLIC by default; the contract is
+        service_role only (seen live 2026-09-03: anon/authenticated could
+        call the RPC before the REVOKE)."""
+        self.assertIn(
+            "REVOKE ALL ON FUNCTION billing_audit.backfill_attribution"
+            "(jsonb) FROM PUBLIC, anon, authenticated;",
+            self.body,
+        )
+
     def test_grants_execute_to_service_role(self):
         self.assertIn(
             "GRANT EXECUTE ON FUNCTION billing_audit.backfill_attribution"
