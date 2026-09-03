@@ -45,7 +45,9 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
 - Also this session: local `master` reset to `origin/master` after PR #385; PR #386 (docs: record the #385 merge).
 - **2026-09-03 evening — PR #388 MERGED** (squash `1f159bc`, 21:02 UTC; master CI Checks, tests + coverage, lint,
   runbook changelog stub `a89e672`, Notion sync all green). 12-06 is the only open Phase 12 plan; next branch
-  `feat/phase-12-remediation` off master `e340288`.
+  `feat/phase-12-remediation` off master `e340288`. Second brain updated the same evening: new vault tool page
+  `wiki/tools/supabase-mcp.md` (plugin rules + gotchas) and `Supabase PostgREST Integration Patterns` §3
+  (REVOKE-before-GRANT, read grants back, dated-backup expiry) hold the durable lessons; dashboard + index current.
 - **2026-09-03 afternoon → evening — Phase 12 waves 2–3 DONE, phase gates run, PR #388 (merged, see above):**
   12-02 ✓, 12-04 ✓ (workflow **dispatch-only** by owner re-decision after Opus H1 — the backfill step takes candidates
   only from the sources-1-4 report, which a fresh runner never has, so a cron would be a permanently green no-op; the

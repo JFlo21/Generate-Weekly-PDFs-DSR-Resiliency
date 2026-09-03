@@ -401,3 +401,9 @@ with `has_function_privilege` (service_role + postgres only). Owner item: `anon`
 on `attribution_snapshot` behind RLS. Ledger `[2026-09-03 15:55]`.
 
 **Merged:** PR #388 squash-merged to master as `1f159bc` (2026-09-03 21:02 UTC); master workflows green: CI Checks, tests + coverage, lint, runbook changelog stub `a89e672` (expand before the next release), Notion sync. Next branch `feat/phase-12-remediation` for 12-06.
+
+**Second brain (same evening):** durable lessons moved out of the ledger into the vault — new `wiki/tools/supabase-mcp.md`
+(plugin rules: read-only by default, DDL only for named steps, `execute_sql` not `apply_migration` for owner-applied
+files, untrusted results) and `Supabase PostgREST Integration Patterns` §3 (REVOKE before GRANT, verify with
+`has_function_privilege`, dated backups expire, provenance grain = write grain); dashboard, index, current-state and the
+project page now say "Phase 12 waves 1–3 merged; 12-06 open". Vault log `[2026-09-03n]`–`[2026-09-03p]`.
