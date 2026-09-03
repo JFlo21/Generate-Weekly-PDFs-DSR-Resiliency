@@ -295,3 +295,16 @@ backfill source 4 reads the Supabase hash store (`billing_audit.group_content_ha
 changed; every live step in the plans (owner SQL apply, `--apply` backfill, source-5 cron enable,
 attachment replacement) is a blocking human checkpoint. See `memory-bank/living-ledger.md`
 `[2026-09-02 18:15]` and `.planning/phases/12-ownership-last-known-foreman-as-of-the-week/`.
+
+## 2026-09-02 — Instruction files aligned (run 1 of `align-instruction-files`)
+**What:** CLAUDE.md 369 → 150 lines (rules + pointers; deep sections moved to `docs/ai/architecture.md`,
+`.github/prompts/configuration-environment.md` § Operator quick reference, `docs/ai/safe-commands.md`);
+`.github/copilot-instructions.md` regenerated; `.claude/project-state.md` 1,555 → 95 lines; six
+`memory-bank/*` pages → pointer stubs; `docs/PROJECT_BRIEF.md` rewritten; GSD health HEALTHY (inserted
+Phase 01.1 now declared). **Why:** four drifting copies of the same rules were being loaded into every
+session. **Operator impact:** none on the pipeline (docs-only PR from `docs/align-instruction-files`);
+the env-var catalog now lives in the configuration prompt, the cron schedule in `docs/ai/architecture.md`.
+**Verified:** gsd-doc-verifier fact-checked the docs a fresh session reads (numbers in the ledger
+`[2026-09-02 22:05]`); WR-01's wrong discovery.py comparison corrected. **Blocked:** `AGENTS.md` freeze —
+the harness-boundary hook denies ClaudeOS writes; owner pastes the header by hand.
+

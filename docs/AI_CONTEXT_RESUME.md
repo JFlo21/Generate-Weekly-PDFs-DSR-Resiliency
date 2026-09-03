@@ -21,7 +21,7 @@ _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot).
 > **Snapshot 2026-09-02 (22:05 CDT) — instruction files aligned (run 1, branch
 > `docs/align-instruction-files`, docs-only PR):** the new `align-instruction-files` skill ran its
 > repair order. GSD health is HEALTHY (a `(INSERTED)` tag placement hid Phase 01.1 from the roadmap
-> parser; one-line fix `d9740f2`). CLAUDE.md went 369 → ~140 lines with nothing deleted: pipeline
+> parser; one-line fix `d9740f2`). CLAUDE.md went 369 → 150 lines with nothing deleted: pipeline
 > flow, cron schedule and runner timeouts now live in `docs/ai/architecture.md`, the env-var catalog in
 > `.github/prompts/configuration-environment.md` § Operator quick reference, command lists in
 > `docs/ai/safe-commands.md`; `.github/copilot-instructions.md` was regenerated. `.claude/project-state.md`

@@ -9039,3 +9039,54 @@ only); (4) caps CLAUDE.md ≤ 150 / project-state ≤ 120. Next: run the repair 
 - **Owner follow-up (not resolved by this run):** progress.md carried an April 2026 note that an API
   token had been pasted into a chat and should be rotated — confirm the rotation happened.
   `__vac_crew_email` is populated in `pipeline/fetch.py` but has no consumer in Excel output.
+
+## [2026-09-02 22:05] Instruction-file alignment run 1 (skill `align-instruction-files`) — CLAUDE.md 369→150, project-state 1,555→95, memory-bank stubs, docs fact-checked
+
+- **Branch / PR:** `docs/align-instruction-files` (docs-only; nothing pushed to `master`). Commits:
+  `d9740f2` (ROADMAP Phase 01.1 declared), `303745c` (alignment), `24206db` (CLAUDE.md cap),
+  `48e9e82` (copilot stamp), plus the closeout commit carrying this entry.
+- **Step 1 — GSD health:** W002/W007 were a parser miss — the `buildRoadmapPhaseVariants` checklist regex
+  rejects a pre-colon `(INSERTED)` tag while the heading regex accepts one. **Rule:** write inserted-phase
+  checklist lines as `**Phase NN.N: (INSERTED) Name**` (tag after the colon). Health is now HEALTHY
+  (only the expected "Phase 12 plans without summaries" info).
+- **Step 2 — docs-update, verification half only.** Canonical-doc generation skipped on purpose: the
+  project classifies `generic`, so GSD would create five new docs under `docs/architecture|guides|
+  testing|configuration/` that duplicate `docs/ai/architecture.md`, the env-var prompt, the testing
+  prompt and the runbook — the opposite of alignment. README (hand-written) preserved. gsd-doc-verifier
+  (Sonnet) results: CLAUDE.md 71/74 (facade "~3100 lines" → 687; stale Vite `/api` proxy claim;
+  `audit_vault_writes.js` is a global hook — all fixed by the trim; re-verified 43/43 after the trim),
+  `docs/ai/architecture.md` 77/77, `implementation-truth.md` 94/94, `safe-commands.md` 44/44,
+  `known-bugs.md` 19/20 (fixed), `decisions.md` 21/21, `docs/PROJECT_BRIEF.md` 14/14 (rewritten first),
+  `README.md` 37/38 (stale `hash_history.json` line fixed), `SECURITY.md` 8/8, `docs/AI_CONTEXT_RESUME.md`
+  31/33 (both misses were this entry not yet existing and a line count, fixed),
+  `docs/sentry-implementation.md` 16/20 (four stale `portal/` references, fixed).
+- **Correction (WR-01):** `pipeline/discovery.py` never imports `AttachmentParentType`;
+  `pipeline/orchestrate.py:43-44` is the ONLY import of that enum path in `pipeline/`. The "align to
+  discovery.py's lazy import of the same path" wording in `[2026-09-02 17:45]`, `docs/ai/known-bugs.md`
+  (fixed) and `12-02-PLAN.md` line 25 (GSD-owned, not hand-edited) is wrong — the pattern to align to is
+  discovery.py's lazy, guarded `Sheet` / `Folder` imports.
+- **Step 3 — moves (CLAUDE.md § → new home):** Data Pipeline Architecture → `docs/ai/architecture.md`
+  § Diagram-in-words + § Domain model (new: variants, detection columns, metadata fields, group keys,
+  rate CSVs) and CLAUDE.md § Pipeline flow (one screen); GitHub Actions schedule / runner timeouts /
+  other workflows → `docs/ai/architecture.md` § Runtime; Configuration — 30+ env vars →
+  `.github/prompts/configuration-environment.md` § Operator quick reference (adds `VAC_CREW_FOLDER_IDS`,
+  the rate-CSV vars, `SENTRY_ENABLE_LOGS`, the retired/no-op list); Build/Test/Run commands + aspirational
+  `uv` → `docs/ai/safe-commands.md`; Current Stack & Ecosystem + Multi-Disciplinary Best Practices →
+  CLAUDE.md § Role (condensed); Detailed References → § Where to read next. Every guardrail sentence
+  stays in CLAUDE.md § Guardrails. `.github/copilot-instructions.md` regenerated and stamped with the
+  CLAUDE.md revision it came from.
+- **AGENTS.md — BLOCKED, not retried:** the harness-boundary hook denies Write and Bash on `AGENTS.md`
+  ("Codex-owned project configuration … never loaded or edited by ClaudeOS"). Freezing it is an owner
+  hand step (header in the PR body and skill step 3.4). Skill → v1.1; Step 0 now only reports it.
+- **Step 2/4 — memory-bank + project-state history:** six non-ledger pages → ≤ 8-line stubs after their
+  surviving facts moved (`[2026-09-02 21:20]`). Every dated section dropped from project-state has a
+  ledger entry except **2026-08-15 01:12 CDT**, recorded here: #340 merged (`96e42cb`) → nightly health
+  system complete on master (#339 entry point + #340 hardened dispositions), verified green manual run
+  31860218831; stale local branches/refs pruned, master at `644b1af`; #338 (docs) was the last open PR.
+- **Step 6 residuals (not drift, left as-is):** `.claude/rules/smartsheet-python-optimization.md`
+  (108 lines) and `documentation-maintenance.md` (65) exceed the skill's 60-line rule cap —
+  recommendation: move the two code samples to `.github/instructions/` and keep the rule as bullets.
+- **Owner items:** paste the AGENTS.md header; confirm the April-2026 token rotation; decide on the full
+  docs-update generation; track-or-ignore `.agents/`, `.serena/project*.yml`, `.planning/state.json`,
+  `website/.claude/`; delete-or-keep `replit.md`, `Copilot-Processing.md`, `wiki.md`.
+- Final re-verification after the moves: (pending)

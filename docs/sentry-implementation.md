@@ -9,7 +9,7 @@ This document describes the Sentry error-monitoring setup across all three compo
 | Component | Instrumented? | DSN env var | Notes |
 |-----------|---------------|-------------|-------|
 | Python billing engine (`generate_weekly_pdfs.py`) | ✅ Yes (existing + standardised) | `SENTRY_DSN` | Cron check-in, tracing, custom helpers, **Sentry Logs (opt-in via `SENTRY_ENABLE_LOGS`; default off)** |
-| Express backend (`portal/`) | ✅ Yes (new) | `PORTAL_SENTRY_DSN` | Error handler, header scrubbing |
+| Express backend (`portal/`) | ❌ Removed 2026-06-02 (03153c3) | `PORTAL_SENTRY_DSN` (retired) | Historical — the Express sections below are kept for reference only |
 | React frontend (`portal-v2/`) | ✅ Yes (new) | `VITE_SENTRY_DSN` | Browser tracing, ErrorBoundary, API breadcrumbs |
 
 All three surfaces are **opt-in via DSN**. When the DSN is absent or empty, Sentry no-ops completely — the app works unchanged.
@@ -102,7 +102,8 @@ python generate_weekly_pdfs.py
 PORTAL_SENTRY_DSN=https://your_backend_dsn@o123456.ingest.sentry.io/789
 SENTRY_ENVIRONMENT=development
 
-cd portal && npm install && npm start
+# HISTORICAL — portal/ was removed in 03153c3 (2026-06-02); this no longer applies:
+#   cd portal && npm install && npm start
 ```
 
 ### React frontend
@@ -218,13 +219,14 @@ Issue-creation behavior is unchanged — the `LoggingIntegration` is still confi
 ### Express backend
 
 ```bash
-cd portal && npm start
+# HISTORICAL — portal/ was removed in 03153c3 (2026-06-02); nothing below runs today:
+#   cd portal && npm start
 # To test Sentry error capture, add a temporary test route in server.js:
 #   app.get('/sentry-test', (req, res) => { throw new Error('Sentry test'); });
 # Then trigger it:
 #   curl http://localhost:3000/sentry-test
 # Or use Sentry.captureMessage() directly in Node.js:
-node -e "require('dotenv').config(); const Sentry = require('./lib/sentry'); Sentry.captureMessage('Test from Express backend', 'info'); setTimeout(() => {}, 1000);"
+#   node -e "require('dotenv').config(); const Sentry = require('./lib/sentry'); Sentry.captureMessage('Test from Express backend', 'info'); setTimeout(() => {}, 1000);"
 # Check your Sentry project for the captured event.
 ```
 
