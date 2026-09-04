@@ -434,3 +434,21 @@ diff confined to `scripts/backfill_claim_time_attribution.py` + `tests/test_back
 **Open:** 12-08 (Juan's `#NO MATCH` scope + SC3 sample decisions, blocking-human), 12-09 (owner-applied RPC
 extension guard), 12-10 (Opus production-risk review of 12-07 + 12-09, fresh backup, zero-defect live dry-run),
 then 12-06 re-entry. No PR until the Opus review passes (`.continue-here.md` blocking constraint).
+
+## 2026-09-04 — Phase 12 gap closure wave 1 closed: 12-08 owner scope decisions D-12-C / D-12-D
+**What:** the 12-08 executor stopped at its first `blocking-human` gate and returned both decision tables; Juan
+answered in writing and a fresh continuation executor recorded them verbatim: **D-12-C `defer`** — the 945
+`#NO MATCH` rows (935 primary + 10 helper, nulled by `lookup_attribution_bulk` before the script sees them) stay
+out of OWN-03's live remediation, so 12-10's re-run carries no `--include-blank-roles`; **D-12-D
+`substitute-89829163`** — ROADMAP success criterion 3 now names WR 89829163 (live-verified sentinel rows on WE
+082425/083125/091425/092125) resolved via `backfill_artifacts`, replacing WR 19073866, which has zero rows in
+every Supabase store. Runbook `ownership-attribution.md` states which sentinel populations OWN-03 remediates and
+which it leaves alone; Living Ledger `[2026-09-04 10:05]`; option-aware docs tests. Commits `cf13670`…`e1c7ac8`.
+**Why:** without a written scope answer 12-10 could not be invoked, and without a provable sample the phase had
+no closable acceptance criterion.
+**Operator impact:** none on the scheduled run; no code, SQL, or RPC changed in this plan. REQUIREMENTS.md keeps
+OWN-03/OWN-04 Pending until the live backfill lands (12-09 / 12-10 / 12-06).
+**Verified:** docs tests 25/25; Docusaurus typecheck + build; wave-close gate pytest 2,112 passed / 1 skipped /
+416 subtests (37.8 s); py_compile; schema-drift, codebase-drift and UI wave-post gates clear.
+**Open:** wave 2 = 12-09 (RPC STEP 4 extension guard + contract test; Juan applies STEP 4 + STEP 5 live), wave 3 =
+12-10 (Opus production-risk review of 12-07 + 12-09, fresh same-UTC-day backup, zero-defect dry-run), then 12-06.

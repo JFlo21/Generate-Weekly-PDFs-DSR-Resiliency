@@ -29,7 +29,7 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
 
-## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure running on `feat/phase-12-remediation` (12-07 ✓, 12-08 decisions pending)
+## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure running on `feat/phase-12-remediation` (12-07 ✓, 12-08 ✓; 12-09 next)
 
 - **2026-09-03 late night — `/gsd-execute-phase 12 --gaps-only` IN PROGRESS (wave 1 of 3, sequential on
   `feat/phase-12-remediation`; worktree base-check degraded because HEAD is ahead of `origin/HEAD`).** 12-07 DONE
@@ -39,7 +39,13 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   `is_sentinel_claimer` as a classifiable sentinel (no proposal); the hash-suffixed path is byte-identical;
   `_build_apply_payload` gained a `proposed_value` sentinel/extension guard mirroring the `current_value` one.
   File suite 60/60; full suite 2,107 passed / 1 skipped / 416 subtests; diff confined to the two declared files.
-  12-08 dispatched next (both tasks blocking-human decisions — `#NO MATCH` scope, SC3 sample — never auto-selected).
+  12-08 DONE (continuation executor after Juan's written answers at the blocking-human gates, 3 commits
+  `cf13670`…`e1c7ac8`): **D-12-C = `defer`** (the 945 `#NO MATCH` rows stay out of OWN-03; 12-10's re-run carries no
+  `--include-blank-roles`), **D-12-D = `substitute-89829163`** (ROADMAP SC3 now names WR 89829163 WE
+  082425/083125/091425/092125 resolved via `backfill_artifacts`; WR 19073866 dropped as unprovable); runbook
+  scope statement, ledger `[2026-09-04 10:05]`, docs tests 25/25, Docusaurus typecheck + build green;
+  REQUIREMENTS.md deliberately left Pending for OWN-03/OWN-04. Wave 1 close gates: post-wave pytest 2,112 passed /
+  1 skipped / 416 subtests (37.8 s), py_compile, schema-drift / codebase-drift / UI gates clear.
   Still to run: 12-09 (Juan applies the RPC extension guard, STEP 4 + STEP 5), 12-10 (Opus production-risk review
   of 12-07 + 12-09, fresh same-UTC-day backup, zero-defect live dry-run), then 12-06 re-entry at Task 1. The
   `.continue-here.md` blocking constraint was acknowledged: no PR carrying 12-07/12-09 before the Opus review
@@ -198,8 +204,8 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
    paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
    denies every ClaudeOS write to that file).
 2. PR #388 merged (`1f159bc`; 12-03 SQL fully applied and verified live). **Gap closure in progress** on
-   `feat/phase-12-remediation` (`/gsd-execute-phase 12 --gaps-only`: 12-07 ✓; 12-08 = Juan's two decisions; then 12-09
-   SQL applied by Juan, 12-10 Opus review + fresh backup + dry-run proof) → re-run 12-06 (Task 1 re-runs the cheap read-only checks and MUST re-create the backup table
+   `feat/phase-12-remediation` (`/gsd-execute-phase 12 --gaps-only`: 12-07 ✓, 12-08 ✓ (`defer`, `substitute-89829163`); 12-09 next
+   (Juan applies STEP 4 + STEP 5 SQL), 12-10 Opus review + fresh backup + dry-run proof) → re-run 12-06 (Task 1 re-runs the cheap read-only checks and MUST re-create the backup table
    on apply day — live already drifted 226 rows past `attribution_snapshot_backup_20260903`; then dry-run review →
    apply decision → same-UTC-day apply → post-run check); restore the Sunday cron only together with a real
    candidate source. After 12-06: `/gsd-verify-work 12` → `phase.complete 12`. Owner security item seen live:
