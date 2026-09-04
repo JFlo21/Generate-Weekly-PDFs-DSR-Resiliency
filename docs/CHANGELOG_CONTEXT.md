@@ -470,3 +470,5 @@ do not re-run STEPs 1–3. Verify EXECUTE is held by `postgres` + `service_role`
 **Verified:** contract tests 25/25; full suite 2,117 passed / 1 skipped / 441 subtests; protected-construct and
 comment-only diff gates exit 0. No agent, script, or MCP tool executed any SQL.
 **Open:** 12-09 Task 3 (Juan's live apply + four read-backs), then wave 3 = 12-10, then 12-06 re-entry.
+**Ledger commits this run:** `360fde7` (12-07), `27787cc` (wave 1 close), `f2765fc` (12-09 code); the orchestrator
+paused at the 12-09 owner-apply checkpoint with a clean tracked tree.

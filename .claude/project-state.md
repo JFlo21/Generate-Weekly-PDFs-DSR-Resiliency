@@ -31,8 +31,9 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
 
 ## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure running on `feat/phase-12-remediation` (12-07 ✓, 12-08 ✓, 12-09 code ✓ — Juan's live SQL apply pending)
 
-- **2026-09-03 late night — `/gsd-execute-phase 12 --gaps-only` IN PROGRESS (wave 1 of 3, sequential on
-  `feat/phase-12-remediation`; worktree base-check degraded because HEAD is ahead of `origin/HEAD`).** 12-07 DONE
+- **2026-09-03 late night → 2026-09-04 — `/gsd-execute-phase 12 --gaps-only` IN PROGRESS (wave 2 of 3, sequential on
+  `feat/phase-12-remediation`; worktree base-check degraded because HEAD is ahead of `origin/HEAD`; ledger commits
+  `360fde7`, `27787cc`, `f2765fc`).** 12-07 DONE
   (Sonnet executor, 7 commits `8d27e36`…`f14aa5c`, SUMMARY `Self-Check: PASSED`): `_extract_claimer_from_filename`
   now strips exactly one trailing document extension when the `_<6hex>.xlsx` hash tail is absent and rejects any
   candidate still ending in one, so the live hash-less `..._User_Unknown_Foreman.xlsx` shape reaches
