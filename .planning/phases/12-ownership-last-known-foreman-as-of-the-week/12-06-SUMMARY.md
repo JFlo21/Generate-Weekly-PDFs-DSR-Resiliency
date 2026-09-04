@@ -47,7 +47,10 @@ coverage:
 
 duration: ~15min (documentation/transcription only — no code executed, no live credentials used)
 completed: 2026-09-03
-status: halted
+# Re-entry 2026-09-04: G-12-3 closed by 12-07..12-10 (Juan: `re-enter-12-06`). `blocked` reads as
+# no completion record (#3345), so /gsd-execute-phase 12 re-runs this plan from Task 1. The halted
+# 2026-09-03 dry-run evidence below is preserved unchanged; the executor rewrites this file on completion.
+status: blocked
 ---
 
 # Phase 12 Plan 06: Ownership Attribution Live Remediation (OWN-03) — HALTED at Task 1
