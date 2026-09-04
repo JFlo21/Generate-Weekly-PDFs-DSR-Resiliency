@@ -64,7 +64,9 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   `$SCRATCHPAD` → resolved `REPORT_DIR`, typecheck gate, SQL diff token gate; `7c47d45`: schema.sql doc test,
   option-aware D-12-C/D-12-D + SC3 tests). UAT correction committed `6684355`. **Next: `/clear` →
   `/gsd-execute-phase 12 --gaps-only`** (12-08 decisions and 12-09 SQL apply pause for Juan; no live write in any
-  gap plan) → re-run 12-06 on a fresh same-UTC-day backup → `/gsd-verify-work 12` reconciles G-12-3.
+  gap plan) → re-run 12-06 on a fresh same-UTC-day backup → `/gsd-verify-work 12` reconciles G-12-3. Second brain
+  written back 2026-09-03 late (vault log `[2026-09-03t]`/`[2026-09-03u]`: project page subsection, PostgREST §4
+  correction, gsd-ops-lessons §§9–10, dashboard/index/current-state); global `lessons-learned.md` entry added.
 - **2026-09-03 night — 12-06 Task 1 read-only evidence (Juan asked the main session to run it):** dry-run for the
   plan's WR 19073866 exited 0 with 0 rows — that WR has zero rows in every Supabase store (snapshot, backup,
   group_state, row_state, row_event, group_content_hash, artifacts); the snapshot was never rebuilt (frozen_at from
