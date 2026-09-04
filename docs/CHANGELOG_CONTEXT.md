@@ -505,3 +505,22 @@ ships to a PR without this gate.
 produced a candidate. The placeholder is gone; the zero is vacuous on this scope because no source holds a real
 name for these rows — the full-population answer (how many of the 4,070 resolve via source 4) belongs to 12-06
 Task 1. Juan replied `re-enter-12-06`; 12-06 resumes at its Task 1 with Tasks 2–4 still behind his verdict.
+
+**2026-09-04 ~07:15 UTC — gaps-only run closed; 12-06 made re-entrant; code-quality pass.** What: wave 3 closed with
+every gate green (pytest 2,117 / 1 skipped / 441 subtests, `py_compile`, schema-drift + codebase-drift + UI gates
+`block: false`, 6-gate harness ALL PASSED). `5121c30` reverted the executor's premature OWN-02/OWN-03 "Complete" marks
+(the shared-ID ready gate counted 12-06's halted SUMMARY; the live apply has not run) and moved OWN-03's sample to
+WR 89829163 per D-12-D. `7ce962a` changed `12-06-SUMMARY.md` from `status: halted` to `status: blocked` — the only
+SUMMARY state that returns a plan to the incomplete/runnable list — so `/gsd-execute-phase 12` resumes 12-06 at Task 1.
+`verify_phase_goal` / `update_roadmap` were skipped on purpose because the phase is incomplete by design. `634d93b`
+committed the advisory code-quality report (Opus `gsd-code-reviewer`, 7 files changed since `2c794a9`): 1 blocker,
+9 warnings, 2 info. **CR-01 (verified):** `_FILENAME_HASH_SUFFIX_RE` matches a 6-hex tail while `pipeline/excel.py:412`
+emits the 16-hex `hexdigest()[:16]` tail, so a hash-tailed placeholder would pass all three extension guards and be
+written as a real name; a read-only count shows 0 of 116,906 live `public.artifacts` filenames carry any hash tail
+(all rows post-date the 2026-05-28 `SUPABASE_HASH_STORE_AUTHORITATIVE=1` flip), so 12-06's apply is unaffected unless
+that flag is reverted. **WR-01 (verified):** `tests/test_own04_documentation.py` pins D-12-C/D-12-D to the NEWEST
+`living-ledger.md` entry, so the next bottom-append breaks the push-gating suite — no ledger entry was appended this
+session; lessons went to the vault. Why: the gate is advisory, both findings are outside the `--gaps-only` scope, and
+the parser regex is protected extraction behavior — they route through `/gsd-verify-work 12` as new gaps.
+**Operator impact:** none live; 12-06 Task 1's dry-run report must now show 0 extension-bearing and 0 hash-tailed
+proposals before Juan's apply decision; the `_20260904` backup expires for the probe at 2026-09-05 00:00 UTC.

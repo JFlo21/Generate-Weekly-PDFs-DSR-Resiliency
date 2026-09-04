@@ -29,9 +29,34 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
 
-## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure running on `feat/phase-12-remediation` (12-07 ✓, 12-08 ✓, 12-09 ✓ live 2026-09-04; 12-10 running — Opus review PASS)
+## Latest work (2026-09-03 evening → 2026-09-04 early) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); 12-06 re-entrant from Task 1; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 
-- **2026-09-03 late night → 2026-09-04 — `/gsd-execute-phase 12 --gaps-only` IN PROGRESS (wave 2 of 3, sequential on
+- **2026-09-04 ~07:15 UTC — `/gsd-execute-phase 12 --gaps-only` CLOSED: 12-07..12-10 ✓, 12-06 re-entrant, phase left
+  incomplete by design.** Wave-3 gates green (pytest 2,117 passed / 1 skipped / 441 subtests; `py_compile`; schema-drift,
+  codebase-drift and UI gates `block: false`; 6-gate harness ALL PASSED). Close-out commits: `5121c30` reverted the
+  executor's premature OWN-02/OWN-03 "Complete" marks (the shared-ID gate was satisfied by 12-06's halted SUMMARY while
+  the live apply has not happened) and moved OWN-03's sample to WR 89829163 per D-12-D; `7ce962a` flipped
+  `12-06-SUMMARY.md` to `status: blocked` so the plan index lists 12-06 as the only runnable plan; `634d93b` committed
+  the code-quality report. `verify_phase_goal` / `update_roadmap` skipped on purpose (12-06 incomplete). **Code-quality
+  pass (Opus `gsd-code-reviewer`, 7 delta files since `2c794a9`, `12-REVIEW.md`, advisory): 1 blocker, 9 warnings,
+  2 info.** CR-01 (verified in code): `_FILENAME_HASH_SUFFIX_RE` expects a 6-hex tail but `pipeline/excel.py:412`
+  emits the 16-hex `hexdigest()[:16]` tail, so a hash-tailed `..._User_Unknown_Foreman_<16hex>.xlsx` would pass every
+  extension guard (Python strip/reject, payload builder, RPC) and be written as a real name. Live exposure today:
+  none — a read-only count of `public.artifacts` shows 116,906 rows, 0 with any hash tail (first row 2026-05-29,
+  after the `SUPABASE_HASH_STORE_AUTHORITATIVE=1` flip); the defect returns only if that flag is reverted. WR-01
+  (verified): `tests/test_own04_documentation.py::_newest_ledger_entry` asserts D-12-C/D-12-D in the NEWEST
+  `living-ledger.md` entry, so the next bottom-append (the CLAUDE.md rule) turns the push-gating suite red — no ledger
+  entry was appended this session for that reason; session lessons went to the vault (`guardrail-allowlist-and-gsd-ops-lessons` §11).
+  Other warnings: ROADMAP `### Phase 12` hard-assert (WR-02), fixtures never exercise a hash-bearing production shape
+  (WR-08), runbook `--apply` example still names WR 19073866 (WR-09). Route: `/gsd-verify-work 12` after 12-06 files
+  these as gaps (CR-01 fix = `{16}` tail + production-shape fixtures, folded with the six-hex-letter over-match ticket;
+  WR-01 fix = search every ledger entry). Session mechanics worth knowing: the harness-boundary hook denies any
+  gsd-tools argument containing the token "review" (commit messages, decisions, `query init.code-review`) — reword or
+  resolve the inputs from files; Bash-scripted ledger edits are invisible to the context-continuity Stop hook (it reads
+  `session-delta.jsonl`, Edit/Write only); `status: blocked` (not `halted`) is the only SUMMARY state that makes a
+  plan re-entrant; the GSD executor has no Agent tool, so plan tasks that require an independent reviewer run from the
+  orchestrator; ~104 KB of executor context shipped as one bundle file the executor Reads first (7/7 dispatches fine).
+- **2026-09-03 late night → 2026-09-04 — `/gsd-execute-phase 12 --gaps-only` run detail (3 waves, sequential on
   `feat/phase-12-remediation`; worktree base-check degraded because HEAD is ahead of `origin/HEAD`; ledger commits
   `360fde7`, `27787cc`, `f2765fc`).** 12-07 DONE
   (Sonnet executor, 7 commits `8d27e36`…`f14aa5c`, SUMMARY `Self-Check: PASSED`): `_extract_claimer_from_filename`
@@ -231,12 +256,16 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
 1. Owner: squash-merge PR #387 (wave 1; #386 closed, targeting default confirmed 2026-09-03);
    paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
    denies every ClaudeOS write to that file).
-2. PR #388 merged (`1f159bc`; 12-03 SQL fully applied and verified live). **Gap closure in progress** on
-   `feat/phase-12-remediation` (`/gsd-execute-phase 12 --gaps-only`: 12-07 ✓, 12-08 ✓ (`defer`, `substitute-89829163`); 12-09 ✓ (STEP 4 + 5 live
-   2026-09-04 05:37 UTC via MCP at Juan's instruction, Juan `approved`), 12-10 Opus review + fresh backup + dry-run proof) → re-run 12-06 (Task 1 re-runs the cheap read-only checks and MUST re-create the backup table
-   on apply day — live already drifted 226 rows past `attribution_snapshot_backup_20260903`; then dry-run review →
-   apply decision → same-UTC-day apply → post-run check); restore the Sunday cron only together with a real
-   candidate source. After 12-06: `/gsd-verify-work 12` → `phase.complete 12`. Owner security item seen live:
+2. PR #388 merged (`1f159bc`; 12-03 SQL fully applied and verified live). **Gap closure DONE** on
+   `feat/phase-12-remediation` (12-07..12-10 ✓; D-12-C `defer`, D-12-D `substitute-89829163`; RPC STEP 4 + 5 live
+   2026-09-04 05:37 UTC; `attribution_snapshot_backup_20260904` = 220,621 rows at 06:07 UTC, valid for the `--apply`
+   probe only before 2026-09-05 00:00 UTC = 19:00 CDT 2026-09-04 — re-run STEP 1 if 12-06 slips). **Next: `/clear` →
+   `/gsd-execute-phase 12`** runs 12-06 from Task 1 (cheap read-only checks → full-population dry-run whose report must
+   show 0 extension-bearing AND 0 hash-tailed proposals → Juan's apply decision → same-UTC-day apply → post-run check);
+   restore the Sunday cron only together with a real candidate source. Then `/gsd-verify-work 12` reconciles G-12-3
+   and files the code-quality findings as gaps (CR-01 `_FILENAME_HASH_SUFFIX_RE` 6-hex vs 16-hex production tail —
+   latent, 0 of 116,906 live artifacts affected; WR-01 `test_own04_documentation.py` newest-ledger-entry pin — do not
+   append to `living-ledger.md` until it is fixed) → `phase.complete 12`. Owner security item seen live:
    `anon`/`authenticated` hold full DML grants on `billing_audit.attribution_snapshot` behind RLS — confirm the
    policies deny them before relying on it.
 3. Owner-owned Phase 12 steps stay blocking checkpoints: read-only count of NULL/stale-week `row_event`/`row_state`
