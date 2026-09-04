@@ -18,6 +18,22 @@ _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot).
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
 >
+> **Snapshot 2026-09-03 (late) — Phase 12 UAT closed, gap G-12-3 diagnosed, gap-closure plans 12-07..12-10 READY.**
+> `/gsd-verify-work 12` on `feat/phase-12-remediation`: the `verify:pre` api-coverage gate blocked on the phase
+> `COVERAGE.md` inventory table (parsed as a matrix next to the valid no-external-API declaration) — table → list,
+> gate passes. `12-UAT.md`: 21 coverage entries, 18 auto-passed; checkpoint 1 (12-03 live SQL objects) PASSED via a
+> read-only Supabase MCP catalog check; checkpoint 2 (12-04 dispatch-only workflow) PASSED via static checks + 48
+> unit tests + GitHub registry (active, 0 runs); checkpoint 3 (12-06 dry-run) = BLOCKER, re-reproduced live with a
+> scoped read-only dry-run (WR 89732091 × 7 weeks: 235/235 rows propose `Unknown Foreman.xlsx`). Corrected root
+> cause: the RPC already rejects a sentinel proposed value (STEP 4 line 320); `is_sentinel_value` is extension-blind
+> in both layers. Opus gsd-planner wrote 12-07 (parser fix + `_build_apply_payload` guard + hash-less fixtures),
+> 12-08 (owner decisions D-12-C `#NO MATCH` scope / D-12-D SC3 sample), 12-09 (owner-applied RPC extension check,
+> `is_sentinel_value` byte-identical), 12-10 (Opus production-risk review, fresh same-UTC-day STEP 1 backup,
+> zero-defect dry-run, re-entry into 12-06 Task 1); plan-checker PASSED on iteration 3 after two verify-gate
+> revision rounds. Commits `1e7fc1d` `67bda0e` `7df9cbc` `6684355` `7c47d45`. Next: `/clear` →
+> `/gsd-execute-phase 12 --gaps-only` (12-08 and 12-09 pause for Juan; no live write anywhere) → re-run 12-06 →
+> `/gsd-verify-work 12` (reconciles G-12-3 as resolved). Ledger `[2026-09-03 18:35]`.
+>
 > **Snapshot 2026-09-03 (night) — 12-06 HALTED at Task 1: dry-run REJECTED (`reject: source-3 filename parser
 > defect`), no apply.** `/gsd-execute-phase 12` on `feat/phase-12-remediation` reached the owner-run plan; Juan ran
 > the scoped full dry-run (207 WRs × 54 weeks, exit 0, 5,829 rows): 4,070 of 4,762 proposals were the literal

@@ -5,7 +5,7 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 12
 current_phase_name: Ownership — last known foreman as of the week
 status: executing
-stopped_at: "Phase 12 Plan 06 HALTED at Task 1 (dry-run REJECTED) — gap-closure needed via /gsd:plan-phase 12 --gaps before re-run"
+stopped_at: Phase 12 gap-closure plans 12-07..12-10 READY (checker passed 3/3) after UAT gap G-12-3 — next /gsd-execute-phase 12 --gaps-only, then re-run 12-06 and /gsd-verify-work 12
 last_updated: "2026-09-03T22:47:35.255Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 12 execution resumed (wave continue)

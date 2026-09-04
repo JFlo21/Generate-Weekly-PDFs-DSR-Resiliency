@@ -59,8 +59,12 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   12-06 Task 1, wave 3); all `gap_ids: [G-12-3]`. **Root-cause correction (verified, SQL line 320):** the RPC
   already raises on a sentinel proposed value; the blindness is that `is_sentinel_value` never strips a file
   extension, so `Unknown Foreman.xlsx` passes in both layers — 12-09 adds an extension check and leaves
-  `is_sentinel_value` byte-identical (it also drives the per-role `UPDATE … WHERE` targeting). Next:
-  plan-checker verdict → `/clear` → `/gsd-execute-phase 12 --gaps-only`.
+  `is_sentinel_value` byte-identical (it also drives the per-role `UPDATE … WHERE` targeting). **Plan-checker
+  PASSED (iteration 3/3)** after two revision rounds that made every `<verify>` gate failing-capable (`7df9cbc`:
+  `$SCRATCHPAD` → resolved `REPORT_DIR`, typecheck gate, SQL diff token gate; `7c47d45`: schema.sql doc test,
+  option-aware D-12-C/D-12-D + SC3 tests). UAT correction committed `6684355`. **Next: `/clear` →
+  `/gsd-execute-phase 12 --gaps-only`** (12-08 decisions and 12-09 SQL apply pause for Juan; no live write in any
+  gap plan) → re-run 12-06 on a fresh same-UTC-day backup → `/gsd-verify-work 12` reconciles G-12-3.
 - **2026-09-03 night — 12-06 Task 1 read-only evidence (Juan asked the main session to run it):** dry-run for the
   plan's WR 19073866 exited 0 with 0 rows — that WR has zero rows in every Supabase store (snapshot, backup,
   group_state, row_state, row_event, group_content_hash, artifacts); the snapshot was never rebuilt (frozen_at from
