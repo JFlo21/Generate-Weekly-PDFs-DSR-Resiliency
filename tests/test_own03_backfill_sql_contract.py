@@ -431,5 +431,82 @@ class Step3UnchangedTests(unittest.TestCase):
         self.assertNotIn("file extension", step3.lower())
 
 
+_SCHEMA_SQL_RELPATH = "billing_audit/schema.sql"
+
+
+def _normalize_doc(text: str) -> str:
+    """Strip backtick markup and comment markers, then collapse the
+    block to single-spaced prose so line wrapping and the file's
+    double-backtick markup can never break a phrase match."""
+    text = text.replace("`", "")
+    lines = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("--"):
+            stripped = stripped[2:]
+        lines.append(stripped)
+    return re.sub(r"\s+", " ", " ".join(lines)).strip()
+
+
+def _backfill_doc_block() -> str:
+    """Slice the normalized ``schema.sql`` text from the
+    ``backfill_attribution (RPC)`` heading up to the following
+    ``lookup_attribution (RPC)`` heading -- the contract-as-comment
+    block this task documents."""
+    normalized = _normalize_doc(_read_source(_SCHEMA_SQL_RELPATH))
+    start_marker = "backfill_attribution (RPC)"
+    end_marker = "lookup_attribution (RPC)"
+    start = normalized.find(start_marker)
+    assert start != -1, (
+        f"{start_marker!r} not found in normalized {_SCHEMA_SQL_RELPATH}"
+    )
+    end = normalized.find(end_marker, start)
+    assert end != -1, (
+        f"{end_marker!r} not found in normalized {_SCHEMA_SQL_RELPATH} "
+        f"after {start_marker!r}"
+    )
+    return normalized[start:end]
+
+
+class SchemaContractDocTests(unittest.TestCase):
+    """Task 2: gate the ``backfill_attribution`` contract prose in
+    ``billing_audit/schema.sql``. The SQL contract test file above
+    reads only ``own03_backfill_attribution.sql``, so it cannot fail on
+    a schema.sql-only documentation edit -- these tests close that
+    gap. Read the file RAW (never through ``_strip_sql_comments``): the
+    entire contract block is ``--`` comment prose."""
+
+    REQUIRED_LITERALS = (
+        "refuses a proposed value on two grounds",
+        "is_sentinel_value",
+        "carries a document file extension",
+        "xlsx|xlsm|xls|csv|pdf|json",
+        "G-12-3",
+        "aborts the whole call rather than skipping a row",
+        "is_sentinel_value retains its original semantics",
+        "the extension rule applies only to the proposed value",
+        "GRANT EXECUTE is restricted to service_role",
+    )
+
+    def test_schema_sql_documents_both_refusal_grounds(self):
+        block = _backfill_doc_block()
+        for literal in self.REQUIRED_LITERALS:
+            with self.subTest(literal=literal):
+                self.assertIn(
+                    literal,
+                    block,
+                    f"missing required contract literal: {literal!r}",
+                )
+
+    def test_schema_doc_extension_list_matches_sql_guard(self):
+        """The documented extension set cannot drift from the guard
+        Task 1 installed in own03_backfill_attribution.sql."""
+        block = _backfill_doc_block()
+        self.assertIn("xlsx|xlsm|xls|csv|pdf|json", block)
+
+        sql_body = _strip_sql_comments(_read_source(_SQL_RELPATH))
+        self.assertIn("xlsx|xlsm|xls|csv|pdf|json", sql_body)
+
+
 if __name__ == "__main__":
     unittest.main()

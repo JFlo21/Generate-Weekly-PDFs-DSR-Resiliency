@@ -246,6 +246,22 @@ ALTER TABLE billing_audit.group_content_hash
 --   where ``result`` is one of ``updated``, ``skipped_real_name`` or
 --   ``skipped_no_row``.
 --
+-- The function refuses a proposed value on two grounds, not one:
+--   1. it is a sentinel by ``billing_audit.is_sentinel_value``, or
+--   2. it carries a document file extension
+--      (``xlsx|xlsm|xls|csv|pdf|json``, case-insensitive) — e.g. a
+--      filename fragment like "Unknown Foreman.xlsx" that
+--      ``is_sentinel_value`` alone cannot see, since that predicate
+--      normalizes whitespace and underscores but not a trailing
+--      extension (G-12-3). Both checks raise immediately, and each
+--      aborts the whole call rather than skipping a row, so a
+--      malformed payload fails loudly instead of partially applying.
+--
+-- ``billing_audit.is_sentinel_value`` retains its original semantics
+-- and remains the predicate the three per-role UPDATE WHERE clauses
+-- use against the CURRENT frozen value — the extension rule applies
+-- only to the proposed value, never to what is already stored.
+--
 -- Invariant enforced SERVER-SIDE, not by the Python caller: the
 -- function updates a role column only where the CURRENT value is a
 -- sentinel or NULL. A real (non-sentinel) frozen name is never
