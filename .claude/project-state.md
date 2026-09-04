@@ -31,6 +31,29 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
 
 ## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; 12-06 owner-run remediation next on `feat/phase-12-remediation`
 
+- **2026-09-03 late — `/gsd-verify-work 12` started (UAT session open, branch `feat/phase-12-remediation`):**
+  the `verify:pre` api-coverage gate (ai-integration capability) blocked with 4 bogus row errors because the
+  phase `COVERAGE.md` "for the record" inventory table was parsed as a coverage matrix alongside the valid
+  `No external API integration:` declaration; the table is now a bulleted list (same content) and the gate
+  passes (`none_declared: true`, 3 detector signals overridden). `12-UAT.md` created from the six SUMMARY
+  `coverage:` blocks: 21 entries, 18 auto-passed (tests), 3 human checkpoints pending — (1) 12-03 live SQL apply,
+  (2) 12-04 dispatch-only workflow isolation, (3) 12-06 dry-run verdict (expected to log the known source-3
+  filename-parser REJECT as the gap that feeds the gsd-planner gap-closure plans). **Checkpoint 1 PASSED** on
+  Juan's request via a read-only Supabase MCP catalog check (project `poeyztlmsawfoqlanucc`): both tables live
+  (snapshot 220,433 / backup_20260903 220,010 — drift now 423 rows, re-create on apply day), provenance columns +
+  five-value CHECK present, RPC SECURITY INVOKER with EXECUTE = `service_role` only, `is_sentinel_value` keeps
+  default PUBLIC EXECUTE (matches the SQL file, which revokes only the RPC), 0 rows carry `backfill_run_id`.
+  **Checkpoint 2 PASSED** (read-only, no dispatch): `cell-history-backfill.yml` on master has no `schedule:`,
+  own concurrency group, `timeout-minutes` 60 > cap 45, inputs bound via `env:`, no `${{` in `run:`, `--apply`
+  only in comments, backfill step gated on `backlog_rows != '0'`; 48 unit tests green; GitHub registers it
+  active with 0 runs. **Checkpoint 3 = ISSUE (blocker)**, re-verified by the session on Juan's request: Juan's
+  full-set report analysed in-sandbox (4,070 of 4,762 proposals are the single string `Unknown Foreman.xlsx`; 0
+  rows for WR 19073866; 0 via `backfill_hash_history`) and a scoped read-only live dry-run (WR 89732091 × 7
+  weeks, report to scratchpad) reproduced it: exit 0, 235/235 rows propose `Unknown Foreman.xlsx`. UAT closed
+  `status: diagnosed` (20 pass / 1 issue / 0 pending); gap `G-12-3` carries the root cause + 5 missing items
+  from 12-06-SUMMARY § Halted at Designed Stop (no debug agent — nothing to re-derive). Next: gsd-planner
+  gap-closure plans → plan-checker → `/gsd-execute-phase 12 --gaps-only` (Opus production-risk review before
+  any PR; the RPC proposed-value guard is owner-applied SQL) → re-run 12-06 on a fresh same-UTC-day backup.
 - **2026-09-03 night — 12-06 Task 1 read-only evidence (Juan asked the main session to run it):** dry-run for the
   plan's WR 19073866 exited 0 with 0 rows — that WR has zero rows in every Supabase store (snapshot, backup,
   group_state, row_state, row_event, group_content_hash, artifacts); the snapshot was never rebuilt (frozen_at from

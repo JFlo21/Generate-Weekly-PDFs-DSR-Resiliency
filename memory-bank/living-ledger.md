@@ -9273,3 +9273,15 @@ current wherever `REQUIREMENTS.md` OWN-01 or the 2026-09-01 spec disagree. Gate:
 - Read-only checks worth repeating before any `--apply` (all cheap through the Supabase MCP): STEP 0b duplicate-key
   probe = 0, `backfill_run_id IS NOT NULL` = 0, smoke test `skipped_no_row`, EXECUTE roles, and the DML grants on
   `attribution_snapshot` (`anon`/`authenticated` hold full DML behind RLS — owner item to confirm the policies).
+
+## [2026-09-03 18:35] GSD api-coverage gate: keep COVERAGE.md inventories as lists, not tables
+
+`/gsd-verify-work 12` was blocked at `verify:pre` by the ai-integration `api-coverage` gate with four
+`row: decision "..." not in {INTEGRATE, OPT-OUT}` errors. Root cause: gsd-core 1.12.0's matrix parser treats
+ANY pipe table in a phase `COVERAGE.md` as a coverage matrix (known upstream #2366), so the Phase 12 file's
+3-column "existing-integration inventory" table was read as rows whose column 2 (file paths) was the decision —
+and the docs also say declaration + rows is contradictory. The valid `No external API integration: <reason>`
+declaration on line 3 was already the intended, passing form. Fix: inventory table → bulleted list (content
+unchanged); gate now `block: false`, `none_declared: true`. Rule: in this repo a `COVERAGE.md` that declares
+no external API must contain no markdown tables at all. UAT session `12-UAT.md` opened (21 entries: 18
+auto-passed from SUMMARY `coverage:` blocks, 3 human checkpoints).
