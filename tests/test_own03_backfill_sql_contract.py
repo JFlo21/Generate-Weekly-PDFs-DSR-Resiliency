@@ -307,5 +307,129 @@ class BackfillSourceVocabularyTests(unittest.TestCase):
         self.assertEqual(check_values, self.EXPECTED)
 
 
+def _extension_guard_match(body: str) -> "re.Match[str] | None":
+    """Find the validation-loop extension guard: an ``IF v_row.value ~*
+    '<pattern>' THEN RAISE EXCEPTION '<message>', v_row.role, v_row.wr,
+    v_row.week_ending, v_row.smartsheet_row_id`` block (G-12-3)."""
+    return re.search(
+        r"IF\s+v_row\.value\s+~\*\s+'([^']+)'\s+THEN\s*"
+        r"RAISE EXCEPTION\s*'([^']+)'\s*,\s*"
+        r"v_row\.role,\s*v_row\.wr,\s*v_row\.week_ending,\s*v_row\.smartsheet_row_id",
+        body,
+        re.IGNORECASE | re.DOTALL,
+    )
+
+
+def _step3_function_body(sql_text: str) -> str:
+    """Slice the STEP 3 ``is_sentinel_value`` function body between its
+    SELECTION markers, so a check against it can never accidentally
+    match text elsewhere in the file. The START marker's own comment
+    line names the END marker in quotes ("select down to the 'STEP 3
+    SELECTION ENDS HERE' marker"), so the END search must start AFTER
+    that line -- otherwise it matches the self-reference instead of the
+    real end marker."""
+    start = sql_text.index("STEP 3 SELECTION STARTS HERE")
+    start_line_end = sql_text.index("\n", start)
+    end = sql_text.index("STEP 3 SELECTION ENDS HERE", start_line_end)
+    assert start_line_end < end, "STEP 3 SELECTION markers out of order or missing"
+    return sql_text[start_line_end:end]
+
+
+def _sentinel_literal_list(step3_body: str) -> list[str]:
+    """Parse the sentinel string literals from STEP 3's ``IN (...)``
+    vocabulary list."""
+    match = re.search(r"IN\s*\(([^)]*)\)", step3_body, re.DOTALL)
+    assert match, "no IN (...) sentinel literal list found in STEP 3 body"
+    return re.findall(r"'([^']*)'", match.group(1))
+
+
+class ExtensionGuardTests(unittest.TestCase):
+    """G-12-3: the validation loop must ALSO reject a proposed value
+    carrying a document file extension, in addition to the pre-existing
+    sentinel check -- ``is_sentinel_value`` normalizes whitespace and
+    underscores but not a trailing extension, so a placeholder that
+    arrives as a filename fragment (e.g. "Unknown Foreman.xlsx") scores
+    as a real name and slips past the sentinel-only guard."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.raw = _read_source(_SQL_RELPATH)
+        cls.body = _strip_sql_comments(cls.raw)
+
+    def test_rpc_raises_on_extension_bearing_proposed_value(self):
+        match = _extension_guard_match(self.body)
+        self.assertIsNotNone(
+            match,
+            "expected a validation-loop IF v_row.value ~* '<pattern>' "
+            "THEN RAISE EXCEPTION '<message>', v_row.role, v_row.wr, "
+            "v_row.week_ending, v_row.smartsheet_row_id block",
+        )
+        message = match.group(2)
+        self.assertIn("carries a file extension", message)
+        for token in ("role=%", "wr=%", "week_ending=%", "smartsheet_row_id=%"):
+            with self.subTest(token=token):
+                self.assertIn(token, message)
+
+    def test_sql_extension_list_matches_python_constant(self):
+        """Model: test_every_sentinel_claimer_appears_in_sql -- both
+        directions asserted so the Python and SQL extension lists can
+        never silently drift apart."""
+        from scripts.backfill_claim_time_attribution import (
+            _FILENAME_DOC_EXTENSION_RE,
+        )
+
+        match = _extension_guard_match(self.body)
+        self.assertIsNotNone(match)
+        sql_pattern = match.group(1)
+
+        sql_paren = re.search(r"\(([a-zA-Z|]+)\)", sql_pattern)
+        self.assertIsNotNone(
+            sql_paren, f"no extension alternation group in {sql_pattern!r}"
+        )
+        sql_tokens = set(sql_paren.group(1).split("|"))
+
+        python_paren = re.search(
+            r"\(\?:([a-zA-Z|]+)\)", _FILENAME_DOC_EXTENSION_RE.pattern
+        )
+        self.assertIsNotNone(
+            python_paren,
+            f"no extension alternation group in "
+            f"{_FILENAME_DOC_EXTENSION_RE.pattern!r}",
+        )
+        python_tokens = set(python_paren.group(1).split("|"))
+
+        for token in python_tokens:
+            with self.subTest(direction="python_to_sql", token=token):
+                self.assertIn(token, sql_tokens)
+        for token in sql_tokens:
+            with self.subTest(direction="sql_to_python", token=token):
+                self.assertIn(token, python_tokens)
+
+
+class Step3UnchangedTests(unittest.TestCase):
+    """The current-value targeting semantics must not move: STEP 3's
+    body still contains exactly the five sentinel literals and no
+    extension handling, proving this plan did not widen
+    ``is_sentinel_value``."""
+
+    def test_is_sentinel_value_body_unchanged(self):
+        raw = _read_source(_SQL_RELPATH)
+        step3 = _step3_function_body(raw)
+        literals = _sentinel_literal_list(step3)
+        self.assertEqual(
+            literals,
+            [
+                "unknown foreman",
+                "unknown",
+                "unknown helper",
+                "unknown vac crew",
+                "no match",
+            ],
+        )
+        self.assertNotIn("~*", step3)
+        self.assertNotIn("xlsx", step3.lower())
+        self.assertNotIn("file extension", step3.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
