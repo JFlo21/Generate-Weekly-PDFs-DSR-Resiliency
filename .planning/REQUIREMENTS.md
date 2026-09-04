@@ -273,14 +273,15 @@ CU pricing, rate recalculation, and billing formulas do not change.
   ladder observed_in_week → last_known_before_week → backfill → Unknown; sentinels
   (`Unknown Foreman`, `#NO MATCH`) are never stored as names.
 
-- [x] **OWN-02**: `freeze_row` / `resolve_claimer` treat the sentinel as no-claimer (the
+- [ ] **OWN-02**: `freeze_row` / `resolve_claimer` treat the sentinel as no-claimer (the
   2026-08-24 defect) and Subproject B/C/D partition by `wr_week_ownership`.
 
-- [x] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
+- [ ] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
   non-sentinel `attribution_snapshot`, and the 2025 `hash_history.json` foreman field;
   the 93 WRs / 5,824 rows frozen as `Unknown Foreman` are remediated and their
   `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
-  (WR 19073866 WE 082425–092125 → Avery Example).
+  (WR 89829163 WE 082425/083125/091425/092125 → a real name via `backfill_artifacts`;
+  D-12-D replaced the placeholder WR 19073866, which has no rows in any Supabase store).
 
 - [ ] **OWN-04**: The change to Foundation A's first-write-wins contract is documented in
   the Living Ledger and the runbook; helper/VAC roles follow the same ladder.
@@ -392,8 +393,8 @@ Which phases cover which requirements.
 | INC-04 | Phase 11 | Complete |
 | INC-05 | Phase 11 | Complete |
 | OWN-01 | Phase 12 | Pending |
-| OWN-02 | Phase 12 | Complete |
-| OWN-03 | Phase 12 | Complete |
+| OWN-02 | Phase 12 | Pending |
+| OWN-03 | Phase 12 | Pending |
 | OWN-04 | Phase 12 | Pending |
 | AUD-01 | Phase 13 | Pending |
 | AUD-02 | Phase 13 | Pending |
