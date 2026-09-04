@@ -253,9 +253,10 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
 
 ## Next
 
-1. Owner: squash-merge PR #387 (wave 1; #386 closed, targeting default confirmed 2026-09-03);
-   paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
-   denies every ClaudeOS write to that file).
+1. Owner: paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary
+   hook denies every ClaudeOS write to that file). PR #387 (wave 1) and #388 are both MERGED (checked 2026-09-04).
+   Work paused 2026-09-04 07:28 UTC: handoff in `.planning/HANDOFF.json` + the Phase 12 `.continue-here.md`
+   (`/gsd:resume-work`).
 2. PR #388 merged (`1f159bc`; 12-03 SQL fully applied and verified live). **Gap closure DONE** on
    `feat/phase-12-remediation` (12-07..12-10 ✓; D-12-C `defer`, D-12-D `substitute-89829163`; RPC STEP 4 + 5 live
    2026-09-04 05:37 UTC; `attribution_snapshot_backup_20260904` = 220,621 rows at 06:07 UTC, valid for the `--apply`

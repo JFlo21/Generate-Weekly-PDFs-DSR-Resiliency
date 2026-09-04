@@ -1,47 +1,49 @@
 {
   "version": "1.0",
-  "timestamp": "2026-09-03T07:14:11.038Z",
+  "timestamp": "2026-09-04T07:27:59.690Z",
   "phase": "12",
-  "phase_name": "Ownership — last known foreman as of the week",
+  "phase_name": "ownership-last-known-foreman-as-of-the-week",
   "phase_dir": ".planning/phases/12-ownership-last-known-foreman-as-of-the-week",
-  "plan": 1,
-  "task": 3,
-  "total_tasks": 3,
+  "plan": 6,
+  "task": 1,
+  "total_tasks": 4,
   "status": "paused",
   "completed_tasks": [
-    {"id": 1, "name": "12-01 Task 1: end-to-end dry-run tracer, source 4 only", "status": "done", "commit": "d49be6b"},
-    {"id": 2, "name": "12-01 Task 2: sources 1-3, conflict/unresolved/ordering rules", "status": "done", "commit": "7912fd2"},
-    {"id": 3, "name": "12-01 Task 3: --apply write path (backup precondition, RPC caller, never-overwrite)", "status": "done", "commit": "e047c02"},
-    {"id": 4, "name": "12-01 post-merge review fix round (named-sentinel targeting default, batched reads, None-read -> exit 7, .order() determinism, RPC count reconciliation)", "status": "done", "commit": "d922d29"}
+    {"id": "12-07", "name": "Source-3 filename parser: strip/reject document extension + proposed_value guard", "status": "done", "commit": "f14aa5c"},
+    {"id": "12-08", "name": "Owner decisions D-12-C (#NO MATCH scope = defer) and D-12-D (SC3 sample = substitute-89829163)", "status": "done", "commit": "83aa924"},
+    {"id": "12-09", "name": "RPC extension-refusal guard in billing_audit.backfill_attribution; STEP 4 + 5 applied live via Supabase MCP at Juan's instruction (2026-09-04 05:37 UTC)", "status": "done", "commit": "7bc2534"},
+    {"id": "12-10", "name": "Opus production-risk verdict pass; attribution_snapshot_backup_20260904 (220,621 rows, 06:07 UTC); scoped dry-run 0 extension-bearing of 235; Juan chose re-enter-12-06", "status": "done", "commit": "99de701"},
+    {"id": "close-out", "name": "OWN-02/OWN-03 reverted to Pending (5121c30); 12-06 SUMMARY status halted -> blocked (7ce962a); code-quality report (634d93b); ledgers (ff3efb1, 45e9458)", "status": "done", "commit": "45e9458"},
+    {"id": 1, "name": "12-06 Task 1: read-only pre-checks + full-population dry-run for Juan's verdict", "status": "in_progress", "progress": "First run rejected 2026-09-03 (source 3 proposed the literal Unknown Foreman.xlsx). Parser fixed in 12-07, RPC guard live, fresh backup exists. Full-population dry-run NOT yet re-run; scoped proof only (WR 89732091 x 7 weeks: 0 proposed / 235 unresolved)."}
   ],
   "remaining_tasks": [
-    {"id": 5, "name": "12-02 (wave 2): CR-01 sentinel-cleanup predicate + WR-01 lazy AttachmentParentType import — protected cleanup path; executor note: align WR-01 to discovery.py's lazy Sheet/Folder import pattern, the plan's 'same path' wording is wrong", "status": "not_started"},
-    {"id": 6, "name": "12-03 (wave 2, autonomous:false): owner-deployed SQL — backup table, backfill_source/backfill_run_id columns, backfill_attribution(p_rows) RPC; Supabase schema = protected, Juan applies", "status": "not_started"},
-    {"id": 7, "name": "12-04 (wave 2, autonomous:false): source-5 cell-history job + .github/workflows/cell-history-backfill.yml — GitHub Actions = protected, Juan approves", "status": "not_started"},
-    {"id": 8, "name": "12-05 (wave 3): OWN-04 runbook page + ledger + docs tests", "status": "not_started"},
-    {"id": 9, "name": "12-06 (wave 4, autonomous:false): owner-run remediation — dry-run report review, --apply, source-5 cron, attachment replacement", "status": "not_started"}
+    {"id": 1, "name": "12-06 Task 1 (checkpoint:human-verify): re-run read-only checks + full dry-run; report must show 0 extension-bearing AND 0 hash-tailed proposals", "status": "in_progress"},
+    {"id": 2, "name": "12-06 Task 2 (checkpoint:decision): Juan's apply decision on the fresh dry-run report", "status": "not_started"},
+    {"id": 3, "name": "12-06 Task 3 (checkpoint:human-verify): same-UTC-day --apply with the dated backup present", "status": "not_started"},
+    {"id": 4, "name": "12-06 Task 4 (checkpoint:human-verify): post-run verification of attribution_snapshot provenance", "status": "not_started"},
+    {"id": "after", "name": "/gsd-verify-work 12 (reconcile G-12-3; file CR-01 and WR-01 as gaps) -> phase.complete 12", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "PR #387 (wave 1) and PR #386 (docs) are open and unmerged; wave 2 must branch from the merged master, not from feat/phase-12-ownership", "type": "human_action", "workaround": "merge #386 then #387 (either order is clean; if #387 first, close #386)"},
-    {"description": "Owner RPC billing_audit.backfill_attribution and the attribution_snapshot_backup_<YYYYMMDD> table do not exist; --apply returns exit 3 until plan 12-03 is applied by Juan", "type": "external", "workaround": "dry-run only until 12-03 lands"}
+    {"description": "attribution_snapshot_backup_20260904 satisfies the --apply same-UTC-day probe only before 2026-09-05 00:00 UTC (19:00 CDT 2026-09-04)", "type": "external", "workaround": "Re-run STEP 1 of billing_audit/own03_backfill_attribution.sql (dated backup) on apply day; never drop or overwrite an existing backup table"},
+    {"description": "CR-01 (12-REVIEW.md): _FILENAME_HASH_SUFFIX_RE expects a 6-hex tail but pipeline/excel.py:412 emits hexdigest()[:16]; a hash-tailed placeholder would pass every extension guard and be frozen as a real name", "type": "technical", "workaround": "Latent only: 0 of 116,906 live public.artifacts filenames carry any hash tail while SUPABASE_HASH_STORE_AUTHORITATIVE=1. 12-06 Task 1's dry-run report must be checked for hash-tailed proposed values; fix routes through /gsd-verify-work 12 as a gap (protected parser behavior)"},
+    {"description": "WR-01 (12-REVIEW.md): tests/test_own04_documentation.py pins D-12-C/D-12-D to the NEWEST living-ledger entry; any new bottom-append turns the push-gating suite red", "type": "technical", "workaround": "Do not append memory-bank/living-ledger.md until the test searches every entry; run that test after any ledger edit"}
   ],
   "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Confirm the named-sentinel-only targeting default (empty helper/vac_crew roles skipped unless --include-blank-roles)", "context": "Opus review finding 1: is_sentinel_claimer(None) is True, so blank roles were backfill targets and source 2 would have copied the primary's name into them at --apply time; the fix made named sentinels the default", "blocking": true},
-    {"action": "Merge PR #386 then PR #387", "context": "wave 1 lives on feat/phase-12-ownership; GSD tracking commits are on that branch, not master", "blocking": true},
-    {"action": "Paste the FROZEN MIRROR header into AGENTS.md by hand (text in PR #385 body / .claude/project-state.md)", "context": "harness-boundary hook denies every ClaudeOS write to AGENTS.md", "blocking": false},
-    {"action": "Confirm live attribution_snapshot column names, then apply billing_audit/own03_backfill_attribution.sql (plan 12-03)", "context": "Supabase schema/RPC is owner-deployed only", "blocking": true},
-    {"action": "Triage 16 Dependabot alerts on master (11 high)", "context": "GitHub push output 2026-09-03", "blocking": false},
-    {"action": "Decide: full /gsd-core:docs-update generation; track-or-ignore .agents/skills, .serena/project.yml, .planning/state.json, website/.claude; delete-or-keep replit.md, Copilot-Processing.md, wiki.md; April-2026 token rotation confirmation", "context": "open owner items carried in .claude/project-state.md", "blocking": false}
+    {"action": "Review the full-population 12-06 dry-run report and give the apply verdict (12-06 Task 2)", "context": "OWN-03 live remediation is owner-run; every live step is a blocking-human checkpoint", "blocking": true},
+    {"action": "If the apply slips past 2026-09-05 00:00 UTC, re-run STEP 1 (dated backup) before --apply", "context": "The --apply probe requires a same-UTC-day backup table", "blocking": true},
+    {"action": "Confirm the RLS policies on billing_audit.attribution_snapshot deny anon/authenticated DML (they hold full grants behind RLS)", "context": "Seen live during 12-03 verification; security item, not on the 12-06 path", "blocking": false},
+    {"action": "Paste the FROZEN MIRROR header into AGENTS.md by hand (text in the PR #385 body)", "context": "The harness-boundary hook denies every ClaudeOS write to that file", "blocking": false}
   ],
   "decisions": [
-    {"decision": "Execute Phase 12 wave 1 only (--wave 1 semantics), on a dedicated branch feat/phase-12-ownership off origin/master, then PR", "rationale": "branching_strategy is none; running GSD verbs on local master previously created a 15-commit divergence; waves 2-4 touch protected areas that need Juan", "phase": "12"},
-    {"decision": "Named-sentinel-only targeting is the default; --include-blank-roles restores blank-role targeting (pending Juan's confirmation)", "rationale": "OWN-03's scope is the 5,824-row 'Unknown Foreman' defect; proposing names into roles that never existed fabricates attribution", "phase": "12"},
-    {"decision": "Independent Opus production-risk review is a mandatory gate before any PR that can write attribution_snapshot", "rationale": "plan-checker, executor self-check, and the haiku must_haves rubric all passed while the Opus review found three HIGH defects", "phase": "12"},
-    {"decision": "with_retry() returning None is a read failure (exit 7), never 'no evidence'", "rationale": "silent [] degradation would let lower-fidelity sources win and be written in the same run", "phase": "12"},
-    {"decision": "PR #386's docs commit was cherry-picked into feat/phase-12-ownership", "rationale": "identical hunks in both PRs merge cleanly in either order", "phase": "12"}
+    {"decision": "D-12-C: #NO MATCH scope for OWN-03 = defer (945 rows stay out; no --include-blank-roles)", "rationale": "Those rows already read as no-history via resolve_claimer; scope belongs to a later phase", "phase": "12"},
+    {"decision": "D-12-D: success-criterion-3 sample = WR 89829163 WE 082425/083125/091425/092125 via backfill_artifacts", "rationale": "Placeholder WR 19073866 has zero rows in every Supabase store", "phase": "12"},
+    {"decision": "12-06 re-entered by flipping its SUMMARY to status: blocked (Juan: re-enter-12-06)", "rationale": "halted still counts as summarized in the plan index; blocked is the only state that returns a plan to runnable", "phase": "12"},
+    {"decision": "verify_phase_goal / update_roadmap skipped at the end of the gaps-only run", "rationale": "Phase incomplete by design until 12-06 applies", "phase": "12"},
+    {"decision": "CR-01 and WR-01 are NOT fixed in this run; they route through /gsd-verify-work 12 as gaps", "rationale": "Code-review gate is advisory, both are outside --gaps-only scope, and the parser regex is protected extraction behavior", "phase": "12"},
+    {"decision": "No living-ledger entry appended this session; lessons went to the vault (guardrail-allowlist-and-gsd-ops-lessons section 11)", "rationale": "WR-01 would turn the push gate red", "phase": "12"}
   ],
   "uncommitted_files": [],
-  "next_action": "After PR #387 merges: git checkout master && git pull, create a fresh branch off origin/master (e.g. feat/phase-12-wave-2), then /clear and /gsd-execute-phase 12 (resumes at wave 2; expect pauses for 12-03 SQL and 12-04 workflow).",
-  "context_notes": "Wave 1 is complete and reviewed. STATE.md/ROADMAP.md show 12-01 complete (commit 9d93963 on the phase branch). The executor's 12-01-SUMMARY.md carries a 'Post-merge review fixes' addendum. Deferred design items for 12-06: --from-report approval binding; export a public ROLE_BY_VARIANT from billing_audit/writer.py instead of duplicating it (12-02 candidate). Line-length residual (~24 script / ~21 test lines > 79 cols) is cosmetic; python-lint is warn-only."
+  "next_action": "/clear then /gsd-execute-phase 12 — the plan index lists 12-06 as the only runnable plan; it resumes at Task 1 (read-only checks + full-population dry-run, report outside the repo, never --apply or --i-approved-this without Juan's Task 2 verdict).",
+  "context_notes": "Gaps-only run closed on feat/phase-12-remediation at HEAD 45e9458; nothing pushed; tree clean apart from four pre-existing untracked dirs (.agents/, .planning/state.json, .serena/, website/.claude/). PR #387 and #388 are both MERGED. Executors were dispatched sequentially (worktree isolation degraded: HEAD ahead of origin/HEAD) with a ~104 KB context bundle file they Read first. Executors must never use the Supabase MCP or run DDL; only the orchestrator does, on Juan's explicit instruction. Avoid the token 'review' in any gsd-tools argument (harness-boundary hook). Touch ledgers with the Edit tool so the context-continuity Stop hook sees them."
 }
