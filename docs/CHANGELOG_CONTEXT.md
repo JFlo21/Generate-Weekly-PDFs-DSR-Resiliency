@@ -472,3 +472,9 @@ comment-only diff gates exit 0. No agent, script, or MCP tool executed any SQL.
 **Open:** 12-09 Task 3 (Juan's live apply + four read-backs), then wave 3 = 12-10, then 12-06 re-entry.
 **Ledger commits this run:** `360fde7` (12-07), `27787cc` (wave 1 close), `f2765fc` (12-09 code); the orchestrator
 paused at the 12-09 owner-apply checkpoint with a clean tracked tree.
+**Live apply (2026-09-04 05:36–05:37 UTC):** Juan asked the main session to run STEP 4 for him; it applied STEP 4
+(DROP + CREATE, the exact marker selection) and then STEP 5 + `NOTIFY pgrst` via the Supabase MCP on the billing
+project, STEPs 1–3 untouched, no RPC call. Read-backs: EXECUTE held by `postgres` + `service_role` only (`proacl`
+`{postgres=X/postgres,service_role=X/postgres}`, anon/authenticated false), extension guard present in
+`pg_get_functiondef`, `backfill_run_id IS NOT NULL` = 0, snapshot 220,621 rows unchanged. Juan `approved`. Recorded
+in 12-09-SUMMARY as an owner-authorized deviation from "Juan applies by hand".

@@ -29,7 +29,7 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
 
-## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure running on `feat/phase-12-remediation` (12-07 ✓, 12-08 ✓, 12-09 code ✓ — Juan's live SQL apply pending)
+## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure running on `feat/phase-12-remediation` (12-07 ✓, 12-08 ✓, 12-09 ✓ live 2026-09-04; 12-10 next)
 
 - **2026-09-03 late night → 2026-09-04 — `/gsd-execute-phase 12 --gaps-only` IN PROGRESS (wave 2 of 3, sequential on
   `feat/phase-12-remediation`; worktree base-check degraded because HEAD is ahead of `origin/HEAD`; ledger commits
@@ -51,10 +51,13 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   also raises when a proposed `value` ends in `xlsx|xlsm|xls|csv|pdf|json` (case-insensitive), pinned to 12-07's
   `_FILENAME_DOC_EXTENSION_RE` by the contract test (25/25); `is_sentinel_value`, STEP 5 REVOKE/GRANT, RETURNS
   TABLE, `p_rows` list and the three UPDATEs untouched (diff gates exit 0); `schema.sql` documents the two-ground
-  refusal (comment-only). Suite 2,117 passed / 1 skipped / 441 subtests. **Task 3 = blocking-human checkpoint
-  awaiting Juan:** re-run STEP 4 (whole selection) then STEP 5 in the Supabase SQL editor, `NOTIFY pgrst`, and
-  report apply time (UTC), EXECUTE holders (must be `postgres` + `service_role` only), guard present in
-  `pg_get_functiondef`, and `backfill_run_id IS NOT NULL` count (must stay 0). No SUMMARY yet.
+  refusal (comment-only). Suite 2,117 passed / 1 skipped / 441 subtests. **Task 3 APPLIED LIVE 2026-09-04 05:37 UTC**
+  by the main session through the Supabase MCP at Juan's explicit instruction ("you run step 4 for me") — STEP 4
+  (DROP + CREATE) then STEP 5 REVOKE/GRANT + `NOTIFY pgrst` on `poeyztlmsawfoqlanucc`; STEPs 1–3 not re-run.
+  Read-backs: EXECUTE anon=false / authenticated=false / postgres=true / service_role=true, `proacl`
+  `{postgres=X/postgres,service_role=X/postgres}`, extension guard present in `pg_get_functiondef`,
+  `backfill_run_id IS NOT NULL` = 0, snapshot 220,621 rows unchanged; no RPC call made. Juan replied `approved`;
+  continuation executor closes 12-09 (SUMMARY + STATE/ROADMAP; deviation = owner-authorized MCP apply).
   Still to run: 12-09 (Juan applies the RPC extension guard, STEP 4 + STEP 5), 12-10 (Opus production-risk review
   of 12-07 + 12-09, fresh same-UTC-day backup, zero-defect live dry-run), then 12-06 re-entry at Task 1. The
   `.continue-here.md` blocking constraint was acknowledged: no PR carrying 12-07/12-09 before the Opus review
@@ -213,8 +216,8 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
    paste the `FROZEN MIRROR` header into `AGENTS.md` by hand (text in the PR #385 body; the harness-boundary hook
    denies every ClaudeOS write to that file).
 2. PR #388 merged (`1f159bc`; 12-03 SQL fully applied and verified live). **Gap closure in progress** on
-   `feat/phase-12-remediation` (`/gsd-execute-phase 12 --gaps-only`: 12-07 ✓, 12-08 ✓ (`defer`, `substitute-89829163`); 12-09 code ✓ — Juan
-   applies STEP 4 + STEP 5 live and reports back (blocking-human), 12-10 Opus review + fresh backup + dry-run proof) → re-run 12-06 (Task 1 re-runs the cheap read-only checks and MUST re-create the backup table
+   `feat/phase-12-remediation` (`/gsd-execute-phase 12 --gaps-only`: 12-07 ✓, 12-08 ✓ (`defer`, `substitute-89829163`); 12-09 ✓ (STEP 4 + 5 live
+   2026-09-04 05:37 UTC via MCP at Juan's instruction, Juan `approved`), 12-10 Opus review + fresh backup + dry-run proof) → re-run 12-06 (Task 1 re-runs the cheap read-only checks and MUST re-create the backup table
    on apply day — live already drifted 226 rows past `attribution_snapshot_backup_20260903`; then dry-run review →
    apply decision → same-UTC-day apply → post-run check); restore the Sunday cron only together with a real
    candidate source. After 12-06: `/gsd-verify-work 12` → `phase.complete 12`. Owner security item seen live:
