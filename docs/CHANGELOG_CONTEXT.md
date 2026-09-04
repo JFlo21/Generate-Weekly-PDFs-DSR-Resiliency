@@ -495,3 +495,7 @@ ships to a PR without this gate.
 **Operator impact:** none yet; the 12-06 apply must be re-approved on a fresh dry-run.
 **Open:** 12-10 Task 2 (Juan: fresh `attribution_snapshot_backup_20260904`, same UTC day as the apply), Task 3
 (scoped read-only dry-run with zero extension-bearing proposals, report outside the repo), then 12-06 re-entry.
+**Task 2 done (2026-09-04 06:07:36 UTC):** at Juan's choice the main session ran STEP 1 via the Supabase MCP —
+`attribution_snapshot_backup_20260904` created with 220,621 rows (= live), `service_role` SELECT granted, the
+2026-09-03 table (220,010 rows) left in place. The table satisfies the `--apply` probe only for an apply before
+2026-09-05 00:00 UTC; STEP 1 must be re-run if 12-06 slips past that.

@@ -64,8 +64,12 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   rubric; no fix round; 2 LOW notes — source-4 identifiers bypass the extension filter but are name segments, and
   the residual-extension reject also narrows the hash-suffixed path; residual risks recorded, incl. the
   pre-existing `_FILENAME_HASH_SUFFIX_RE` over-match on a six-hex-letter final name segment → separate ticket).
-  12-10 executor dispatched with the verdict; Tasks 2 (fresh `attribution_snapshot_backup_20260904`) and 3
-  (scoped read-only dry-run, zero extension-bearing proposals) are blocking-human.
+  12-10 Task 1 closed by the executor (suite 2,117, py_compile, `run_6_gates.sh` ALL 6 PASSED; review-only, no
+  commit). **Task 2 backup created 2026-09-04 06:07:36 UTC** by the main session via Supabase MCP at Juan's choice
+  ("Run STEP 1 for me via MCP"): `attribution_snapshot_backup_20260904` = 220,621 rows = live 220,621,
+  `service_role` SELECT granted, `_20260903` (220,010) untouched; valid only for an apply before 2026-09-05 00:00 UTC
+  (19:00 CDT 2026-09-04) — re-run STEP 1 if the 12-06 apply slips. Task 3 (scoped read-only dry-run on WR 89829163,
+  no `--include-blank-roles`, report outside the repo, zero extension-bearing proposals) is blocking-human.
   Still to run: 12-09 (Juan applies the RPC extension guard, STEP 4 + STEP 5), 12-10 (Opus production-risk review
   of 12-07 + 12-09, fresh same-UTC-day backup, zero-defect live dry-run), then 12-06 re-entry at Task 1. The
   `.continue-here.md` blocking constraint was acknowledged: no PR carrying 12-07/12-09 before the Opus review
