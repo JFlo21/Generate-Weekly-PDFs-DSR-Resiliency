@@ -1276,10 +1276,20 @@ def _build_apply_payload(
     matching ``_discover_sentinel_targets``'s targeting rule so the
     apply path never writes a proposal derived from a role that was
     never populated in the first place.
+
+    G-12-3: the guard now ALSO covers ``proposed_value``, not just
+    ``current_value``. A row is additionally skipped when its
+    ``proposed_value`` is itself a sentinel (``is_sentinel_claimer``)
+    or still carries a document extension (``_FILENAME_DOC_EXTENSION_RE``
+    -- belt and braces against any future source that leaks a filename
+    fragment). Skipped rows are never logged individually: report
+    values are claimer PII, so only an aggregate count is emitted via
+    one WARNING before this function returns.
     """
     from billing_audit.writer import is_sentinel_claimer
 
     payload: list[dict[str, Any]] = []
+    skipped_proposed_value_guard = 0
     for row in report_rows:
         if row.get("status") != "proposed":
             continue
@@ -1289,6 +1299,12 @@ def _build_apply_payload(
         else:
             is_target = _is_named_sentinel(current_value)
         if not is_target:
+            continue
+        proposed = row.get("proposed_value")
+        if is_sentinel_claimer(proposed) or _FILENAME_DOC_EXTENSION_RE.search(
+            str(proposed)
+        ):
+            skipped_proposed_value_guard += 1
             continue
         payload.append(
             {
@@ -1300,6 +1316,13 @@ def _build_apply_payload(
                 "backfill_source": row["source"],
                 "backfill_run_id": run_id,
             }
+        )
+    if skipped_proposed_value_guard:
+        logging.warning(
+            "⚠️ _build_apply_payload (G-12-3 guard) skipped "
+            f"{skipped_proposed_value_guard} proposed row(s) whose "
+            "proposed_value was a sentinel or carried a document "
+            "extension -- values are never logged."
         )
     return payload
 
