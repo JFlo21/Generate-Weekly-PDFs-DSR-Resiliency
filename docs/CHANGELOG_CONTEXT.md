@@ -452,3 +452,21 @@ OWN-03/OWN-04 Pending until the live backfill lands (12-09 / 12-10 / 12-06).
 416 subtests (37.8 s); py_compile; schema-drift, codebase-drift and UI wave-post gates clear.
 **Open:** wave 2 = 12-09 (RPC STEP 4 extension guard + contract test; Juan applies STEP 4 + STEP 5 live), wave 3 =
 12-10 (Opus production-risk review of 12-07 + 12-09, fresh same-UTC-day backup, zero-defect dry-run), then 12-06.
+
+## 2026-09-04 — Phase 12 gap closure wave 2: 12-09 RPC extension guard (code done; live apply awaiting Juan)
+**What:** `billing_audit/own03_backfill_attribution.sql` STEP 4 gains one more validation-loop guard: the RPC
+raises before any UPDATE when a proposed `value` carries a document file extension (`xlsx|xlsm|xls|csv|pdf|json`,
+case-insensitive), beside the existing sentinel guard. `tests/test_own03_backfill_sql_contract.py` pins that SQL
+list to `scripts/backfill_claim_time_attribution.py::_FILENAME_DOC_EXTENSION_RE` so the two layers cannot drift;
+`billing_audit/schema.sql` documents the amended two-ground refusal contract (comment-only change). Commits
+`f6aa6d9`, `b51faa0`, `5baed30`.
+**Why:** G-12-3's server-side half — `is_sentinel_value` never strips an extension, so `Unknown Foreman.xlsx`
+passed the guard written to stop it. Widening `is_sentinel_value` itself was ruled out: it also drives the
+per-role `UPDATE … WHERE` targeting.
+**Operator impact:** the file must be re-applied by hand: run STEP 4 as one selection (it starts with `DROP
+FUNCTION`), then the whole STEP 5 REVOKE/GRANT block (DROP resets the ACL), then `NOTIFY pgrst, 'reload schema'`;
+do not re-run STEPs 1–3. Verify EXECUTE is held by `postgres` + `service_role` only, the guard appears in
+`pg_get_functiondef`, and `backfill_run_id IS NOT NULL` still counts 0.
+**Verified:** contract tests 25/25; full suite 2,117 passed / 1 skipped / 441 subtests; protected-construct and
+comment-only diff gates exit 0. No agent, script, or MCP tool executed any SQL.
+**Open:** 12-09 Task 3 (Juan's live apply + four read-backs), then wave 3 = 12-10, then 12-06 re-entry.
