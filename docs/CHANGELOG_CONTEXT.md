@@ -478,3 +478,20 @@ project, STEPs 1–3 untouched, no RPC call. Read-backs: EXECUTE held by `postgr
 `{postgres=X/postgres,service_role=X/postgres}`, anon/authenticated false), extension guard present in
 `pg_get_functiondef`, `backfill_run_id IS NOT NULL` = 0, snapshot 220,621 rows unchanged. Juan `approved`. Recorded
 in 12-09-SUMMARY as an owner-authorized deviation from "Juan applies by hand".
+
+## 2026-09-04 — Phase 12 gap closure: 12-09 closed; 12-10 independent review PASS
+**What:** 12-09 closed (`f269f78` SUMMARY with the verbatim live read-backs, `786329b` STATE/ROADMAP; 9/10 Phase 12
+summaries). Wave 2 close gate: pytest 2,117 passed / 1 skipped / 441 subtests, py_compile, drift + UI gates clear.
+12-10 Task 1 — the independent production-risk review the `.continue-here.md` blocking constraint demands — ran as
+an orchestrator-dispatched, read-only Opus `production-risk-reviewer` (the GSD executor has no Agent tool) over the
+scoped diff `2c794a9..786329b` of the four fix files with the plan's 8-point rubric: **verdict `pass`, nothing
+requiring a fix.** LOW notes: source-4 identifiers reach `_resolve_single_name` without the extension filter but
+are sanitized name segments, never filenames; the new residual-extension reject sits on the shared tail, so the
+hash-suffixed path is strictly narrower, never wider. Residual risks: closed extension set (widen all three layers
+together if another writer appears); pre-existing `_FILENAME_HASH_SUFFIX_RE` eats a final six-hex-letter name
+segment (e.g. `Facade`) → separate ticket; the 12-06 dry-run report is no longer a valid approval artifact.
+**Why:** rubric verifiers passed 12-01 while an Opus review found real write-path defects; no attribution writer
+ships to a PR without this gate.
+**Operator impact:** none yet; the 12-06 apply must be re-approved on a fresh dry-run.
+**Open:** 12-10 Task 2 (Juan: fresh `attribution_snapshot_backup_20260904`, same UTC day as the apply), Task 3
+(scoped read-only dry-run with zero extension-bearing proposals, report outside the repo), then 12-06 re-entry.

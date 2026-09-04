@@ -29,7 +29,7 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
 
-## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure running on `feat/phase-12-remediation` (12-07 ✓, 12-08 ✓, 12-09 ✓ live 2026-09-04; 12-10 next)
+## Latest work (2026-09-03 evening) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure running on `feat/phase-12-remediation` (12-07 ✓, 12-08 ✓, 12-09 ✓ live 2026-09-04; 12-10 running — Opus review PASS)
 
 - **2026-09-03 late night → 2026-09-04 — `/gsd-execute-phase 12 --gaps-only` IN PROGRESS (wave 2 of 3, sequential on
   `feat/phase-12-remediation`; worktree base-check degraded because HEAD is ahead of `origin/HEAD`; ledger commits
@@ -57,7 +57,15 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   Read-backs: EXECUTE anon=false / authenticated=false / postgres=true / service_role=true, `proacl`
   `{postgres=X/postgres,service_role=X/postgres}`, extension guard present in `pg_get_functiondef`,
   `backfill_run_id IS NOT NULL` = 0, snapshot 220,621 rows unchanged; no RPC call made. Juan replied `approved`;
-  continuation executor closes 12-09 (SUMMARY + STATE/ROADMAP; deviation = owner-authorized MCP apply).
+  12-09 CLOSED by a continuation executor (`f269f78` SUMMARY, `786329b` STATE/ROADMAP; deviation recorded =
+  owner-authorized MCP apply). Wave 2 close gates: pytest 2,117 / 1 skipped / 441 subtests, py_compile, drift + UI
+  gates clear. **Wave 3 — 12-10 Task 1 independent Opus `production-risk-reviewer` = PASS** (orchestrator-dispatched
+  because the executor has no Agent tool; scoped diff `2c794a9..786329b` on the four files + the plan's 8-point
+  rubric; no fix round; 2 LOW notes — source-4 identifiers bypass the extension filter but are name segments, and
+  the residual-extension reject also narrows the hash-suffixed path; residual risks recorded, incl. the
+  pre-existing `_FILENAME_HASH_SUFFIX_RE` over-match on a six-hex-letter final name segment → separate ticket).
+  12-10 executor dispatched with the verdict; Tasks 2 (fresh `attribution_snapshot_backup_20260904`) and 3
+  (scoped read-only dry-run, zero extension-bearing proposals) are blocking-human.
   Still to run: 12-09 (Juan applies the RPC extension guard, STEP 4 + STEP 5), 12-10 (Opus production-risk review
   of 12-07 + 12-09, fresh same-UTC-day backup, zero-defect live dry-run), then 12-06 re-entry at Task 1. The
   `.continue-here.md` blocking constraint was acknowledged: no PR carrying 12-07/12-09 before the Opus review
