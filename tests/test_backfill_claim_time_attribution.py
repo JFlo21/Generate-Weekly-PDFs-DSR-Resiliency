@@ -179,6 +179,53 @@ def _artifact_row(
     }
 
 
+# ── Task 2: the two production filename shapes source 3 must handle
+# identically -- the legacy hash-suffixed shape this parser was
+# originally built for, and the live hash-less shape actually written
+# by scripts/publish_artifacts_to_supabase.py::_parse_stable (no
+# timestamp segment guarantee, no hash tail) that G-12-3 exposed as
+# untested. ─────────────────────────────────────────────────────────
+
+def _artifact_filename_shapes(
+    token: str, name: str, week_token: str = "082425",
+    hash_tail: str = "aabbcc",
+) -> list[tuple[str, str]]:
+    """Return ``[(shape_label, filename), ...]`` for ONE name segment
+    under both filename shapes."""
+    return [
+        (
+            "hash_suffixed",
+            f"WR_{_WR}_WeekEnding_{week_token}_120000{token}{name}_"
+            f"{hash_tail}.xlsx",
+        ),
+        (
+            "hashless",
+            f"WR_{_WR}_WeekEnding_{week_token}{token}{name}.xlsx",
+        ),
+    ]
+
+
+def _artifact_filename_shape_pairs(
+    token: str, name_a: str, name_b: str, week_token: str = "082425",
+) -> list[tuple[str, str, str]]:
+    """Return ``[(shape_label, filename_a, filename_b), ...]`` for TWO
+    distinct name segments (e.g. a conflict pair) under both shapes."""
+    return [
+        (
+            "hash_suffixed",
+            f"WR_{_WR}_WeekEnding_{week_token}_120000{token}{name_a}_"
+            "aabbcc.xlsx",
+            f"WR_{_WR}_WeekEnding_{week_token}_130000{token}{name_b}_"
+            "bbccdd.xlsx",
+        ),
+        (
+            "hashless",
+            f"WR_{_WR}_WeekEnding_{week_token}{token}{name_a}.xlsx",
+            f"WR_{_WR}_WeekEnding_{week_token}{token}{name_b}.xlsx",
+        ),
+    ]
+
+
 # ── Filter-aware fake Supabase client ─────────────────────────────────
 # Deliberately small and self-contained. Unlike a Mock() with hardcoded
 # return values, .eq()/.in_() calls here ACTUALLY narrow the row set,
@@ -1067,48 +1114,46 @@ class SourcesOneTwoThreeTests(unittest.TestCase):
     # ── Source 3 ────────────────────────────────────────────────────
 
     def test_source_3_single_name_resolves(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            exit_code = self._run(
-                tmp_dir,
-                rpc_rows=[_attribution_row("082425")],
-                artifacts_rows=[
-                    _artifact_row(
-                        "082425",
-                        "WR_19073866_WeekEnding_082425_120000_User_"
-                        "Avery_Example_aabbcc.xlsx",
-                    ),
-                ],
-            )
-            self.assertEqual(exit_code, 0)
-            row = self._first_row(tmp_dir)
-            self.assertEqual(row["status"], "proposed")
-            self.assertEqual(row["proposed_value"], "Avery Example")
-            self.assertEqual(row["source"], "backfill_artifacts")
-            self.assertEqual(row["name_fidelity"], "desanitized")
+        """Every source-3 case is exercised against BOTH filename
+        shapes (G-12-3, Task 2) -- the hash-suffixed legacy shape and
+        the hash-less live shape -- so the live shape can never again
+        go untested."""
+        for shape, filename in _artifact_filename_shapes(
+            "_User_", "Avery_Example"
+        ):
+            with self.subTest(shape=shape):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    exit_code = self._run(
+                        tmp_dir,
+                        rpc_rows=[_attribution_row("082425")],
+                        artifacts_rows=[_artifact_row("082425", filename)],
+                    )
+                    self.assertEqual(exit_code, 0)
+                    row = self._first_row(tmp_dir)
+                    self.assertEqual(row["status"], "proposed")
+                    self.assertEqual(row["proposed_value"], "Avery Example")
+                    self.assertEqual(row["source"], "backfill_artifacts")
+                    self.assertEqual(row["name_fidelity"], "desanitized")
 
     def test_source_3_two_names_conflict(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            exit_code = self._run(
-                tmp_dir,
-                rpc_rows=[_attribution_row("082425")],
-                artifacts_rows=[
-                    _artifact_row(
-                        "082425",
-                        "WR_19073866_WeekEnding_082425_120000_User_"
-                        "Avery_Example_aabbcc.xlsx",
-                    ),
-                    _artifact_row(
-                        "082425",
-                        "WR_19073866_WeekEnding_082425_130000_User_"
-                        "Pat_Example_bbccdd.xlsx",
-                    ),
-                ],
-            )
-            self.assertEqual(exit_code, 0)
-            row = self._first_row(tmp_dir)
-            self.assertEqual(row["status"], "conflict")
-            self.assertEqual(row["proposed_value"], "")
-            self.assertEqual(row["source"], "backfill_artifacts")
+        for shape, filename_a, filename_b in _artifact_filename_shape_pairs(
+            "_User_", "Avery_Example", "Pat_Example"
+        ):
+            with self.subTest(shape=shape):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    exit_code = self._run(
+                        tmp_dir,
+                        rpc_rows=[_attribution_row("082425")],
+                        artifacts_rows=[
+                            _artifact_row("082425", filename_a),
+                            _artifact_row("082425", filename_b),
+                        ],
+                    )
+                    self.assertEqual(exit_code, 0)
+                    row = self._first_row(tmp_dir)
+                    self.assertEqual(row["status"], "conflict")
+                    self.assertEqual(row["proposed_value"], "")
+                    self.assertEqual(row["source"], "backfill_artifacts")
 
     def test_source_3_matches_subcontractor_helper_token(self):
         """Rule 2 (missing critical functionality): the subcontractor
@@ -1117,58 +1162,93 @@ class SourcesOneTwoThreeTests(unittest.TestCase):
         plan's own enumerated token list named only the bare _Helper_
         token -- omitting them would silently under-cover subcontractor
         sheets, exactly the class of gap OWN-03 exists to close."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            rpc_row = _attribution_row("082425")
-            # Post-merge review fix: a blank helper is no longer a
-            # target by default -- use a NAMED sentinel so this row
-            # still qualifies (helper WAS populated once, then frozen
-            # sentinel, the realistic OWN-03 scenario).
-            rpc_row["helper"] = "Unknown Helper"
-            exit_code = self._run(
-                tmp_dir,
-                rpc_rows=[rpc_row],
-                artifacts_rows=[
-                    _artifact_row(
-                        "082425",
-                        "WR_19073866_WeekEnding_082425_120000_ReducedSub_"
-                        "Helper_Sam_Sample_aabbcc.xlsx",
-                        variant="reduced_sub_helper",
-                    ),
-                ],
-                roles="helper",
-            )
-            self.assertEqual(exit_code, 0)
-            row = self._first_row(tmp_dir)
-            self.assertEqual(row["proposed_value"], "Sam Sample")
-            self.assertEqual(row["source"], "backfill_artifacts")
+        for shape, filename in _artifact_filename_shapes(
+            "_ReducedSub_Helper_", "Sam_Sample"
+        ):
+            with self.subTest(shape=shape):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    rpc_row = _attribution_row("082425")
+                    # Post-merge review fix: a blank helper is no
+                    # longer a target by default -- use a NAMED
+                    # sentinel so this row still qualifies (helper WAS
+                    # populated once, then frozen sentinel, the
+                    # realistic OWN-03 scenario).
+                    rpc_row["helper"] = "Unknown Helper"
+                    exit_code = self._run(
+                        tmp_dir,
+                        rpc_rows=[rpc_row],
+                        artifacts_rows=[
+                            _artifact_row(
+                                "082425", filename,
+                                variant="reduced_sub_helper",
+                            ),
+                        ],
+                        roles="helper",
+                    )
+                    self.assertEqual(exit_code, 0)
+                    row = self._first_row(tmp_dir)
+                    self.assertEqual(row["proposed_value"], "Sam Sample")
+                    self.assertEqual(row["source"], "backfill_artifacts")
 
     def test_source_3_does_not_confuse_helper_with_reduced_sub_helper(self):
         """A bare _Helper_ filename must resolve only role=helper via the
         _Helper_ token -- NOT be double-counted as a reduced_sub_helper
         candidate too (specificity-ordered token matching, longest first)."""
+        for shape, filename in _artifact_filename_shapes(
+            "_Helper_", "Sam_Sample"
+        ):
+            with self.subTest(shape=shape):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    rpc_row = _attribution_row("082425")
+                    # Post-merge review fix: use a NAMED sentinel so
+                    # role "helper" is still a target under the new
+                    # default (blank-role-excluded) targeting rule.
+                    rpc_row["helper"] = "Unknown Helper"
+                    exit_code = self._run(
+                        tmp_dir,
+                        rpc_rows=[rpc_row],
+                        artifacts_rows=[
+                            _artifact_row(
+                                "082425", filename, variant="helper",
+                            ),
+                        ],
+                        roles="helper",
+                    )
+                    self.assertEqual(exit_code, 0)
+                    row = self._first_row(tmp_dir)
+                    self.assertEqual(row["proposed_value"], "Sam Sample")
+                    self.assertEqual(row["source"], "backfill_artifacts")
+
+    def test_source_3_hashless_two_sentinel_names_are_not_a_conflict(self):
+        """Two hash-less sentinel filenames -- formerly two DISTINCT
+        'names' only because the un-stripped .xlsx suffix defeated
+        is_sentinel_claimer -- must resolve to silence once the
+        extension is stripped, not a two-placeholder conflict. Pins
+        the 1,066-row conflict class the live report actually
+        produced, which was entirely extension-suffixed placeholder
+        pairs (G-12-3)."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            rpc_row = _attribution_row("082425")
-            # Post-merge review fix: use a NAMED sentinel so role
-            # "helper" is still a target under the new default
-            # (blank-role-excluded) targeting rule.
-            rpc_row["helper"] = "Unknown Helper"
             exit_code = self._run(
                 tmp_dir,
-                rpc_rows=[rpc_row],
+                rpc_rows=[_attribution_row("082425")],
                 artifacts_rows=[
                     _artifact_row(
                         "082425",
-                        "WR_19073866_WeekEnding_082425_120000_Helper_"
-                        "Sam_Sample_aabbcc.xlsx",
-                        variant="helper",
+                        "WR_19073866_WeekEnding_082425_User_"
+                        "Unknown_Foreman.xlsx",
+                    ),
+                    _artifact_row(
+                        "082425",
+                        "WR_19073866_WeekEnding_082425_User_"
+                        "Unknown_Helper.xlsx",
                     ),
                 ],
-                roles="helper",
             )
             self.assertEqual(exit_code, 0)
             row = self._first_row(tmp_dir)
-            self.assertEqual(row["proposed_value"], "Sam Sample")
-            self.assertEqual(row["source"], "backfill_artifacts")
+            self.assertNotEqual(row["status"], "conflict")
+            self.assertNotEqual(row["status"], "proposed")
+            self.assertFalse(row["proposed_value"])
 
     # ── Source 3: hash-less live filename shape (G-12-3) ───────────
 
