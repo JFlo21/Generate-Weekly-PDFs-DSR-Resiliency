@@ -273,10 +273,10 @@ CU pricing, rate recalculation, and billing formulas do not change.
   ladder observed_in_week → last_known_before_week → backfill → Unknown; sentinels
   (`Unknown Foreman`, `#NO MATCH`) are never stored as names.
 
-- [ ] **OWN-02**: `freeze_row` / `resolve_claimer` treat the sentinel as no-claimer (the
+- [x] **OWN-02**: `freeze_row` / `resolve_claimer` treat the sentinel as no-claimer (the
   2026-08-24 defect) and Subproject B/C/D partition by `wr_week_ownership`.
 
-- [ ] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
+- [x] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
   non-sentinel `attribution_snapshot`, and the 2025 `hash_history.json` foreman field;
   the 93 WRs / 5,824 rows frozen as `Unknown Foreman` are remediated and their
   `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
@@ -392,8 +392,8 @@ Which phases cover which requirements.
 | INC-04 | Phase 11 | Complete |
 | INC-05 | Phase 11 | Complete |
 | OWN-01 | Phase 12 | Pending |
-| OWN-02 | Phase 12 | Pending |
-| OWN-03 | Phase 12 | Pending |
+| OWN-02 | Phase 12 | Complete |
+| OWN-03 | Phase 12 | Complete |
 | OWN-04 | Phase 12 | Pending |
 | AUD-01 | Phase 13 | Pending |
 | AUD-02 | Phase 13 | Pending |
