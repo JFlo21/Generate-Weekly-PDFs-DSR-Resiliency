@@ -662,13 +662,16 @@ confirmation + fail-closed discovery semantics from PR #373's review fixes.
 
 1. First post-merge frequent run of this phase's PR completes all groups
    (no time-budget stop) with wall clock < ~75 min.
+
 2. Discovery phase (Phase 1) drops from ~67 min to low single-digit minutes
    on a run with no sheet changes; a changed/new sheet still gets full
    validation, and registry/Supabase unavailability falls back to full
    validation of every sheet.
+
 3. Group-processing per-group cost returns to ≲0.5 s/group with the skip gate
    still confirming existence against live Smartsheet listings (never
    group_state stubs), and transport failure still resolving to regenerate.
+
 4. Full suite + 6 gates green; no change-detection-key, grouping, filename,
    or attachment-cleanup behavior changes.
 
@@ -723,7 +726,7 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 10 plans — 5/6 of the original set executed; 12-06 HALTED at Task 1 (dry-run REJECTED
+**Plans:** 7/10 plans executed — 5/6 of the original set executed; 12-06 HALTED at Task 1 (dry-run REJECTED
 2026-09-03 — source-3 filename parser defect; 12-03 SQL applied live 2026-09-03). Gap-closure plans
 12-07 through 12-10 planned 2026-09-04 for G-12-3; 12-06 re-enters at Task 1 after 12-10.
 
@@ -744,13 +747,13 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run — HALTED at Task 1 (dry-run REJECTED 2026-09-03; see 12-06-SUMMARY.md)
+- [x] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run — HALTED at Task 1 (dry-run REJECTED 2026-09-03; see 12-06-SUMMARY.md)
 
 **Gap closure — G-12-3** *(source-3 filename parser defect; from 12-UAT.md)*
 
 *Wave 1 (parallel):*
 
-- [ ] 12-07-PLAN.md — Source-3 extension strip before the sentinel check, proposed-value guard in the apply payload builder, and fixtures rebuilt on the live hash-less filename shape
+- [x] 12-07-PLAN.md — Source-3 extension strip before the sentinel check, proposed-value guard in the apply payload builder, and fixtures rebuilt on the live hash-less filename shape
 - [ ] 12-08-PLAN.md — Owner scope decisions: the 945 `#NO MATCH` rows, and success criterion 3's known-good sample; recorded as D-12-C / D-12-D
 
 *Wave 2 (blocked on 12-07):*
@@ -768,10 +771,12 @@ Plans:
   `backfill_run_id` provenance columns; the table is deferred to Phase 13. The ladder as
   implemented is `observed_in_week → backfill_artifacts → backfill_hash_history → operator
   → sentinel`, with no cross-week rung (REQUIREMENTS.md OWN-01's wording is stale).
+
 - **D-12-B** — source 4 (`backfill_hash_history`) reads the Supabase hash store
   (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), NOT a JSON file. No
   `--hash-history` flag, no JSON fixture. Weeks never seen in a run since 2026-05-25 fall
   through to sources 3 and 5.
+
 - Source 5 (Smartsheet cell history) is INCLUDED (2026-09-02 00:35), as a separate capped
   off-hours job — never inside `generate_weekly_pdfs.py`. The "cell history optional,
   pending" phrase in the **Depends on** paragraph above predates that decision.

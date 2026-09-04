@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
+milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 12
 current_phase_name: Ownership — last known foreman as of the week
 status: executing
-stopped_at: Phase 12 gap-closure plans 12-07..12-10 READY (checker passed 3/3) after UAT gap G-12-3 — next /gsd-execute-phase 12 --gaps-only, then re-run 12-06 and /gsd-verify-work 12
-last_updated: "2026-09-03T22:47:35.255Z"
+stopped_at: "Completed 12-07-PLAN.md (G-12-3 source-3 half closed); next: 12-08/12-09/12-10 gap-closure plans, then re-run 12-06"
+last_updated: "2026-09-04T04:36:05.127Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 12 execution resumed (wave continue)
-state_head: 090c5dc2f410219b99ee1553d7d531124d61ba89
 progress:
   total_phases: 13
-  completed_phases: 4
-  total_plans: 56
-  completed_plans: 56
-  percent: 31
+  completed_phases: 11
+  total_plans: 60
+  completed_plans: 57
+  percent: 85
+state_head: 090c5dc2f410219b99ee1553d7d531124d61ba89
 ---
 
 # Project State
@@ -37,13 +37,13 @@ pipeline.
 
 Phase: 12 (Ownership — last known foreman as of the week) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 5 of 6 (12-02 … 12-05 complete; 12-03 SQL applied live 2026-09-03; 12-06 owner-run after merge)
+Plan: 6 of 6 (12-02 … 12-05 complete; 12-03 SQL applied live 2026-09-03; 12-06 owner-run after merge)
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
   typed skip index). Merged with 9 bot threads unresolved — see
   Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
-Status: Executing Phase 12
+Status: Ready to execute
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
   `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
@@ -89,7 +89,7 @@ Last activity: 2026-09-03 — Phase 12 execution resumed (wave continue)
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 50/50 plans (100%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
+Progress: [████████████████████] 50/50 plans ([██████████] 95%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
 ```
 
 ## Performance Metrics
@@ -148,6 +148,7 @@ Progress: [████████████████████] 50/50 p
 | Phase 11.1 P01 | ~30 min | 3 tasks | 6 files |
 | Phase 11.1 P02 | ~10min | 3 tasks | 3 files |
 | Phase 11.1 P04 | ~25min (Task 4 continuation) | 1 tasks | 5 files |
+| Phase 12 P07 | ~15min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -269,6 +270,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 11.1]: [Phase 11.1] 11.1-02: bulk attachment pre-seed (D-11.1-02) pre-seeds the existing _live_row_attachments memo from 2 bulk list_all_attachments calls before the group loop -- _live_row_attachments and both call sites left byte-for-byte unmodified; total_count pre-flight + 25000 ceiling fallback to today's lazy per-row path (D-11.1-05); Phase 11.1 both fixes complete on feat/11.1-runtime-remediation
 - [Phase 11.1]: [Phase 11.1] 11.1-04: G-11.1-4 residual (b) RESOLVED — bounded discovery validation read (row_numbers=[1,2,3], reused as sample-row cache) replaces the unbounded full-sheet download; PR #384 merged 13e8e76; production canary (skip-MISS run 33683979474) confirms Phase 1 37.7s (was 3,214-4,999s) and Python Duration 50.8min (< 75min SC-1); fix candidate (b) column-set-hash skip key stays DEFERRED, motivation removed by cheap-miss result
 - [Phase 12]: 12-06 Task 1: Juan REJECTED the OWN-03 live dry-run (reason: source-3 filename parser defect proposing 'Unknown Foreman.xlsx' as a real name for 4,070 rows); no --apply run; routed to /gsd:plan-phase 12 --gaps
+- [Phase ?]: 12-07: G-12-3 source-3 half closed -- _extract_claimer_from_filename now strips a trailing document extension when no hash suffix is present, and _build_apply_payload gained a defensive proposed_value guard; OWN-03 stays blocked pending 12-08/12-09/12-10 (shared-ID gate).
 
 ### Roadmap Evolution
 
@@ -287,6 +289,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - Phase 02 added (2026-05-26): v1.0 hotfix. Replaced the per-row
   `lookup_attribution` pre-passes with single bulk RPC.
+
 - Phase 11.1 inserted after Phase 11: Post-INC-05 Runtime Remediation (URGENT)
 
 ### Blockers/Concerns
@@ -299,8 +302,10 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   the NEXT run's registry-version skip serves a stale mapping. Verify what
   `upsert_sheet_registry` writes on non-deep runs before trusting SC-2 skip counts; if
   real, the fail-closed remedy is to also compare a stored-mapping fingerprint.
+
 - ⚠️ [Phase 11.1] Copilot `pipeline/orchestrate.py:1339`: a missing `total_count` on the
   probe may bypass the 25000 ceiling and proceed to the unbounded `include_all=True` listing.
+
 - ⚠️ [Phase 11.1] Codex-connector P1 `orchestrate.py:2967`: pre-seed probe + listings run
   before the first `TIME_BUDGET_MINUTES` check. P2 `discovery.py:284`: registry mapping
   shape not validated before skip admission. Doc/test nits: STATE.md progress arithmetic
@@ -317,6 +322,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   could delete a real person's historical attachment when another real person later holds the same
   (wr, week, variant). Narrow the heuristic to the known sanitized error spellings (`_REF_`, `_INVALID`,
   `_NO_MATCH`, …) or de-sanitize before `is_sentinel_claimer`, plus a test with a leading-space name.
+
 - ⚠️ [Phase 12 / INC-06] WR-01 `pipeline/orchestrate.py`: top-level `from smartsheet.models.enums.
   attachment_parent_type import AttachmentParentType` — a future SDK relocation would break module
   import instead of degrading; `discovery.py` uses the lazy/defensive pattern for deep `smartsheet.models.*` paths.
@@ -357,6 +363,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - Vercel preview vs production hCaptcha keys: verify environment-scoped env var
   isolation before Phase 04 ships.
+
 - Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED). scripts/backfill_claim_time_attribution.py source 3 must strip file extensions before the sentinel check + add a proposed-value guard + rebuild fixtures from the real hash-less filename shape before 12-06 can re-run. See 12-06-SUMMARY.md.
 
 ### Quick Tasks Completed
@@ -434,9 +441,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-03T22:47:34.401Z
-**Stopped at:** Phase 12 Plan 06 HALTED at Task 1 (dry-run REJECTED) — gap-closure needed via /gsd:plan-phase 12 --gaps before re-run
-**Resume file:** .planning/phases/12-ownership-last-known-foreman-as-of-the-week/12-06-SUMMARY.md
+**Last session:** 2026-09-04T04:36:05.095Z
+**Stopped at:** Completed 12-07-PLAN.md (G-12-3 source-3 half closed); next: 12-08/12-09/12-10 gap-closure plans, then re-run 12-06
+**Resume file:** None
 
 ## Session Continuity
 
