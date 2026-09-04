@@ -51,9 +51,16 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   rows for WR 19073866; 0 via `backfill_hash_history`) and a scoped read-only live dry-run (WR 89732091 × 7
   weeks, report to scratchpad) reproduced it: exit 0, 235/235 rows propose `Unknown Foreman.xlsx`. UAT closed
   `status: diagnosed` (20 pass / 1 issue / 0 pending); gap `G-12-3` carries the root cause + 5 missing items
-  from 12-06-SUMMARY § Halted at Designed Stop (no debug agent — nothing to re-derive). Next: gsd-planner
-  gap-closure plans → plan-checker → `/gsd-execute-phase 12 --gaps-only` (Opus production-risk review before
-  any PR; the RPC proposed-value guard is owner-applied SQL) → re-run 12-06 on a fresh same-UTC-day backup.
+  from 12-06-SUMMARY § Halted at Designed Stop (no debug agent — nothing to re-derive). UAT + COVERAGE.md +
+  ledgers committed `1e7fc1d`. **Gap-closure planned (Opus gsd-planner, `67bda0e`):** 12-07 (source-3 extension
+  strip/reject + `_build_apply_payload` guard + hash-less fixtures, wave 1), 12-08 (owner decisions: `#NO MATCH`
+  scope, SC3 sample → D-12-C / D-12-D, wave 1), 12-09 (owner-applied SQL: extension check in the RPC validation
+  loop, wave 2), 12-10 (Opus production-risk review, fresh STEP 1 backup, zero-defect dry-run, re-entry into
+  12-06 Task 1, wave 3); all `gap_ids: [G-12-3]`. **Root-cause correction (verified, SQL line 320):** the RPC
+  already raises on a sentinel proposed value; the blindness is that `is_sentinel_value` never strips a file
+  extension, so `Unknown Foreman.xlsx` passes in both layers — 12-09 adds an extension check and leaves
+  `is_sentinel_value` byte-identical (it also drives the per-role `UPDATE … WHERE` targeting). Next:
+  plan-checker verdict → `/clear` → `/gsd-execute-phase 12 --gaps-only`.
 - **2026-09-03 night — 12-06 Task 1 read-only evidence (Juan asked the main session to run it):** dry-run for the
   plan's WR 19073866 exited 0 with 0 rows — that WR has zero rows in every Supabase store (snapshot, backup,
   group_state, row_state, row_event, group_content_hash, artifacts); the snapshot was never rebuilt (frozen_at from
