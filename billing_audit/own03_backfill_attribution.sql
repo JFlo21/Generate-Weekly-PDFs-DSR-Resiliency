@@ -27,6 +27,13 @@
 -- running it. Run `NOTIFY pgrst, 'reload schema';` after STEP 5 (also
 -- included at the end of this file) so PostgREST picks up the new
 -- function and grant immediately.
+--
+-- RE-APPLY NOTE (G-12-3, added after the 2026-09-03 first apply): an
+-- environment that already applied this file on 2026-09-03 re-runs
+-- STEP 4 and STEP 5 ONLY, to pick up the added extension guard in
+-- STEP 4's validation loop. STEP 1 through STEP 3 are unchanged by
+-- this amendment and must NOT be re-run. `NOTIFY pgrst, 'reload
+-- schema';` still follows STEP 5.
 -- ============================================================
 
 
@@ -320,6 +327,21 @@ BEGIN
         IF billing_audit.is_sentinel_value(v_row.value) THEN
             RAISE EXCEPTION
                 'backfill_attribution: proposed value for role=% (wr=% week_ending=% smartsheet_row_id=%) is a sentinel value, refusing to write it',
+                v_row.role, v_row.wr, v_row.week_ending, v_row.smartsheet_row_id;
+        END IF;
+        -- G-12-3: is_sentinel_value normalizes whitespace and
+        -- underscores but does NOT strip a trailing document
+        -- extension, so a placeholder that arrives as a filename
+        -- fragment (e.g. "Unknown Foreman.xlsx") scores as a real name
+        -- and slips past the guard above. This second guard closes
+        -- that gap server-side, independent of the Python caller --
+        -- the exact defect that produced 4,070 of 4,762 live source-3
+        -- proposals in the 12-06 dry-run. Never widens
+        -- is_sentinel_value itself; the proposed value is refused
+        -- BEFORE it reaches that predicate.
+        IF v_row.value ~* '\.(xlsx|xlsm|xls|csv|pdf|json)$' THEN
+            RAISE EXCEPTION
+                'backfill_attribution: proposed value for role=% (wr=% week_ending=% smartsheet_row_id=%) carries a file extension, refusing to write it',
                 v_row.role, v_row.wr, v_row.week_ending, v_row.smartsheet_row_id;
         END IF;
         IF v_row.backfill_source IS NULL
