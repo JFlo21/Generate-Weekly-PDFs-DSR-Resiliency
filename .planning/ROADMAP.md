@@ -726,7 +726,7 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 7/10 plans executed — 5/6 of the original set executed; 12-06 HALTED at Task 1 (dry-run REJECTED
+**Plans:** 8/10 plans executed — 5/6 of the original set executed; 12-06 HALTED at Task 1 (dry-run REJECTED
 2026-09-03 — source-3 filename parser defect; 12-03 SQL applied live 2026-09-03). Gap-closure plans
 12-07 through 12-10 planned 2026-09-04 for G-12-3; 12-06 re-enters at Task 1 after 12-10.
 
@@ -754,7 +754,7 @@ Plans:
 *Wave 1 (parallel):*
 
 - [x] 12-07-PLAN.md — Source-3 extension strip before the sentinel check, proposed-value guard in the apply payload builder, and fixtures rebuilt on the live hash-less filename shape
-- [ ] 12-08-PLAN.md — Owner scope decisions: the 945 `#NO MATCH` rows, and success criterion 3's known-good sample; recorded as D-12-C / D-12-D
+- [x] 12-08-PLAN.md — Owner scope decisions: the 945 `#NO MATCH` rows, and success criterion 3's known-good sample; recorded as D-12-C / D-12-D
 
 *Wave 2 (blocked on 12-07):*
 
