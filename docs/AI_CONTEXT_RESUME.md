@@ -18,6 +18,26 @@ _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot).
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
 >
+> **Snapshot 2026-09-04 (early) — `/gsd-execute-phase 12 --gaps-only` CLOSED: 12-07..12-10 done, 12-06 re-entrant.**
+> Three sequential waves on `feat/phase-12-remediation`, every gate green (pytest 2,117 / 1 skipped / 441 subtests,
+> `py_compile`, drift + UI gates no block, 6-gate harness ALL PASSED), nothing pushed. 12-07 strips exactly one
+> document extension from hash-less `public.artifacts` filenames and rejects any residual one; `_build_apply_payload`
+> guards `proposed_value`. 12-08 recorded Juan's D-12-C `defer` and D-12-D `substitute-89829163`. 12-09 added the
+> RPC extension-refusal guard (`is_sentinel_value` byte-identical); at Juan's instruction the main session applied
+> STEP 4 + 5 via the Supabase MCP (05:37 UTC, EXECUTE = `service_role` only). 12-10: orchestrator-run Opus
+> production-risk verdict `pass`; `attribution_snapshot_backup_20260904` = 220,621 rows (06:07 UTC, probe-valid
+> only before 2026-09-05 00:00 UTC); scoped dry-run WR 89732091 × 7 weeks → 0 proposed / 235 unresolved, 0
+> extension-bearing (was 235/235). Close-out: `5121c30` reverted the executor's premature OWN-02/OWN-03 Complete
+> marks; `7ce962a` flipped `12-06-SUMMARY.md` to `status: blocked` (the only re-entrant state); `634d93b` committed
+> the advisory code-quality report (1 blocker, 9 warnings, 2 info). **CR-01 (verified):** `_FILENAME_HASH_SUFFIX_RE`
+> matches a 6-hex tail while `pipeline/excel.py:412` emits `hexdigest()[:16]`, so a hash-tailed placeholder would
+> pass every guard; a read-only count shows 0 of 116,906 live artifact filenames carry any hash tail, so latent
+> while `SUPABASE_HASH_STORE_AUTHORITATIVE=1`. **WR-01 (verified):** `tests/test_own04_documentation.py` pins
+> D-12-C/D-12-D to the NEWEST living-ledger entry — do not append the ledger until it is fixed. Next: `/clear` →
+> `/gsd-execute-phase 12` runs 12-06 from Task 1 (dry-run must show 0 extension-bearing AND 0 hash-tailed proposals;
+> same-UTC-day apply) → `/gsd-verify-work 12` reconciles G-12-3 and files CR-01/WR-01 as gaps. Ledgers:
+> project-state `ff3efb1`, CHANGELOG_CONTEXT; vault project page + gsd-ops-lessons §11.
+>
 > **Snapshot 2026-09-03 (late) — Phase 12 UAT closed, gap G-12-3 diagnosed, gap-closure plans 12-07..12-10 READY.**
 > `/gsd-verify-work 12` on `feat/phase-12-remediation`: the `verify:pre` api-coverage gate blocked on the phase
 > `COVERAGE.md` inventory table (parsed as a matrix next to the valid no-external-API declaration) — table → list,
