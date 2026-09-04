@@ -417,3 +417,20 @@ tail; the RPC guard checks the current value only, so the apply would have froze
 Only 692 source-1 proposals (7 WRs) are sound. Also: `#NO MATCH` rows (945) are invisible to targeting via the
 lookup RPC, and the roadmap's sample WR 19073866 is a placeholder absent from Supabase. Root cause, gates that
 missed it, and rules: ledger `[2026-09-03 17:30]`. Next: `/gsd:plan-phase 12 --gaps`. No code changed.
+
+## 2026-09-03 — Phase 12 gap closure wave 1: 12-07 source-3 extension fix (branch `feat/phase-12-remediation`, in progress)
+**What:** `/gsd-execute-phase 12 --gaps-only` (sequential; the worktree base-check degraded because the branch is
+ahead of `origin/HEAD`) executed 12-07 in RED/GREEN pairs: `_extract_claimer_from_filename` now recognises the live
+hash-less `public.artifacts` filename shape, strips exactly one trailing document extension before the single
+`is_sentinel_claimer` call, and rejects any candidate still carrying one; the `_<6hex>.xlsx` hash-suffix path is
+untouched; `_build_apply_payload` gained a `proposed_value` sentinel/extension guard beside the existing
+`current_value` guard. Fixtures cover both filename shapes. Commits `8d27e36`…`f14aa5c`; `12-07-SUMMARY.md`.
+**Why:** G-12-3 — the rejected 12-06 dry-run proposed the literal `Unknown Foreman.xlsx` for 4,070 of 4,762 rows
+because the surviving extension defeated the sentinel classifier's normalisation.
+**Operator impact:** none on the scheduled run (`generate_weekly_pdfs.py`, `pipeline/*` untouched). The backfill
+script stays dry-run by default; `--apply` remains behind the owner RPC and the same-UTC-day backup probe.
+**Verified:** file suite 60/60 (10 subtests); full suite 2,107 passed / 1 skipped / 416 subtests; py_compile;
+diff confined to `scripts/backfill_claim_time_attribution.py` + `tests/test_backfill_claim_time_attribution.py`.
+**Open:** 12-08 (Juan's `#NO MATCH` scope + SC3 sample decisions, blocking-human), 12-09 (owner-applied RPC
+extension guard), 12-10 (Opus production-risk review of 12-07 + 12-09, fresh backup, zero-defect live dry-run),
+then 12-06 re-entry. No PR until the Opus review passes (`.continue-here.md` blocking constraint).
