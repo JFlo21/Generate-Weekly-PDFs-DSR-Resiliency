@@ -723,8 +723,9 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 5/6 executed; 12-06 HALTED at Task 1 (dry-run REJECTED 2026-09-03 — source-3 filename parser
-defect; gap-closure required via `/gsd:plan-phase 12 --gaps` before re-run; 12-03 SQL applied live 2026-09-03)
+**Plans:** 10 plans — 5/6 of the original set executed; 12-06 HALTED at Task 1 (dry-run REJECTED
+2026-09-03 — source-3 filename parser defect; 12-03 SQL applied live 2026-09-03). Gap-closure plans
+12-07 through 12-10 planned 2026-09-04 for G-12-3; 12-06 re-enters at Task 1 after 12-10.
 
 Plans:
 **Wave 1**
@@ -744,6 +745,21 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [ ] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run — HALTED at Task 1 (dry-run REJECTED 2026-09-03; see 12-06-SUMMARY.md)
+
+**Gap closure — G-12-3** *(source-3 filename parser defect; from 12-UAT.md)*
+
+*Wave 1 (parallel):*
+
+- [ ] 12-07-PLAN.md — Source-3 extension strip before the sentinel check, proposed-value guard in the apply payload builder, and fixtures rebuilt on the live hash-less filename shape
+- [ ] 12-08-PLAN.md — Owner scope decisions: the 945 `#NO MATCH` rows, and success criterion 3's known-good sample; recorded as D-12-C / D-12-D
+
+*Wave 2 (blocked on 12-07):*
+
+- [ ] 12-09-PLAN.md — Owner-applied SQL: an extension guard in the `backfill_attribution` validation loop, the Python/SQL list pin, and Juan's STEP 4 + STEP 5 re-apply
+
+*Wave 3 (blocked on 12-07, 12-08, 12-09):*
+
+- [ ] 12-10-PLAN.md — Independent production-risk review, a fresh same-UTC-day backup, a zero-defect verification dry-run, and re-entry into 12-06 at Task 1
 
 **Planning decisions (2026-09-02, supersede the stale wording above):**
 
