@@ -68,8 +68,12 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   commit). **Task 2 backup created 2026-09-04 06:07:36 UTC** by the main session via Supabase MCP at Juan's choice
   ("Run STEP 1 for me via MCP"): `attribution_snapshot_backup_20260904` = 220,621 rows = live 220,621,
   `service_role` SELECT granted, `_20260903` (220,010) untouched; valid only for an apply before 2026-09-05 00:00 UTC
-  (19:00 CDT 2026-09-04) — re-run STEP 1 if the 12-06 apply slips. Task 3 (scoped read-only dry-run on WR 89829163,
-  no `--include-blank-roles`, report outside the repo, zero extension-bearing proposals) is blocking-human.
+  (19:00 CDT 2026-09-04) — re-run STEP 1 if the 12-06 apply slips. **Task 3 dry-run DONE** (read-only, exit 0, exact
+  pre-fix scope WR 89732091 × 7 weeks, no `--include-blank-roles`, report in the system temp dir then deleted,
+  tree clean): 235 rows → 0 `proposed` / 235 `unresolved`; extension-bearing proposals 0 of 0 (was 235 of 235),
+  sentinel-classified 0 of 0, `rows_by_source` `{}` — the placeholder is gone but no source has a real name for
+  these rows, so the zero is vacuous; whether the 4,070 formerly-placeholder rows resolve via source 4 or end
+  unresolved is 12-06 Task 1's full-scope dry-run to show. Awaiting Juan's `re-enter-12-06` / `hold`.
   Still to run: 12-09 (Juan applies the RPC extension guard, STEP 4 + STEP 5), 12-10 (Opus production-risk review
   of 12-07 + 12-09, fresh same-UTC-day backup, zero-defect live dry-run), then 12-06 re-entry at Task 1. The
   `.continue-here.md` blocking constraint was acknowledged: no PR carrying 12-07/12-09 before the Opus review

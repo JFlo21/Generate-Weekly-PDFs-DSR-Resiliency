@@ -499,3 +499,9 @@ ships to a PR without this gate.
 `attribution_snapshot_backup_20260904` created with 220,621 rows (= live), `service_role` SELECT granted, the
 2026-09-03 table (220,010 rows) left in place. The table satisfies the `--apply` probe only for an apply before
 2026-09-05 00:00 UTC; STEP 1 must be re-run if 12-06 slips past that.
+**Task 3 done (same session):** read-only dry-run on the exact pre-fix scope (WR 89732091 × 7 weeks, no
+`--include-blank-roles`, report in the system temp dir then deleted, tree clean, exit 0): 235 rows → 0 `proposed`
+/ 235 `unresolved`, extension-bearing proposals 0 of 0 (was 235 of 235), sentinel-classified 0 of 0, no source
+produced a candidate. The placeholder is gone; the zero is vacuous on this scope because no source holds a real
+name for these rows — the full-population answer (how many of the 4,070 resolve via source 4) belongs to 12-06
+Task 1. Juan replied `re-enter-12-06`; 12-06 resumes at its Task 1 with Tasks 2–4 still behind his verdict.
