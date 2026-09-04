@@ -1754,6 +1754,67 @@ class ApplyPathTests(unittest.TestCase):
         payload = bf._build_apply_payload(rows, run_id="test-run")
         self.assertEqual(payload, [])
 
+    def test_apply_payload_drops_sentinel_proposed_value(self):
+        """G-12-3: a report row whose current_value is a named sentinel
+        (a legitimate target) but whose proposed_value is ALSO a
+        sentinel must never reach the payload."""
+        from scripts import backfill_claim_time_attribution as bf
+
+        rows = [
+            {
+                "wr": _WR, "week_ending": "2026-08-24",
+                "row_id": _ROW_IDS["082425"], "role": "primary",
+                "current_value": "Unknown Foreman",
+                "proposed_value": "Unknown Foreman",
+                "source": "backfill_artifacts", "status": "proposed",
+            },
+        ]
+        payload = bf._build_apply_payload(rows, run_id="test-run")
+        self.assertEqual(payload, [])
+
+    def test_apply_payload_drops_extension_bearing_proposed_value(self):
+        """G-12-3: the exact defect the live report contained --
+        proposed_value still carrying a document extension -- must
+        never reach the payload."""
+        from scripts import backfill_claim_time_attribution as bf
+
+        rows = [
+            {
+                "wr": _WR, "week_ending": "2026-08-24",
+                "row_id": _ROW_IDS["082425"], "role": "primary",
+                "current_value": "Unknown Foreman",
+                "proposed_value": "Unknown Foreman.xlsx",
+                "source": "backfill_artifacts", "status": "proposed",
+            },
+        ]
+        payload = bf._build_apply_payload(rows, run_id="test-run")
+        self.assertEqual(payload, [])
+
+    def test_apply_payload_keeps_real_proposed_value(self):
+        """A genuine real-name proposal still produces exactly one
+        payload entry with the seven existing keys unchanged."""
+        from scripts import backfill_claim_time_attribution as bf
+
+        rows = [
+            {
+                "wr": _WR, "week_ending": "2026-08-24",
+                "row_id": _ROW_IDS["082425"], "role": "primary",
+                "current_value": "Unknown Foreman",
+                "proposed_value": "Avery Example",
+                "source": "backfill_artifacts", "status": "proposed",
+            },
+        ]
+        payload = bf._build_apply_payload(rows, run_id="test-run")
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["value"], "Avery Example")
+        self.assertEqual(
+            set(payload[0].keys()),
+            {
+                "wr", "week_ending", "smartsheet_row_id", "role", "value",
+                "backfill_source", "backfill_run_id",
+            },
+        )
+
     def test_apply_payload_key_set_is_exact_seven_keys(self):
         from scripts import backfill_claim_time_attribution as bf
 
