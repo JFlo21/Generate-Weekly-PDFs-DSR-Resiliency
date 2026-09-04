@@ -726,7 +726,7 @@ approved as the next small PR.
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 8/10 plans executed — 5/6 of the original set executed; 12-06 HALTED at Task 1 (dry-run REJECTED
+**Plans:** 9/10 plans executed — 5/6 of the original set executed; 12-06 HALTED at Task 1 (dry-run REJECTED
 2026-09-03 — source-3 filename parser defect; 12-03 SQL applied live 2026-09-03). Gap-closure plans
 12-07 through 12-10 planned 2026-09-04 for G-12-3; 12-06 re-enters at Task 1 after 12-10.
 
@@ -758,7 +758,7 @@ Plans:
 
 *Wave 2 (blocked on 12-07):*
 
-- [ ] 12-09-PLAN.md — Owner-applied SQL: an extension guard in the `backfill_attribution` validation loop, the Python/SQL list pin, and Juan's STEP 4 + STEP 5 re-apply
+- [x] 12-09-PLAN.md — Owner-applied SQL: an extension guard in the `backfill_attribution` validation loop, the Python/SQL list pin, and Juan's STEP 4 + STEP 5 re-apply
 
 *Wave 3 (blocked on 12-07, 12-08, 12-09):*
 

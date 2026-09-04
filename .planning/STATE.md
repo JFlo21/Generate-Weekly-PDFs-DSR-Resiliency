@@ -5,15 +5,15 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 12
 current_phase_name: Ownership — last known foreman as of the week
 status: verifying
-stopped_at: Completed 12-08-PLAN.md
-last_updated: "2026-09-04T05:15:11.021Z"
+stopped_at: Completed 12-09-PLAN.md (Task 3 checkpoint resolved, live apply confirmed)
+last_updated: "2026-09-04T05:45:40.884Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 12 execution resumed (wave continue)
 progress:
   total_phases: 13
   completed_phases: 11
   total_plans: 60
-  completed_plans: 58
+  completed_plans: 59
   percent: 85
 state_head: 090c5dc2f410219b99ee1553d7d531124d61ba89
 ---
@@ -89,7 +89,7 @@ Last activity: 2026-09-03 — Phase 12 execution resumed (wave continue)
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 50/50 plans ([██████████] 97%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
+Progress: [████████████████████] 50/50 plans ([██████████] 98%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
 ```
 
 ## Performance Metrics
@@ -150,6 +150,7 @@ Progress: [████████████████████] 50/50 p
 | Phase 11.1 P04 | ~25min (Task 4 continuation) | 1 tasks | 5 files |
 | Phase 12 P07 | ~15min | 3 tasks | 2 files |
 | Phase 12 P08 | ~25min | 3 tasks | 4 files |
+| Phase 12 P09 | ~10min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -274,6 +275,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: 12-07: G-12-3 source-3 half closed -- _extract_claimer_from_filename now strips a trailing document extension when no hash suffix is present, and _build_apply_payload gained a defensive proposed_value guard; OWN-03 stays blocked pending 12-08/12-09/12-10 (shared-ID gate).
 - [Phase ?]: D-12-C (2026-09-04): #NO MATCH scope for OWN-03 is option defer
 - [Phase ?]: D-12-D (2026-09-04): ROADMAP SC3 known-good sample is option substitute-89829163
+- [Phase ?]: Owner-authorized deviation: Juan instructed the orchestrating session to apply 12-09 STEP 4 + STEP 5 via the Supabase MCP in his place; approved the live read-backs (EXECUTE postgres/service_role only, guard present, 0 rows written).
+- [Phase ?]: 12-09: requirements.mark-complete NOT run for OWN-03 -- 12-06/12-10 still pending, shared-ID gate applies.
 
 ### Roadmap Evolution
 
@@ -444,8 +447,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-04T05:15:10.982Z
-**Stopped at:** Completed 12-08-PLAN.md
+**Last session:** 2026-09-04T05:45:40.851Z
+**Stopped at:** Completed 12-09-PLAN.md (Task 3 checkpoint resolved, live apply confirmed)
 **Resume file:** None
 
 ## Session Continuity
