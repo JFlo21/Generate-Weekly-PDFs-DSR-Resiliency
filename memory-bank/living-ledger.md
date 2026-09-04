@@ -9285,3 +9285,25 @@ declaration on line 3 was already the intended, passing form. Fix: inventory tab
 unchanged); gate now `block: false`, `none_declared: true`. Rule: in this repo a `COVERAGE.md` that declares
 no external API must contain no markdown tables at all. UAT session `12-UAT.md` opened (21 entries: 18
 auto-passed from SUMMARY `coverage:` blocks, 3 human checkpoints).
+
+## [2026-09-04 10:05] Gap G-12-3 root cause and owner scope decisions D-12-C / D-12-D (12-08)
+
+G-12-3 root cause: the source-3 filename parser (`_extract_claimer_from_filename` in
+`scripts/backfill_claim_time_attribution.py`) kept the trailing document extension before the
+sentinel check ran, which defeated the sentinel match on both the Python
+(`billing_audit.writer.is_sentinel_claimer`) and SQL (`billing_audit.is_sentinel_value`) sides
+— fixed in 12-07 (`8dba6b6`).
+
+Two owner decisions closed the remaining scope questions before 12-10 can re-run:
+
+- **D-12-C** (2026-09-04) — the #NO MATCH scope for OWN-03 is option `defer`: the 945
+  `#NO MATCH` rows (935 primary + 10 helper) stay out of OWN-03's live remediation because
+  they already read as no-history via `resolve_claimer`; plan 12-10's re-run invocation does
+  not carry `--include-blank-roles`.
+- **D-12-D** (2026-09-04) — success criterion 3's known-good sample is option
+  `substitute-89829163`: the acceptance sample moves from the unprovable WR (zero rows in
+  every Supabase store) to WR 89829163 on WE 082425/083125/091425/092125, resolved through the
+  `backfill_artifacts` source.
+
+See `.planning/phases/12-ownership-last-known-foreman-as-of-the-week/12-08-SUMMARY.md` for
+Juan's verbatim wording on both decisions.

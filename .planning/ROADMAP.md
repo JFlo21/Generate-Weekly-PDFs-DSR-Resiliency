@@ -720,9 +720,9 @@ approved as the next small PR.
 2. Dry-run backfill report lists, per affected (WR, week), the proposed owner and its
    source; Juan approves before the live remediation.
 
-3. WR 19073866 WE 082425/083125/091425/092125 regenerate as `_User_Avery_Example` from the
-   `backfill_hash_history` source; no `_User__NO_MATCH` / `_User_Unknown_Foreman` churn
-   remains in the scheduled run (today: ~154 regenerations per run).
+3. WR 89829163 WE 082425/083125/091425/092125 regenerate under a real resolved name from the
+   `backfill_artifacts` source; no `_User__NO_MATCH` / `_User_Unknown_Foreman` churn remains
+   in the scheduled run. (Amended 2026-09-04 per D-12-D; see 12-08-SUMMARY.md.)
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
@@ -780,6 +780,16 @@ Plans:
 - Source 5 (Smartsheet cell history) is INCLUDED (2026-09-02 00:35), as a separate capped
   off-hours job — never inside `generate_weekly_pdfs.py`. The "cell history optional,
   pending" phrase in the **Depends on** paragraph above predates that decision.
+
+- **D-12-C** (2026-09-04) — the #NO MATCH scope for OWN-03 is option `defer`: the 945
+  `#NO MATCH` rows (935 primary + 10 helper) already read as no-history via `resolve_claimer`,
+  so they stay out of OWN-03's live remediation; plan 12-10's re-run invocation must NOT carry
+  `--include-blank-roles`.
+
+- **D-12-D** (2026-09-04) — success criterion 3's known-good sample is option
+  `substitute-89829163`: WR 19073866 has zero rows in every Supabase store the ladder reads,
+  so success criterion 3 above now names WR 89829163 (live-verified sentinel rows on WE
+  082425/083125/091425/092125) resolved through the `backfill_artifacts` source.
 
 ### Phase 13: Audit Memory
 
