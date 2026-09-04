@@ -1170,6 +1170,73 @@ class SourcesOneTwoThreeTests(unittest.TestCase):
             self.assertEqual(row["proposed_value"], "Sam Sample")
             self.assertEqual(row["source"], "backfill_artifacts")
 
+    # ── Source 3: hash-less live filename shape (G-12-3) ───────────
+
+    def test_source_3_hashless_sentinel_filename_yields_no_proposal(self):
+        """The live shape (no hash tail) carrying a placeholder must
+        NEVER produce a proposed value -- the defect Juan's REJECT
+        verdict named (G-12-3): the un-stripped ``.xlsx`` extension
+        used to defeat is_sentinel_claimer's normalization."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                artifacts_rows=[
+                    _artifact_row(
+                        "082425",
+                        "WR_19073866_WeekEnding_082425_User_"
+                        "Unknown_Foreman.xlsx",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertNotEqual(row["status"], "proposed")
+            self.assertFalse(str(row["proposed_value"]).endswith(".xlsx"))
+
+    def test_source_3_hashless_real_name_resolves(self):
+        """The live shape carrying a real name still resolves to the
+        desanitized name once the trailing extension is stripped."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exit_code = self._run(
+                tmp_dir,
+                rpc_rows=[_attribution_row("082425")],
+                artifacts_rows=[
+                    _artifact_row(
+                        "082425",
+                        "WR_19073866_WeekEnding_082425_User_"
+                        "Avery_Example.xlsx",
+                    ),
+                ],
+            )
+            self.assertEqual(exit_code, 0)
+            row = self._first_row(tmp_dir)
+            self.assertEqual(row["status"], "proposed")
+            self.assertEqual(row["proposed_value"], "Avery Example")
+            self.assertEqual(row["source"], "backfill_artifacts")
+            self.assertEqual(row["name_fidelity"], "desanitized")
+
+    def test_extract_claimer_rejects_residual_extension(self):
+        """A candidate that still carries a document extension after
+        one strip is rejected outright rather than proposed."""
+        from scripts import backfill_claim_time_attribution as bf
+
+        result = bf._extract_claimer_from_filename(
+            "WR_1_WeekEnding_082425_User_Avery_Example.xlsx.xlsx",
+            "_User_",
+        )
+        self.assertIsNone(result)
+
+    def test_extract_claimer_preserves_hash_suffix_behavior(self):
+        """The pre-existing hash-suffixed path is untouched."""
+        from scripts import backfill_claim_time_attribution as bf
+
+        result = bf._extract_claimer_from_filename(
+            "WR_1_WeekEnding_082425_120000_User_Avery_Example_aabbcc.xlsx",
+            "_User_",
+        )
+        self.assertEqual(result, "Avery_Example")
+
     # ── Precedence and no-cross-week ───────────────────────────────
 
     def test_source_1_wins_over_3_and_4_when_all_present(self):
