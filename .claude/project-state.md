@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-04 19:35 CDT (2026-09-05 00:35Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-05 00:50 CDT (2026-09-05 05:50Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -60,10 +60,14 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   now, helper/vac unchanged, provenance jsonb present + source-matched, vocabulary valid, total = updated. Observation:
   `backfill_run_id` = '' on all 1,758 (local run, no GITHUB_RUN_ID; `_compute_run_id()` normalizes to '') → low-severity
   provenance note for verify-work. Remaining: `Unknown Foreman` primary 4,071 (→ source 5), `#NO MATCH` 945 (D-12-C).
-  **Task 4 = observe Monday 2026-09-07's first `weekly-excel-generation.yml` run** (76 files / 30 WRs should regenerate
-  under real names; placeholder attachments removed by the sentinel-superseded gate; no PPP deletions; time budget).
-  ROADMAP SC3 sample must be re-decided before Task 4 step 2 (WR 89829163 unresolvable; candidates 89746993 / 89841789 /
-  89848991 / 90851321). Do NOT drop `_20260905` until Task 4 is verified. Evidence: scratchpad `own03_apply/`.**
+  **Task 4 = observe the first post-apply `weekly-excel-generation.yml` run = Sat 2026-09-05 15:00 UTC** (the workflow
+  has a weekend cron `0 15,19,23 * * 0,6`; 0 runs since the 03:45Z apply — last run 2026-09-04 23:13Z, 6 files, ~33 min
+  baseline). Juan typed `Verified` at ~05:40Z before any run existed → not accepted; he chose to wait. Expect ≈ 76 files
+  / 30 WRs regenerating under real names vs the 6-file baseline; placeholder attachments removed by the
+  sentinel-superseded gate; no PPP deletions; duration < 165 min; 3 WR spot-checks. Trigger: `check the run`.
+  ROADMAP SC3 sample must be re-decided (`sc3: <WR>`) before Task 4 step 2 (WR 89829163 unresolvable; candidates
+  89746993 / 89841789 / 89848991 / 90851321). Do NOT drop `_20260903` / `_20260904` / `_20260905` until Task 4 is
+  verified. Evidence: scratchpad `own03_apply/`.**
   **Read-only probe of `public.smartsheet_unified_history` (Juan's question, ~01:00–02:00 UTC):** audit-trigger change
   log of `smartsheet_unified` (~60.2M rows, captures start 2025-11-04 — after every affected week), plus an undocumented
   derived `smartsheet_unified_history_foreman` change-log (1.29M rows). Via the `row_state` bridge (5,820/5,829 rows →

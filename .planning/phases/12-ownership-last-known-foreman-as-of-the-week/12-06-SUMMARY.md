@@ -58,7 +58,7 @@ completed: 2026-09-03
 status: blocked
 ---
 
-# Phase 12 Plan 06: Ownership Attribution Live Remediation (OWN-03) — Tasks 1–3 DONE (live apply landed 2026-09-05 03:45 UTC); Task 4 pending Monday's scheduled run
+# Phase 12 Plan 06: Ownership Attribution Live Remediation (OWN-03) — Tasks 1–3 DONE (live apply landed 2026-09-05 03:45 UTC); Task 4 pending the first post-apply scheduled run (Sat 2026-09-05 15:00 UTC)
 
 **Re-run 2026-09-05 (after the G-12-3 gap closure 12-07..12-10): the full-scope read-only dry-run was clean — 1,758 proposed rows over 30 WRs / 76 pairs from 24 real names, 0 conflicts, 4,071 rows genuinely evidence-less, every G-12-3 / CR-01 guard at 0, every proposal matching its `public.artifacts` filename — Juan APPROVED it (`I approve`), chose `apply-full`, and said `Run it`. The orchestrator created the same-UTC-day backup `attribution_snapshot_backup_20260905` and ran the apply: 1,758 rows updated, 0 skipped, 0 errors, 0 differences on the 219,518 untouched rows, provenance total = updated. Task 4 (observe Monday 2026-09-07's first scheduled run) is the remaining gate. The 2026-09-03 first attempt below was REJECTED because source 3's filename parser proposed "Unknown Foreman.xlsx" as a real name for 4,070 rows; that record is preserved unchanged as history.**
 
@@ -181,7 +181,7 @@ Counts, WR numbers and source labels only — no claimer name recorded, per the 
 
 ### Task 4 — PENDING (blocking-human): verify the next scheduled run regenerates under real names and cleans up
 
-Not yet observable: the apply landed Friday 2026-09-04 22:45 CDT and `weekly-excel-generation.yml` runs on weekdays only, so the first post-apply scheduled run is Monday 2026-09-07. Expected: 76 (WR, week) files across 30 WRs regenerate under real names and their `_User_Unknown_Foreman` counterparts are removed by the sentinel-superseded gate; `sentinel_claimers_ignored` drops for those WRs; no PPP attachment deleted; run within `TIME_BUDGET_MINUTES`. ROADMAP SC3's sample must be re-decided first (WR 89829163 is unresolvable — see Task 1) so Task 4 step 2 can name a WR to inspect; candidates WR 89746993 (4 weeks), 89841789, 89848991, 90851321.
+Not yet observable: the apply landed Friday 2026-09-04 22:45 CDT (2026-09-05 03:45Z). `weekly-excel-generation.yml` also has a weekend cron (`0 15,19,23 * * 0,6`), so the first post-apply scheduled run is Saturday 2026-09-05 15:00 UTC; GitHub shows 0 runs since the apply (last run 2026-09-04 23:13Z produced 6 files in ~33 min — the baseline). Juan replied `Verified` at ~05:40Z, before any such run existed; the orchestrator did not accept it and Juan chose to wait for the 15:00Z run. Expected: 76 (WR, week) files across 30 WRs regenerate under real names and their `_User_Unknown_Foreman` counterparts are removed by the sentinel-superseded gate; `sentinel_claimers_ignored` drops for those WRs; no PPP attachment deleted; run within `TIME_BUDGET_MINUTES`. ROADMAP SC3's sample must be re-decided first (WR 89829163 is unresolvable — see Task 1) so Task 4 step 2 can name a WR to inspect; candidates WR 89746993 (4 weeks), 89841789, 89848991, 90851321.
 
 The 2026-09-03 first-attempt note below records why Tasks 2-4 did not run then: Task 1 recorded `reject`, so Task 2's precondition was unmet by design.
 
