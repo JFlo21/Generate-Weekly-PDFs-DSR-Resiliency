@@ -5,11 +5,11 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 12
 current_phase_name: Ownership — last known foreman as of the week
 status: verifying
-stopped_at: Completed 12-10-PLAN.md (all 3 tasks closed; 12-06 declared re-entrant from Task 1)
-last_updated: "2026-09-05T07:34:14.345Z"
+stopped_at: Phase 14 context gathered (planning-only; Phase 12 resume pointer preserved in .planning/HANDOFF.json)
+last_updated: "2026-09-05T07:50:17.317Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 12 execution resumed (wave continue)
-state_head: 61cab4d7ef654e97e061d92795be5a7c953f36ba
+state_head: 27ab07c8a6f4b88e60712e342b5c1934f57b705d
 progress:
   total_phases: 14
   completed_phases: 4
@@ -453,9 +453,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-04T06:44:08.975Z
-**Stopped at:** Completed 12-10-PLAN.md (all 3 tasks closed; 12-06 declared re-entrant from Task 1)
-**Resume file:** None
+**Last session:** 2026-09-05T07:50:16.457Z
+**Stopped at:** Phase 14 context gathered (planning-only; Phase 12 resume pointer preserved in .planning/HANDOFF.json)
+**Resume file:** .planning/phases/14-foreman-helper-2/14-CONTEXT.md
 
 ## Session Continuity
 
