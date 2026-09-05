@@ -36,6 +36,7 @@ key-decisions:
   - "D-12-D sample WR 89829163 is unresolvable (placeholder-only artifacts and hash identifiers) — ROADMAP SC3 needs a new sample; routed to the verify-work pass, not fixed inside 12-06"
   - "Task 2 (2026-09-05): Juan chose `apply-full` (verbatim) — apply the whole approved report (same --wr/--weeks scope as the dry-run, no --include-blank-roles); Task 3 requires a fresh same-UTC-day STEP 1 backup first"
   - "Whole-project read-only inventory: no Supabase store holds in-week Jul–Nov 2025 foreman evidence for the 4,071 unresolved rows; they route to source 5 (Smartsheet cell history) after the apply"
+  - "Task 3 (2026-09-05 03:43 UTC): live apply executed by the orchestrator at Juan's `Run it` after a fresh same-UTC-day STEP 1 backup (`attribution_snapshot_backup_20260905`, 221,276 rows): updated 1,758 / skipped_real_name 0 / skipped_no_row 0 / errors 0; 219,518 untouched rows show 0 differences vs the backup; provenance total 1,758 = updated; backfill_run_id is '' on local runs (note for verify-work)"
 
 patterns-established: []
 
@@ -57,9 +58,9 @@ completed: 2026-09-03
 status: blocked
 ---
 
-# Phase 12 Plan 06: Ownership Attribution Live Remediation (OWN-03) — Task 1 APPROVED on re-run; Tasks 2-4 pending
+# Phase 12 Plan 06: Ownership Attribution Live Remediation (OWN-03) — Tasks 1–3 DONE (live apply landed 2026-09-05 03:45 UTC); Task 4 pending Monday's scheduled run
 
-**Re-run 2026-09-05 (after the G-12-3 gap closure 12-07..12-10): the full-scope read-only dry-run is clean — 1,758 proposed rows over 30 WRs / 76 pairs from 24 real names, 0 conflicts, 4,071 rows genuinely evidence-less, every G-12-3 / CR-01 guard at 0, every proposal matching its `public.artifacts` filename — and Juan APPROVED it as-is (`I approve`). Task 2 (the apply decision) is the next gate. The 2026-09-03 first attempt below was REJECTED because source 3's filename parser proposed "Unknown Foreman.xlsx" as a real name for 4,070 rows; that record is preserved unchanged as history.**
+**Re-run 2026-09-05 (after the G-12-3 gap closure 12-07..12-10): the full-scope read-only dry-run was clean — 1,758 proposed rows over 30 WRs / 76 pairs from 24 real names, 0 conflicts, 4,071 rows genuinely evidence-less, every G-12-3 / CR-01 guard at 0, every proposal matching its `public.artifacts` filename — Juan APPROVED it (`I approve`), chose `apply-full`, and said `Run it`. The orchestrator created the same-UTC-day backup `attribution_snapshot_backup_20260905` and ran the apply: 1,758 rows updated, 0 skipped, 0 errors, 0 differences on the 219,518 untouched rows, provenance total = updated. Task 4 (observe Monday 2026-09-07's first scheduled run) is the remaining gate. The 2026-09-03 first attempt below was REJECTED because source 3's filename parser proposed "Unknown Foreman.xlsx" as a real name for 4,070 rows; that record is preserved unchanged as history.**
 
 ## Performance
 
@@ -155,9 +156,34 @@ status: blocked
 
 **Precondition carried into Task 3:** the run's UTC date must have a same-day backup. UTC rolled to 2026-09-05 before this decision, so `attribution_snapshot_backup_20260904` no longer satisfies the probe (exit 3); STEP 1 must create `attribution_snapshot_backup_20260905` (CREATE TABLE IF NOT EXISTS … AS SELECT + GRANT SELECT TO service_role) on the apply day, before 2026-09-06 00:00 UTC, or a later day's equivalent. Existing backups `_20260903` and `_20260904` are not to be dropped.
 
-### Tasks 3-4 — PENDING (blocking-human)
+### Task 3 (2026-09-05 03:40–04:15 UTC): Execute the live apply and verify no real name was touched — DONE
 
-Task 3 (execute the live apply and verify no real name was touched) and Task 4 (verify the next scheduled run) have not run. No production write has occurred yet. The 2026-09-03 first-attempt note below records why Tasks 2-4 did not run then: Task 1 recorded `reject`, so Task 2's precondition was unmet by design.
+**Who ran it:** the execute-phase orchestrator (main session), at Juan's explicit written instruction `Run it` (2026-09-04 ~22:40 CDT), after Task 2's `apply-full`. No executor touched live credentials.
+
+**STEP 1 backup (same UTC day, 03:40 UTC):** `CREATE TABLE IF NOT EXISTS billing_audit.attribution_snapshot_backup_20260905 AS SELECT * FROM billing_audit.attribution_snapshot;` + `GRANT SELECT … TO service_role;` via the Supabase MCP. VERIFY: `attribution_snapshot_backup_20260905` = 221,276 rows = live 221,276; `has_table_privilege('service_role', …, 'SELECT')` = true; `_20260904` (220,621) and `_20260903` (220,010) intact; 0 live rows carried `backfill_run_id` before the apply.
+
+**Apply invocation (03:43:29Z → 03:45:06Z, 97 s, exit 0):** `python scripts/backfill_claim_time_attribution.py --apply --i-approved-this --wr <207 WRs> --weeks <54 weeks> --report-dir <session scratchpad>/own03_apply` — the exact Task 1/Task 2 scope, no `--include-blank-roles`. 657 Supabase reads (all HTTP 200), 4 `rpc/backfill_attribution` calls, 0 local RPC-call failures, one expected report-dir WARNING. The apply re-resolved 5,829 sentinel rows to the same 1,758 proposed / 4,071 unresolved as the dry-run.
+
+**Step 2 — apply tallies (from the rewritten report summary):**
+- `updated` **1,758** · `skipped_real_name` **0** · `skipped_no_row` **0** · `skipped_client_side_real_name` **0** · `error` 0
+- updated by source: `backfill_artifacts` 1,066 / `live` 692 · role: primary only · 30 WRs · 76 (WR, week) pairs · 24 distinct names
+- updated-value guards: extension-bearing 0 · hash-tailed 0
+
+**Step 3 — no real name overwritten (read-only SQL at 04:15 UTC, live vs `attribution_snapshot_backup_20260905`):** rows with `backfill_run_id IS NULL` = 219,518; differences on `frozen_primary` **0**, `frozen_helper` **0**, `frozen_vac_crew` **0**; rows missing in backup 0; backup rows missing in live 0; live and backup both 221,276 rows. For the 1,758 touched rows: every backup value was a sentinel (1,758/1,758), every live value is now non-sentinel (0 still sentinel), `frozen_helper` / `frozen_vac_crew` unchanged on all 1,758, no extension or hash tail in any written name.
+
+**Step 4 — provenance landed:** `backfill_source` breakdown `{live: 692, backfill_artifacts: 1,066}` = **1,758 = the `updated` tally**; every value in the five-member vocabulary; `backfill_provenance` carries a `primary` entry whose `source` matches `backfill_source` on 1,758/1,758. **Observation:** `backfill_run_id` is the empty string `''` on all 1,758 rows (not NULL — the RPC's `IS NOT NULL` identity still holds) because `_compute_run_id()` returns `''` when `GITHUB_RUN_ID` is absent, i.e. for a local operator run. Rows remain identifiable by `backfill_run_id IS NOT NULL` and by `backfill_provenance`, but the run id carries no value; route to `/gsd-verify-work 12` as a low-severity provenance note (a local-run identifier such as a UTC timestamp would close it), not a blocker.
+
+**Step 5 — backup retained:** `attribution_snapshot_backup_20260905` not dropped (nor `_20260903` / `_20260904`); keep until Task 4 verifies the post-apply scheduled run.
+
+**Remaining sentinel population after the apply:** `Unknown Foreman` primary 4,071 (the evidence-less set → source 5), `#NO MATCH` primary 935 + helper 10 (deferred, D-12-C).
+
+Counts, WR numbers and source labels only — no claimer name recorded, per the plan's prohibition. Evidence: session scratchpad `own03_apply/` (report, run log, `analyze_apply.py`, `evidence_12-06_task3.md`).
+
+### Task 4 — PENDING (blocking-human): verify the next scheduled run regenerates under real names and cleans up
+
+Not yet observable: the apply landed Friday 2026-09-04 22:45 CDT and `weekly-excel-generation.yml` runs on weekdays only, so the first post-apply scheduled run is Monday 2026-09-07. Expected: 76 (WR, week) files across 30 WRs regenerate under real names and their `_User_Unknown_Foreman` counterparts are removed by the sentinel-superseded gate; `sentinel_claimers_ignored` drops for those WRs; no PPP attachment deleted; run within `TIME_BUDGET_MINUTES`. ROADMAP SC3's sample must be re-decided first (WR 89829163 is unresolvable — see Task 1) so Task 4 step 2 can name a WR to inspect; candidates WR 89746993 (4 weeks), 89841789, 89848991, 90851321.
+
+The 2026-09-03 first-attempt note below records why Tasks 2-4 did not run then: Task 1 recorded `reject`, so Task 2's precondition was unmet by design.
 
 ## Files Created/Modified
 

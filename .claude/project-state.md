@@ -51,11 +51,19 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   Task 3 needs a fresh STEP 1 (`_20260905`, valid to 2026-09-06 00:00 UTC) — not created. No executor dispatched; tree
   unchanged apart from the pre-existing claude-mem docs edits. Evidence: scratchpad `own03_dryrun/evidence_12-06_task1.md`.
   **Juan: `I approve` (Task 1) → recorded + committed `9fab1ab`. Task 2: Juan `apply-full` (2026-09-05 ~02:45 UTC) →
-  recorded in 12-06-SUMMARY. Task 3 (live apply) is NEXT and blocked only on the same-UTC-day backup: STEP 1 must create
-  `attribution_snapshot_backup_20260905` (CREATE … AS SELECT + GRANT SELECT TO service_role) then
-  `python scripts/backfill_claim_time_attribution.py --apply --i-approved-this --wr <207> --weeks <54> --report-dir <outside repo>`
-  on the same UTC day; scope lists in the session scratchpad `own03_dryrun/scope_*.csv` (re-derivable by SQL). Juan has
-  not yet said who runs STEP 1 / the apply or when (`run it now` vs `monday`).**
+  recorded in 12-06-SUMMARY (`29c3859`). **Task 3 DONE 2026-09-05 03:40–04:15 UTC (Fri 22:40 CDT) at Juan's `Run it`:**
+  orchestrator ran STEP 1 via Supabase MCP → `attribution_snapshot_backup_20260905` = 221,276 rows = live, service_role
+  SELECT true, `_20260903`/`_20260904` intact; then the local CLI apply over the exact dry-run scope (exit 0, 97 s, 657
+  reads all 200, 4 RPC calls): **updated 1,758 / skipped_real_name 0 / skipped_no_row 0 / client-side 0 / errors 0**
+  (artifacts 1,066 + live 692; 30 WRs / 76 pairs / 24 names). Read-back: 219,518 untouched rows → 0 diffs on all three
+  role columns vs the backup, 0 rows missing either way; all 1,758 touched rows were sentinel in the backup and are real
+  now, helper/vac unchanged, provenance jsonb present + source-matched, vocabulary valid, total = updated. Observation:
+  `backfill_run_id` = '' on all 1,758 (local run, no GITHUB_RUN_ID; `_compute_run_id()` normalizes to '') → low-severity
+  provenance note for verify-work. Remaining: `Unknown Foreman` primary 4,071 (→ source 5), `#NO MATCH` 945 (D-12-C).
+  **Task 4 = observe Monday 2026-09-07's first `weekly-excel-generation.yml` run** (76 files / 30 WRs should regenerate
+  under real names; placeholder attachments removed by the sentinel-superseded gate; no PPP deletions; time budget).
+  ROADMAP SC3 sample must be re-decided before Task 4 step 2 (WR 89829163 unresolvable; candidates 89746993 / 89841789 /
+  89848991 / 90851321). Do NOT drop `_20260905` until Task 4 is verified. Evidence: scratchpad `own03_apply/`.**
   **Read-only probe of `public.smartsheet_unified_history` (Juan's question, ~01:00–02:00 UTC):** audit-trigger change
   log of `smartsheet_unified` (~60.2M rows, captures start 2025-11-04 — after every affected week), plus an undocumented
   derived `smartsheet_unified_history_foreman` change-log (1.29M rows). Via the `row_state` bridge (5,820/5,829 rows →

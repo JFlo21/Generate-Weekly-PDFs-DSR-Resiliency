@@ -556,3 +556,32 @@ filename (1,758/1,758). **Operator impact:** (1) the D-12-D sample WR 89829163 i
 Task 3's `--apply` needs a fresh STEP 1 backup (`_20260905`) on apply day; (3) Task 1 is parked at the blocking-human
 checkpoint until Juan replies `approve` / `approve-with-scope` / `reject`. Evidence file:
 session scratchpad `own03_dryrun/evidence_12-06_task1.md` (counts only).
+**Update (same evening):** Juan replied `I approve`; recorded in `12-06-SUMMARY.md` and committed (`9fab1ab`). Task 2
+(apply decision) is open. At Juan's request the session then probed `public.smartsheet_unified_history` read-only as a
+possible source for the 4,071 unresolved rows: it is the audit change log of `smartsheet_unified` (captures begin
+2025-11-04, after every affected week) with a derived foreman change-log table nobody had documented. It names a
+"last foreman before the placeholder" for 3,987 rows — unambiguous for 2,306 rows (20 WRs), two candidates for 1,681
+rows (22 WRs), none for 84 — but every capture is ≥30 days after the week, so it cannot show who held the row in-week
+and is not admissible under D-12-A without a new decision. **Operator impact:** do not block the 12-06 apply on it;
+the designed follow-up for the unresolved rows is source 5 (`scripts/backfill_cell_history_attribution.py`, now
+viable via the populated `row_state` bridge, ~4 capped runs), with the history table as a cross-check. Evidence:
+scratchpad `own03_dryrun/evidence_unified_history_probe.md`. No Supabase writes.
+
+## 2026-09-05 03:45Z (2026-09-04 22:45 CDT) — OWN-03 live backfill APPLIED: 1,758 attribution rows repaired (12-06 Task 3)
+**What changed (production data, not code):** at Juan's `apply-full` then `Run it`, the session created the same-UTC-day
+backup `billing_audit.attribution_snapshot_backup_20260905` (221,276 rows, `service_role` SELECT granted; older backups
+kept) and ran `scripts/backfill_claim_time_attribution.py --apply --i-approved-this` over the approved scope (207 WRs ×
+54 weeks, no `--include-blank-roles`). Result: **1,758 `frozen_primary` values that were `Unknown Foreman` now hold the
+historically evidenced real foreman** (1,066 from the `public.artifacts` filename, 692 from in-week completed-unit
+events), across 30 work requests and 76 (WR, week) files; 0 skipped, 0 errors. **Why:** these files have been
+regenerating every run as `_User_Unknown_Foreman` placeholders; OWN-03 repairs the frozen claimer in place so the
+unchanged pipeline names them correctly. **Proof:** the 219,518 rows the apply did not touch are byte-identical to the
+backup on all three role columns; every touched row was a sentinel before and a real name after; `backfill_source` /
+`backfill_provenance` are set on all 1,758 (total = updated). **Operator impact:** (1) the next weekday run (Mon
+2026-09-07) should regenerate those 76 files under real names and the sentinel-superseded gate should delete the
+placeholder attachments — that is 12-06 Task 4's observation; (2) do not drop `_20260905` until Task 4 passes;
+rollback is an `UPDATE … FROM` that table; (3) `backfill_run_id` is the empty string on these rows because a local run
+has no `GITHUB_RUN_ID` — rows are still identifiable by `backfill_run_id IS NOT NULL` and the provenance jsonb; a
+local-run identifier is a follow-up for verify-work; (4) 4,071 `Unknown Foreman` rows remain (no in-week evidence in any
+Supabase store → source 5 cell history), plus 945 `#NO MATCH` rows deferred by D-12-C. Evidence: session scratchpad
+`own03_apply/` (counts only). Summary: `12-06-SUMMARY.md` Task 3.
