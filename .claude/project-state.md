@@ -50,6 +50,28 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   to re-decide with the verdict. **Backup:** UTC rolled to 09-05, so `_20260904` no longer passes the `--apply` probe;
   Task 3 needs a fresh STEP 1 (`_20260905`, valid to 2026-09-06 00:00 UTC) — not created. No executor dispatched; tree
   unchanged apart from the pre-existing claude-mem docs edits. Evidence: scratchpad `own03_dryrun/evidence_12-06_task1.md`.
+  **Juan: `I approve` (Task 1) → recorded + committed `9fab1ab`. Task 2: Juan `apply-full` (2026-09-05 ~02:45 UTC) →
+  recorded in 12-06-SUMMARY. Task 3 (live apply) is NEXT and blocked only on the same-UTC-day backup: STEP 1 must create
+  `attribution_snapshot_backup_20260905` (CREATE … AS SELECT + GRANT SELECT TO service_role) then
+  `python scripts/backfill_claim_time_attribution.py --apply --i-approved-this --wr <207> --weeks <54> --report-dir <outside repo>`
+  on the same UTC day; scope lists in the session scratchpad `own03_dryrun/scope_*.csv` (re-derivable by SQL). Juan has
+  not yet said who runs STEP 1 / the apply or when (`run it now` vs `monday`).**
+  **Read-only probe of `public.smartsheet_unified_history` (Juan's question, ~01:00–02:00 UTC):** audit-trigger change
+  log of `smartsheet_unified` (~60.2M rows, captures start 2025-11-04 — after every affected week), plus an undocumented
+  derived `smartsheet_unified_history_foreman` change-log (1.29M rows). Via the `row_state` bridge (5,820/5,829 rows →
+  10 sheets) it gives 3,987 of the 4,071 unresolved rows a real→placeholder flip (Nov 2025 954 · Dec 727 · Jan 2026
+  2,306 = a systemic remap, all ≥30 days after the week); 2,306 rows / 20 WRs carry ONE prior name, 1,681 rows / 22 WRs
+  carry TWO (A → placeholder → B → placeholder; WR 89829163 is one of them), 84 no flip. Verdict: useful as a
+  cross-check, not admissible under D-12-A (no in-week evidence); the designed path for these rows is source 5
+  (`backfill_cell_history_attribution.py`, now viable: ≤2 calls/row, MAX_ROWS 1,200/run → ~4 runs). Any use of the
+  history table as a source needs a new decision (D-12-E) and a gap plan. Evidence: scratchpad
+  `own03_dryrun/evidence_unified_history_probe.md`. Nothing written to Supabase. **Whole-project inventory (same
+  session, read-only):** every other candidate is either current-state (unified / `_corrected` [0 corrected rows] /
+  folder_sync / live → sentinel on 4,070), a later-starting change log (folder_sync_history 2026-04, project_list_history
+  2026-02, run memory 2026-08), absent for these row_ids (archived_promax_work_requests, promax_current_snapshot),
+  name-free (pipeline_run, snapshot_provenance, group_content_hash, group_state), derived views over the same tables,
+  or the storage bucket (created 2026-05-29, 0 pre-Nov-2025 files). Conclusion: no Supabase store holds in-week
+  Jul–Nov 2025 foreman evidence for the 4,071 rows; only Smartsheet cell history (source 5) can.
 - **2026-09-04 ~07:15 UTC — `/gsd-execute-phase 12 --gaps-only` CLOSED: 12-07..12-10 ✓, 12-06 re-entrant, phase left
   incomplete by design.** Wave-3 gates green (pytest 2,117 passed / 1 skipped / 441 subtests; `py_compile`; schema-drift,
   codebase-drift and UI gates `block: false`; 6-gate harness ALL PASSED). Close-out commits: `5121c30` reverted the

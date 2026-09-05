@@ -34,6 +34,8 @@ key-decisions:
   - "Juan REJECTED the OWN-03 dry-run report (reason: source-3 filename parser defect) — no --apply authorized"
   - "Re-run 2026-09-05: Juan APPROVED the full-scope dry-run report as-is (verbatim: `I approve`) — 1,758 proposed rows / 30 WRs / 76 pairs, 0 conflicts, all G-12-3 and CR-01 guards 0; Task 2 decision pending"
   - "D-12-D sample WR 89829163 is unresolvable (placeholder-only artifacts and hash identifiers) — ROADMAP SC3 needs a new sample; routed to the verify-work pass, not fixed inside 12-06"
+  - "Task 2 (2026-09-05): Juan chose `apply-full` (verbatim) — apply the whole approved report (same --wr/--weeks scope as the dry-run, no --include-blank-roles); Task 3 requires a fresh same-UTC-day STEP 1 backup first"
+  - "Whole-project read-only inventory: no Supabase store holds in-week Jul–Nov 2025 foreman evidence for the 4,071 unresolved rows; they route to source 5 (Smartsheet cell history) after the apply"
 
 patterns-established: []
 
@@ -143,9 +145,19 @@ status: blocked
 
 **Cross-reference:** Living Ledger entry `[2026-09-03 17:30]`; `.claude/project-state.md` § "Where the project stands" (latest-ledger-entries bullet); ledger commits `5b38cf6`, `5e1b68c`.
 
-### Tasks 2-4 — NOT EXECUTED
+### Task 2 (2026-09-05): DECISION — authorize the one-way live backfill write — `apply-full`
 
-Task 2's `<precondition>` ("Task 1 recorded `approve` or `approve-with-scope`") is unmet by design — Task 1 recorded `reject`. Per the plan and the executor's precondition-gate protocol, Task 2 (DECISION — authorize the one-way live backfill write), Task 3 (execute the live apply), and Task 4 (verify the post-apply scheduled run) were not presented, not auto-selected, and not executed. No production write occurred. No `--apply` was run.
+**Option id:** `apply-full` · **Juan's verbatim response (2026-09-04 evening CDT / 2026-09-05 UTC):** `apply-full`
+
+**Context put in front of Juan before the answer:** the Task 1 counts above (1,758 proposed rows / 30 WRs / 76 pairs, 0 conflicts, all guards 0, 1,758/1,758 artifact agreement); the orchestrator's recommendation `apply-full`; a read-only probe, at Juan's request, of `public.smartsheet_unified_history` and then of every other table in the Supabase project as a possible source for the 4,071 unresolved rows — conclusion: no Supabase store holds in-week evidence for those rows (the unified history holds only post-remap "last known" names, ≥30 days after the week, two candidates on 22 of 42 WRs), so they route to source 5 (Smartsheet cell history) after this apply and do not change the apply scope. Evidence: session scratchpad `own03_dryrun/evidence_unified_history_probe.md`.
+
+**Exact scope to apply (identical to the approved dry-run):** `--wr` = the 207 named-sentinel WRs and `--weeks` = the 54 `week_ending_fmt` tokens enumerated read-only from `billing_audit.attribution_snapshot` (lists preserved in the session scratchpad `own03_dryrun/scope_wrs.csv` / `scope_weeks.csv`); `--roles` default (all three; only `primary` targets exist); `--sources` default 1,2,3,4; **no** `--include-blank-roles` (D-12-C); plus `--apply --i-approved-this --report-dir <outside the repo>`. The script re-resolves on apply, so the live tallies may differ from 1,758 by whatever `pipeline_memory` observed between the dry-run and the apply; Task 3 records the actual `updated` count.
+
+**Precondition carried into Task 3:** the run's UTC date must have a same-day backup. UTC rolled to 2026-09-05 before this decision, so `attribution_snapshot_backup_20260904` no longer satisfies the probe (exit 3); STEP 1 must create `attribution_snapshot_backup_20260905` (CREATE TABLE IF NOT EXISTS … AS SELECT + GRANT SELECT TO service_role) on the apply day, before 2026-09-06 00:00 UTC, or a later day's equivalent. Existing backups `_20260903` and `_20260904` are not to be dropped.
+
+### Tasks 3-4 — PENDING (blocking-human)
+
+Task 3 (execute the live apply and verify no real name was touched) and Task 4 (verify the next scheduled run) have not run. No production write has occurred yet. The 2026-09-03 first-attempt note below records why Tasks 2-4 did not run then: Task 1 recorded `reject`, so Task 2's precondition was unmet by design.
 
 ## Files Created/Modified
 
