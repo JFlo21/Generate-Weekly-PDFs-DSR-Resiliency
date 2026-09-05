@@ -124,6 +124,11 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 - [ ] **Phase 13: Audit Memory** — `audit_finding` lifecycle (open → fixed / resurfaced /
   acknowledged), incremental audits over affected groups + open findings. (AUD-01..03)
 
+- [ ] **Phase 14: Foreman Helper #2** — second, independently identifiable helping-foreman
+  slot (`Foreman Helping? #2` column family) through the existing Excel-generation workflow,
+  mirroring the Helper #1 contract; Intake 8 excluded by owner decision; missing optional
+  Helper #2 columns skip only the Helper #2 path. Planning-only authorization. (HLP-01..07)
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -426,8 +431,6 @@ Plans:
 
 - All 6 gates green; no symbol deleted
 - A gate that cannot fail is not green — every gate needs a fail-capability test (G-09-MOD-06)
-
----
 
 ### Phase 07: Security Hardening and Express Removal
 
@@ -810,3 +813,60 @@ on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
 
 2. Audit wall clock on frequent runs is proportional to affected groups + open findings.
 3. Audit Excel/portal shows open + resurfaced only; per-WR history is queryable in SQL.
+
+---
+
+### Phase 14: Foreman Helper #2
+
+**Milestone:** v1.4 (feature phase appended to the current milestone; independent of the
+run-memory theme — re-home to a later milestone if preferred).
+
+**Goal:** A second, independently identifiable helping-foreman slot (the `Foreman Helping? #2`
+column family) flows through the existing Excel-generation workflow exactly the way Helper #1
+does — discovery and field extraction → completion eligibility → attribution → grouping →
+workbook generation → incremental change detection → attachment publication — without
+disrupting primary foremen, Helper #1, VAC crews, billing attribution, historical records, or
+the production Python ingestion.
+
+**Requirements:** HLP-01, HLP-02, HLP-03, HLP-04, HLP-05, HLP-06, HLP-07
+
+**Confirmed owner decisions (2026-09-05; supersede the 2026-08 Helper #2 handoff):**
+
+- **Intake ProMax 8 (`2244739192541060`) is intentionally excluded.** No Helper #2 columns,
+  formula repair, reconnection, report inclusion, row migration, or readiness prerequisite.
+  Its missing columns are accepted, not a defect or release blocker; no schema-reconciliation
+  task. Exclusion does not authorize deleting historical records, workbooks, attachments, or
+  attribution evidence.
+- **Missing optional Helper #2 columns must not break generation.** On an otherwise eligible
+  source they mean the capability is unavailable there: skip only the Helper #2 path and keep
+  primary / Helper #1 / VAC behavior. Never universally required; never rejects a valid sheet;
+  which fields are required comes from the Helper #1 contract (name + completed checkbox +
+  dept; Job optional).
+- **Extend the existing Helping Foreman behavior.** Helper #2 is a second independent slot,
+  not a replacement for Helper #1 and not a reason to rebuild the pipeline. No new rule that
+  the same physical unit is billed to the customer twice.
+
+**Depends on:** Phase 12 (ownership ladder + sentinel-never-a-claimer rules that Helper #2
+attribution must follow — OWN-01, OWN-02, OWN-04). Independent of Phase 13.
+
+**Authorization:** planning only in this pass — no feature implementation, production change,
+workflow dispatch, migration, push, merge, or deployment until Juan approves the plan.
+
+**Success criteria:**
+
+1. An eligible Helper #2 completion produces the expected workbook with the correct foreman,
+   dept/job, units, prices, dates, filename, and destination; group key, hash, workbook header,
+   filename, and attachment routing all name the same Helper #2 claimant (HLP-01).
+2. With Helper #2 absent, every existing primary / Helper #1 / VAC output, group key, hash, and
+   filename is unchanged — regression fixtures compare meaningful cells, headers, totals, and
+   structure, not binary equality (HLP-02, HLP-06).
+3. Sources without Helper #2 columns skip only the Helper #2 path with a distinct logged reason;
+   Intake 8 remains excluded and untouched; readiness checks pass (HLP-03, HLP-04).
+4. Blank, `NA`, `#NO MATCH` / formula-error, unchecked-completion, and no-capability inputs
+   create no Helper #2 claim, group, workbook, attachment, or attribution row (HLP-05).
+5. A later Helper #2 completion on a row already frozen or cached with primary or Helper #1
+   attribution is recorded for its own role without overwriting the other roles or inheriting
+   ownership from another week; repeated runs are idempotent (HLP-06).
+6. Pilot scope, comparison criteria, and rollback are documented and rehearsed on fixtures;
+   rollback preserves created Helper #2 evidence and never moves claimed units back to the
+   primary foreman (HLP-07).

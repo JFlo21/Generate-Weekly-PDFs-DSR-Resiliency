@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline
+milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 12
 current_phase_name: Ownership — last known foreman as of the week
 status: verifying
 stopped_at: Completed 12-10-PLAN.md (all 3 tasks closed; 12-06 declared re-entrant from Task 1)
-last_updated: "2026-09-04T06:44:09.010Z"
+last_updated: "2026-09-05T07:34:14.345Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 12 execution resumed (wave continue)
+state_head: 61cab4d7ef654e97e061d92795be5a7c953f36ba
 progress:
-  total_phases: 13
-  completed_phases: 12
+  total_phases: 14
+  completed_phases: 4
   total_plans: 60
-  completed_plans: 60
-  percent: 92
-state_head: 090c5dc2f410219b99ee1553d7d531124d61ba89
+  completed_plans: 59
+  percent: 29
 ---
 
 # Project State
@@ -302,6 +302,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   `lookup_attribution` pre-passes with single bulk RPC.
 
 - Phase 11.1 inserted after Phase 11: Post-INC-05 Runtime Remediation (URGENT)
+- Phase 14 added: Foreman Helper #2 — second independently identifiable helping-foreman slot through the Excel-generation workflow (planning-only authorization; Intake 8 excluded; optional Helper #2 columns skip, never fail)
 
 ### Blockers/Concerns
 

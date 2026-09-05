@@ -297,6 +297,42 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
   queryable per WR.
 
+### Foreman Helper #2 (Phase 14)
+
+- [ ] **HLP-01**: An eligible Helper #2 completion (real name in `Foreman Helping? #2`,
+  `Helping Foreman #2 Completed Unit?` checked, `Helper #2 Dept #` present; `Helper #2 Job [#]`
+  optional — the Helper #1 contract) produces its own weekly Excel output with the Helper #2
+  foreman, dept/job metadata, units, prices, dates, filename, and destination; group key, hash,
+  workbook header, filename, and attachment routing all name the same Helper #2 claimant.
+
+- [ ] **HLP-02**: Helper #1 stays independent — its outputs, group keys, hashes, filenames, and
+  attribution rows are unchanged with or without Helper #2 present; Helper #2 never overwrites,
+  impersonates, or suppresses Helper #1, primary, or VAC outputs.
+
+- [ ] **HLP-03**: On an otherwise eligible source that lacks the optional Helper #2 columns,
+  only the Helper #2 path is skipped (one distinct log reason per sheet); primary, Helper #1,
+  and VAC outputs still generate; the sheet is never rejected. Excluded source, no capability,
+  no qualifying completion, and failed read stay distinguishable; a read failure is never
+  treated as "no helper".
+
+- [ ] **HLP-04**: Intake ProMax 8 (`2244739192541060`) remains excluded from generation via
+  existing configuration/fixtures; its missing Helper #2 columns never fail readiness checks;
+  no remediation, formula repair, reconnection, or migration is planned for it.
+
+- [ ] **HLP-05**: Blank, `NA`, `#NO MATCH` / formula-error values, unchecked completion, or
+  unavailable capability never create a Helper #2 claim, group, workbook, attachment, or
+  attribution row.
+
+- [ ] **HLP-06**: A later Helper #2 completion on a row already frozen or cached with primary
+  or Helper #1 attribution is recorded for the Helper #2 role without overwriting other roles
+  or inheriting ownership from another week; repeated runs are idempotent; legacy hashes and
+  filenames are unchanged when Helper #2 is absent (no empty-field append to every key).
+
+- [ ] **HLP-07**: Helper #2 generation ships behind existing release controls (one additive
+  flag only if a real deployment boundary requires it), default off, with a scoped pilot,
+  comparison criteria, and a rollback that preserves created Helper #2 evidence and never
+  moves claimed units back to the primary foreman.
+
 ## v2 / Future Requirements
 
 Deferred to a future milestone. Tracked but not in this roadmap.
@@ -399,6 +435,13 @@ Which phases cover which requirements.
 | AUD-01 | Phase 13 | Pending |
 | AUD-02 | Phase 13 | Pending |
 | AUD-03 | Phase 13 | Pending |
+| HLP-01 | Phase 14 | Pending |
+| HLP-02 | Phase 14 | Pending |
+| HLP-03 | Phase 14 | Pending |
+| HLP-04 | Phase 14 | Pending |
+| HLP-05 | Phase 14 | Pending |
+| HLP-06 | Phase 14 | Pending |
+| HLP-07 | Phase 14 | Pending |
 
 **Coverage:**
 
