@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-03 01:25 CDT (06:25Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-04 19:35 CDT (2026-09-05 00:35Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -29,8 +29,27 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
 
-## Latest work (2026-09-03 evening → 2026-09-04 early) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); 12-06 re-entrant from Task 1; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
+## Latest work (2026-09-03 evening → 2026-09-05 00:30 UTC) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); **12-06 Task 1 full-scope dry-run RE-RUN clean (0/0/0 guards) — awaiting Juan's verdict**; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 
+- **2026-09-05 00:24–00:26 UTC (19:24 CDT 09-04) — `/gsd-execute-phase 12` resumed at 12-06 Task 1; orchestrator ran the
+  read-only full-scope dry-run, checkpoint presented, WAITING on Juan (`approve` / `approve-with-scope` / `reject`).**
+  Index note: `init.execute-phase` counts 12-06 complete (SUMMARY presence only) but `phase-plan-index` honors
+  `status: blocked` and lists it as the only runnable plan (wave 4) — no stuck-on-halt. Scope enumerated read-only via
+  Supabase MCP SQL, identical to the 09-03 run: 207 WRs × 54 weeks, 391 pairs, 6,764 named-sentinel rows (5,829
+  primary `Unknown Foreman` + 945 `#NO MATCH`, deferred per D-12-C); snapshot 221,276 rows (655 above the `_20260904`
+  backup), 0 rows carry `backfill_run_id`. Dry-run exit 0 in 95 s, 652 reads all 200, report in the session scratchpad
+  (`own03_dryrun/`, outside the repo; never committed). **Result:** 5,829 rows → proposed 1,758 (artifacts 1,066 +
+  live 692; 30 WRs, 76 pairs, 24 names), conflict 0, unresolved 4,071 (70 WRs, 180 pairs, all exhausted-precedence);
+  `backfill_hash_history` resolved 0 — the 4,070 formerly-placeholder rows are genuinely evidence-less (SQL: their 180
+  pairs hold only placeholder-named artifacts or none). **Guards:** extension-bearing 0, hash-tailed 0 (CR-01 check),
+  sentinel-classified 0, blank/punctuation 0. **Cross-check:** 1,758/1,758 proposals agree with the `public.artifacts`
+  filename, 0 disagreements; independent SQL finds real-name artifacts on exactly those 76 pairs / 30 WRs. **Finding:**
+  D-12-D sample WR 89829163 is UNRESOLVED on all four weeks — its 33 artifacts and its hash identifiers are all
+  placeholder-named, so ROADMAP SC3 as amended is unsatisfiable (the 09-03 run "resolved" it only via the defect);
+  candidates with one name over ≥4 weeks: 89746993, 89841789, 89848991 (artifacts), 90851321 (live, 6 weeks) — Juan
+  to re-decide with the verdict. **Backup:** UTC rolled to 09-05, so `_20260904` no longer passes the `--apply` probe;
+  Task 3 needs a fresh STEP 1 (`_20260905`, valid to 2026-09-06 00:00 UTC) — not created. No executor dispatched; tree
+  unchanged apart from the pre-existing claude-mem docs edits. Evidence: scratchpad `own03_dryrun/evidence_12-06_task1.md`.
 - **2026-09-04 ~07:15 UTC — `/gsd-execute-phase 12 --gaps-only` CLOSED: 12-07..12-10 ✓, 12-06 re-entrant, phase left
   incomplete by design.** Wave-3 gates green (pytest 2,117 passed / 1 skipped / 441 subtests; `py_compile`; schema-drift,
   codebase-drift and UI gates `block: false`; 6-gate harness ALL PASSED). Close-out commits: `5121c30` reverted the
@@ -276,6 +295,15 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
 
 ## Open owner items
 
+- **claude-mem capture was degraded 2026-09-02 20:47 → 2026-09-04 19:03 CDT** (upstream thedotmack/claude-mem
+  #3857: v13.24.0 ships the 13.23.1 worker bundle → hook kill/respawn loop, 5,767 kills). **Fixed 2026-09-04
+  19:03 CDT**: Juan relabeled the four `"13.23.1"` literals in the marketplace `worker-service.cjs` to `"13.24.0"`
+  (backup in the session scratchpad); verified worker 13.24.0 stable, 0 mismatch kills after the patch, cloud sync
+  drained (hub reachable, pending 0, head = projected = local cursor; no extra env var needed). Treat claude-mem
+  summaries from that window as incomplete — `.planning/HANDOFF.json` and these ledgers are the Phase 12 record.
+  Caveat: the marketplace file is now git-dirty; if a future plugin auto-update fails to pull, revert that file first.
+  Also: the `_20260904` backup window closed at 19:00 CDT — 12-06 Task 3 needs a fresh STEP 1 backup on apply day.
+  Details: `docs/CHANGELOG_CONTEXT.md` 2026-09-04 (evening).
 - Confirm the Smartsheet API token flagged in April 2026 (old `memory-bank/progress.md`) was rotated.
 - Decide whether to run the full `/gsd-core:docs-update` generation (README update + 5 canonical docs).
 - Track-or-ignore: `.agents/skills/`, `.serena/project*.yml` + `memories/`, `.planning/state.json`,

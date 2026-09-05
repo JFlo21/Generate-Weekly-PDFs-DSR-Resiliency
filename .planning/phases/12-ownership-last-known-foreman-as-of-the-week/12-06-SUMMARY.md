@@ -32,6 +32,8 @@ key-files:
 
 key-decisions:
   - "Juan REJECTED the OWN-03 dry-run report (reason: source-3 filename parser defect) — no --apply authorized"
+  - "Re-run 2026-09-05: Juan APPROVED the full-scope dry-run report as-is (verbatim: `I approve`) — 1,758 proposed rows / 30 WRs / 76 pairs, 0 conflicts, all G-12-3 and CR-01 guards 0; Task 2 decision pending"
+  - "D-12-D sample WR 89829163 is unresolvable (placeholder-only artifacts and hash identifiers) — ROADMAP SC3 needs a new sample; routed to the verify-work pass, not fixed inside 12-06"
 
 patterns-established: []
 
@@ -53,9 +55,9 @@ completed: 2026-09-03
 status: blocked
 ---
 
-# Phase 12 Plan 06: Ownership Attribution Live Remediation (OWN-03) — HALTED at Task 1
+# Phase 12 Plan 06: Ownership Attribution Live Remediation (OWN-03) — Task 1 APPROVED on re-run; Tasks 2-4 pending
 
-**Juan reviewed the OWN-03 live dry-run and REJECTED it: source 3's filename parser proposed the literal string "Unknown Foreman.xlsx" as a real claimer name for 4,070 rows because production filenames carry no hash suffix — Tasks 2-4 (the live `--apply` and post-run verification) did not run.**
+**Re-run 2026-09-05 (after the G-12-3 gap closure 12-07..12-10): the full-scope read-only dry-run is clean — 1,758 proposed rows over 30 WRs / 76 pairs from 24 real names, 0 conflicts, 4,071 rows genuinely evidence-less, every G-12-3 / CR-01 guard at 0, every proposal matching its `public.artifacts` filename — and Juan APPROVED it as-is (`I approve`). Task 2 (the apply decision) is the next gate. The 2026-09-03 first attempt below was REJECTED because source 3's filename parser proposed "Unknown Foreman.xlsx" as a real name for 4,070 rows; that record is preserved unchanged as history.**
 
 ## Performance
 
@@ -73,7 +75,35 @@ status: blocked
 
 ## Task Records
 
-### Task 1: Dry-run against live data and owner review of the proposals — REJECTED
+### Task 1 (re-run 2026-09-05): Dry-run against live data and owner review of the proposals — APPROVED
+
+**Invocation (read-only, run by the execute-phase orchestrator, not an executor; 2026-09-05 00:24:09Z → 00:25:44Z, 95 s, exit 0).** `python scripts/backfill_claim_time_attribution.py --wr <207 WRs> --weeks <54 weeks> --report-dir <session scratchpad>/own03_dryrun` — no `--include-blank-roles` (D-12-C), no `--apply`. The report was written outside the repository and never committed; 652 Supabase reads, all HTTP 200; one expected WARNING (report dir outside `generated_docs`). Scope enumerated read-only via SQL over `billing_audit.attribution_snapshot` and identical to the 2026-09-03 run: 207 WRs × 54 weeks (062925..083026), 391 (WR, week) pairs, 6,764 named-sentinel rows = 5,829 primary `Unknown Foreman` + 935 primary `#NO MATCH` + 10 helper `#NO MATCH` (the 945 `#`-prefixed rows stay out per D-12-C). Snapshot 221,276 rows (655 above `attribution_snapshot_backup_20260904`); 0 rows carry `backfill_run_id`.
+
+**Step 2 — report summary block (live, authoritative):**
+- total_rows: 5,829 (primary role only; every `current_value` is `Unknown Foreman`)
+- rows_by_status: proposed 1,758 / conflict 0 / unresolved 4,071
+- rows_by_source: backfill_artifacts 1,066 / live 692 / backfill_hash_history 0
+- name_fidelity: exact 692 / desanitized 1,066 / blank 4,071
+- source_1_out_of_week_rows: 0
+- Proposed scope: 30 WRs, 76 (WR, week) pairs, 24 distinct names (19 via artifacts, 7 via live)
+- Unresolved: 70 WRs, 180 pairs, all "no source 1-4 produced a candidate" — the 4,070 formerly-placeholder rows plus the first run's 1 unresolved; source 4 resolved none of them
+- Delta vs the first run: the 1,066 former conflicts (placeholder-vs-real filename pairs) each now propose their single real name; the 4,070 placeholder proposals became unresolved
+
+**G-12-3 / CR-01 guards over the 1,758 proposed values (computed in-sandbox, counts only):** extension-bearing 0 · hash-tailed (`_[0-9a-fA-F]{6,16}$`) 0 · any 16-hex run 0 · sentinel-classified (`is_sentinel_claimer`) 0 · leading punctuation 0 · blank 0.
+
+**Step 3 — known-good sample (ROADMAP SC3 as amended by D-12-D, WR 89829163 WE 082425/083125/091425/092125):** all four weeks UNRESOLVED (49 report rows on this WR). Read-only SQL: snapshot rows 13/19/7/10, all sentinel; `public.artifacts` 9/8/8/8 per week, ALL placeholder-named (0 real names); `billing_audit.group_content_hash` 1 identifier per week, sentinel-only; no `pipeline_memory.group_state` rows. The 2026-09-03 run "resolved" this WR only through the parser defect, so SC3 as written is not satisfiable by any source. This is a sample-selection issue, not a script or source-precedence defect — the `STOP` clause in the plan's step 3 (different source / different name) does not apply. Retired sample WR 19073866: 0 rows (unchanged). Replacement candidates (one name across ≥4 weeks): WR 89746993 (114 rows, 4 weeks, artifacts), 89841789 (92, 4, artifacts), 89848991 (91, 4, artifacts), 90851321 (540, 6, live). Routed to the verify-work pass as a ROADMAP amendment.
+
+**Step 4 — extended sample:** left to Juan's billing-side knowledge over the report CSV (outside the repo); suggested WRs 90851321, 89746993, 91366851. No names recorded here.
+
+**Step 5 — artifacts cross-check (spec §6):** 1,758 of 1,758 primary proposals agree with the `public.artifacts` filename for their WR and week (artifacts-sourced 1,066 agree, live-sourced 692 agree); 0 disagreements; 0 proposed pairs without an artifact. WRs excluded from the apply scope as a result: none. Independent SQL over the whole population: 256 sentinel-primary pairs → 76 pairs (30 WRs) hold a real-name `_User_` artifact = exactly the proposed pairs; 179 hold only placeholder-named or tokenless artifacts and 1 holds none = the 180 unresolved pairs (19,773 artifacts total: 19,063 placeholder-named, 684 real-name, 26 without a `_User_` token).
+
+**Step 6 — conflict sanity:** 0 (WR, week, role) groups carry more than one distinct proposed name; 0 rows classified `conflict`.
+
+**Step 7 — Juan's verbatim verdict (2026-09-04 evening CDT, after the orchestrator's recommendation to approve):** `I approve` → **APPROVE (as-is, full report).**
+
+**Backup note carried to Task 3:** the UTC date rolled to 2026-09-05 during this session, so `attribution_snapshot_backup_20260904` no longer satisfies the same-UTC-day `--apply` probe (exit 3). A fresh STEP 1 backup for the apply day is required before `--apply`; `_20260903` and `_20260904` must not be dropped or overwritten.
+
+### Task 1 (first attempt 2026-09-03): Dry-run against live data and owner review of the proposals — REJECTED
 
 **Dry-run invocation.** The plan's "full-scope, no arguments" mode does not exist in the shipped script — it exits 8 unless both `--wr` and `--weeks` are supplied. Juan ran the scoped full set instead: 207 WRs × 54 weeks, covering every (WR, week) holding a named sentinel in `billing_audit.attribution_snapshot`, enumerated read-only via SQL. Exit code 0, no warnings, no errors.
 

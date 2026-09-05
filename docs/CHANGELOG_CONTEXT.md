@@ -524,3 +524,35 @@ session; lessons went to the vault. Why: the gate is advisory, both findings are
 the parser regex is protected extraction behavior — they route through `/gsd-verify-work 12` as new gaps.
 **Operator impact:** none live; 12-06 Task 1's dry-run report must now show 0 extension-bearing and 0 hash-tailed
 proposals before Juan's apply decision; the `_20260904` backup expires for the probe at 2026-09-05 00:00 UTC.
+
+## 2026-09-04 (evening) — no repo change; claude-mem continuity degraded since 2026-09-02 20:47 CDT (upstream #3857)
+Status check only ("what's next" → resume 12-06 Task 1; the `_20260904` backup window closes 19:00 CDT, so the
+`--apply` will need a fresh STEP 1 backup on apply day). Diagnosed why claude-mem is not capturing: the plugin
+auto-updated to v13.24.0, which bumps only three manifest files and ships the unchanged 13.23.1 worker bundle, so
+every hook event kills and respawns the worker (5,767 kills / 4,217 restarts logged since the update; this session
+stored 2 prompts, 0 observations). Fix = relabel the four `"13.23.1"` literals in the marketplace
+`worker-service.cjs` to `"13.24.0"` (script in the session scratchpad, backup taken); the auto-mode classifier refused
+to run it, so Juan ran it himself at 19:03 CDT. Verified afterward: the hook recycled once onto the patched bundle,
+the worker reports 13.24.0 with a stable pid and growing uptime, 0 mismatch kills / 0 restarts / 0 errors after the
+patch, and capture resumed (first observation for this session stored). Cloud sync needed no extra env var: the hub's
+503 `projection_busy` retries were an artifact of the restarts; after the fix the status endpoint reports hub
+reachable, pending 0, dead-letter 0, head = projected = local cursor. **Operator impact:** treat claude-mem summaries
+from 2026-09-02 evening to 2026-09-04 19:03 CDT as incomplete; the repo ledgers and `.planning/HANDOFF.json` are the
+continuity source for Phase 12. The marketplace bundle is git-dirty until upstream ships a rebuilt one; revert it if
+a plugin auto-update fails to pull.
+
+## 2026-09-05 00:24Z (2026-09-04 19:24 CDT) — 12-06 Task 1 dry-run re-run clean; no repo change; awaiting Juan's verdict
+`/gsd-execute-phase 12` resumed at plan 12-06 (the only runnable plan; `phase-plan-index` honors its `status: blocked`
+even though `init.execute-phase` counts it complete by SUMMARY presence). The orchestrator ran Task 1's read-only
+full-scope dry-run itself (no executor dispatched, nothing written to Supabase): scope enumerated by read-only SQL
+(207 WRs × 54 weeks, 391 pairs, 6,764 named-sentinel rows, 0 backfilled), report kept in the session scratchpad
+outside the repo, analysed in-sandbox as counts only. Exit 0; 5,829 rows → 1,758 proposed (artifacts 1,066 + live 692
+over 30 WRs / 76 pairs / 24 names), 0 conflict, 4,071 unresolved; source 4 resolved nothing, and SQL confirms the 180
+unresolved pairs hold only placeholder-named artifacts or none — the zero is genuine. All G-12-3 / CR-01 guards read 0
+(extension-bearing, hash-tailed, sentinel-classified, blank). Every proposal agrees with its `public.artifacts`
+filename (1,758/1,758). **Operator impact:** (1) the D-12-D sample WR 89829163 is unresolved on all four weeks
+(placeholder-only artifacts and hash identifiers), so ROADMAP success criterion 3 needs a new sample — candidates
+89746993 / 89841789 / 89848991 (artifacts) or 90851321 (live); (2) the UTC date rolled past the `_20260904` backup, so
+Task 3's `--apply` needs a fresh STEP 1 backup (`_20260905`) on apply day; (3) Task 1 is parked at the blocking-human
+checkpoint until Juan replies `approve` / `approve-with-scope` / `reject`. Evidence file:
+session scratchpad `own03_dryrun/evidence_12-06_task1.md` (counts only).
