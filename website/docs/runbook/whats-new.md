@@ -5,27 +5,9 @@ title: What's New
 
 # What's New
 
-_Last updated: September 4, 2026 (updated automatically)_
+_Last updated: September 5, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — September 4, 2026
-
-- ✅ Problem fixed: BUG-028 -- No-Revisions D-07 confirmation, Billers churn guards, dropped-refusal accounting, claims-pending visibility
-- ✨ New capability: service heartbeat, /api/health deploy proof, deploy-smoke, CODEOWNERS + CI/CD contract (CICD-02..04)
-- ✅ Problem fixed: ingest GF revisions on 'Approved with Modifications' rows; approval tail matches the Requests row's Manifest ID token (BUG-026, WR 91783278)
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: active processing window on the queue admission gate (ignore Scope NA / pre-2026-07-01 completions, defer rows without a completion date) before any ProMax pull
-- ✅ Problem fixed: sidebar toggle at every width, pinned sidebar, GF Workbook label-row overflow, drawer focus + close (post- UI audit)
-- ✅ Problem fixed: lift the persistent sidebar above the fixed ambient background layer (sidebar invisible on the live site after )
-- ✨ New capability: GF Workbook gap-closure 2 -- sheet-backed admin WR picker, production grid (Work Type, status tints, Point Number filter), 768px sidebar (32-22..32-27)
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -36,12 +18,30 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
+
+### 📋 Changelog — September 5, 2026
+
+- 📄 Help guides updated: BUG-030 closed / live-proven -- first green decision-sync run after PR
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: GF Workbook shows honest no-Gen-A copy instead of the unassigned message
+- ✅ Problem fixed: skip already-routed intake rows before regen (BUG-019, D-11c) — read-only provenance pre-check
+- 📄 Help guides updated: Task 5 live observation recorded, OPS-05 complete, verifier passed 9/9, transition to Phase 32
+- 📄 Help guides updated: renumber the Phase 32 sidebar entry BUG-026 -&gt; BUG-029 (PR merge collision)
+- • Phase 32 GF Workbook v2 branch + BUG-027/028 RCAs + Phase 33 context
+- ✅ Problem fixed: BUG-028 -- No-Revisions D-07 confirmation, Billers churn guards, dropped-refusal accounting, claims-pending visibility
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 4, 2026
+### 📋 Changelog — September 5, 2026
 
 - ✨ New capability: Phase 12 waves 2-3 — OWN-03 backfill SQL, source 5, runbook (#OWN-03)
 - ✨ New capability: OWN-03 claim-time attribution backfill (wave 1)
@@ -59,7 +59,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 4, 2026
+### 📋 Changelog — September 5, 2026
 
 - • 📊 Audit: 2026-08-31T07:04:49Z
 
@@ -443,28 +443,30 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: Linetec-Services-LLC/Todoist-gtd-ci-automations -->
-## Todoist-gtd-ci-automations
-
-> ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
-
-### 📋 Changelog — September 4, 2026
-
-- • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts
-- • Make standby rehearsal green: implement Todoist list API surface, tighten failure diagnostics, and fix workflow concurrency syntax
-- • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts ()
-- • Make standby rehearsal green: implement Todoist list API surface, tighten failure diagnostics, and fix workflow concurrency syntax ()
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: Linetec-Services-LLC/runlog-linetec -->
 ## Workflow runlog that explains the workflows &amp; coding workflows and changes at a lower level for users to understand
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 4, 2026
+### 📋 Changelog — September 5, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: Linetec-Services-LLC/Todoist-gtd-ci-automations -->
+## Todoist-gtd-ci-automations
+
+> ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
+
+### 📋 Changelog — September 5, 2026
+
+- • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits
+- • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts
+- • Make standby rehearsal green: implement Todoist list API surface, tighten failure diagnostics, and fix workflow concurrency syntax
+- • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits ()
+- • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts ()
+- • Make standby rehearsal green: implement Todoist list API surface, tighten failure diagnostics, and fix workflow concurrency syntax ()
 
 <!-- /runbook-repo -->
 
