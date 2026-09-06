@@ -506,6 +506,18 @@ def derive_group_identity(
             if helper_foreman else ''
         )
         return identifier, file_identifier
+    if variant in ('helper2', 'aep_billable_helper2', 'reduced_sub_helper2'):
+        # Phase 14 (D-14-06): sibling branch of the helper-family branch
+        # above, never merged into it — same shape, Helper #2 fields.
+        helper2_foreman = first_row.get('__helper2_foreman', '')
+        helper2_dept = first_row.get('__helper2_dept', '')
+        helper2_job = first_row.get('__helper2_job', '')
+        identifier = f"{helper2_foreman}|{helper2_dept}|{helper2_job}"
+        file_identifier = (
+            _RE_SANITIZE_HELPER_NAME.sub('_', helper2_foreman)[:50]
+            if helper2_foreman else ''
+        )
+        return identifier, file_identifier
     if variant == 'vac_crew':
         _vc = first_row.get('__current_foreman', '')
         identifier = (

@@ -1399,9 +1399,15 @@ class TestProductionCodeSiteInvariants(unittest.TestCase):
         self.assertIn('_subcontractor_rescue_price', self._src)
 
     def test_bug_b1_partitioning_gate_present_in_production(self):
-        """Bug B1 partitioning gate."""
+        """Bug B1 partitioning gate.
+
+        Phase 14 (D-14-06) extended this gate with a Helper #2 exclusion
+        (``and not valid_helper2_row``) — the literal below was updated
+        in the same change that extended the production gate.
+        """
         self.assertIn(
-            'if not is_subcontractor_row and not valid_helper_row:',
+            'if not is_subcontractor_row and not valid_helper_row '
+            'and not valid_helper2_row:',
             self._src,
             "Bug B1 partitioning gate must be present in production",
         )

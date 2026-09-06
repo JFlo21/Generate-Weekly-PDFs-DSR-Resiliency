@@ -576,6 +576,16 @@ def discover_source_sheets(client):
                 'VAC Crew Job #':'Vac Crew Job #',                # Case variant
                 'Vac Crew Email Address':'Vac Crew Email Address',
                 'VAC Crew Email Address':'Vac Crew Email Address', # Case variant
+                # Helper #2 variant columns (Phase 14, D-14-10 — the second
+                # independently identifiable helping-foreman slot; row-level
+                # detection mirrors the Helper #1 pattern above). Bracket
+                # form maps to the canonical title, mirroring 'Helper Job [#]'.
+                'Foreman Helping? #2':'Foreman Helping? #2',
+                'Foreman Helper #2 Active?':'Foreman Helper #2 Active?',
+                'Helping Foreman #2 Completed Unit?':'Helping Foreman #2 Completed Unit?',
+                'Helper #2 Dept #':'Helper #2 Dept #',
+                'Helper #2 Job [#]':'Helper #2 Job #',   # bracket form -> canonical
+                'Foreman Helper #2 Email':'Foreman Helper #2 Email',
             }
             # COLUMN MAPPING DEBUG: Log all column titles to verify helper and VAC Crew columns
             helper_columns_found = []

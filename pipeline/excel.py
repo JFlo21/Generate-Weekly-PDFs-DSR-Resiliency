@@ -342,6 +342,14 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             # PERFORMANCE: Use pre-compiled regex for filename sanitization
             helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
             variant_suffix = f"_Helper_{helper_sanitized}"
+    elif variant == 'helper2':
+        # Phase 14 (D-14-06): sibling branch to 'helper' above, never
+        # folded into it — a missed branch here falls through toward
+        # primary/vac_crew (the real [2026-05-21 12:35] incident class).
+        helper2_foreman = first_row.get('__helper2_foreman', '')
+        if helper2_foreman:
+            helper2_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper2_foreman)[:50]
+            variant_suffix = f"_Helper2_{helper2_sanitized}"
     elif variant == 'vac_crew':
         # Subproject C: suffix is GATED on the kill switch.
         # Enabled mode: per-claimer _VacCrew_<name> so each foreman's file is
@@ -564,6 +572,13 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         display_foreman = current_foreman
         display_dept = first_row.get('__helper_dept', '')
         display_job = first_row.get('__helper_job', '')
+    elif variant == 'helper2':
+        # Phase 14 (D-14-06): sibling of the plain 'helper' branch above,
+        # never merged into it. Fallback display string is locked in the
+        # phase vocabulary ('Unknown Helper 2').
+        display_foreman = first_row.get('__helper2_foreman', 'Unknown Helper 2')
+        display_dept = first_row.get('__helper2_dept', '')
+        display_job = first_row.get('__helper2_job', '')
     elif variant == 'vac_crew':
         # Enabled: show the ATTRIBUTED claimer (__current_foreman, the
         # partition key) so the displayed foreman matches the filename.

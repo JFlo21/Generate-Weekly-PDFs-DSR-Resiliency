@@ -435,6 +435,25 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         meta_parts.append(f"HELPER={helper_foreman}")
         meta_parts.append(f"HELPER_DEPT={helper_dept}")
         meta_parts.append(f"HELPER_JOB={helper_job}")  # Include even if empty for hash consistency
+
+    if variant in ('helper2', 'aep_billable_helper2', 'reduced_sub_helper2'):
+        # Phase 14 (D-14-09): SIBLING block to the Helper #1 block above,
+        # never merged into it. This is the pattern that keeps HLP-06's
+        # byte-identity guarantee: a HELPER2= token can only ever appear
+        # on a helper2-family hash, and a HELPER= token can only ever
+        # appear on a helper-family hash — never both, never on primary
+        # or vac_crew.
+        _first2 = sorted_rows[0] if sorted_rows else {}
+        helper2_foreman = _first2.get('__helper2_foreman', '')
+        helper2_dept = _first2.get('__helper2_dept', '')
+        helper2_job = _first2.get('__helper2_job', '')
+        if not helper2_foreman or not helper2_dept:
+            logging.warning(f"⚠️ Helper2 variant missing required fields: foreman={helper2_foreman}, dept={helper2_dept}")
+        if not helper2_job:
+            logging.info(f"ℹ️ Helper2 variant without Job #: foreman={helper2_foreman}, dept={helper2_dept} (proceeding anyway)")
+        meta_parts.append(f"HELPER2={helper2_foreman}")
+        meta_parts.append(f"HELPER2_DEPT={helper2_dept}")
+        meta_parts.append(f"HELPER2_JOB={helper2_job}")
     # vac_crew variant intentionally has no meta_parts block: VAC crew
     # name/dept/job are already captured per-row in the row_str loop above,
     # which is strictly more sensitive than meta_parts aggregation and is not
@@ -750,7 +769,7 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     # TestBuildGroupIdentityWithUnderscoresInWr.
     _reserved_positions = {
         _tok: tail.index(_tok)
-        for _tok in ('AEPBillable', 'ReducedSub', 'VacCrew', 'Helper', 'User')
+        for _tok in ('AEPBillable', 'ReducedSub', 'VacCrew', 'Helper', 'Helper2', 'User')
         if _tok in tail
     }
     _first_marker = (
@@ -805,6 +824,13 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         helper_idx_rel = tail.index('Helper')
         if helper_idx_rel + 1 < len(tail):
             identifier = '_'.join(tail[helper_idx_rel + 1:])
+    elif _first_marker == 'Helper2':
+        # Phase 14 sibling of the 'Helper' branch above — 'Helper2' and
+        # 'Helper' are distinct underscore-split tokens and never collide.
+        variant = 'helper2'
+        helper2_idx_rel = tail.index('Helper2')
+        if helper2_idx_rel + 1 < len(tail):
+            identifier = '_'.join(tail[helper2_idx_rel + 1:])
     elif _first_marker == 'User':
         variant = 'primary'
         user_idx_rel = tail.index('User')

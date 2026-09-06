@@ -377,6 +377,14 @@ def group_source_rows(rows):
                     and _r.get('__helper_dept')
                 ):
                     continue
+                # Valid Helper #2 rows are excluded the same way (D-14-06
+                # sibling guard — never merged into the Helper #1 check).
+                if (
+                    _r.get('__is_helper2_row')
+                    and _r.get('__helper2_foreman')
+                    and _r.get('__helper2_dept')
+                ):
+                    continue
                 _sid = _r.get('__source_sheet_id')
                 if _sid is not None and _sid in _discovery._FOLDER_DISCOVERED_SUB_IDS:
                     continue  # subcontractor rows are Sub-project B's domain
@@ -472,7 +480,12 @@ def group_source_rows(rows):
         # Helper row metadata
         is_helper_row = r.get('__is_helper_row', False)
         helper_foreman = r.get('__helper_foreman', '')
-        
+
+        # Helper #2 row metadata (Phase 14, D-14-06) — sibling of the
+        # Helper #1 metadata above, never merged into it.
+        is_helper2_row = r.get('__is_helper2_row', False)
+        helper2_foreman = r.get('__helper2_foreman', '')
+
         # Check if Units Completed? is true/1
         units_completed_checked = is_checked(units_completed)
 
@@ -624,7 +637,18 @@ def group_source_rows(rows):
                     # This allows rows to sync even when Helper Job # is missing
                     if helper_dept:  # helper_job is now optional
                         valid_helper_row = True
-                
+
+                # Check if this is a valid Helper #2 row (Phase 14, D-14-06
+                # sibling of valid_helper_row above — computed identically,
+                # dept required / job optional. RES_GROUPING_MODE is the
+                # SHARED kill switch for both slots; D-14-12 deliberately
+                # does not add a second env var).
+                valid_helper2_row = False
+                if helper_mode_enabled and is_helper2_row and helper2_foreman:
+                    helper2_dept = r.get('__helper2_dept', '')
+                    if helper2_dept:  # helper2_job is optional, like Helper #1
+                        valid_helper2_row = True
+
                 # Primary variant logic
                 if RES_GROUPING_MODE == 'primary':
                     # In primary mode, ALL rows go to main (including helper rows)
@@ -642,7 +666,7 @@ def group_source_rows(rows):
                     # "additive" contract is overridden per D-22;
                     # Living Ledger entry [Phase 1.1 timestamp]
                     # documents the design-intent change.
-                    if not is_subcontractor_row and not valid_helper_row:
+                    if not is_subcontractor_row and not valid_helper_row and not valid_helper2_row:
                         # Subproject D (2026-05-25): partition the
                         # production primary file by the FROZEN primary
                         # claimer. Consume the pre-pass map. ``use`` ->
@@ -679,7 +703,7 @@ def group_source_rows(rows):
                             # Kill switch OFF -> exact legacy bare primary.
                             primary_key = f"{week_end_for_key}_{wr_key}"
                             keys_to_add.append(('primary', primary_key, None))
-                    elif is_subcontractor_row and not valid_helper_row:
+                    elif is_subcontractor_row and not valid_helper_row and not valid_helper2_row:
                         # Diagnostic log only — no group emission.
                         # Operators can confirm the partition is
                         # firing by grepping for this prefix. PII
@@ -690,7 +714,7 @@ def group_source_rows(rows):
                             f"➖ EXCLUDING from main Excel (subcontractor row): "
                             f"WR={wr_key}, Week={week_end_for_key}"
                         )
-                    elif valid_helper_row:
+                    elif valid_helper_row or valid_helper2_row:
                         # UNCHANGED legacy behaviour — helper row
                         # excluded from main Excel regardless of
                         # subcontractor/non-subcontractor.
@@ -740,6 +764,40 @@ def group_source_rows(rows):
                     helper_dept = r.get('__helper_dept', '')
                     helper_job = r.get('__helper_job', '')
                     logging.warning(f"⚠️ Helper row for WR {wr_key} missing required Helper Dept # (Job: '{helper_job}') - including in main Excel")
+
+                # Helper #2 variant (Phase 14, D-14-06) — sibling block to
+                # the Helper #1 variant above, NEVER merged into it or into
+                # the ('helper', 'aep_billable_helper', 'reduced_sub_helper')
+                # tuple elsewhere in this module (D-14-11 vocabulary lock).
+                if valid_helper2_row and helper_mode_enabled:
+                    helper2_dept = r.get('__helper2_dept', '')
+                    helper2_job = r.get('__helper2_job', '')
+                    helper2_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper2_foreman)[:50]
+                    helper2_key = f"{week_end_for_key}_{wr_key}_HELPER2_{helper2_sanitized}"
+                    # Pattern B (the real [2026-05-19 22:00] duplicate-
+                    # billing incident): the subcontractor guard below is
+                    # copied VERBATIM from the Helper #1 emission site
+                    # above — never re-derive it. A subcontractor Helper #2
+                    # row takes the debug-log branch here; its shadow files
+                    # are plan 14-06's work.
+                    if not is_subcontractor_row:
+                        keys_to_add.append(('helper2', helper2_key, helper2_foreman))
+                        logging.info(f"🔧 HELPER2 GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper2={helper2_foreman}, Dept={helper2_dept}, Job={helper2_job}")
+                    else:
+                        logging.debug(
+                            f"➖ EXCLUDING from main Excel (subcontractor legacy helper2): "
+                            f"WR={wr_key}, Week={week_end_for_key}, Helper2={helper2_foreman}"
+                        )
+                elif is_helper2_row and not helper_mode_enabled:
+                    logging.info(f"ℹ️ Helper #2 row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - including in main Excel")
+                elif is_helper2_row:
+                    # Helper #2 row missing required helper2_dept (job optional).
+                    helper2_job = r.get('__helper2_job', '')
+                    logging.warning(
+                        f"⚠️ helper2_missing_dept: Helper #2 row for WR {wr_key} "
+                        f"missing required Helper #2 Dept # (Job: '{helper2_job}') "
+                        f"- including in main Excel"
+                    )
 
             # ── Phase 01 Plan 03 (D-08/D-09/D-13/D-22): Subcontractor
             # rate variants. Per the committed Blocker 3 plumbing
