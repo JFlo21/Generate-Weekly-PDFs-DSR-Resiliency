@@ -148,8 +148,8 @@ on 2026-09-05), **[repo]** (decided from code/docs evidence by the planning sess
 
 ### Discovery and mapping-cache reuse
 
-- **D-14-10 [repo]: Six exact titles join the `synonyms` map; cached mappings get ONE bounded
-  revalidation.** Titles (verified live on Main ProMax `3239244454645636`, 82 columns):
+- **D-14-10 [repo]: Six exact titles join the `synonyms` map; cached mappings get ONE bounded revalidation.**
+  Titles (verified live on Main ProMax `3239244454645636`, 82 columns):
   `Foreman Helping? #2`, `Foreman Helper #2 Active?`, `Helping Foreman #2 Completed Unit?`,
   `Helper #2 Dept #`, `Helper #2 Job [#]` (bracket form, like `Helper Job [#]` →
   canonical `Helper Job #`), `Foreman Helper #2 Email`. `_build_discovery_skip_index`
