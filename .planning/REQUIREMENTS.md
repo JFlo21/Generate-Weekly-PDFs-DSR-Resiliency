@@ -315,7 +315,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   no qualifying completion, and failed read stay distinguishable; a read failure is never
   treated as "no helper".
 
-- [x] **HLP-04**: Intake ProMax 8 (`2244739192541060`) remains excluded from generation via
+- [ ] **HLP-04**: Intake ProMax 8 (`2244739192541060`) remains excluded from generation via
   existing configuration/fixtures; its missing Helper #2 columns never fail readiness checks;
   no remediation, formula repair, reconnection, or migration is planned for it.
 
@@ -323,12 +323,12 @@ CU pricing, rate recalculation, and billing formulas do not change.
   unavailable capability never create a Helper #2 claim, group, workbook, attachment, or
   attribution row.
 
-- [x] **HLP-06**: A later Helper #2 completion on a row already frozen or cached with primary
+- [ ] **HLP-06**: A later Helper #2 completion on a row already frozen or cached with primary
   or Helper #1 attribution is recorded for the Helper #2 role without overwriting other roles
   or inheriting ownership from another week; repeated runs are idempotent; legacy hashes and
   filenames are unchanged when Helper #2 is absent (no empty-field append to every key).
 
-- [x] **HLP-07**: Helper #2 generation ships behind existing release controls (one additive
+- [ ] **HLP-07**: Helper #2 generation ships behind existing release controls (one additive
   flag only if a real deployment boundary requires it), default off, with a scoped pilot,
   comparison criteria, and a rollback that preserves created Helper #2 evidence and never
   moves claimed units back to the primary foreman.
@@ -438,10 +438,10 @@ Which phases cover which requirements.
 | HLP-01 | Phase 14 | Pending |
 | HLP-02 | Phase 14 | Pending |
 | HLP-03 | Phase 14 | Pending |
-| HLP-04 | Phase 14 | Complete |
+| HLP-04 | Phase 14 | Pending |
 | HLP-05 | Phase 14 | Pending |
-| HLP-06 | Phase 14 | Complete |
-| HLP-07 | Phase 14 | Complete |
+| HLP-06 | Phase 14 | Pending |
+| HLP-07 | Phase 14 | Pending |
 
 **Coverage:**
 
