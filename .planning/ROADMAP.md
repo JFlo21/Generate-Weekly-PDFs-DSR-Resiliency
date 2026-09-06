@@ -871,7 +871,7 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 10 plans (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
+**Plans:** 2/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
 planning only.
 
 Plans:
@@ -880,7 +880,7 @@ Plans:
 
 - [x] 14-01-PLAN.md — Tracer: one Helper #2 completion end-to-end (flag, synonyms, eligibility,
   grouping, hash meta, group identity, filename, round-trip) plus the legacy byte-identity regression
-- [ ] 14-02-PLAN.md — Close the research's pending items (group_state and attachment pre-seed keying,
+- [x] 14-02-PLAN.md — Close the research's pending items (group_state and attachment pre-seed keying,
   the three unread modules, the owner-run read-only live column probe)
 
 **Wave 2** *(parallel; blocked on 14-01)*

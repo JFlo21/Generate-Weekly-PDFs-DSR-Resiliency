@@ -5,16 +5,16 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 14
 current_phase_name: foreman-helper-2
 status: executing
-stopped_at: "Completed 14-01-PLAN.md (Helper #2 tracer slice); ready for 14-02"
-last_updated: "2026-09-06T21:07:34.360Z"
+stopped_at: Completed 14-02-PLAN.md (pending resolutions A1/A2/A3 + live column probe); ready for 14-03
+last_updated: "2026-09-06T23:24:27.589Z"
 last_activity: 2026-09-06
 last_activity_desc: Phase 14 execution started
-state_head: 09017f8566bda827ad1f380696f8f64bd44d839d
+state_head: 41f14b1f0b025886e166063ac2f5c08851ddcc93
 progress:
   total_phases: 14
   completed_phases: 4
   total_plans: 70
-  completed_plans: 60
+  completed_plans: 61
   percent: 29
 ---
 
@@ -37,7 +37,7 @@ pipeline.
 
 Phase: 14 (foreman-helper-2) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 2 of 10
+Plan: 3 of 10
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
@@ -153,6 +153,7 @@ Progress: [████████████████████] 50/50 p
 | Phase 12 P09 | ~10min | 3 tasks | 3 files |
 | Phase 12 P10 | ~15min | 3 tasks | 4 files |
 | Phase 14-foreman-helper-2 P01 | ~30min | 3 tasks | 12 files |
+| Phase 14-foreman-helper-2 P02 | ~15min (Task 3 continuation) | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -286,6 +287,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: 14-01: extracted pipeline/fetch.py's Helper #2 row detection into a standalone _detect_helper2_row() function (unlike Helper #1's inline block) for direct unit-testability without a Smartsheet client mock
 - [Phase 14]: 14-01: normalize_helper_value() rejects the literal 'NA' (case-insensitive) in addition to the 11-member FORMULA_ERROR_VALUES set, per D-14-05's must-have (FORMULA_ERROR_VALUES itself stays exactly the 11 tokens the plan specifies)
 - [Phase 14]: 14-01: tests/test_helper2_family_parity.py uses a KNOWN_DEFERRED allowlist for pipeline/excel.py's two subcontractor Helper #2 shadow branches, explicitly deferred to plan 14-06
+- [Phase 14]: [Phase 14] 14-02 A1/A2: group_state hash-skip and _live_row_attachments pre-seed structurally cannot suppress a first Helper #2 generation -- no guard needed
+- [Phase 14]: [Phase 14] 14-02 A3: pricing.py exclusion tuple + rate-column selector must be extended in plan 14-06 for future aep_billable_helper2/reduced_sub_helper2 subcontractor shadow variants; observability.py _PII_LOG_MARKERS extension assigned to plans 14-07/14-08
+- [Phase 14]: [Phase 14] 14-02 Task 3: owner-delegated read-only Smartsheet probe (2026-09-06) confirms Resource Analyst Foreman Helper #2 blank on all 576 rows -- plan 14-10 pilot is FIXTURE-ONLY
 
 ### Roadmap Evolution
 
@@ -457,8 +461,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-06T21:07:33.376Z
-**Stopped at:** Completed 14-01-PLAN.md (Helper #2 tracer slice); ready for 14-02
+**Last session:** 2026-09-06T23:24:26.357Z
+**Stopped at:** Completed 14-02-PLAN.md (pending resolutions A1/A2/A3 + live column probe); ready for 14-03
 **Resume file:** None
 
 ## Session Continuity
