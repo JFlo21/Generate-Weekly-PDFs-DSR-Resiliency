@@ -585,3 +585,48 @@ has no `GITHUB_RUN_ID` — rows are still identifiable by `backfill_run_id IS NO
 local-run identifier is a follow-up for verify-work; (4) 4,071 `Unknown Foreman` rows remain (no in-week evidence in any
 Supabase store → source 5 cell history), plus 945 `#NO MATCH` rows deferred by D-12-C. Evidence: session scratchpad
 `own03_apply/` (counts only). Summary: `12-06-SUMMARY.md` Task 3.
+
+## 2026-09-05 07:35–07:55Z (02:35–02:55 CDT) — Phase 14 "Foreman Helper #2" opened in GSD (planning only; no code or production change)
+**What changed (planning artifacts only):** Juan authorized GSD *planning* for a second Helping Foreman slot. The session
+added Phase 14 to the v1.4 roadmap via `gsd phase.add`, wrote HLP-01..HLP-07 into `REQUIREMENTS.md` (+ traceability
+rows), filled ROADMAP §Phase 14 with the three confirmed owner decisions (Intake ProMax 8 `2244739192541060` is
+intentionally excluded and never a prerequisite or remediation target; missing optional Helper #2 columns mean
+"capability unavailable — skip only the Helper #2 path", never a sheet rejection; extend the existing Helping Foreman
+mechanics, no rebuild, no rule that one unit is billed twice), and recorded the behavior contract in `14-CONTEXT.md`
+(D-14-01..12 decided from repository evidence; **O-14-A** — a row with BOTH helper completion boxes checked — left OPEN
+for Juan, recommended option = hold the row with visibility). The still-uncommitted 2026-07 Helper #2 prototype found
+in the sibling clone (`master` @ `d11f20f`, 448 insertions / 16 files) was snapshotted read-only into
+`.planning/phases/14-foreman-helper-2/reference/helper2-prototype-2026-07/` as evidence, never as code to apply.
+**Why:** the prior handoff (vault, 2026-08-23) left the generator side dormant and its code at risk on an unpushed
+working tree; GSD now owns the audit, plan, and verification for the feature. **Operator impact:** none yet — nothing
+touches `generate_weekly_pdfs.py`, Smartsheet, Supabase, or the workflow. Live read-only observation 2026-09-05 ~07:40Z:
+Intake 8 sits in the scanned Intake folder `8815193070299012` with `Weekly Reference Logged Date` and full Helper #1
+columns, so today's discovery accepts it; Helper #2 there is simply unavailable — Phase 14 does not change that either
+way. Commits `57bcfc6`, `27ab07c`, `d1f244a` on `feat/phase-12-remediation`; `/gsd-plan-phase 14 --research` in
+progress; stop point = implementation-approval checkpoint.
+
+## 2026-09-06 01:30–02:50Z (2026-09-05 20:30–21:50 CDT) — Phase 14 "Foreman Helper #2" PLANNED via GSD; stopped at the planning-approval checkpoint (no code or production change)
+**What changed (planning artifacts only):** `/gsd-plan-phase 14 --research` ran to completion. Researcher → `14-RESEARCH.md`
+(`7b95fe4`; the bounded architecture audit lives here — affected-consumer disposition, three silent-gap sites: cleanup
+orphan-supersede set, upload PPP dual-route gate, `freeze_row` all-sentinel tuple), Nyquist seed `14-VALIDATION.md` (`7e646e4`),
+pattern map `14-PATTERNS.md` (`e5287a8`), then the planner wrote **10 plans in 6 waves** and the checker ran three times:
+iteration 1 found 2 blockers — all 7 checkpoint tasks used the auto-task schema instead of the canonical
+`<decision>/<options>/<resume-signal>` (or `<what-built>/<how-to-verify>/<resume-signal>`) children, and four owner
+checkpoints lacked `gate="blocking-human"`, which GSD auto/chain mode resolves silently with the first option — plus 5 warnings;
+the planner revision fixed all of them; iteration 2 returned 0 blockers / 4 warnings; the orchestrator applied three surgical
+fixes (14-10 T2's live upload-suppressed rehearsal is now preconditioned on a dated owner authorization plus a code-verified
+no-write/no-cleanup reading, never "run anyway"; `14-VALIDATION.md` attributes `test_helper2_family_parity.py` to 14-01-02;
+14-01's vocabulary lock marks the `sheet_registry` marker shape as recommended, pending 14-07 T1); iteration 3 returned
+0 blockers / 1 cosmetic tally line, fixed afterwards and re-validated with the deterministic checks (not re-run through the
+checker). Gates: `verify.plan-structure` 10/10, verify-command probes 63/63 clean, decision coverage 12/12 (after `fd2d5af`
+reflowed the D-14-10 bullet so the parser could read its title), requirements 7/7, plan:post gap analysis 19/19.
+**Committed:** `af1221e` `docs(14): create phase plan` — 10 × PLAN.md, RESEARCH, VALIDATION, STATE, ROADMAP — on
+`feat/phase-12-remediation`; nothing pushed. STATE.md now reads `current_phase: 14` / "READY TO EXECUTE" with `stopped_at`
+naming the planning-approval checkpoint; the Phase 12 resume pointer stays in `.planning/HANDOFF.json`.
+**Why it matters:** every production boundary in the plan set sits behind one of seven `blocking-human` checkpoints (live
+column probe, `row_state` DDL, `sheet_registry` marker, O-14-A rule, attribution migration apply + read-back, rollout
+decisions), Intake ProMax 8 has no remediation task, O-14-A stays Juan's call with only its dependent task blocked, and
+Helper #1 / primary / VAC identities are byte-identical when Helper #2 is absent (14-01 T2 regression + family-parity test).
+**Operator impact:** none — `generate_weekly_pdfs.py`, Smartsheet, Supabase, and the workflow are untouched;
+`HELPER2_ENABLED` does not exist yet. **Next:** Juan reviews the plans, answers O-14-A and the per-slot two-files consequence,
+then `/gsd-execute-phase 14` (not run by this session).

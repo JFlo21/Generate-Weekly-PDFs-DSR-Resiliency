@@ -28,6 +28,24 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   of the same path" wording is wrong — discovery.py never imports that enum; align to its lazy
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
+- **Phase 14 "Foreman Helper #2" — PLANNED, STOPPED AT THE PLANNING-APPROVAL CHECKPOINT (2026-09-06 02:45Z):**
+  `/gsd-plan-phase 14 --research` completed end to end — researcher (`14-RESEARCH.md`, `7b95fe4`), Nyquist seed
+  (`7e646e4`), pattern mapper (`14-PATTERNS.md`, `e5287a8`), planner (10 plans / 6 waves), checker × 3 (iter 1: 2 blockers
+  — checkpoint tasks lacked the canonical `<decision>/<options>/<resume-signal>` children and four owner checkpoints lacked
+  `gate="blocking-human"`, which auto-mode silently bypasses; revised → iter 2: 0 blockers / 4 warnings; orchestrator fixed
+  three → iter 3: 0 blockers / 1 cosmetic tally, fixed after the run and re-validated deterministically). Gates: plan
+  structure 10/10 valid, verify-command probes 63/63 clean, decision coverage 12/12, requirements HLP-01..07 7/7, plan:post
+  gap analysis 19/19. Committed `fd2d5af` (D-14-10 bullet reflow so the GSD parser reads it) and **`af1221e` `docs(14):
+  create phase plan`** (10 × PLAN.md + RESEARCH + VALIDATION + STATE + ROADMAP) on `feat/phase-12-remediation`; nothing pushed.
+  **Seven `blocking-human` checkpoints** hold every production boundary: 14-02 T3 (owner-run live column probe), 14-04 T1
+  (`row_state` Helper #2 DDL + hash inclusion), 14-07 T1 (`sheet_registry` mapping-schema marker shape), 14-08 T1 (**O-14-A**
+  same-row dual-helper rule, still OPEN — only its Task 2 is blocked), 14-09 T2/T3 (attribution migration apply + read-back
+  that closes assumption A4), 14-10 T3 (flag default / Actions wiring / one controlled upload). 14-10 T2's live
+  upload-suppressed rehearsal step is preconditioned on a dated owner authorization and a code-verified no-write reading.
+  STATE.md (GSD-owned): `current_phase: 14`, frontmatter `status: executing` = GSD's "READY TO EXECUTE" position,
+  `stopped_at` = planning-approval checkpoint; the Phase 12 resume pointer (12-06 Task 4, Sat 15:00Z run) lives in
+  `.planning/HANDOFF.json`. The assembled planner prompt (`14-PLANNER-BUNDLE.md`) was moved to the session scratchpad,
+  not committed. **No code, Smartsheet, Supabase, workflow, or attachment change; `/gsd-execute-phase 14` NOT run.**
 
 ## Latest work (2026-09-03 evening → 2026-09-05 00:30 UTC) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); **12-06 Task 1 full-scope dry-run RE-RUN clean (0/0/0 guards) — awaiting Juan's verdict**; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 
@@ -326,6 +344,13 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
    rows for the target row_ids before `--apply` (Opus MED, 2026-09-03); confirm live `attribution_snapshot` column names, apply
    `billing_audit/own03_backfill_attribution.sql`, approve the dry-run report, run `--apply`, restore the source-5
    cell-history cron only with a candidate source, attachment replacement.
+4. **Phase 14 (Foreman Helper #2) — awaiting Juan's planning approval:** review `.planning/phases/14-foreman-helper-2/14-0N-PLAN.md`
+   (start with 14-01 tracer, 14-08 O-14-A, 14-09 migration, 14-10 rollout). Decide **O-14-A** (row with BOTH helper completions
+   checked; recommended = hold the row with visibility, distinct log reason, counter) and confirm the per-slot identity consequence
+   (same person in slot 1 and slot 2 within one WR/week → two files; asked again inside 14-08 T1). Two planner calls to accept or
+   overrule at their checkpoints: `HASH_FIELDS` includes the Helper #2 fields (14-04 T1) and the mapping-schema marker is a separate
+   nullable `sheet_registry` column (14-07 T1). Then, and only then, `/gsd-execute-phase 14` — waves 1–3 are code + fixtures behind
+   `HELPER2_ENABLED='0'`; every DDL apply, workflow edit, and upload stays behind its `blocking-human` checkpoint.
 
 ## Open owner items
 

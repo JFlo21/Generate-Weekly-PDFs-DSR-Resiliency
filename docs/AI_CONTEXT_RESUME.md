@@ -243,6 +243,8 @@ Sequencing — **A → B → C → D → E**:
 
 ## Current open tasks / next recommended steps
 
+> **2026-09-06 pointer (live status lives in `.claude/project-state.md`):** Phase 14 "Foreman Helper #2" is PLANNED (GSD) — 10 plans in `.planning/phases/14-foreman-helper-2/`, checker-verified, committed `af1221e`, **stopped at the planning-approval checkpoint**. Juan must review the plans, decide O-14-A (row with both helper completions checked) and confirm the per-slot two-files consequence before `/gsd-execute-phase 14`. Phase 12 (12-06 Task 4) still waits on the first post-apply scheduled run; its pointer is in `.planning/HANDOFF.json`. Sections below this line predate Phases 11–14.
+
 1. **Phase 09 Wave 5** (cleanup/upload/attribution) — NEXT, on human go. Same
    model: Opus executor, sequential / no-worktree, independent `run_6_gates.sh` +
    stop. Then Wave 6 (orchestrate + facade finalize).
