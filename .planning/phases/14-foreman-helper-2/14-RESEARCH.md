@@ -836,7 +836,16 @@ pattern even though they appear in the reference prototype.
 
 ## Open Questions
 
+> Disposition markers added during plan revision (2026-09-05). Every question below carries either a
+> `(RESOLVED → plan/task)` marker naming where it is closed, or an `(OPEN by owner instruction)`
+> marker naming the checkpoint that gates it. O-14-A stays open deliberately — it is a business
+> decision about money and no agent may close it.
+
 1. **O-14-A: Same-row, both-helper-slots-valid conflict resolution.**
+   **(OPEN by owner instruction → gated in 14-08 Task 1, `checkpoint:decision` with
+   `gate="blocking-human"`.)** This is not an unanswered research question; it is a business rule
+   reserved to Juan. The checkpoint enumerates the four options with their consequences and cannot be
+   auto-resolved in any mode. 14-08 Task 2 is BLOCKED on the recorded answer.
    - What we know: CONTEXT.md frames four options and recommends "hold with visibility"
      (mirroring Subproject B's HOLD semantics); the prototype's abort-on-conflict approach is
      explicitly rejected.
@@ -847,6 +856,10 @@ pattern even though they appear in the reference prototype.
      behavior pending confirmation.
 
 2. **Same person in Helper #1 slot on some rows and Helper #2 slot on other rows, same WR/week.**
+   **(RESOLVED → non-blocking by design; per-slot identity proceeds per D-14-06. The confirmation is
+   asked as a documentation follow-up inside 14-08 Task 1, and the operator-facing note is written in
+   14-10 Task 1.)** No code path waits on this; the only open part was whether operators need a
+   runbook callout, and 14-10 Task 1 writes one either way.
    - What we know: CONTEXT.md's case table accepts "two files, one per slot" as a consequence of
      per-slot identity, and flags it "Juan to confirm... not blocking."
    - What's unclear: Whether this needs an explicit runbook callout for operators reviewing
@@ -855,6 +868,11 @@ pattern even though they appear in the reference prototype.
      during the pilot-documentation task.
 
 3. **`group_state`/`_live_row_attachments` exact keying (A1/A2 above).**
+   **(RESOLVED → 14-02 Task 1, which reads the four call paths and writes a
+   CONFIRMED SAFE / REQUIRES GUARD / STILL UNKNOWN verdict per mechanism into
+   `14-PENDING-RESOLUTIONS.md` under `## A1` and `## A2`, in Wave 1 before any dependent plan makes a
+   design choice.)** The companion module-scope gap (A3: `attribution.py`, `pricing.py`,
+   `observability.py`) is resolved in 14-02 Task 2 under `## A3`.
    - What we know: The documented contract at `_resolve_unchanged_for_skip` (lines 817-848,
      verified) behaves safely for a brand-new variant's first run.
    - What's unclear: Full body of `group_state`'s read path and `_live_row_attachments` beyond

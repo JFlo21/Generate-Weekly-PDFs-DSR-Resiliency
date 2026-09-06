@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
-current_phase: 12
-current_phase_name: Ownership — last known foreman as of the week
-status: verifying
-stopped_at: Phase 14 context gathered (planning-only; Phase 12 resume pointer preserved in .planning/HANDOFF.json)
-last_updated: "2026-09-05T07:50:17.317Z"
+current_phase: 14
+current_phase_name: "Foreman Helper #2"
+status: executing
+stopped_at: "Phase 14 planned: 10 plans, checker 0 blockers (iter 3); STOPPED at planning-approval checkpoint — do NOT execute until Juan approves. Phase 12 resume pointer preserved in .planning/HANDOFF.json (12-06 Task 4 waits on Sat 15:00Z run)"
+last_updated: "2026-09-06T02:42:00.104Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 12 execution resumed (wave continue)
-state_head: 27ab07c8a6f4b88e60712e342b5c1934f57b705d
+state_head: fd2d5af1ab15b95fd71c938d758f83b3396fc260
 progress:
   total_phases: 14
   completed_phases: 4
-  total_plans: 60
+  total_plans: 70
   completed_plans: 59
   percent: 29
 ---
@@ -35,7 +35,7 @@ pipeline.
 
 ## Current Position
 
-Phase: 12 (Ownership — last known foreman as of the week) — EXECUTING
+Phase: 14 (Foreman Helper #2) — READY TO EXECUTE
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
 Plan: 6 of 6 (12-02 … 12-05 complete; 12-03 SQL applied live 2026-09-03; 12-06 owner-run after merge)
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
@@ -43,7 +43,7 @@ Plan: 6 of 6 (12-02 … 12-05 complete; 12-03 SQL applied live 2026-09-03; 12-06
   master. Greptile round fixed on-branch (never-raising ceiling parse,
   typed skip index). Merged with 9 bot threads unresolved — see
   Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
-Status: Phase complete — ready for verification
+Status: Ready to execute
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
   `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
@@ -453,9 +453,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-05T07:50:16.457Z
-**Stopped at:** Phase 14 context gathered (planning-only; Phase 12 resume pointer preserved in .planning/HANDOFF.json)
-**Resume file:** .planning/phases/14-foreman-helper-2/14-CONTEXT.md
+**Last session:** 2026-09-06T02:41:59.066Z
+**Stopped at:** Phase 14 planned: 10 plans, checker 0 blockers (iter 3); STOPPED at planning-approval checkpoint — do NOT execute until Juan approves. Phase 12 resume pointer preserved in .planning/HANDOFF.json (12-06 Task 4 waits on Sat 15:00Z run)
+**Resume file:** .planning/phases/14-foreman-helper-2/14-01-PLAN.md
 
 ## Session Continuity
 

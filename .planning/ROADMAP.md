@@ -870,3 +870,60 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
 6. Pilot scope, comparison criteria, and rollback are documented and rehearsed on fixtures;
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
+
+**Plans:** 10 plans (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
+planning only.
+
+Plans:
+
+**Wave 1** *(parallel)*
+
+- [ ] 14-01-PLAN.md — Tracer: one Helper #2 completion end-to-end (flag, synonyms, eligibility,
+  grouping, hash meta, group identity, filename, round-trip) plus the legacy byte-identity regression
+- [ ] 14-02-PLAN.md — Close the research's pending items (group_state and attachment pre-seed keying,
+  the three unread modules, the owner-run read-only live column probe)
+
+**Wave 2** *(parallel; blocked on 14-01)*
+
+- [ ] 14-03-PLAN.md — Attribution client: the Helper #2 claimant joins the freeze payload AND the
+  all-sentinel gate, the Helper #2 role, and the pre-migration degrade
+- [ ] 14-04-PLAN.md — Run-memory Helper #2 columns, the recorded hash-inclusion decision, and the
+  mirrored field list in the passive-compare script
+- [ ] 14-05-PLAN.md — Lifecycle consumers: cleanup orphan-supersede gate, artifact-publish variant
+  precedence, portal labels, and the family-parity invariant
+
+**Wave 3** *(parallel; blocked on Wave 2)*
+
+- [ ] 14-06-PLAN.md — Subcontractor Helper #2 shadow variants: grouping legs, workbook rendering,
+  nested filename parsing, multi-foreman aggregated hashing, and the PPP dual-route
+- [ ] 14-07-PLAN.md — One bounded revalidation for pre-Helper-#2 cached mappings, the four
+  distinguishable conditions, and the Intake-8-shaped fixture
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 14-08-PLAN.md — O-14-A conflict rule (BLOCKED on Juan's decision) and the Helper #2
+  run-summary counters
+
+**Wave 5** *(blocked on Wave 4)*
+
+- [ ] 14-09-PLAN.md — Owner-deployed Supabase attribution migration: the Helper #2 role columns,
+  the freeze parameters, drop-first for BOTH lookup functions, and the read-back
+
+**Wave 6** *(blocked on Wave 5)*
+
+- [ ] 14-10-PLAN.md — Rollout: runbook, environment and architecture documentation, the escalating
+  pilot rehearsal with rollback, and the owner decisions on flag default, workflow wiring, and the
+  single controlled upload
+
+**Open owner decisions the plans depend on:**
+
+- **O-14-A (OPEN)** — a source row with BOTH helper completion boxes checked, both names real, both
+  depts present. Recommended default: hold the row out of every file for the run, log a distinct
+  reason, count it, and surface it for correction. Only plan 14-08 Task 2 is blocked on it; the
+  other nine plans proceed. No rule is invented in the plans.
+- **D-14-07 / D-14-08 / D-14-10 Supabase changes** — three additive schema changes, each behind its
+  own owner checkpoint in plans 14-09, 14-04, and 14-07 respectively. No DDL is applied from an
+  agent session.
+- **D-14-12 rollout** — flag default, GitHub Actions wiring (inspect-only in this phase; the exact
+  lines are recorded, not applied), and authorization for the one controlled upload, all in
+  plan 14-10 Task 3.
