@@ -878,7 +878,7 @@ Plans:
 
 **Wave 1** *(parallel)*
 
-- [ ] 14-01-PLAN.md — Tracer: one Helper #2 completion end-to-end (flag, synonyms, eligibility,
+- [x] 14-01-PLAN.md — Tracer: one Helper #2 completion end-to-end (flag, synonyms, eligibility,
   grouping, hash meta, group identity, filename, round-trip) plus the legacy byte-identity regression
 - [ ] 14-02-PLAN.md — Close the research's pending items (group_state and attachment pre-seed keying,
   the three unread modules, the owner-run read-only live column probe)

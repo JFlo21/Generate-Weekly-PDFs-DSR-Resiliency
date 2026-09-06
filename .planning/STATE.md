@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 14
-current_phase_name: "Foreman Helper #2"
+current_phase_name: foreman-helper-2
 status: executing
-stopped_at: "Phase 14 planned: 10 plans, checker 0 blockers (iter 3); STOPPED at planning-approval checkpoint — do NOT execute until Juan approves. Phase 12 resume pointer preserved in .planning/HANDOFF.json (12-06 Task 4 waits on Sat 15:00Z run)"
-last_updated: "2026-09-06T02:42:00.104Z"
-last_activity: 2026-09-03
-last_activity_desc: Phase 12 execution resumed (wave continue)
-state_head: fd2d5af1ab15b95fd71c938d758f83b3396fc260
+stopped_at: "Completed 14-01-PLAN.md (Helper #2 tracer slice); ready for 14-02"
+last_updated: "2026-09-06T21:07:34.360Z"
+last_activity: 2026-09-06
+last_activity_desc: Phase 14 execution started
+state_head: 09017f8566bda827ad1f380696f8f64bd44d839d
 progress:
   total_phases: 14
   completed_phases: 4
   total_plans: 70
-  completed_plans: 59
+  completed_plans: 60
   percent: 29
 ---
 
@@ -31,13 +31,13 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 12 — Ownership — last known foreman as of the week
+**Current focus:** Phase 14 — foreman-helper-2
 
 ## Current Position
 
-Phase: 14 (Foreman Helper #2) — READY TO EXECUTE
+Phase: 14 (foreman-helper-2) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 6 of 6 (12-02 … 12-05 complete; 12-03 SQL applied live 2026-09-03; 12-06 owner-run after merge)
+Plan: 2 of 10
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
@@ -59,7 +59,7 @@ Status: Ready to execute
   built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
   mypy delta neutral 72->72, no re-baseline needed this plan); full
   suite 1886 passed / 1 skipped / 306 subtests.
-Last activity: 2026-09-03 — Phase 12 execution resumed (wave continue)
+Last activity: 2026-09-06 — Phase 14 execution started
   GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
   Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
   under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
@@ -89,7 +89,7 @@ Last activity: 2026-09-03 — Phase 12 execution resumed (wave continue)
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 50/50 plans ([██████████] 100%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
+Progress: [████████████████████] 50/50 plans ([███░░░░░░░] 29%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
 ```
 
 ## Performance Metrics
@@ -152,6 +152,7 @@ Progress: [████████████████████] 50/50 p
 | Phase 12 P08 | ~25min | 3 tasks | 4 files |
 | Phase 12 P09 | ~10min | 3 tasks | 3 files |
 | Phase 12 P10 | ~15min | 3 tasks | 4 files |
+| Phase 14-foreman-helper-2 P01 | ~30min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -282,6 +283,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: 12-10 Task 2: owner-authorized deviation -- STEP 1 same-UTC-day backup (attribution_snapshot_backup_20260904) applied via Supabase MCP at Juan's explicit direction, mirroring 12-09's STEP 4/5 pattern
 - [Phase ?]: 12-10 Task 3: zero-defect scoped dry-run confirmed -- WR 89732091 x 7 weeks went from 235/235 to 0/0 extension-bearing proposals
 - [Phase ?]: 12-06 declared re-entrant from its own Task 1 per Juan's re-enter-12-06 resume signal (2026-09-04); backup valid for --apply only through 2026-09-04 23:59 UTC
+- [Phase 14]: 14-01: extracted pipeline/fetch.py's Helper #2 row detection into a standalone _detect_helper2_row() function (unlike Helper #1's inline block) for direct unit-testability without a Smartsheet client mock
+- [Phase 14]: 14-01: normalize_helper_value() rejects the literal 'NA' (case-insensitive) in addition to the 11-member FORMULA_ERROR_VALUES set, per D-14-05's must-have (FORMULA_ERROR_VALUES itself stays exactly the 11 tokens the plan specifies)
+- [Phase 14]: 14-01: tests/test_helper2_family_parity.py uses a KNOWN_DEFERRED allowlist for pipeline/excel.py's two subcontractor Helper #2 shadow branches, explicitly deferred to plan 14-06
 
 ### Roadmap Evolution
 
@@ -453,9 +457,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-06T02:41:59.066Z
-**Stopped at:** Phase 14 planned: 10 plans, checker 0 blockers (iter 3); STOPPED at planning-approval checkpoint — do NOT execute until Juan approves. Phase 12 resume pointer preserved in .planning/HANDOFF.json (12-06 Task 4 waits on Sat 15:00Z run)
-**Resume file:** .planning/phases/14-foreman-helper-2/14-01-PLAN.md
+**Last session:** 2026-09-06T21:07:33.376Z
+**Stopped at:** Completed 14-01-PLAN.md (Helper #2 tracer slice); ready for 14-02
+**Resume file:** None
 
 ## Session Continuity
 
