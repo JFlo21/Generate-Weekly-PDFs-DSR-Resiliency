@@ -177,6 +177,22 @@ class DeriveGroupIdentityTests(unittest.TestCase):
         self.assertEqual(ident, 'Sam Sample|NA-03|J-1')
         self.assertEqual(file_id, 'Sam_Sample')
 
+    def test_helper2_family_history_and_file_shapes_differ(self):
+        # Phase 14 (14-01 Task 2): the new helper2 sibling branch mirrors
+        # the helper-family branch's shape (pipe-joined identifier, plain
+        # sanitized file_identifier). Full group identity (which combines
+        # this with the ``variant`` string in the history key and the
+        # ``_Helper2_``/``_Helper_`` filename token) is what keeps a
+        # Helper #1 and Helper #2 claim for the same person from ever
+        # colliding -- proven end-to-end in test_foreman_helper_2.py.
+        row = {'__variant': 'helper2', '__helper2_foreman': 'Jamie Helper2',
+               '__helper2_dept': 'NA-07', '__helper2_job': 'J-88'}
+        ident, file_id = derive_group_identity(
+            row, primary_claim_enabled=True,
+            vac_crew_claim_enabled=True, res_grouping_mode='both')
+        self.assertEqual(ident, 'Jamie Helper2|NA-07|J-88')
+        self.assertEqual(file_id, 'Jamie_Helper2')
+
 
 class SitesTwoOrderTests(_HashModeMixin, unittest.TestCase):
     """Copilot 3877822173: process both row orders and assert identical
