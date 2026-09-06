@@ -18,6 +18,7 @@ not production observed.
 from __future__ import annotations
 
 import datetime
+import os
 import sys
 import tempfile
 import unittest
@@ -193,6 +194,255 @@ class HelperTwoTracerTests(unittest.TestCase):
         self.assertNotIn('Primary Person', shown.values())
         self.assertNotIn('510', shown.values())
         self.assertNotIn('JOB-PRIMARY', shown.values())
+
+
+class HelperTwoFabricatedClaimGuardTests(unittest.TestCase):
+    """Task 3 (14-01): every non-claim input is proven inert on the
+    Helper #2 detection path (HLP-05 / HLP-03, D-14-05)."""
+
+    def setUp(self):
+        # HELPER2_ENABLED defaults OFF (D-14-12) -- these tests probe the
+        # detection FORMULA itself, so enable the flag here; the one test
+        # that specifically proves the flag-off behavior overrides this
+        # locally.
+        patcher = mock.patch.object(_fetch, 'HELPER2_ENABLED', True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _detect(self, foreman_helping2, *, completed=True,
+                units_completed=True, dept='NA-01', job='J-1',
+                sheet_has_helper2_columns=True):
+        row_data = {
+            'Foreman Helping? #2': foreman_helping2,
+            'Helping Foreman #2 Completed Unit?': completed,
+            'Helper #2 Dept #': dept,
+            'Helper #2 Job #': job,
+        }
+        is_claim = _fetch._detect_helper2_row(
+            row_data,
+            sheet_has_helper2_columns=sheet_has_helper2_columns,
+            units_completed_checked=units_completed,
+        )
+        return is_claim, row_data
+
+    def test_blank_value_is_no_claim(self):
+        is_claim, row_data = self._detect('')
+        self.assertFalse(is_claim)
+        self.assertFalse(row_data['__is_helper2_row'])
+        self.assertNotIn('__helper2_foreman', row_data)
+
+    def test_none_value_is_no_claim(self):
+        is_claim, row_data = self._detect(None)
+        self.assertFalse(is_claim)
+        self.assertFalse(row_data['__is_helper2_row'])
+
+    def test_whitespace_only_value_is_no_claim(self):
+        is_claim, _ = self._detect('   ')
+        self.assertFalse(is_claim)
+
+    def test_na_variants_are_no_claim(self):
+        # D-14-05: the case Helper #1 gets wrong today (accepts "NA" as a
+        # fabricated name) -- Helper #2 must reject it from day one.
+        for value in ('NA', 'na', 'Na', ' NA '):
+            with self.subTest(value=value):
+                is_claim, _ = self._detect(value)
+                self.assertFalse(is_claim)
+
+    def test_every_formula_error_value_is_no_claim(self):
+        self.assertIn('#NO MATCH', FORMULA_ERROR_VALUES)
+        for value in sorted(FORMULA_ERROR_VALUES):
+            with self.subTest(value=value):
+                is_claim, _ = self._detect(value)
+                self.assertFalse(is_claim)
+            with self.subTest(value=value.lower()):
+                is_claim, _ = self._detect(value.lower())
+                self.assertFalse(is_claim)
+
+    def test_unchecked_completion_is_no_claim(self):
+        is_claim, _ = self._detect('Jamie Helper2', completed=False)
+        self.assertFalse(is_claim)
+
+    def test_unchecked_units_completed_is_no_claim(self):
+        is_claim, _ = self._detect('Jamie Helper2', units_completed=False)
+        self.assertFalse(is_claim)
+
+    def test_capability_absent_disables_detection_for_an_otherwise_valid_row(self):
+        is_claim, row_data = self._detect(
+            'Jamie Helper2', sheet_has_helper2_columns=False
+        )
+        self.assertFalse(is_claim)
+        self.assertFalse(row_data['__is_helper2_row'])
+
+    def test_helper2_enabled_off_disables_detection_for_an_otherwise_valid_row(self):
+        with mock.patch.object(_fetch, 'HELPER2_ENABLED', False):
+            is_claim, row_data = self._detect('Jamie Helper2')
+        self.assertFalse(is_claim)
+        self.assertFalse(row_data['__is_helper2_row'])
+
+    def test_valid_name_and_both_checkboxes_is_a_claim(self):
+        # Sanity control -- the fixture battery above is not accidentally
+        # rejecting everything.
+        is_claim, row_data = self._detect('Jamie Helper2')
+        self.assertTrue(is_claim)
+        self.assertTrue(row_data['__is_helper2_row'])
+        self.assertEqual(row_data['__helper2_foreman'], 'Jamie Helper2')
+
+    def test_job_blank_still_proceeds_as_a_claim(self):
+        # Case 8: dept present, job blank -> claim proceeds (job optional,
+        # mirrors Helper #1). The missing-job informational log is
+        # grouping.py's HELPER_JOB= meta-block responsibility, not fetch's.
+        is_claim, row_data = self._detect('Jamie Helper2', job='')
+        self.assertTrue(is_claim)
+        self.assertEqual(row_data['__helper2_job'], '')
+
+    def test_dept_blank_row_is_still_flagged_is_helper2_row(self):
+        # fetch.py does not itself validate dept presence -- that is
+        # grouping.py's job (see HelperTwoMissingDeptExclusionTests below,
+        # case 7). __is_helper2_row is True here; the dept field is blank.
+        is_claim, row_data = self._detect('Jamie Helper2', dept='')
+        self.assertTrue(is_claim)
+        self.assertEqual(row_data['__helper2_dept'], '')
+
+
+class HelperTwoMissingDeptExclusionTests(unittest.TestCase):
+    """Case 7 (Task 3, D-14-04): a valid claim (name + both checkboxes)
+    with a blank Helper #2 Dept # produces no helper2 group; the row
+    still reaches wherever today's Helper #1/primary logic sends it."""
+
+    def setUp(self):
+        patcher = mock.patch.object(
+            _discovery, '_FOLDER_DISCOVERED_SUB_IDS', frozenset()
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_missing_dept_produces_no_helper2_group(self):
+        row = _helper2_row(__helper2_dept='')
+        groups = generate_weekly_pdfs.group_source_rows([row])
+
+        helper2_keys = [
+            k for k, rows in groups.items()
+            if rows[0].get('__variant') == 'helper2'
+        ]
+        self.assertEqual(helper2_keys, [], groups.keys())
+
+        # The row still reaches the primary file -- exactly what happens
+        # to an invalid Helper #1 claim today (grouping.py's existing
+        # "missing required Dept #... including in main Excel" fallback).
+        primary_keys = [
+            k for k, rows in groups.items()
+            if rows[0].get('__variant') == 'primary'
+        ]
+        self.assertEqual(len(primary_keys), 1, groups.keys())
+        primary_row_ids = {
+            r.get('__row_id') for r in groups[primary_keys[0]]
+        }
+        self.assertIn(90002, primary_row_ids)
+
+
+class HelperTwoCapabilityAbsentDiscoveryTests(unittest.TestCase):
+    """Case 9 (Task 3, D-14-01/D-14-04): an Intake-8-shaped sheet (Helper
+    #1 columns present, none of the six Helper #2 titles) is a legitimate
+    capability-absent mapping outcome, not a discovery failure -- and the
+    computed capability boolean correctly disables Helper #2 detection
+    without touching Helper #1's own columns."""
+
+    _SHEET_ID = 3333333333
+
+    def _build_mock_client(self):
+        from smartsheet.models.column import Column
+        from smartsheet.models.sheet import Sheet as _Sheet
+
+        titles = [
+            'Weekly Reference Logged Date',
+            'Work Request #',
+            'Foreman Helping?',
+            'Helping Foreman Completed Unit?',
+            'Helper Dept #',
+            'Helper Job [#]',
+        ]
+        columns = [
+            Column({'id': 2000 + i, 'title': t, 'type': 'TEXT_NUMBER'})
+            for i, t in enumerate(titles)
+        ]
+        sheet = _Sheet({
+            'id': self._SHEET_ID, 'name': 'Intake-8-shaped Sheet',
+            'columns': [], 'rows': [],
+        })
+        sheet.columns = columns
+        sheet.rows = []
+        mock_client = mock.MagicMock()
+        mock_client.Sheets.get_sheet.return_value = sheet
+        return mock_client
+
+    def test_sheet_without_helper2_columns_is_not_rejected(self):
+        client = self._build_mock_client()
+        saved_env = {
+            k: os.environ.get(k) for k in (
+                'LIMITED_SHEET_IDS', 'FORCE_REDISCOVERY',
+                'SUBCONTRACTOR_FOLDER_IDS', 'ORIGINAL_CONTRACT_FOLDER_IDS',
+            )
+        }
+        saved_attrs = {
+            k: getattr(generate_weekly_pdfs, k) for k in (
+                'FORCE_REDISCOVERY', 'SUBCONTRACTOR_FOLDER_IDS',
+                'ORIGINAL_CONTRACT_FOLDER_IDS',
+            )
+        }
+        try:
+            os.environ['LIMITED_SHEET_IDS'] = str(self._SHEET_ID)
+            os.environ['FORCE_REDISCOVERY'] = '1'
+            os.environ['SUBCONTRACTOR_FOLDER_IDS'] = ''
+            os.environ['ORIGINAL_CONTRACT_FOLDER_IDS'] = ''
+            generate_weekly_pdfs.FORCE_REDISCOVERY = True
+            generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS = []
+            generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS = []
+            discovered = generate_weekly_pdfs.discover_source_sheets(client)
+        finally:
+            for k, v in saved_attrs.items():
+                setattr(generate_weekly_pdfs, k, v)
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        # Not rejected: discovery returned a real mapping (the fixture
+        # never routed into the failed-read / strict-mode-reject path).
+        self.assertEqual(len(discovered), 1, discovered)
+        mapping = discovered[0]['column_mapping']
+        for helper2_title in (
+            'Foreman Helping? #2', 'Helping Foreman #2 Completed Unit?',
+            'Helper #2 Dept #',
+        ):
+            self.assertNotIn(helper2_title, mapping)
+
+        # The same three-title check pipeline/fetch.py performs.
+        sheet_has_helper2_columns = (
+            'Foreman Helping? #2' in mapping
+            and 'Helping Foreman #2 Completed Unit?' in mapping
+            and 'Helper #2 Dept #' in mapping
+        )
+        self.assertFalse(sheet_has_helper2_columns)
+
+        # Helper #1 columns are unaffected by the Helper #2 absence.
+        self.assertIn('Foreman Helping?', mapping)
+        self.assertIn('Helping Foreman Completed Unit?', mapping)
+
+        # Bridges discovery -> fetch: feeding this real capability
+        # boolean into row detection is inert even for an otherwise
+        # fully valid Helper #2 row.
+        row_data = {
+            'Foreman Helping? #2': 'Jamie Helper2',
+            'Helping Foreman #2 Completed Unit?': True,
+            'Helper #2 Dept #': 'NA-07',
+        }
+        is_claim = _fetch._detect_helper2_row(
+            row_data, sheet_has_helper2_columns=sheet_has_helper2_columns,
+            units_completed_checked=True,
+        )
+        self.assertFalse(is_claim)
+        self.assertFalse(row_data['__is_helper2_row'])
 
 
 if __name__ == "__main__":
