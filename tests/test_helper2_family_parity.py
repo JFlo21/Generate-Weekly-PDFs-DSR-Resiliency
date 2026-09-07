@@ -71,18 +71,14 @@ PARITY_TABLE = (
 # Per-file (Helper #2 literal) pairs that are KNOWN, NAMED, TEMPORARY
 # gaps -- a Helper #1 literal is present without its Helper #2 sibling
 # on purpose, because a specific later plan in this phase adds it.
-# Plan 14-01 deliberately leaves excel.py's two subcontractor Helper #2
+# Plan 14-01 deliberately left excel.py's two subcontractor Helper #2
 # shadow branches (_AEPBillable_Helper2_<name> / _ReducedSub_Helper2_<name>)
-# to plan 14-06 (see 14-01-PLAN.md Task 1 action item 8: "The two shadow
-# branches are plan 14-06's work — leave them alone here"). Any entry
-# here MUST cite the plan that closes it. Values are bare literals
-# (matching SIBLING_PAIRS' bare form above), not quoted strings.
-KNOWN_DEFERRED = {
-    'pipeline/excel.py': {
-        'aep_billable_helper2',  # 14-06: shadow variant_suffix branch
-        'reduced_sub_helper2',   # 14-06: shadow variant_suffix branch
-    },
-}
+# to plan 14-06, which has now implemented both branches (see
+# 14-06-PLAN.md Task 2) -- there are no remaining known-deferred gaps.
+# Any entry added here MUST cite the plan that closes it. Values are
+# bare literals (matching SIBLING_PAIRS' bare form above), not quoted
+# strings.
+KNOWN_DEFERRED: dict[str, set[str]] = {}
 
 
 def _quoted_forms(literal: str) -> tuple[str, str]:

@@ -555,6 +555,31 @@ def _compute_aggregated_content_hash(rows: list[dict]) -> str:
             variant_hash = hashlib.sha256(
                 "|".join(sub_parts).encode('utf-8')
             ).hexdigest()[:16]
+        elif v == 'helper2':
+            # Phase 14 (D-14-06): sibling of the 'helper' sub-bucketing
+            # above, never merged into it. Without this, a 'helper2'
+            # bucket aggregating rows from 2+ distinct Helper #2 foremen
+            # would depend on row sort order for which foreman's identity
+            # reaches the hash (Pitfall 5) -- the shadow variants
+            # (reduced_sub_helper2 / aep_billable_helper2) are excluded
+            # from this special case, same as their Helper #1 shadow
+            # siblings, and fall to the generic branch below (a
+            # documented pre-existing gap, not introduced by this phase).
+            sub2: dict[tuple[str, str, str], list[dict]] = {}
+            for r in variant_rows:
+                sk2 = (
+                    str(r.get('__helper2_foreman', '')),
+                    str(r.get('__helper2_dept', '')),
+                    str(r.get('__helper2_job', '')),
+                )
+                sub2.setdefault(sk2, []).append(r)
+            sub_parts2 = [
+                f"{sk2}={calculate_data_hash(sub2[sk2])}"
+                for sk2 in sorted(sub2.keys())
+            ]
+            variant_hash = hashlib.sha256(
+                "|".join(sub_parts2).encode('utf-8')
+            ).hexdigest()[:16]
         else:
             variant_hash = calculate_data_hash(variant_rows)
         parts.append(f"{v}={variant_hash}")
@@ -787,6 +812,16 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             # the identifier is everything after the marker.
             variant = 'aep_billable'
             identifier = '_'.join(post_aep[1:])
+        elif 'Helper2' in post_aep:
+            # Phase 14 (D-14-06): checked BEFORE the bare 'Helper' check
+            # below in this same branch -- 'Helper2' and 'Helper' are
+            # distinct underscore-split tokens, so a real hybrid filename
+            # can never contain both as adjacent list elements, but the
+            # more-specific token is still checked first defensively.
+            variant = 'aep_billable_helper2'
+            helper2_idx_rel = post_aep.index('Helper2')
+            if helper2_idx_rel + 1 < len(post_aep):
+                identifier = '_'.join(post_aep[helper2_idx_rel + 1:])
         elif 'Helper' in post_aep:
             variant = 'aep_billable_helper'
             helper_idx_rel = post_aep.index('Helper')
@@ -802,6 +837,13 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         if post_rs and post_rs[0] == 'User':
             variant = 'reduced_sub'
             identifier = '_'.join(post_rs[1:])
+        elif 'Helper2' in post_rs:
+            # Phase 14 (D-14-06): checked BEFORE the bare 'Helper' check
+            # below, mirroring the AEPBillable branch above.
+            variant = 'reduced_sub_helper2'
+            helper2_idx_rel = post_rs.index('Helper2')
+            if helper2_idx_rel + 1 < len(post_rs):
+                identifier = '_'.join(post_rs[helper2_idx_rel + 1:])
         elif 'Helper' in post_rs:
             variant = 'reduced_sub_helper'
             helper_idx_rel = post_rs.index('Helper')

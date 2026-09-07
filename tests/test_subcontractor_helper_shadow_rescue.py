@@ -1717,6 +1717,258 @@ class TestSubcontractorHelper2ShadowRescue(unittest.TestCase):
         )
 
 
+class TestHelper2ShadowExcelRendering(unittest.TestCase):
+    """Phase 14 plan 14-06 Task 2: Helper #2 shadow workbook filename +
+    REPORT DETAILS header rendering.
+
+    Sibling of ``test_subcontractor_pricing.py``'s
+    ``TestSubcontractorVariantFilenameSuffixes`` /
+    ``TestSubcontractorHelperVariantDeptJobDisplay`` classes, added here
+    per this plan's ``files_modified`` list (never touches
+    ``test_subcontractor_pricing.py``).
+    """
+
+    def setUp(self):
+        _ensure_smartsheet_mocked()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._orig_output_folder = generate_weekly_pdfs.OUTPUT_FOLDER
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._tmpdir.name
+        self._orig_rates = dict(generate_weekly_pdfs._SUBCONTRACTOR_RATES)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES['XYZ'] = {
+            'cu_code': 'XYZ',
+            'cu_wbs': '999',
+            'compatible_unit_group': 'TestGroup',
+            'reduced_install_price': 10.0,
+            'reduced_remove_price': 5.0,
+            'reduced_transfer_price': 2.5,
+            'new_install_price': 20.0,
+            'new_remove_price': 12.0,
+            'new_transfer_price': 6.0,
+        }
+
+    def tearDown(self):
+        generate_weekly_pdfs.OUTPUT_FOLDER = self._orig_output_folder
+        self._tmpdir.cleanup()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.clear()
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES.update(self._orig_rates)
+
+    def _make_group_row(self, variant, wr='10854049', week='2026-04-19',
+                         snap='2026-04-19', helper2_foreman='', cu='XYZ',
+                         work_type='Install', quantity=2, price='$0.00'):
+        return {
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': week,
+            'Snapshot Date': snap,
+            'Units Completed?': True,
+            'Units Total Price': price,
+            'CU': cu,
+            'Work Type': work_type,
+            'Quantity': quantity,
+            'Customer Name': 'TestCustomer',
+            'Foreman': 'TestForeman',
+            'Dept #': '500',
+            'Job #': 'J-1',
+            '__effective_user': 'TestForeman',
+            '__current_foreman': helper2_foreman or 'TestForeman',
+            '__variant': variant,
+            '__helper2_foreman': helper2_foreman,
+            '__helper2_dept': '456' if helper2_foreman else '',
+            '__helper2_job': 'J-9' if helper2_foreman else '',
+            '__week_ending_date': datetime.datetime(2026, 4, 19),
+        }
+
+    def _read_detail(self, excel_path, label):
+        """Return the REPORT DETAILS value (column G) for a given F-column label."""
+        import openpyxl
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
+        for r in range(1, ws.max_row + 1):
+            if ws.cell(row=r, column=6).value == label:  # column F = label
+                return ws.cell(row=r, column=7).value      # column G = value
+        return None
+
+    # ─── Filename suffix ────────────────────────────────────────
+
+    def test_aep_billable_helper2_filename_includes_sanitized_name(self):
+        rows = [self._make_group_row('aep_billable_helper2', helper2_foreman='Jane Smith')]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_10854049_AEPBILLABLE_HELPER2_Jane_Smith', rows,
+            datetime.datetime(2026, 4, 19), data_hash='deadbeefh2aep001',
+        )
+        filename = result[1]
+        self.assertIn('_AEPBillable_Helper2_Jane_Smith_', filename)
+        self.assertNotIn('_AEPBillable_Helper_Jane_Smith_', filename)
+
+    def test_reduced_sub_helper2_filename_includes_sanitized_name(self):
+        rows = [self._make_group_row('reduced_sub_helper2', helper2_foreman='Jane Smith')]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_10854049_REDUCEDSUB_HELPER2_Jane_Smith', rows,
+            datetime.datetime(2026, 4, 19), data_hash='deadbeefh2rs001',
+        )
+        filename = result[1]
+        self.assertIn('_ReducedSub_Helper2_Jane_Smith_', filename)
+        self.assertNotIn('_ReducedSub_Helper_Jane_Smith_', filename)
+
+    def test_aep_billable_helper2_raises_on_empty_helper2_foreman(self):
+        """D-14-05 day-one defensive guard, mirroring the Helper #1
+        shadow branch's raise-on-empty-foreman behavior."""
+        rows = [self._make_group_row('aep_billable_helper2', helper2_foreman='')]
+        with self.assertRaises(ValueError):
+            generate_weekly_pdfs.generate_excel(
+                '041926_10854049_AEPBILLABLE_HELPER2_', rows,
+                datetime.datetime(2026, 4, 19), data_hash='deadbeefh2aep002',
+            )
+
+    def test_reduced_sub_helper2_raises_on_empty_helper2_foreman(self):
+        rows = [self._make_group_row('reduced_sub_helper2', helper2_foreman='')]
+        with self.assertRaises(ValueError):
+            generate_weekly_pdfs.generate_excel(
+                '041926_10854049_REDUCEDSUB_HELPER2_', rows,
+                datetime.datetime(2026, 4, 19), data_hash='deadbeefh2rs002',
+            )
+
+    # ─── REPORT DETAILS header ──────────────────────────────────
+
+    def test_reduced_sub_helper2_shows_helper2_dept_and_job(self):
+        rows = [self._make_group_row('reduced_sub_helper2', helper2_foreman='Jane Smith')]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_10854049_REDUCEDSUB_HELPER2_Jane_Smith', rows,
+            datetime.datetime(2026, 4, 19), data_hash='deadbeefh2rs003',
+        )
+        path = result[0]
+        self.assertEqual(
+            self._read_detail(path, 'Dept #:'), '456',
+            "reduced_sub_helper2 file must show __helper2_dept (456), "
+            "not primary Dept # (500)",
+        )
+        self.assertEqual(
+            self._read_detail(path, 'Job #:'), 'J-9',
+            "reduced_sub_helper2 file must show __helper2_job (J-9), "
+            "not primary Job # (J-1)",
+        )
+        self.assertEqual(
+            self._read_detail(path, 'Foreman:'), 'Jane Smith',
+            "reduced_sub_helper2 file foreman must be the ATTRIBUTED "
+            "claimer (current_foreman), preserving the same asymmetry "
+            "as the Helper #1 shadow variants",
+        )
+
+    def test_aep_billable_helper2_shows_helper2_dept_and_job(self):
+        rows = [self._make_group_row('aep_billable_helper2', helper2_foreman='Jane Smith')]
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_10854049_AEPBILLABLE_HELPER2_Jane_Smith', rows,
+            datetime.datetime(2026, 4, 19), data_hash='deadbeefh2aep003',
+        )
+        path = result[0]
+        self.assertEqual(self._read_detail(path, 'Dept #:'), '456')
+        self.assertEqual(self._read_detail(path, 'Job #:'), 'J-9')
+
+    def test_plain_helper2_header_shows_raw_helper2_name(self):
+        """Regression (plan 14-01): the plain 'helper2' branch shows the
+        RAW __helper2_foreman, unlike the shadow variants above which
+        show the attributed claimer."""
+        rows = [self._make_group_row('helper2', helper2_foreman='Raw Helper2')]
+        rows[0]['__current_foreman'] = 'ShouldNotAppear'
+        result = generate_weekly_pdfs.generate_excel(
+            '041926_10854049_HELPER2_Raw_Helper2', rows,
+            datetime.datetime(2026, 4, 19), data_hash='deadbeefh2plain1',
+        )
+        path = result[0]
+        self.assertEqual(self._read_detail(path, 'Foreman:'), 'Raw Helper2')
+
+
+class TestHelper2FilenameParsingAndAggregatedHash(unittest.TestCase):
+    """Phase 14 plan 14-06 Task 2: nested reserved-token filename parsing
+    and multi-foreman aggregated-hash sub-bucketing for the Helper #2
+    family, in ``pipeline/change_detection.py``.
+    """
+
+    def test_aep_billable_helper2_filename_parses_to_shadow_variant(self):
+        result = generate_weekly_pdfs.build_group_identity(
+            'WR_10854049_WeekEnding_041926_120000_AEPBillable_Helper2_'
+            'Jane_Smith_abc123.xlsx'
+        )
+        self.assertIsNotNone(result)
+        wr, week, variant, identifier = result
+        self.assertEqual(variant, 'aep_billable_helper2')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_reduced_sub_helper2_filename_parses_to_shadow_variant(self):
+        result = generate_weekly_pdfs.build_group_identity(
+            'WR_10854049_WeekEnding_041926_120000_ReducedSub_Helper2_'
+            'Jane_Smith_abc123.xlsx'
+        )
+        self.assertIsNotNone(result)
+        wr, week, variant, identifier = result
+        self.assertEqual(variant, 'reduced_sub_helper2')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_bare_aep_billable_user_filename_still_parses_unchanged(self):
+        """Regression: a bare _AEPBillable_User_ filename (no Helper2
+        token) must still parse to the bare aep_billable variant."""
+        result = generate_weekly_pdfs.build_group_identity(
+            'WR_10854049_WeekEnding_041926_120000_AEPBillable_User_'
+            'ClaimerName_abc123.xlsx'
+        )
+        self.assertIsNotNone(result)
+        wr, week, variant, identifier = result
+        self.assertEqual(variant, 'aep_billable')
+        self.assertEqual(identifier, 'ClaimerName')
+
+    def test_bare_reduced_sub_helper_filename_still_parses_unchanged(self):
+        """Regression: the Helper #1 shadow parse path (no Helper2 token
+        present) must be completely unaffected by the new nested check."""
+        result = generate_weekly_pdfs.build_group_identity(
+            'WR_10854049_WeekEnding_041926_120000_ReducedSub_Helper_'
+            'Jane_Smith_abc123.xlsx'
+        )
+        self.assertIsNotNone(result)
+        wr, week, variant, identifier = result
+        self.assertEqual(variant, 'reduced_sub_helper')
+        self.assertEqual(identifier, 'Jane_Smith')
+
+    def test_two_foreman_helper2_bucket_hash_changes_when_second_foreman_changes(self):
+        """Pitfall 5 closure: an aggregation bucket holding rows from two
+        distinct Helper #2 foremen must produce a hash that changes when
+        the SECOND (non-first-sorted) foreman's identity changes — not
+        only the first-sorted one."""
+        from pipeline.change_detection import _compute_aggregated_content_hash
+
+        def _row(foreman, price):
+            return {
+                '__variant': 'helper2',
+                '__helper2_foreman': foreman,
+                '__helper2_dept': '456',
+                '__helper2_job': 'J-9',
+                'Work Request #': '10854049',
+                'Weekly Reference Logged Date': '2026-04-19',
+                'Snapshot Date': '2026-04-19',
+                'Units Completed?': True,
+                'Units Total Price': price,
+                'CU': 'XYZ',
+                'Work Type': 'Install',
+                'Quantity': 2,
+                'Dept #': '500',
+                'Job #': 'J-1',
+            }
+
+        baseline = [_row('Aaron_Helper2', '$100.00'), _row('Zack_Helper2', '$100.00')]
+        # Only the SECOND-sorted foreman's row content changes.
+        changed_second = [
+            _row('Aaron_Helper2', '$100.00'),
+            _row('Zack_Helper2', '$200.00'),
+        ]
+        hash_baseline = _compute_aggregated_content_hash(baseline)
+        hash_changed = _compute_aggregated_content_hash(changed_second)
+        self.assertNotEqual(
+            hash_baseline, hash_changed,
+            "a change to the second-sorted Helper #2 foreman's rows must "
+            "change the aggregated hash — sub-bucketing must not depend "
+            "on row sort order",
+        )
+
+
 class TestSubcontractorWrScopeVariantGate(unittest.TestCase):
     """``_build_subcontractor_wr_scope`` gates on the authoritative
     ``__variant`` field (subcontractor variant set), not a ``'_REDUCEDSUB'``

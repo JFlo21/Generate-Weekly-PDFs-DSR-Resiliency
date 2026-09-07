@@ -323,6 +323,42 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
             )
         helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
         variant_suffix = f"_ReducedSub_Helper_{helper_sanitized}"
+    elif variant == 'aep_billable_helper2':
+        # Phase 14 (D-14-06): sibling of aep_billable_helper above, never
+        # folded into it — a missed branch here falls through toward
+        # primary/vac_crew (Pitfall 1, the real [2026-05-21 12:35]
+        # incident class). D-14-05 wants day-one defensive guards for
+        # this family, so this shadow branch raises on empty foreman
+        # like its Helper #1 sibling (unlike the legacy 'helper2' branch
+        # below, which stays silent per the plain 'helper' precedent).
+        helper2_foreman = first_row.get('__helper2_foreman', '')
+        if not helper2_foreman:
+            logging.error(
+                f"⚠️ aep_billable_helper2 variant row missing "
+                f"__helper2_foreman for WR {wr_num} week {week_end_raw}; "
+                f"filename would be ambiguous — raising to surface data drift."
+            )
+            raise ValueError(
+                f"aep_billable_helper2 requires __helper2_foreman; got "
+                f"empty for WR={wr_num} week={week_end_raw}"
+            )
+        helper2_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper2_foreman)[:50]
+        variant_suffix = f"_AEPBillable_Helper2_{helper2_sanitized}"
+    elif variant == 'reduced_sub_helper2':
+        # Phase 14 (D-14-06): sibling of reduced_sub_helper above.
+        helper2_foreman = first_row.get('__helper2_foreman', '')
+        if not helper2_foreman:
+            logging.error(
+                f"⚠️ reduced_sub_helper2 variant row missing "
+                f"__helper2_foreman for WR {wr_num} week {week_end_raw}; "
+                f"filename would be ambiguous — raising to surface data drift."
+            )
+            raise ValueError(
+                f"reduced_sub_helper2 requires __helper2_foreman; got "
+                f"empty for WR={wr_num} week={week_end_raw}"
+            )
+        helper2_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper2_foreman)[:50]
+        variant_suffix = f"_ReducedSub_Helper2_{helper2_sanitized}"
     # WR-03 follow-up tech-debt: the legacy ``helper`` branch below has
     # the same shape (silent fallthrough if __helper_foreman is empty)
     # but is out of scope for this gap-closure plan per 01-REVIEW.md
@@ -577,6 +613,19 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         # never merged into it. Fallback display string is locked in the
         # phase vocabulary ('Unknown Helper 2').
         display_foreman = first_row.get('__helper2_foreman', 'Unknown Helper 2')
+        display_dept = first_row.get('__helper2_dept', '')
+        display_job = first_row.get('__helper2_job', '')
+    elif variant in ('reduced_sub_helper2', 'aep_billable_helper2'):
+        # Phase 14 (D-14-06): sibling of the ('reduced_sub_helper',
+        # 'aep_billable_helper') branch above. Preserve the SAME
+        # current_foreman-vs-__helper2_foreman asymmetry documented
+        # there — the displayed Foreman is the ATTRIBUTED claimer
+        # (current_foreman, the file's partition key), NOT
+        # __helper2_foreman (the current "Foreman Helping? #2" value,
+        # which can diverge from the frozen attribution). Dept #/Job #
+        # come from the Helper #2 fields since the line items belong
+        # to the Helper #2 person.
+        display_foreman = current_foreman
         display_dept = first_row.get('__helper2_dept', '')
         display_job = first_row.get('__helper2_job', '')
     elif variant == 'vac_crew':
