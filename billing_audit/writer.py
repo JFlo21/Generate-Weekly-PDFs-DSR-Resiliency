@@ -101,6 +101,20 @@ _SENTINEL_CLAIMERS: frozenset[str] = frozenset({
     "no match",
 })
 
+# Phase 14 (Foreman Helper #2) — kept as a SEPARATE frozenset rather than
+# folded into ``_SENTINEL_CLAIMERS`` above. ``_SENTINEL_CLAIMERS`` is
+# pinned byte-for-byte as a superset check by
+# ``tests/test_own03_backfill_sql_contract.py::SentinelVocabularyParityTests``
+# against ``billing_audit/own03_backfill_attribution.sql`` (the OWN-03
+# SQL twin), and this plan's own prohibitions forbid touching that SQL
+# file or ``billing_audit.backfill_attribution`` in Phase 14. Mirrors the
+# 14-01 precedent (a separate ``_NON_CLAIM_LITERALS``-style check next to
+# ``FORMULA_ERROR_VALUES``) for satisfying a new behavioral requirement
+# without perturbing an existing pinned literal set.
+_HELPER2_SENTINEL_CLAIMERS: frozenset[str] = frozenset({
+    "unknown helper 2",
+})
+
 
 def is_sentinel_claimer(value: Any) -> bool:
     """True when *value* is blank, a Smartsheet ``#`` error token, or one
@@ -112,7 +126,10 @@ def is_sentinel_claimer(value: Any) -> bool:
     if not text or text.startswith("#"):
         return True
     normalized = " ".join(text.replace("_", " ").split()).casefold()
-    return normalized in _SENTINEL_CLAIMERS
+    return (
+        normalized in _SENTINEL_CLAIMERS
+        or normalized in _HELPER2_SENTINEL_CLAIMERS
+    )
 
 
 def _null_if_named_sentinel(value: Any) -> Any:
@@ -543,10 +560,12 @@ def freeze_row(row: dict, release: str | None,
     variant : str | None, default None
         Per D-18 / SUB-07 (Phase 1 Blocker 1 Path B): accepted for
         signature symmetry with ``emit_run_fingerprint`` and
-        forward-compat instrumentation. Valid values are the 7
+        forward-compat instrumentation. Valid values are the 10
         variant strings ``primary | helper | vac_crew |
         aep_billable | reduced_sub | aep_billable_helper |
-        reduced_sub_helper``.
+        reduced_sub_helper | helper2 | aep_billable_helper2 |
+        reduced_sub_helper2`` (the last 3 added Phase 14 / Foreman
+        Helper #2).
 
         **This kwarg is NOT injected into the ``freeze_attribution``
         RPC params dict.** Reason: the RPC writes to
@@ -629,8 +648,18 @@ def freeze_row(row: dict, release: str | None,
     )
     p_helper = _null_if_named_sentinel(row.get("__helper_foreman"))
     p_vac_crew = _null_if_named_sentinel(row.get("__vac_crew_name"))
+    # Phase 14 / D-14-07: Helper #2 gets its own frozen role, first-write
+    # -wins independently of primary/helper/vac_crew (named per-role RPC
+    # columns — a Helper #2 freeze can never overwrite frozen_helper /
+    # frozen_primary / frozen_vac_crew). ``p_helper2`` MUST join the
+    # all-sentinel tuple below in the SAME edit that adds it to ``params``
+    # — otherwise a row whose ONLY real claimer is the Helper #2 person
+    # is misclassified as fully sentinel and freeze_attribution is never
+    # invoked, silently and with no distinguishable log (D-14-03-02).
+    p_helper2 = _null_if_named_sentinel(row.get("__helper2_foreman"))
     if all(
-        is_sentinel_claimer(v) for v in (p_primary, p_helper, p_vac_crew)
+        is_sentinel_claimer(v)
+        for v in (p_primary, p_helper, p_vac_crew, p_helper2)
     ):
         _bump_counter("sentinel_freezes_deferred")
         return False
@@ -643,6 +672,8 @@ def freeze_row(row: dict, release: str | None,
         "p_helper": p_helper,
         "p_helper_dept": row.get("__helper_dept"),
         "p_vac_crew": p_vac_crew,
+        "p_helper2": p_helper2,
+        "p_helper2_dept": row.get("__helper2_dept"),
         "p_pole": (
             row.get("Pole #")
             or row.get("Point #")
