@@ -319,7 +319,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   existing configuration/fixtures; its missing Helper #2 columns never fail readiness checks;
   no remediation, formula repair, reconnection, or migration is planned for it.
 
-- [x] **HLP-05**: Blank, `NA`, `#NO MATCH` / formula-error values, unchecked completion, or
+- [ ] **HLP-05**: Blank, `NA`, `#NO MATCH` / formula-error values, unchecked completion, or
   unavailable capability never create a Helper #2 claim, group, workbook, attachment, or
   attribution row.
 
@@ -439,7 +439,7 @@ Which phases cover which requirements.
 | HLP-02 | Phase 14 | Complete |
 | HLP-03 | Phase 14 | Pending |
 | HLP-04 | Phase 14 | Pending |
-| HLP-05 | Phase 14 | Complete |
+| HLP-05 | Phase 14 | Pending |
 | HLP-06 | Phase 14 | Pending |
 | HLP-07 | Phase 14 | Pending |
 
