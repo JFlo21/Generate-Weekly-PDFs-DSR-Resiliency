@@ -299,13 +299,13 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 ### Foreman Helper #2 (Phase 14)
 
-- [ ] **HLP-01**: An eligible Helper #2 completion (real name in `Foreman Helping? #2`,
+- [x] **HLP-01**: An eligible Helper #2 completion (real name in `Foreman Helping? #2`,
   `Helping Foreman #2 Completed Unit?` checked, `Helper #2 Dept #` present; `Helper #2 Job [#]`
   optional — the Helper #1 contract) produces its own weekly Excel output with the Helper #2
   foreman, dept/job metadata, units, prices, dates, filename, and destination; group key, hash,
   workbook header, filename, and attachment routing all name the same Helper #2 claimant.
 
-- [ ] **HLP-02**: Helper #1 stays independent — its outputs, group keys, hashes, filenames, and
+- [x] **HLP-02**: Helper #1 stays independent — its outputs, group keys, hashes, filenames, and
   attribution rows are unchanged with or without Helper #2 present; Helper #2 never overwrites,
   impersonates, or suppresses Helper #1, primary, or VAC outputs.
 
@@ -319,7 +319,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   existing configuration/fixtures; its missing Helper #2 columns never fail readiness checks;
   no remediation, formula repair, reconnection, or migration is planned for it.
 
-- [ ] **HLP-05**: Blank, `NA`, `#NO MATCH` / formula-error values, unchecked completion, or
+- [x] **HLP-05**: Blank, `NA`, `#NO MATCH` / formula-error values, unchecked completion, or
   unavailable capability never create a Helper #2 claim, group, workbook, attachment, or
   attribution row.
 
@@ -435,11 +435,11 @@ Which phases cover which requirements.
 | AUD-01 | Phase 13 | Pending |
 | AUD-02 | Phase 13 | Pending |
 | AUD-03 | Phase 13 | Pending |
-| HLP-01 | Phase 14 | Pending |
-| HLP-02 | Phase 14 | Pending |
+| HLP-01 | Phase 14 | Complete |
+| HLP-02 | Phase 14 | Complete |
 | HLP-03 | Phase 14 | Pending |
 | HLP-04 | Phase 14 | Pending |
-| HLP-05 | Phase 14 | Pending |
+| HLP-05 | Phase 14 | Complete |
 | HLP-06 | Phase 14 | Pending |
 | HLP-07 | Phase 14 | Pending |
 
