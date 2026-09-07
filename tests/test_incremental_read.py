@@ -3484,6 +3484,7 @@ class DiscoverySkipIndexTests(unittest.TestCase):
                 "last_sheet_version": 8,
                 "column_mapping": {"Weekly Reference Logged Date": 55},
                 "name": "Test Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             }
         }
 
@@ -3530,6 +3531,7 @@ class DiscoverySkipIndexTests(unittest.TestCase):
                 "last_sheet_version": 3,
                 "column_mapping": {"Weekly Reference Logged Date": 1},
                 "name": "Other Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             }
         }
 
@@ -3640,6 +3642,7 @@ class DiscoverySkipIndexTests(unittest.TestCase):
                 "last_sheet_version": 3,
                 "column_mapping": {"Weekly Reference Logged Date": 1},
                 "name": "Other Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             },
         }
 
@@ -3757,6 +3760,7 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
                 "last_sheet_version": 8,
                 "column_mapping": {"Weekly Reference Logged Date": 55},
                 "name": "Test Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             }
         }
 
@@ -3983,6 +3987,8 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
         split line (D-11.1-01) names candidates/skipped/fully-validated
         counts for a run mixing one registry-skipped and one
         fully-validated sheet."""
+        from pipeline import discovery
+
         os.environ['LIMITED_SHEET_IDS'] = '111222,999999'
         # 111222: registry-matched -> skip fast path.
         # 999999: no registry row -> falls through to full validation.
@@ -3999,6 +4005,7 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
                 "last_sheet_version": 8,
                 "column_mapping": {"Weekly Reference Logged Date": 55},
                 "name": "Skipped Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             },
         }
 

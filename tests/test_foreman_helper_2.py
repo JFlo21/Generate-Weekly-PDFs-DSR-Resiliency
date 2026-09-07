@@ -23,6 +23,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -443,6 +444,338 @@ class HelperTwoCapabilityAbsentDiscoveryTests(unittest.TestCase):
         )
         self.assertFalse(is_claim)
         self.assertFalse(row_data['__is_helper2_row'])
+
+
+class MappingSchemaMarkerAdmissionTests(unittest.TestCase):
+    """Task 2 (14-07, D-14-10-APPLIED): the mapping-schema marker is a
+    sixth, additive-only admission condition in
+    ``pipeline.discovery._build_discovery_skip_index`` -- a null, absent,
+    or stale marker rejects cache admission even when every pre-existing
+    condition (version match, valid mapping, name) is satisfied, and a
+    current marker never overrides a rejection from one of the first
+    five conditions."""
+
+    @staticmethod
+    def _client(list_sheets_data):
+        client = mock.MagicMock()
+        client.Sheets.list_sheets.return_value = SimpleNamespace(
+            data=list_sheets_data
+        )
+        return client
+
+    @staticmethod
+    def _watermark(**overrides):
+        row = {
+            "sheet_id": 111222,
+            "last_sheet_version": 8,
+            "column_mapping": {"Weekly Reference Logged Date": 55},
+            "name": "Test Sheet",
+        }
+        row.update(overrides)
+        return row
+
+    def test_null_marker_is_not_admitted(self):
+        client = self._client([SimpleNamespace(id=111222, version=8)])
+        watermarks = {111222: self._watermark(mapping_schema=None)}
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = _discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_missing_marker_key_is_not_admitted(self):
+        # A watermark row that never carried the key at all -- belt and
+        # suspenders on the .get() default alongside the reader's own
+        # degrade, which always injects an explicit None.
+        client = self._client([SimpleNamespace(id=111222, version=8)])
+        watermarks = {111222: self._watermark()}  # no 'mapping_schema' key
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = _discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_stale_marker_is_not_admitted(self):
+        client = self._client([SimpleNamespace(id=111222, version=8)])
+        watermarks = {111222: self._watermark(mapping_schema="helper2-v0")}
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = _discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+    def test_current_marker_is_admitted(self):
+        client = self._client([SimpleNamespace(id=111222, version=8)])
+        watermarks = {
+            111222: self._watermark(
+                mapping_schema=_discovery.MAPPING_SCHEMA_MARKER
+            )
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = _discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertIn(111222, index)
+        self.assertEqual(
+            index[111222]["column_mapping"],
+            {"Weekly Reference Logged Date": 55},
+        )
+
+    def test_current_marker_does_not_override_version_mismatch(self):
+        # The sixth condition can only ADD a rejection, never substitute
+        # for one of the first five -- a current marker must not admit a
+        # sheet a version mismatch already rejects.
+        client = self._client([SimpleNamespace(id=111222, version=9)])
+        watermarks = {
+            111222: self._watermark(
+                last_sheet_version=8,  # stale -- live is 9
+                mapping_schema=_discovery.MAPPING_SCHEMA_MARKER,
+            )
+        }
+
+        with mock.patch(
+            "pipeline.discovery.get_sheet_watermarks",
+            return_value=watermarks,
+        ):
+            index = _discovery._build_discovery_skip_index(client, [111222])
+
+        self.assertEqual(index, {})
+
+
+class MappingSchemaColumnDegradeTests(unittest.TestCase):
+    """Task 2 (14-07, D-14-10-APPLIED):
+    ``pipeline_memory.reader.get_sheet_watermarks`` degrades to the
+    pre-marker column list, logging exactly once, when the database has
+    not yet received the mapping_schema migration -- never raising,
+    never admitting from cache (every returned row carries an explicit
+    ``mapping_schema: None``)."""
+
+    def setUp(self):
+        from pipeline_memory import reader as mem_reader
+        mem_reader.reset_mapping_schema_degrade_for_tests()
+        self.addCleanup(mem_reader.reset_mapping_schema_degrade_for_tests)
+
+    @staticmethod
+    def _unknown_column_error():
+        from postgrest import APIError
+        return APIError({
+            "code": "42703",
+            "message": (
+                "column sheet_registry.mapping_schema does not exist"
+            ),
+            "hint": None,
+            "details": None,
+        })
+
+    @staticmethod
+    def _legacy_row_response():
+        return SimpleNamespace(data=[{
+            "sheet_id": 111222,
+            "last_sheet_version": 8,
+            "last_read_at": None,
+            "last_full_read_at": None,
+            "column_mapping": {"Weekly Reference Logged Date": 1},
+            "name": "Test Sheet",
+        }])
+
+    def _select_side_effect(self, call_log, exc):
+        def _select(columns):
+            call_log.append(columns)
+            q = mock.Mock()
+            if "mapping_schema" in columns:
+                q.in_.return_value.execute.side_effect = exc
+            else:
+                q.in_.return_value.execute.return_value = (
+                    self._legacy_row_response()
+                )
+            return q
+        return _select
+
+    def test_unknown_column_degrades_to_legacy_select_with_null_marker(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        query = client.schema.return_value.table.return_value.select
+        call_log: list = []
+        query.side_effect = self._select_side_effect(
+            call_log, self._unknown_column_error()
+        )
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ), self.assertLogs(level="WARNING") as cm:
+            result = mem_reader.get_sheet_watermarks([111222])
+
+        self.assertIn(111222, result)
+        self.assertIsNone(result[111222]["mapping_schema"])
+        self.assertEqual(result[111222]["last_sheet_version"], 8)
+        self.assertTrue(
+            any(
+                "mapping_schema" in msg and "14-07" in msg
+                for msg in cm.output
+            )
+        )
+
+    def test_warning_and_marker_probe_fire_only_once_across_two_calls(self):
+        from pipeline_memory import reader as mem_reader
+
+        client = mock.Mock()
+        query = client.schema.return_value.table.return_value.select
+        call_log: list = []
+        query.side_effect = self._select_side_effect(
+            call_log, self._unknown_column_error()
+        )
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ), self.assertLogs(level="WARNING") as cm:
+            mem_reader.get_sheet_watermarks([111222])
+            mem_reader.get_sheet_watermarks([111222])
+
+        marker_attempts = [c for c in call_log if "mapping_schema" in c]
+        self.assertEqual(len(marker_attempts), 1)
+        degrade_warnings = [
+            msg for msg in cm.output
+            if "mapping_schema" in msg and "14-07" in msg
+        ]
+        self.assertEqual(len(degrade_warnings), 1)
+
+    def test_non_mapping_schema_error_is_not_swallowed(self):
+        """A DIFFERENT permanent error on the marker-inclusive select
+        (not the unknown-column signature) must reach with_retry's
+        existing classification unchanged -- never silently
+        reinterpreted as a not-yet-migrated database."""
+        from pipeline_memory import reader as mem_reader
+        from postgrest import APIError
+
+        client = mock.Mock()
+        query = client.schema.return_value.table.return_value.select
+        call_log: list = []
+        exc = APIError({
+            "code": "42501",  # permission denied -- unrelated signature
+            "message": "permission denied for table sheet_registry",
+            "hint": None,
+            "details": None,
+        })
+        query.side_effect = self._select_side_effect(call_log, exc)
+
+        with mock.patch(
+            "pipeline_memory.reader.get_client", return_value=client
+        ):
+            result = mem_reader.get_sheet_watermarks([111222])
+
+        self.assertEqual(result, {})
+        # The legacy fallback was never attempted -- this is a genuine
+        # outage, not the mapping_schema degrade signature.
+        legacy_attempts = [c for c in call_log if "mapping_schema" not in c]
+        self.assertEqual(len(legacy_attempts), 0)
+
+
+class MappingSchemaMarkerWriterTests(unittest.TestCase):
+    """Task 2 (14-07, D-14-10-APPLIED):
+    ``pipeline_memory.writer.upsert_sheet_registry`` writes the
+    mapping-schema marker only for a sheet id present in
+    ``mapping_schema_by_sheet`` -- a sheet admitted from the discovery
+    skip index (absent from that dict) never has its marker promoted,
+    and the default (``None``) omits the key for every sheet."""
+
+    def setUp(self):
+        from pipeline_memory import client as mem_client
+        from pipeline_memory import writer as mem_writer
+        mem_client.reset_cache_for_tests()
+        mem_writer._reset_counters_for_tests()
+        self._saved_flag = os.environ.get("RUN_MEMORY_WRITE_ENABLED")
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+
+    def tearDown(self):
+        from pipeline_memory import client as mem_client
+        from pipeline_memory import writer as mem_writer
+        mem_client.reset_cache_for_tests()
+        mem_writer._reset_counters_for_tests()
+        if self._saved_flag is None:
+            os.environ.pop("RUN_MEMORY_WRITE_ENABLED", None)
+        else:
+            os.environ["RUN_MEMORY_WRITE_ENABLED"] = self._saved_flag
+
+    @staticmethod
+    def _fake_client(upsert_capture):
+        client = mock.Mock()
+        schema = mock.Mock()
+        client.schema.return_value = schema
+        table_obj = mock.Mock()
+        schema.table.return_value = table_obj
+        upsert_obj = mock.Mock()
+        table_obj.upsert.return_value = upsert_obj
+
+        def _execute():
+            upsert_capture.append(table_obj.upsert.call_args)
+            return mock.Mock(data=[])
+
+        upsert_obj.execute.side_effect = _execute
+        return client
+
+    @staticmethod
+    def _sheets():
+        return [
+            {"id": 111, "name": "Sheet A", "column_mapping": {"Foreman": 1}},
+            {"id": 222, "name": "Sheet B", "column_mapping": {"Foreman": 2}},
+        ]
+
+    def _payload_rows(self, upsert_capture):
+        rows = []
+        for call in upsert_capture:
+            rows.extend(call.args[0])
+        return rows
+
+    def test_full_validation_sheet_gets_marker_cache_admitted_does_not(self):
+        from pipeline_memory import writer as mem_writer
+
+        upsert_capture: list = []
+        client = self._fake_client(upsert_capture)
+
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client
+        ):
+            mem_writer.upsert_sheet_registry(
+                self._sheets(), "run-1", lambda sid: "primary", {},
+                mapping_schema_by_sheet={111: "helper2-v1"},
+            )
+
+        payload_rows = self._payload_rows(upsert_capture)
+        row_111 = next(r for r in payload_rows if r["sheet_id"] == 111)
+        row_222 = next(r for r in payload_rows if r["sheet_id"] == 222)
+        self.assertEqual(row_111["mapping_schema"], "helper2-v1")
+        self.assertNotIn("mapping_schema", row_222)
+
+    def test_default_omits_marker_for_every_sheet(self):
+        from pipeline_memory import writer as mem_writer
+
+        upsert_capture: list = []
+        client = self._fake_client(upsert_capture)
+
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client
+        ):
+            mem_writer.upsert_sheet_registry(
+                self._sheets(), "run-1", lambda sid: "primary", {},
+            )
+
+        payload_rows = self._payload_rows(upsert_capture)
+        self.assertEqual(len(payload_rows), 2)
+        for row in payload_rows:
+            self.assertNotIn("mapping_schema", row)
 
 
 if __name__ == "__main__":
