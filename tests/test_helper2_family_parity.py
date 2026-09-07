@@ -66,6 +66,13 @@ PARITY_TABLE = (
     'pipeline/excel.py',
     'pipeline/cleanup.py',
     'scripts/publish_artifacts_to_supabase.py',
+    # Plan 14-06: the remaining sites this phase touches -- the upload
+    # module (PPP dual-route gate) and the grouping module (shadow
+    # partition + main-loop emission). With these three additions the
+    # table covers every independent enumeration of the helper-family
+    # variant strings that 14-RESEARCH.md's Pitfall 3 identified.
+    'pipeline/upload.py',
+    'pipeline/grouping.py',
 )
 
 # Per-file (Helper #2 literal) pairs that are KNOWN, NAMED, TEMPORARY

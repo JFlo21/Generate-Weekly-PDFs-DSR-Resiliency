@@ -277,7 +277,8 @@ def _build_upload_tasks_for_group(
     Args:
         variant: One of ``primary`` / ``helper`` / ``vac_crew`` /
             ``aep_billable`` / ``aep_billable_helper`` /
-            ``reduced_sub`` / ``reduced_sub_helper``.
+            ``reduced_sub`` / ``reduced_sub_helper`` / ``helper2`` /
+            ``aep_billable_helper2`` / ``reduced_sub_helper2``.
         wr_num: Sanitised WR# (already passed through
             ``_RE_SANITIZE_HELPER_NAME`` at the main-loop derivation
             site).
@@ -340,7 +341,12 @@ def _build_upload_tasks_for_group(
         )
 
     # Second leg — only for reduced_sub variants per D-12 / SUB-03.
-    if variant in ('reduced_sub', 'reduced_sub_helper'):
+    # Phase 14 (D-14-06): 'reduced_sub_helper2' joins this tuple --
+    # without it a subcontractor Helper #2 shadow file uploads to
+    # TARGET_SHEET_ID only and the subcontractor never sees it on the
+    # PPP sheet. No error is raised in that case (silent routing gap),
+    # so this tuple membership is the ONLY guard against it.
+    if variant in ('reduced_sub', 'reduced_sub_helper', 'reduced_sub_helper2'):
         if primary_present and wr_num in target_map_ppp:
             upload_tasks.append({
                 'excel_path': excel_path,

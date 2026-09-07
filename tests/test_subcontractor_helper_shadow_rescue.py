@@ -1969,6 +1969,98 @@ class TestHelper2FilenameParsingAndAggregatedHash(unittest.TestCase):
         )
 
 
+class TestHelper2UploadRouting(unittest.TestCase):
+    """Phase 14 plan 14-06 Task 3: the PPP dual-route gate for the
+    ``reduced_sub_helper2`` variant in ``pipeline/upload.py``.
+
+    Sibling of ``test_security_audit_followup.py``'s
+    ``TestDualTargetSheetRouting`` -- added here per this plan's
+    ``files_modified`` list (never touches
+    ``test_security_audit_followup.py``).
+    """
+
+    @staticmethod
+    def _make_kwargs(variant, *, wr_num='13792260', target_map=None,
+                      target_map_ppp=None):
+        """Minimal kwargs for ``_build_upload_tasks_for_group``.
+
+        ``target_row`` is just a sentinel string for assertion
+        readability -- the helper does not look inside it.
+        """
+        if target_map is None:
+            target_map = {wr_num: f'row-TARGET-{wr_num}'}
+        if target_map_ppp is None:
+            target_map_ppp = {wr_num: f'row-PPP-{wr_num}'}
+        return dict(
+            variant=variant,
+            wr_num=wr_num,
+            target_map=target_map,
+            target_map_ppp=target_map_ppp,
+            excel_path=f'/tmp/{wr_num}.xlsx',
+            filename=f'{wr_num}.xlsx',
+            identifier='',
+            file_identifier='',
+            data_hash='abcdef0123456789',
+            week_raw='041926',
+            group_key=f'041926_{wr_num}_reduced_sub_helper2',
+        )
+
+    def test_reduced_sub_helper2_routes_to_both_sheets(self):
+        """A reduced_sub Helper #2 group with a primary row present and
+        a PPP target row available produces two upload tasks: one to
+        the target sheet and one to the subcontractor PPP sheet."""
+        kwargs = self._make_kwargs('reduced_sub_helper2')
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 2)
+        target_sheet_ids = {t['target_sheet_id'] for t in tasks}
+        self.assertEqual(
+            target_sheet_ids,
+            {
+                generate_weekly_pdfs.TARGET_SHEET_ID,
+                generate_weekly_pdfs.SUBCONTRACTOR_PPP_SHEET_ID,
+            },
+        )
+
+    def test_reduced_sub_helper1_still_routes_to_both_sheets(self):
+        """Regression: a reduced_sub Helper #1 group still produces the
+        same two tasks it produces today."""
+        kwargs = self._make_kwargs('reduced_sub_helper')
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 2)
+
+    def test_aep_billable_helper2_routes_to_target_only(self):
+        """An AEP-billable Helper #2 group produces one task, to the
+        target sheet only, matching the AEP-billable Helper #1
+        behavior."""
+        kwargs = self._make_kwargs('aep_billable_helper2')
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(
+            tasks[0]['target_sheet_id'], generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+
+    def test_plain_helper2_routes_to_target_only(self):
+        """A plain Helper #2 group produces one task, to the target
+        sheet only."""
+        kwargs = self._make_kwargs('helper2')
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(
+            tasks[0]['target_sheet_id'], generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+
+    def test_reduced_sub_helper2_without_ppp_target_row_skips_second_leg(self):
+        """When no PPP target row exists for the work request, the
+        second leg is skipped exactly as it is today, with no new
+        failure mode."""
+        kwargs = self._make_kwargs('reduced_sub_helper2', target_map_ppp={})
+        tasks = generate_weekly_pdfs._build_upload_tasks_for_group(**kwargs)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(
+            tasks[0]['target_sheet_id'], generate_weekly_pdfs.TARGET_SHEET_ID,
+        )
+
+
 class TestSubcontractorWrScopeVariantGate(unittest.TestCase):
     """``_build_subcontractor_wr_scope`` gates on the authoritative
     ``__variant`` field (subcontractor variant set), not a ``'_REDUCEDSUB'``

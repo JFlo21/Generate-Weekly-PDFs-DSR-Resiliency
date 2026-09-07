@@ -1279,7 +1279,11 @@ def group_source_rows(rows):
                         # the FROZEN Helper #2 claimer, not the primary or
                         # Helper #1 claimer.
                         _attributed_helper2 = helper2_foreman  # D-12 default
-                        _attribution_reason2: str | None = None
+                        _attribution_reason2 = None  # str | None, unannotated: this
+                        # function is unchecked by mypy (Gate 4 baseline), and a
+                        # local PEP 526 annotation here would add a NEW
+                        # "annotation-unchecked" note line, tripping the strict
+                        # mypy-delta gate over a purely informational note.
                         if (
                             is_subcontractor_row
                             and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
