@@ -119,3 +119,31 @@ exists on the Resource Analyst sheet as of 2026-09-06.
   hashes within a single run and never reads stored hashes, so the burst
   cannot disturb a parity streak.
 - No DDL was executed from this session.
+
+## O-14-B — OPEN: `pipeline_memory.upsert_rows_bulk` does not carry the Helper #2 fields (found 2026-09-06, orchestrator review of 14-04)
+
+- Plan 14-04 added `helper2_observed / helper2_completed / helper2_dept /
+  helper2_job` to the `row_state` DDL (`pipeline_memory/schema.sql`
+  ~129-132), to the Python payload, and to `HASH_FIELDS` (D-14-08-APPLIED,
+  include-now). It deliberately did NOT touch the `upsert_rows_bulk` RPC
+  body (typed `jsonb_to_recordset` column list, INSERT list, ON CONFLICT
+  set list, and the row_event change JSON around schema.sql ~264-380),
+  which still names only the Helper #1 fields.
+- Consequence if left as is: the RPC silently ignores the four extra JSON
+  keys, so the columns stay NULL forever; the one-time ~217k row_event
+  hash churn is still paid on the first run after merge, and no 42703
+  error ever fires because nothing references the columns. This is the
+  silent-no-op shape Phase 14 exists to avoid.
+- 14-04's SUMMARY says the RPC update is "deferred to 14-09/14-10"; no
+  plan file (14-07..14-10), 14-CONTEXT.md, or 14-RESEARCH.md mentions
+  `upsert_rows_bulk`. The deferral has no owner plan today.
+- Orchestrator recommendation (Juan may override): close it as a
+  gap-closure plan after phase execution (`/gsd-verify-work 14`), scoped
+  to: additive RPC column-list update as SQL TEXT in `schema.sql` (never
+  executed by an agent), a source-pin test that the RPC list and
+  `HASH_FIELDS` stay in lockstep, and an owner-applied checkpoint. Apply
+  the RPC update in the SAME owner SQL session as the row_state DDL and
+  BEFORE the code merges, so the first (churn) run after merge also
+  persists Helper #2 values instead of paying the burst for nothing.
+- Until closed: no plan, summary, or pilot may claim that Helper #2 run
+  memory persists. HLP-06 stays Pending.
