@@ -75,6 +75,18 @@ CREATE TABLE IF NOT EXISTS pipeline_memory.sheet_registry (
     last_sheet_version  BIGINT,
     last_read_at        TIMESTAMPTZ,
     last_full_read_at   TIMESTAMPTZ,
+    -- Phase 14 Plan 07 (D-14-10-APPLIED): mapping-schema marker. NULL
+    -- means column_mapping was written before this marker existed (or
+    -- before the current marker generation, e.g. a database predating
+    -- this migration) and is therefore NOT admissible from the
+    -- discovery skip index
+    -- (pipeline/discovery.py::_build_discovery_skip_index) -- that
+    -- sheet takes exactly one full validation, after which the upsert
+    -- writes the current marker value (pipeline/discovery.py's
+    -- MAPPING_SCHEMA_MARKER, currently 'helper2-v1') and it is admitted
+    -- from cache again. Additive, nullable, no index/constraint --
+    -- old code ignores it; rollback is dropping this one unused column.
+    mapping_schema      TEXT,
     active              BOOLEAN     NOT NULL DEFAULT TRUE,
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

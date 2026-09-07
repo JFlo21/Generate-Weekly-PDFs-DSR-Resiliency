@@ -339,6 +339,7 @@ def upsert_sheet_registry(
     full_read_sheets: set | None = None,
     column_mapping_sheets: set | None = None,
     watermarks: dict | None = None,
+    mapping_schema_by_sheet: dict[Any, str] | None = None,
 ) -> None:
     """Best-effort bulk upsert of ``sheet_registry``. NEVER raises.
 
@@ -434,6 +435,24 @@ def upsert_sheet_registry(
     ``run_id`` is accepted for call-site symmetry with the other writer
     entry points but is not a ``sheet_registry`` column (no ``run_id``
     column on this table).
+
+    Phase 14 Plan 07 (D-14-10-APPLIED) -- ``mapping_schema_by_sheet``:
+    maps a sheet id to the marker VALUE to write for that sheet's row
+    THIS call -- present only for a sheet whose ``column_mapping`` came
+    from a full validation this run (never a sheet admitted from the
+    discovery skip index, D-11.1-01 -- promoting a cache-admitted
+    sheet's marker would silently defeat the one-time revalidation the
+    marker exists to force). A sheet id absent from this dict has its
+    ``mapping_schema`` key OMITTED from the payload entirely, the SAME
+    "omitted nullable key == column untouched" mechanism
+    ``last_full_read_at`` already relies on -- a cache-admitted sheet's
+    stored marker (or its absence) is left exactly as-is, never silently
+    promoted. ``None`` (the default -- every call site before this plan)
+    omits the key for every sheet; this parameter only makes the
+    full-validation-vs-cache-admitted distinction EXPRESSIBLE, wiring an
+    actual caller-computed value is a subsequent plan's job. A sheet id
+    present here that this call's ``sheets`` list does not contain has
+    no effect (only ids in ``sheets`` are iterated below).
     """
     del run_id
 
@@ -485,6 +504,14 @@ def upsert_sheet_registry(
                 row["column_mapping"] = sheet.get("column_mapping") or {}
         if is_full_read:
             row["last_full_read_at"] = capture_time
+        # Phase 14 Plan 07 (D-14-10-APPLIED): the marker key is included
+        # ONLY for a sheet id present in mapping_schema_by_sheet -- an
+        # absent id (the default, and every cache-admitted sheet once a
+        # caller wires the real distinction) omits the key entirely so
+        # PostgREST leaves that row's stored marker untouched, never
+        # promoting a mapping this call did not itself freshly validate.
+        if mapping_schema_by_sheet and sheet_id in mapping_schema_by_sheet:
+            row["mapping_schema"] = mapping_schema_by_sheet[sheet_id]
         payload.append(row)
 
     # One upsert PER KEY-SET (see docstring): the union ``columns=``

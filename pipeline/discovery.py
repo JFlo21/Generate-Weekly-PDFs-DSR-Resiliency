@@ -56,6 +56,20 @@ SUBCONTRACTOR_SHEET_IDS = set(_parse_sheet_ids(os.getenv('SUBCONTRACTOR_SHEET_ID
 _FOLDER_DISCOVERED_SUB_IDS: set[int] = set()
 _FOLDER_DISCOVERED_ORIG_IDS: set[int] = set()
 
+# Mapping-schema marker (Phase 14 Plan 07, D-14-10-APPLIED): the value
+# written to ``pipeline_memory.sheet_registry.mapping_schema`` whenever a
+# sheet's ``column_mapping`` came from a full validation generated with
+# THIS marker's synonym set. Checked as the sixth admission condition in
+# ``_build_discovery_skip_index`` below -- a null or stale stored marker
+# means the mapping predates this marker (or an earlier synonym
+# generation) and is therefore not admissible from cache; that sheet
+# takes exactly one full validation, after which the upsert
+# (``pipeline_memory/writer.py::upsert_sheet_registry``) writes the
+# current value and the sheet is admitted again on the next run.
+# Bumping this constant is the mechanism a future synonym addition uses
+# to force exactly one more revalidation across every sheet.
+MAPPING_SCHEMA_MARKER = "helper2-v1"
+
 
 def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int]:
     """Discover all sheet IDs inside the given Smartsheet folders (recursively including subfolders).
@@ -209,9 +223,17 @@ def _build_discovery_skip_index(
       - the watermark's ``column_mapping`` is non-empty and contains
         ``Weekly Reference Logged Date`` (strict-mode parity with the
         full-validation path's own gate, see the return below);
-      - the watermark's ``name`` is non-empty.
+      - the watermark's ``name`` is non-empty;
+      - the watermark's ``mapping_schema`` marker equals the current
+        ``MAPPING_SCHEMA_MARKER`` value (Phase 14 Plan 07, D-14-10) -- a
+        null or stale marker means the stored ``column_mapping`` predates
+        this marker (or an earlier synonym generation) and is not
+        admissible from cache.
     Any other case is left OUT of the index -- "any doubt -> full
-    validation" (D-11.1-01).
+    validation" (D-11.1-01). The sixth condition above is additive and
+    strictly ADDS a rejection: it can never admit a sid the first five
+    conditions already excluded, and it never widens what counts as a
+    match for any of them.
 
     Returns:
         dict[int, dict]: ``{sheet_id: {'id', 'name', 'column_mapping'}}``
@@ -285,6 +307,20 @@ def _build_discovery_skip_index(
                 continue
             name = watermark.get('name')
             if not name:
+                continue
+            # Sixth condition (Phase 14 Plan 07, D-14-10-APPLIED): the
+            # stored mapping-schema marker must equal the CURRENT
+            # MAPPING_SCHEMA_MARKER value. A null marker means the
+            # mapping was written before the marker existed (a
+            # pre-Helper-#2 mapping, or any database that has not yet
+            # received the plan 14-07 migration -- see
+            # pipeline_memory/reader.py::get_sheet_watermarks' degrade,
+            # which returns a null marker for every row in that case); a
+            # stale marker means an earlier synonym generation. Either
+            # case is NOT admitted from cache -- that sheet takes exactly
+            # one full validation, after which the upsert writes the
+            # current marker and it is admitted again on the next run.
+            if watermark.get('mapping_schema') != MAPPING_SCHEMA_MARKER:
                 continue
             index[sid] = {'id': sid, 'name': name, 'column_mapping': mapping}
 
