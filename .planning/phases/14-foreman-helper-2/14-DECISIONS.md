@@ -88,3 +88,34 @@ exists on the Resource Analyst sheet as of 2026-09-06.
 - 14-01 detection guard (`HELPER2_ENABLED` default `'0'`) is consistent with 114/117
   sheets already carrying the full column set: the flag, not column presence, gates
   behavior.
+
+## D-14-08-APPLIED (plan 14-04, Task 1) — owner decision 2026-09-06
+
+- Decision: **include-now** — Juan approved the four additive nullable
+  `pipeline_memory.row_state` columns AND their membership in `HASH_FIELDS`
+  in the same change (D-14-08 recommended option).
+- Columns (additive, nullable, no key/index/constraint/data migration):
+  `helper2_observed TEXT`, `helper2_completed BOOLEAN`, `helper2_dept TEXT`,
+  `helper2_job TEXT`. Rollback = drop four unused columns.
+- Who applies the DDL: Juan (owner), by hand, in Supabase project
+  `poeyztlmsawfoqlanucc` via the SQL Editor. No agent applies DDL.
+  **Not applied as of 2026-09-06** (live read-only check: 0 `helper2_*`
+  columns on `row_state`).
+- Sequencing: either order is safe by design and Task 2 must PROVE both —
+  old code ignores the new columns; new code must write every other
+  `row_state` field when the columns are absent. Juan did not fix the
+  timing in this decision; it is his call at rollout (plans 14-09/14-10)
+  and is not a precondition for Task 2 or Task 3.
+- Expected one-time churn (live read-only figures, 2026-09-06):
+  `row_state` = 217,491 rows, `row_event` = 218,931 rows, 58 runs in
+  `run_ledger`. Because the weekly workflow has carried
+  `RUN_MEMORY_WRITE_ENABLED: '1'` since PR #353 (2026-08-26), the first
+  scheduled run after the `HASH_FIELDS` change lands will emit roughly one
+  `row_event` per observed row (~217k) — real production writes, NOT
+  shadow-only as the plan text assumed. `RUN_MEMORY_INCREMENTAL_ENABLED`
+  stays OFF, so the burst changes no Excel output and triggers no
+  regeneration; it is a write-volume and run-time cost only.
+- Parity: the 14-02 parity finding still holds — the shadow comparator
+  hashes within a single run and never reads stored hashes, so the burst
+  cannot disturb a parity streak.
+- No DDL was executed from this session.
