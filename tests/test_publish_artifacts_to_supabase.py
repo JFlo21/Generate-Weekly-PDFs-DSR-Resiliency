@@ -155,6 +155,101 @@ class TestNormalizeVariant(unittest.TestCase):
 
 
 # ===========================================================================
+# TestNormalizeVariantHelper2 (Phase 14 plan 05)
+# ===========================================================================
+class TestNormalizeVariantHelper2(unittest.TestCase):
+    """The Helper #2 family (helper2, aep_billable_helper2,
+    reduced_sub_helper2) extends the precedence chain to 10 canonical
+    values. The two hybrid Helper #2 forms must outrank their bare
+    AEP-billable / reduced-sub component forms, the same reason the
+    Helper #1 hybrids already sit above their component forms, and
+    _Helper_ / _Helper2_ must never cross-match."""
+
+    def setUp(self):
+        self.pub = _import_pub()
+
+    def test_canonical_variant_set_has_ten_members(self):
+        self.assertEqual(len(self.pub._CANONICAL_VARIANTS), 10)
+        for variant in (
+            "helper2",
+            "aep_billable_helper2",
+            "reduced_sub_helper2",
+        ):
+            self.assertIn(variant, self.pub._CANONICAL_VARIANTS)
+
+    def test_aep_billable_helper2_precedence(self):
+        """_AEPBillable_Helper2_ must map to aep_billable_helper2, not the
+        bare aep_billable variant."""
+        fname = (
+            "WR_90001_WeekEnding_051725_103000"
+            "_AEPBillable_Helper2_Bob_a1b2c3.xlsx"
+        )
+        result = self.pub.normalize_variant(fname)
+        self.assertEqual(result, "aep_billable_helper2")
+        self.assertNotEqual(result, "aep_billable")
+
+    def test_reduced_sub_helper2_precedence(self):
+        """_ReducedSub_Helper2_ must map to reduced_sub_helper2, not the
+        bare reduced_sub variant."""
+        fname = (
+            "WR_90001_WeekEnding_051725_103000"
+            "_ReducedSub_Helper2_Bob_a1b2c3.xlsx"
+        )
+        result = self.pub.normalize_variant(fname)
+        self.assertEqual(result, "reduced_sub_helper2")
+        self.assertNotEqual(result, "reduced_sub")
+
+    def test_helper2_never_falls_through_to_helper_or_primary(self):
+        fname = "WR_90001_WeekEnding_051725_103000_Helper2_Bob_a1b2c3.xlsx"
+        result = self.pub.normalize_variant(fname)
+        self.assertEqual(result, "helper2")
+        self.assertNotEqual(result, "helper")
+        self.assertNotEqual(result, "primary")
+
+    def test_helper1_still_normalizes_when_name_starts_with_digit(self):
+        """Negative case: a Helper #1 filename whose person name begins
+        with a digit must still normalize to 'helper' -- proving
+        _Helper_ and _Helper2_ can never cross-match."""
+        fname = "WR_90001_WeekEnding_051725_103000_Helper_2Pac_a1b2c3.xlsx"
+        result = self.pub.normalize_variant(fname)
+        self.assertEqual(result, "helper")
+        self.assertNotEqual(result, "helper2")
+
+    def test_non_helper_cases_unaffected_by_helper2_addition(self):
+        """Primary, VAC-crew, AEP-billable, and reduced-sub filenames
+        with neither helper token normalize exactly as they do today."""
+        cases = {
+            "WR_90001_WeekEnding_051725_a1b2c3.xlsx": "primary",
+            "WR_90001_WeekEnding_051725_103000_User_Jane_a1b2c3.xlsx": "primary",
+            "WR_90001_WeekEnding_051725_103000_VacCrew_Alice_a1b2c3.xlsx": "vac_crew",
+            "WR_90001_WeekEnding_051725_103000_AEPBillable_a1b2c3.xlsx": "aep_billable",
+            "WR_90001_WeekEnding_051725_103000_ReducedSub_a1b2c3.xlsx": "reduced_sub",
+        }
+        for fname, expected in cases.items():
+            with self.subTest(fname=fname):
+                self.assertEqual(self.pub.normalize_variant(fname), expected)
+
+    def test_all_ten_canonical_values_reachable_and_are_members(self):
+        canonical = {
+            "WR_1_WeekEnding_051725_abc.xlsx": "primary",
+            "WR_1_WeekEnding_051725_103000_Helper_X_abc.xlsx": "helper",
+            "WR_1_WeekEnding_051725_103000_VacCrew_abc.xlsx": "vac_crew",
+            "WR_1_WeekEnding_051725_103000_AEPBillable_abc.xlsx": "aep_billable",
+            "WR_1_WeekEnding_051725_103000_ReducedSub_abc.xlsx": "reduced_sub",
+            "WR_1_WeekEnding_051725_103000_AEPBillable_Helper_X_abc.xlsx": "aep_billable_helper",
+            "WR_1_WeekEnding_051725_103000_ReducedSub_Helper_X_abc.xlsx": "reduced_sub_helper",
+            "WR_1_WeekEnding_051725_103000_Helper2_X_abc.xlsx": "helper2",
+            "WR_1_WeekEnding_051725_103000_AEPBillable_Helper2_X_abc.xlsx": "aep_billable_helper2",
+            "WR_1_WeekEnding_051725_103000_ReducedSub_Helper2_X_abc.xlsx": "reduced_sub_helper2",
+        }
+        for fname, expected in canonical.items():
+            with self.subTest(fname=fname):
+                result = self.pub.normalize_variant(fname)
+                self.assertEqual(result, expected)
+                self.assertIn(result, self.pub._CANONICAL_VARIANTS)
+
+
+# ===========================================================================
 # TestParsePositional
 # ===========================================================================
 class TestParsePositional(unittest.TestCase):
