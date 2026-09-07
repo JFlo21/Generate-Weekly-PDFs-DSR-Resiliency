@@ -629,6 +629,16 @@ HASH_FIELDS: tuple[str, ...] = (
     "helper_job",
     "vac_crew_observed",
     "vac_completed",
+    # Helper #2 (Phase 14 Plan 04, D-14-08-APPLIED "include-now"):
+    # APPENDED after the original sixteen -- never reorder the members
+    # above this line. Adding these four changes content_hash for every
+    # row exactly once (a one-time row_event burst); the decision and
+    # its quantified cost are recorded in
+    # .planning/phases/14-foreman-helper-2/14-DECISIONS.md.
+    "helper2_observed",
+    "helper2_completed",
+    "helper2_dept",
+    "helper2_job",
 )
 
 
@@ -768,6 +778,20 @@ def _row_to_payload(
     500-row chunk with no error surfaced. Both fields are members of
     ``HASH_FIELDS`` below, so this contract is also part of
     ``row_state.content_hash``.
+
+    Helper #2 (Phase 14 Plan 04, D-14-08-APPLIED): ``helper2_observed``
+    reads the RAW ``"Foreman Helping? #2"`` column under the SAME
+    CRITICAL raw-not-resolved contract as ``helper_observed`` above --
+    NEVER ``fetch.py``'s normalized/gated ``__helper2_foreman``, which
+    is absent whenever the row doesn't qualify as a Helper #2 claim.
+    ``helper2_completed`` reuses ``_is_checked`` on
+    ``"Helping Foreman #2 Completed Unit?"``; ``helper2_dept`` /
+    ``helper2_job`` read ``"Helper #2 Dept #"`` / ``"Helper #2 Job #"``.
+    A sheet with no Helper #2 columns yields ``None`` on all four
+    (``.get(...)`` on an absent key) -- the payload still builds and
+    hashes; a database that has not yet received the additive DDL is
+    tolerated by the writer's existing fail-open contract, never a new
+    one (see ``client.py::with_retry``'s SQLSTATE handling).
     """
     del run_id  # per-call RPC parameter, not a per-row payload field
 
@@ -803,6 +827,12 @@ def _row_to_payload(
         "helper_job": row_data.get("Helper Job #") or None,
         "vac_crew_observed": row_data.get("VAC Crew Helping?") or None,
         "vac_completed": _is_checked(row_data.get("Vac Crew Completed Unit?")),
+        "helper2_observed": row_data.get("Foreman Helping? #2") or None,
+        "helper2_completed": _is_checked(
+            row_data.get("Helping Foreman #2 Completed Unit?")
+        ),
+        "helper2_dept": row_data.get("Helper #2 Dept #") or None,
+        "helper2_job": row_data.get("Helper #2 Job #") or None,
         "row_modified_at": row_data.get("__row_modified_at"),
     }
     payload["content_hash"] = compute_content_hash(payload)
