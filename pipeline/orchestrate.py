@@ -616,6 +616,7 @@ def _run_synthetic_test_mode(session_start):
             "snapshots_errored": 0,
             "sentinel_claimers_ignored": 0,
             "sentinel_freezes_deferred": 0,
+            "helper2_attribution_degraded": 0,
         }
         os.makedirs(OUTPUT_FOLDER, exist_ok=True)
         with open(os.path.join(OUTPUT_FOLDER, 'run_summary.json'), 'w') as _rsf:
@@ -5208,6 +5209,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             "attribution_rows_held": 0,
             "sentinel_claimers_ignored": 0,
             "sentinel_freezes_deferred": 0,
+            # Phase 14 / D-14-07a: mirrors billing_audit.writer's new
+            # degraded-attribution counter (see the comment above).
+            "helper2_attribution_degraded": 0,
         }
         if BILLING_AUDIT_AVAILABLE:
             try:

@@ -811,6 +811,206 @@ class FreezeRowHelper2Tests(unittest.TestCase):
                 self.assertTrue(is_sentinel_claimer(value))
 
 
+class FreezeRowHelper2DegradeTests(unittest.TestCase):
+    """Phase 14 / D-14-07a (14-03 Task 2): degrade cleanly while the
+    plan 14-09 Supabase migration has not landed.
+
+    A deployed ``freeze_attribution`` RPC that does not yet accept the
+    Helper #2 parameters rejects the call with PostgREST's
+    ``PGRST202`` ("Could not find the function ... in the schema
+    cache") -- the same signature-mismatch code
+    ``prefetch_attribution``'s ``rpc_missing`` probe already detects
+    for ``lookup_attribution_bulk`` (D-13).
+    """
+
+    def setUp(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+        try:
+            from postgrest import APIError
+        except Exception:
+            self.skipTest("postgrest not installed")
+        self._APIError = APIError
+
+    def tearDown(self):
+        _reset_all()
+
+    def _base_row(self, **overrides):
+        row = {
+            "__row_id": 111222333,
+            "Work Request #": "55667788",
+            "__week_ending_date": datetime.datetime(2026, 9, 6),
+            "Units Completed?": True,
+            "Foreman": "",
+            "__helper_foreman": "",
+            "__helper_dept": "",
+            "__vac_crew_name": "",
+            "__helper2_foreman": "",
+            "__helper2_dept": "",
+            "Pole #": "P-9",
+            "CU": "ANC-M",
+            "Work Type": "Maintenance",
+        }
+        row.update(overrides)
+        return row
+
+    def _api_error(self, code, message="x"):
+        return self._APIError(
+            {"code": code, "message": message, "hint": "", "details": ""}
+        )
+
+    def test_pgrst202_signature_rejection_degrades_and_succeeds(self):
+        """First freeze attempt after deploy, against an un-migrated
+        RPC that rejects the Helper #2 parameters: the writer logs
+        once at warning level, retries the same freeze without the
+        Helper #2 parameters, and the primary/helper/vac_crew
+        attribution is still written."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+
+        def _dynamic_execute():
+            _, params = client.schema.return_value.rpc.call_args.args
+            if "p_helper2" in params:
+                raise self._api_error("PGRST202", "function not found")
+            return _fake_rpc_response("run-degraded")
+
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            _dynamic_execute
+        )
+        row = self._base_row(
+            Foreman="Alice Primary",
+            __helper_foreman="Bob Helper",
+            __helper_dept="500",
+            __helper2_foreman="Carla Helper2",
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), self.assertLogs(level="WARNING") as cm:
+            result = ba_writer.freeze_row(
+                row, release="r", run_id="run-degraded"
+            )
+        self.assertTrue(result)
+        self.assertTrue(ba_writer._helper2_rpc_unsupported)
+        # Exactly one degrade warning this run.
+        degrade_logs = [
+            m for m in cm.output if "does not yet accept" in m
+        ]
+        self.assertEqual(len(degrade_logs), 1)
+        # 3 total RPC calls: (1) with_retry's own attempt -- PGRST202,
+        # no retry (permanent); (2) the bounded bare probe -- confirms
+        # PGRST202; (3) the ONE retry with_retry issues with the
+        # Helper #2 parameters removed -- succeeds.
+        self.assertEqual(
+            client.schema.return_value.rpc.call_count, 3
+        )
+        _, final_params = client.schema.return_value.rpc.call_args.args
+        self.assertNotIn("p_helper2", final_params)
+        self.assertNotIn("p_helper2_dept", final_params)
+        self.assertEqual(final_params["p_primary"], "Alice Primary")
+        self.assertEqual(final_params["p_helper"], "Bob Helper")
+        self.assertEqual(final_params["p_helper_dept"], "500")
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 1
+        )
+
+    def test_subsequent_freeze_while_unsupported_skips_helper2_without_reprobe(
+        self,
+    ):
+        """Every subsequent freeze in the same run skips the Helper #2
+        parameters without re-probing and without re-logging."""
+        from billing_audit import writer as ba_writer
+        with self.assertLogs(level="WARNING"):
+            ba_writer._mark_helper2_rpc_unsupported()
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 1
+        )
+
+        client = _make_fake_supabase_client()
+
+        def _fail_if_helper2_present():
+            _, params = client.schema.return_value.rpc.call_args.args
+            if "p_helper2" in params:
+                raise AssertionError(
+                    "must not resend p_helper2 once known unsupported"
+                )
+            return _fake_rpc_response("run-h2f")
+
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            _fail_if_helper2_present
+        )
+        row = self._base_row(
+            Foreman="Alice Primary", __helper2_foreman="Should Not Send"
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-h2f")
+        self.assertTrue(result)
+        # Exactly one RPC call -- no probe, no second attempt.
+        client.schema.return_value.rpc.assert_called_once()
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertNotIn("p_helper2", params)
+        self.assertNotIn("p_helper2_dept", params)
+        # The counter only bumps on the transition, not per degraded row.
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 1
+        )
+
+    def test_once_migrated_no_degrade_and_no_counter(self):
+        """Once the migrated RPC accepts the parameters, no degrade
+        occurs and no counter increments."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-ok")
+        )
+        row = self._base_row(__helper2_foreman="Carla Helper2")
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-ok")
+        self.assertTrue(result)
+        self.assertFalse(ba_writer._helper2_rpc_unsupported)
+        client.schema.return_value.rpc.assert_called_once()
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertIn("p_helper2", params)
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 0
+        )
+
+    def test_generic_rpc_failure_not_swallowed_by_degrade_path(self):
+        """A generic RPC failure that is not a signature or
+        unknown-parameter error is NOT swallowed by the degrade path;
+        it keeps today's error handling."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            self._api_error("23505", "duplicate key")
+        )
+        row = self._base_row(
+            Foreman="Alice Primary", __helper2_foreman="Carla Helper2"
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-h2g")
+        self.assertFalse(result)
+        self.assertEqual(ba_writer.get_counters()["snapshots_errored"], 1)
+        self.assertFalse(ba_writer._helper2_rpc_unsupported)
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 0
+        )
+
+
 class FreezeRowBoolReturnTests(unittest.TestCase):
     """Assert the documented bool return semantics of ``freeze_row``.
 
@@ -1491,6 +1691,8 @@ class CountersTests(unittest.TestCase):
                 # Phase 12 / OWN-02 (policy A): sentinel counters.
                 "sentinel_claimers_ignored": 0,
                 "sentinel_freezes_deferred": 0,
+                # Phase 14 / D-14-07a: Helper #2 RPC-degrade counter.
+                "helper2_attribution_degraded": 0,
             },
         )
 
