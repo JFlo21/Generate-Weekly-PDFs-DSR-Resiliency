@@ -147,3 +147,42 @@ exists on the Resource Analyst sheet as of 2026-09-06.
   persists Helper #2 values instead of paying the burst for nothing.
 - Until closed: no plan, summary, or pilot may claim that Helper #2 run
   memory persists. HLP-06 stays Pending.
+
+## D-14-10-APPLIED (plan 14-07, Task 1) — owner decision 2026-09-06
+
+- Decision: **separate-column** — one additive nullable TEXT column on
+  `pipeline_memory.sheet_registry`. `column_mapping` stays a pure
+  column-title-to-column-id map.
+- Column name: `mapping_schema TEXT NULL`. A NULL means the mapping was
+  written before the marker existed and is therefore NOT admissible from
+  cache; that sheet takes one full validation, after which the upsert
+  writes the current marker.
+- Marker value: `helper2-v1`, held in a module-level constant in
+  `pipeline/discovery.py` (`MAPPING_SCHEMA_MARKER`). Bumping the constant is
+  the mechanism a future synonym addition uses to force exactly one more
+  revalidation.
+- Sixth skip-index admission condition: `mapping_schema` must equal the
+  current marker. Null or stale → not admitted. A sheet admitted from cache
+  never has its marker promoted; only a full validation earns it.
+- Degrade direction (owner-confirmed: "slower but correct is correct"):
+  if the watermark select fails specifically because the column does not
+  exist, log once, treat every mapping as unmarked, run full validation for
+  every sheet, never raise, never admit from cache.
+- One-time cost (measured, not estimated): full validation is one bounded
+  three-row `get_sheet` per sheet, ~0.3 s/sheet since 11.1-04 —
+  121 sheets = 37.7 s of Phase 1 on the production canary run 33683979474.
+  Recent runs take 32–55 min against the 165-min `TIME_BUDGET_MINUTES`
+  (180-min runner ceiling), so the first run after the marker lands fits
+  with ample headroom. The pre-11.1-04 figure (54–83 min) no longer applies.
+- Who applies the DDL: Juan (owner), by hand, in Supabase project
+  `poeyztlmsawfoqlanucc` via the SQL Editor. **Not applied as of
+  2026-09-06** (live read-only check: `sheet_registry` has 121 rows, all with
+  a `column_mapping`, columns: sheet_id, name, kind, folder_id,
+  column_mapping, last_sheet_version, last_read_at, last_full_read_at,
+  active, updated_at — no marker column).
+- Sequencing: either order is safe by design and Task 2 proves both (old
+  code ignores the column; new code degrades to full validation when it is
+  absent). Recommended: apply this column together with the 14-04
+  `row_state` DDL and the O-14-B RPC update in one owner SQL session before
+  the code merge.
+- No DDL was executed from this session.
