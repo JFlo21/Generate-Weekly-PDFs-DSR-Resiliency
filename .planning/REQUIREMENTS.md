@@ -323,7 +323,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   unavailable capability never create a Helper #2 claim, group, workbook, attachment, or
   attribution row.
 
-- [ ] **HLP-06**: A later Helper #2 completion on a row already frozen or cached with primary
+- [x] **HLP-06**: A later Helper #2 completion on a row already frozen or cached with primary
   or Helper #1 attribution is recorded for the Helper #2 role without overwriting other roles
   or inheriting ownership from another week; repeated runs are idempotent; legacy hashes and
   filenames are unchanged when Helper #2 is absent (no empty-field append to every key).
@@ -440,7 +440,7 @@ Which phases cover which requirements.
 | HLP-03 | Phase 14 | Pending |
 | HLP-04 | Phase 14 | Pending |
 | HLP-05 | Phase 14 | Pending |
-| HLP-06 | Phase 14 | Pending |
+| HLP-06 | Phase 14 | Complete |
 | HLP-07 | Phase 14 | Pending |
 
 **Coverage:**

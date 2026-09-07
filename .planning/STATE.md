@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline
+milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 14
 current_phase_name: foreman-helper-2
 status: executing
-stopped_at: Completed 14-06-PLAN.md
-last_updated: "2026-09-07T01:09:23.565Z"
+stopped_at: Completed 14-04-PLAN.md
+last_updated: "2026-09-07T03:05:53.795Z"
 last_activity: 2026-09-06
 last_activity_desc: Phase 14 execution started
+state_head: c9739d7f6805001163cc3c72c55d226b7c2c82b7
 progress:
   total_phases: 14
-  completed_phases: 12
+  completed_phases: 4
   total_plans: 70
-  completed_plans: 64
-  percent: 86
-state_head: 40365e244ff9a9d2c426d1a22dfce394f58c87dd
+  completed_plans: 65
+  percent: 29
 ---
 
 # Project State
@@ -37,7 +37,7 @@ pipeline.
 
 Phase: 14 (foreman-helper-2) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 6 of 10
+Plan: 7 of 10
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
@@ -89,7 +89,7 @@ Last activity: 2026-09-06 — Phase 14 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 50/50 plans ([█████████░] 91%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
+Progress: [████████████████████] 50/50 plans ([███░░░░░░░] 29%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
 ```
 
 ## Performance Metrics
@@ -157,6 +157,7 @@ Progress: [████████████████████] 50/50 p
 | Phase 14-foreman-helper-2 P03 | 40min | 3 tasks | 6 files |
 | Phase 14 P05 | ~35min | 3 tasks | 6 files |
 | Phase 14-foreman-helper-2 P06 | ~40min | 3 tasks | 6 files |
+| Phase 14 P04 | 9min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -302,6 +303,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: 14-06: subcontractor Helper #2 shadow leg mirrors Helper #1 exactly -- separate _sub_is_valid_helper2_row gate, separate resolve_claimer('helper2', ...) call, separate reduced_sub_helper2/aep_billable_helper2 shadow keys; the primary reduced_sub/aep_billable emission now also excludes Helper #2-completed subcontractor rows
 - [Phase ?]: 14-06: both-slots-valid (Helper #1 AND Helper #2 both valid on one row) takes NO position -- both families' shadow keys emit additively today; O-14-A remains owner-blocked, plan 14-08 owns the eventual rule
 - [Phase ?]: 14-06: dropped the local PEP 526 annotation on pipeline/grouping.py's new _attribution_reason2 variable -- an annotated assignment inside the unchecked group_source_rows function adds a new mypy annotation-unchecked note, tripping Gate 4's strict delta check (71->72) with zero actual type-error
+- [Phase 14]: D-14-08-APPLIED (include-now): Helper #2 fields join HASH_FIELDS in the same change as the additive row_state columns; ~217k one-time production row_event churn quantified and accepted (RUN_MEMORY_INCREMENTAL_ENABLED stays off).
+- [Phase 14]: pipeline_memory.upsert_rows_bulk RPC's column list is deliberately left unchanged in plan 14-04; helper2_* values will not persist to row_state until a later rollout plan (14-09/14-10) updates the RPC.
 
 ### Roadmap Evolution
 
@@ -473,8 +476,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-07T01:09:23.532Z
-**Stopped at:** Completed 14-06-PLAN.md
+**Last session:** 2026-09-07T03:05:52.713Z
+**Stopped at:** Completed 14-04-PLAN.md
 **Resume file:** None
 
 ## Session Continuity

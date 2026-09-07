@@ -878,7 +878,7 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 4/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
+**Plans:** 6/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
 planning only.
 
 Plans:
@@ -896,7 +896,7 @@ Plans:
 - [x] 14-03-PLAN.md — Attribution client: the Helper #2 claimant joins the freeze payload AND the
   all-sentinel gate, the Helper #2 role, and the pre-migration degrade
 
-- [ ] 14-04-PLAN.md — Run-memory Helper #2 columns, the recorded hash-inclusion decision, and the
+- [x] 14-04-PLAN.md — Run-memory Helper #2 columns, the recorded hash-inclusion decision, and the
   mirrored field list in the passive-compare script
 
 - [x] 14-05-PLAN.md — Lifecycle consumers: cleanup orphan-supersede gate, artifact-publish variant
@@ -904,7 +904,7 @@ Plans:
 
 **Wave 3** *(parallel; blocked on Wave 2)*
 
-- [ ] 14-06-PLAN.md — Subcontractor Helper #2 shadow variants: grouping legs, workbook rendering,
+- [x] 14-06-PLAN.md — Subcontractor Helper #2 shadow variants: grouping legs, workbook rendering,
   nested filename parsing, multi-foreman aggregated hashing, and the PPP dual-route
 
 - [ ] 14-07-PLAN.md — One bounded revalidation for pre-Helper-#2 cached mappings, the four
