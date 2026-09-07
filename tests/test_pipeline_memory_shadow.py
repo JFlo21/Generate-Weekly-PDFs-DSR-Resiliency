@@ -2551,3 +2551,68 @@ class RunLedgerSheetsChangedCallSiteTests(unittest.TestCase):
             end = src.index(")\n", idx)
             block = src[idx:end]
             self.assertIn("sheets_changed=_mem_sheets_written", block)
+
+
+_MEM04_COMPARE_PATH = _REPO_ROOT / "scripts" / "mem04_passive_compare.py"
+
+
+def _load_mem04_passive_compare():
+    """Import ``scripts/mem04_passive_compare.py`` BY FILE PATH (not as
+    a package) -- mirrors ``tests/test_mem04_formula_change.py``'s own
+    ``_load_module_by_path``/``load_mem04_passive_compare`` helpers.
+    Self-contained per this file's own convention (no shared
+    ``tests/conftest.py`` exists in this repo).
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mem04_passive_compare_driftguard", _MEM04_COMPARE_PATH,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class Mem04FieldMirrorDriftGuardTests(unittest.TestCase):
+    """Plan 14-04 Task 3: ``scripts/mem04_passive_compare.py`` keeps its
+    own copy of the HASH_FIELDS field set, split into a personnel tuple
+    and a non-personnel tuple (10-RESEARCH.md Pitfall 3 -- a family list
+    enumerated at more than one site). This is the drift guard: the
+    UNION of the script's two tuples must equal the HASH_FIELDS set
+    imported from ``pipeline_memory.writer``, so a future HASH_FIELDS
+    addition that forgets to update the mirror fails loudly here instead
+    of silently misclassifying every such field's changes.
+    """
+
+    def test_union_of_personnel_and_non_personnel_equals_hash_fields(self):
+        from pipeline_memory.writer import HASH_FIELDS
+
+        mem04 = _load_mem04_passive_compare()
+        union = set(mem04._PERSONNEL_COLUMNS) | set(
+            mem04._NON_PERSONNEL_COLUMNS
+        )
+        self.assertEqual(union, set(HASH_FIELDS))
+
+    def test_personnel_and_non_personnel_tuples_are_disjoint(self):
+        mem04 = _load_mem04_passive_compare()
+        self.assertEqual(
+            set(mem04._PERSONNEL_COLUMNS)
+            & set(mem04._NON_PERSONNEL_COLUMNS),
+            set(),
+        )
+
+    def test_helper2_fields_split_matches_helper1_split(self):
+        """Helper #2's raw/formula-derived fields join the personnel
+        tuple exactly like their Helper #1 counterparts; helper2_
+        completed joins the non-personnel tuple exactly like
+        helper_completed does.
+        """
+        mem04 = _load_mem04_passive_compare()
+        self.assertIn("helper2_observed", mem04._PERSONNEL_COLUMNS)
+        self.assertIn("helper2_dept", mem04._PERSONNEL_COLUMNS)
+        self.assertIn("helper2_job", mem04._PERSONNEL_COLUMNS)
+        self.assertIn(
+            "helper2_completed", mem04._NON_PERSONNEL_COLUMNS,
+        )
+        self.assertNotIn("helper2_completed", mem04._PERSONNEL_COLUMNS)

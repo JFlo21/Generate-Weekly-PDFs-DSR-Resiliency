@@ -100,20 +100,27 @@ def _parse_timestamp(value: Any) -> _dt.datetime | None:
 # Formula-derived personnel columns (10-CONTEXT.md discretion note /
 # pipeline_memory/writer.py HASH_FIELDS) -- the columns whose values
 # come from cross-sheet lookups and therefore can change without a
-# human touching the row.
+# human touching the row. helper2_observed / helper2_dept / helper2_job
+# (Phase 14 Plan 04, D-14-08-APPLIED) join here exactly like their
+# Helper #1 counterparts -- same cross-sheet formula-derived shape.
 _PERSONNEL_COLUMNS: tuple[str, ...] = (
     "foreman_observed",
     "helper_observed",
     "helper_dept",
     "helper_job",
     "vac_crew_observed",
+    "helper2_observed",
+    "helper2_dept",
+    "helper2_job",
 )
 
 # The full HASH_FIELDS-equivalent business-content column set
 # (pipeline_memory/writer.py::HASH_FIELDS), minus the personnel
 # columns -- used to detect a NON-personnel change, which excludes a
 # row from the "formula-only" population even though its content_hash
-# also changed.
+# also changed. helper2_completed joins here exactly where
+# helper_completed already sits -- a plain checkbox, not a formula
+# lookup.
 _NON_PERSONNEL_COLUMNS: tuple[str, ...] = (
     "wr",
     "week_ending",
@@ -126,6 +133,7 @@ _NON_PERSONNEL_COLUMNS: tuple[str, ...] = (
     "units_completed",
     "helper_completed",
     "vac_completed",
+    "helper2_completed",
 )
 
 
