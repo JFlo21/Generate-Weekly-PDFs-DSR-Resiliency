@@ -878,7 +878,7 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 2/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
+**Plans:** 4/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
 planning only.
 
 Plans:
@@ -899,7 +899,7 @@ Plans:
 - [ ] 14-04-PLAN.md — Run-memory Helper #2 columns, the recorded hash-inclusion decision, and the
   mirrored field list in the passive-compare script
 
-- [ ] 14-05-PLAN.md — Lifecycle consumers: cleanup orphan-supersede gate, artifact-publish variant
+- [x] 14-05-PLAN.md — Lifecycle consumers: cleanup orphan-supersede gate, artifact-publish variant
   precedence, portal labels, and the family-parity invariant
 
 **Wave 3** *(parallel; blocked on Wave 2)*
