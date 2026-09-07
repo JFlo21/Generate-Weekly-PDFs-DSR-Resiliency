@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
+milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: foreman-helper-2
 status: executing
-stopped_at: Completed 14-02-PLAN.md (pending resolutions A1/A2/A3 + live column probe); ready for 14-03
-last_updated: "2026-09-06T23:24:27.589Z"
+stopped_at: Completed 14-03-PLAN.md
+last_updated: "2026-09-07T00:13:02.904Z"
 last_activity: 2026-09-06
 last_activity_desc: Phase 14 execution started
-state_head: 41f14b1f0b025886e166063ac2f5c08851ddcc93
 progress:
   total_phases: 14
-  completed_phases: 4
+  completed_phases: 12
   total_plans: 70
-  completed_plans: 61
-  percent: 29
+  completed_plans: 63
+  percent: 86
+state_head: 41f14b1f0b025886e166063ac2f5c08851ddcc93
 ---
 
 # Project State
@@ -37,7 +37,7 @@ pipeline.
 
 Phase: 14 (foreman-helper-2) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 3 of 10
+Plan: 4 of 10
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
@@ -89,7 +89,7 @@ Last activity: 2026-09-06 — Phase 14 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 50/50 plans ([███░░░░░░░] 29%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
+Progress: [████████████████████] 50/50 plans ([█████████░] 90%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
 ```
 
 ## Performance Metrics
@@ -154,6 +154,7 @@ Progress: [████████████████████] 50/50 p
 | Phase 12 P10 | ~15min | 3 tasks | 4 files |
 | Phase 14-foreman-helper-2 P01 | ~30min | 3 tasks | 12 files |
 | Phase 14-foreman-helper-2 P02 | ~15min (Task 3 continuation) | 3 tasks | 2 files |
+| Phase 14-foreman-helper-2 P03 | 40min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -290,6 +291,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: [Phase 14] 14-02 A1/A2: group_state hash-skip and _live_row_attachments pre-seed structurally cannot suppress a first Helper #2 generation -- no guard needed
 - [Phase 14]: [Phase 14] 14-02 A3: pricing.py exclusion tuple + rate-column selector must be extended in plan 14-06 for future aep_billable_helper2/reduced_sub_helper2 subcontractor shadow variants; observability.py _PII_LOG_MARKERS extension assigned to plans 14-07/14-08
 - [Phase 14]: [Phase 14] 14-02 Task 3: owner-delegated read-only Smartsheet probe (2026-09-06) confirms Resource Analyst Foreman Helper #2 blank on all 576 rows -- plan 14-10 pilot is FIXTURE-ONLY
+- [Phase ?]: Kept _HELPER2_SENTINEL_CLAIMERS as a separate frozenset from _SENTINEL_CLAIMERS to avoid breaking the SQL-twin parity test
+- [Phase ?]: Reused billing_audit.client's typed _PGAPIError/_classify_postgrest_error for the PGRST202 capability probe instead of a local re-declaration, avoiding a new mypy finding
+- [Phase ?]: Mirrored the new helper2_attribution_degraded counter key in both of pipeline/orchestrate.py's pre-seed dicts (synthetic and production) after Gate 6 proved the synthetic path needed it
 
 ### Roadmap Evolution
 
@@ -461,8 +465,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-06T23:24:26.357Z
-**Stopped at:** Completed 14-02-PLAN.md (pending resolutions A1/A2/A3 + live column probe); ready for 14-03
+**Last session:** 2026-09-07T00:13:02.871Z
+**Stopped at:** Completed 14-03-PLAN.md
 **Resume file:** None
 
 ## Session Continuity

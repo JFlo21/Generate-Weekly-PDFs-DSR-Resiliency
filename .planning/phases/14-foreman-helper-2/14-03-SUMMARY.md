@@ -179,3 +179,11 @@ None - no external service configuration required.
 ---
 *Phase: 14-foreman-helper-2*
 *Completed: 2026-09-07*
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/14-foreman-helper-2/14-03-SUMMARY.md`
+- FOUND: `7509709` (Task 1 commit)
+- FOUND: `5c44d49` (Task 2 commit)
+- FOUND: `58d73d2` (Task 3 commit)
+- FOUND: `4ecb76a` (SUMMARY.md commit)

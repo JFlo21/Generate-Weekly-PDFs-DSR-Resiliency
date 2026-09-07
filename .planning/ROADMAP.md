@@ -837,11 +837,13 @@ the production Python ingestion.
   Its missing columns are accepted, not a defect or release blocker; no schema-reconciliation
   task. Exclusion does not authorize deleting historical records, workbooks, attachments, or
   attribution evidence.
+
 - **Missing optional Helper #2 columns must not break generation.** On an otherwise eligible
   source they mean the capability is unavailable there: skip only the Helper #2 path and keep
   primary / Helper #1 / VAC behavior. Never universally required; never rejects a valid sheet;
   which fields are required comes from the Helper #1 contract (name + completed checkbox +
   dept; Job optional).
+
 - **Extend the existing Helping Foreman behavior.** Helper #2 is a second independent slot,
   not a replacement for Helper #1 and not a reason to rebuild the pipeline. No new rule that
   the same physical unit is billed to the customer twice.
@@ -857,16 +859,21 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
 1. An eligible Helper #2 completion produces the expected workbook with the correct foreman,
    dept/job, units, prices, dates, filename, and destination; group key, hash, workbook header,
    filename, and attachment routing all name the same Helper #2 claimant (HLP-01).
+
 2. With Helper #2 absent, every existing primary / Helper #1 / VAC output, group key, hash, and
    filename is unchanged — regression fixtures compare meaningful cells, headers, totals, and
    structure, not binary equality (HLP-02, HLP-06).
+
 3. Sources without Helper #2 columns skip only the Helper #2 path with a distinct logged reason;
    Intake 8 remains excluded and untouched; readiness checks pass (HLP-03, HLP-04).
+
 4. Blank, `NA`, `#NO MATCH` / formula-error, unchecked-completion, and no-capability inputs
    create no Helper #2 claim, group, workbook, attachment, or attribution row (HLP-05).
+
 5. A later Helper #2 completion on a row already frozen or cached with primary or Helper #1
    attribution is recorded for its own role without overwriting the other roles or inheriting
    ownership from another week; repeated runs are idempotent (HLP-06).
+
 6. Pilot scope, comparison criteria, and rollback are documented and rehearsed on fixtures;
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
@@ -880,15 +887,18 @@ Plans:
 
 - [x] 14-01-PLAN.md — Tracer: one Helper #2 completion end-to-end (flag, synonyms, eligibility,
   grouping, hash meta, group identity, filename, round-trip) plus the legacy byte-identity regression
+
 - [x] 14-02-PLAN.md — Close the research's pending items (group_state and attachment pre-seed keying,
   the three unread modules, the owner-run read-only live column probe)
 
 **Wave 2** *(parallel; blocked on 14-01)*
 
-- [ ] 14-03-PLAN.md — Attribution client: the Helper #2 claimant joins the freeze payload AND the
+- [x] 14-03-PLAN.md — Attribution client: the Helper #2 claimant joins the freeze payload AND the
   all-sentinel gate, the Helper #2 role, and the pre-migration degrade
+
 - [ ] 14-04-PLAN.md — Run-memory Helper #2 columns, the recorded hash-inclusion decision, and the
   mirrored field list in the passive-compare script
+
 - [ ] 14-05-PLAN.md — Lifecycle consumers: cleanup orphan-supersede gate, artifact-publish variant
   precedence, portal labels, and the family-parity invariant
 
@@ -896,6 +906,7 @@ Plans:
 
 - [ ] 14-06-PLAN.md — Subcontractor Helper #2 shadow variants: grouping legs, workbook rendering,
   nested filename parsing, multi-foreman aggregated hashing, and the PPP dual-route
+
 - [ ] 14-07-PLAN.md — One bounded revalidation for pre-Helper-#2 cached mappings, the four
   distinguishable conditions, and the Intake-8-shaped fixture
 
@@ -921,9 +932,11 @@ Plans:
   depts present. Recommended default: hold the row out of every file for the run, log a distinct
   reason, count it, and surface it for correction. Only plan 14-08 Task 2 is blocked on it; the
   other nine plans proceed. No rule is invented in the plans.
+
 - **D-14-07 / D-14-08 / D-14-10 Supabase changes** — three additive schema changes, each behind its
   own owner checkpoint in plans 14-09, 14-04, and 14-07 respectively. No DDL is applied from an
   agent session.
+
 - **D-14-12 rollout** — flag default, GitHub Actions wiring (inspect-only in this phase; the exact
   lines are recorded, not applied), and authorization for the one controlled upload, all in
   plan 14-10 Task 3.
