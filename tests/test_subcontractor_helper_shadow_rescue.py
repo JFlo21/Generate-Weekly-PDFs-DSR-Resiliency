@@ -1464,6 +1464,258 @@ class TestProductionCodeSiteInvariants(unittest.TestCase):
             generate_weekly_pdfs._PII_LOG_MARKERS,
         )
 
+    def test_helper2_shadow_partition_gate_present_in_production(self):
+        """Phase 14 plan 14-06: Helper #2 sibling shadow partition gate
+        (Pattern B — copied verbatim from the Helper #1 site)."""
+        self.assertIn('_sub_is_valid_helper2_row', self._src)
+        self.assertIn("('reduced_sub_helper2',", self._src)
+        self.assertIn("'aep_billable_helper2'", self._src)
+
+
+class TestSubcontractorHelper2ShadowRescue(unittest.TestCase):
+    """Phase 14 plan 14-06 Task 1: the subcontractor Helper #2 shadow
+    partition in ``group_source_rows``.
+
+    Sibling of ``TestEndToEndPipeline``'s Helper #1 shadow tests above —
+    same module-state setup, same synthetic-row idiom, extended with a
+    Helper #2 row builder. Drives the production classifier (not a mirror
+    class) per the Phase 1.1 Living Ledger entry rule (d).
+    """
+
+    _SUB_SHEET_ID = TestEndToEndPipeline._SUB_SHEET_ID
+    _NON_SUB_SHEET_ID = TestEndToEndPipeline._NON_SUB_SHEET_ID
+
+    setUp = TestEndToEndPipeline.setUp
+    tearDown = TestEndToEndPipeline.tearDown
+    _make_synth_helper_row = TestEndToEndPipeline._make_synth_helper_row
+    _make_synth_non_helper_row = TestEndToEndPipeline._make_synth_non_helper_row
+
+    def _make_synth_helper2_row(
+        self,
+        wr='19236776',
+        helper2_foreman='ReplacementForeman2',
+        units_price='$100.00',
+        snapshot='2026-04-19',
+        row_id=22345,
+        source_sheet_id=None,
+    ):
+        """Synthetic Helper #2 row — sibling of
+        ``TestEndToEndPipeline._make_synth_helper_row`` using the
+        Helper #2 field names locked in plan 14-01
+        (``__is_helper2_row`` / ``__helper2_foreman`` /
+        ``__helper2_dept`` / ``__helper2_job``)."""
+        return {
+            '__row_id': row_id,
+            'Work Request #': wr,
+            'Weekly Reference Logged Date': '2026-04-19',
+            'Snapshot Date': snapshot,
+            'Units Completed?': True,
+            'Foreman Helping? #2': helper2_foreman,
+            'Helping Foreman #2 Completed Unit?': True,
+            'Units Total Price': units_price,
+            'CU': 'ANC-M',
+            'Work Type': 'Inst',
+            'Quantity': 2,
+            '__effective_user': 'PrimaryForeman',
+            '__assignment_method': 'FOREMAN_COLUMN',
+            '__is_helper_row': False,
+            '__helper_foreman': '',
+            '__helper_dept': '',
+            '__helper_job': '',
+            '__is_helper2_row': True,
+            '__helper2_foreman': helper2_foreman,
+            '__helper2_dept': '600',
+            '__helper2_job': 'JOB-B',
+            '__is_vac_crew': False,
+            '__source_sheet_id': source_sheet_id or self._SUB_SHEET_ID,
+        }
+
+    # ─── Core partition: shadow-only, no plain/primary leak ───────
+
+    def test_subcontractor_helper2_row_emits_shadow_keys_only(self):
+        """D-14-06 core assertion: a subcontractor Helper #2 completion
+        emits exactly the two Helper #2 shadow keys — no plain ``helper2``
+        key, and no subcontractor primary key (post-cutoff snapshot)."""
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution',
+            return_value=None,  # no_history → falls back to current helper2
+        ):
+            row = self._make_synth_helper2_row(
+                helper2_foreman='Drew_H2',
+                snapshot='2026-04-19',  # post-AEP-cutoff
+            )
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER2_Drew_H2' in k for k in keys),
+            f"expected _REDUCEDSUB_HELPER2_ key; got: {keys}",
+        )
+        self.assertTrue(
+            any('AEPBILLABLE_HELPER2_Drew_H2' in k for k in keys),
+            f"expected _AEPBILLABLE_HELPER2_ key (post-cutoff); got: {keys}",
+        )
+        for k in keys:
+            variant = groups[k][0].get('__variant', '')
+            self.assertNotEqual(
+                variant, 'helper2',
+                f"no group should have variant='helper2' for a "
+                f"subcontractor Helper #2 row; offending key={k!r}, "
+                f"got: {keys}",
+            )
+            self.assertNotIn(
+                variant, ('reduced_sub', 'aep_billable'),
+                f"a Helper #2-completed subcontractor row must not "
+                f"produce a primary variant group; offending key={k!r} "
+                f"variant={variant!r}; got: {keys}",
+            )
+        self.assertEqual(
+            len(keys), 2,
+            f"expected exactly 2 shadow keys (reduced_sub_helper2 + "
+            f"aep_billable_helper2); got: {keys}",
+        )
+
+    def test_subcontractor_helper2_row_pre_cutoff_emits_only_reducedsub_helper2(self):
+        """Pre-cutoff snapshot — only ``_REDUCEDSUB_HELPER2_``, mirrors
+        the Helper #1 pre-cutoff test."""
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution',
+            return_value=None,
+        ):
+            row = self._make_synth_helper2_row(
+                helper2_foreman='Drew_H2',
+                snapshot='2026-04-11',  # pre-AEP-cutoff (cutoff is 04-12)
+            )
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER2_Drew_H2' in k for k in keys),
+            f"pre-cutoff: _REDUCEDSUB_HELPER2_ must be present; got: {keys}",
+        )
+        self.assertFalse(
+            any('AEPBILLABLE_HELPER2_Drew_H2' in k for k in keys),
+            f"pre-cutoff: _AEPBILLABLE_HELPER2_ must NOT be present; "
+            f"got: {keys}",
+        )
+
+    def test_non_subcontractor_helper2_row_unaffected(self):
+        """Non-subcontractor Helper #2 row is unchanged from plan 14-01:
+        emits only the plain ``helper2`` key — no shadow variants (there
+        is no subcontractor shadow leg to reach for a non-sub sheet)."""
+        row = self._make_synth_helper2_row(
+            source_sheet_id=self._NON_SUB_SHEET_ID
+        )
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution',
+            return_value={'helper2': 'FrozenHelper2'},
+        ) as mock_lookup:
+            groups = generate_weekly_pdfs.group_source_rows([row])
+            mock_lookup.assert_not_called()
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('HELPER2_ReplacementForeman2' in k and 'REDUCEDSUB' not in k
+                and 'AEPBILLABLE' not in k for k in keys),
+            f"non-subcontractor Helper #2 row should emit the plain "
+            f"_HELPER2_<name> key; got: {keys}",
+        )
+
+    # ─── VAC-crew precedence ───────────────────────────────────────
+
+    def test_vac_crew_row_with_helper2_takes_vac_path(self):
+        """D-14-06: the VAC-crew short-circuit wins over a Helper #2
+        completion, exactly as it wins over Helper #1."""
+        row = self._make_synth_helper2_row(
+            helper2_foreman='Ignored_H2',
+            snapshot='2026-04-19',
+            row_id=55501,
+        )
+        row['__is_vac_crew'] = True
+        row['__vac_crew_name'] = 'VacCrewMember'
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('VACCREW' in k for k in keys),
+            f"VAC-crew row with Helper #2 data must take the VAC path; "
+            f"got: {keys}",
+        )
+        for k in keys:
+            variant = groups[k][0].get('__variant', '')
+            self.assertNotIn(
+                variant,
+                ('helper2', 'reduced_sub_helper2', 'aep_billable_helper2'),
+                f"VAC-crew short-circuit must win over Helper #2; "
+                f"offending key={k!r} variant={variant!r}; got: {keys}",
+            )
+
+    # ─── Claimant resolution through the Helper #2 role ────────────
+
+    def test_helper2_shadow_claimant_resolves_through_helper2_role(self):
+        """D-14-06: the Helper #2 shadow claimant is resolved through
+        ``resolve_claimer('helper2', ...)`` — the Helper #2 role added in
+        plan 14-03 — not the primary or Helper #1 role."""
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            return_value=({}, 'no_row'),
+        ), mock.patch(
+            'billing_audit.writer.resolve_claimer',
+            return_value=ResolveOutcome(
+                'use', 'FrozenHelper2', 'frozen', 'success'),
+        ) as _rc:
+            row = self._make_synth_helper2_row(helper2_foreman='CurrentHelper2')
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER2_FrozenHelper2' in k for k in keys),
+            f"shadow file should use the frozen Helper #2 claimer; "
+            f"got: {keys}",
+        )
+        helper2_role_calls = [
+            c for c in _rc.call_args_list if c.args and c.args[0] == 'helper2'
+        ]
+        self.assertTrue(
+            helper2_role_calls,
+            "resolve_claimer must be called with the 'helper2' role for "
+            "the Helper #2 shadow claimant",
+        )
+
+    # ─── O-14-A: no position taken on both-slots-valid ─────────────
+
+    def test_both_helper_slots_valid_takes_no_position(self):
+        """O-14-A is owner-blocked and belongs to plan 14-08 — this plan
+        must not choose a winner, split the row, duplicate the charge, or
+        silently deduplicate. Documents the CURRENT (unspecified)
+        behavior: since neither shadow-leg gate excludes the other, a row
+        with BOTH a valid Helper #1 AND a valid Helper #2 completion
+        produces BOTH families' shadow keys today — additive, not a
+        chosen winner (see 14-06-PLAN.md 'Blocked and deliberately not
+        decided here')."""
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution',
+            return_value=None,
+        ):
+            row = self._make_synth_helper_row(
+                helper_foreman='Helper1Person',
+                snapshot='2026-04-19',
+            )
+            row['__is_helper2_row'] = True
+            row['__helper2_foreman'] = 'Helper2Person'
+            row['__helper2_dept'] = '600'
+            row['__helper2_job'] = 'JOB-B'
+            groups = generate_weekly_pdfs.group_source_rows([row])
+        keys = list(groups.keys())
+        self.assertTrue(
+            any(
+                'REDUCEDSUB_HELPER_Helper1Person' in k and 'HELPER2' not in k
+                for k in keys
+            ),
+            f"Helper #1 shadow key must still be present; got: {keys}",
+        )
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER2_Helper2Person' in k for k in keys),
+            f"Helper #2 shadow key must also be present — no winner is "
+            f"chosen here (O-14-A is owner-blocked, plan 14-08's "
+            f"decision); got: {keys}",
+        )
+
 
 class TestSubcontractorWrScopeVariantGate(unittest.TestCase):
     """``_build_subcontractor_wr_scope`` gates on the authoritative

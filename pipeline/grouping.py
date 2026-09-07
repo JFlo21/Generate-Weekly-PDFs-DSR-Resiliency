@@ -877,6 +877,21 @@ def group_source_rows(rows):
                     and bool(r.get('__helper_dept', ''))
                 )
 
+                # Phase 14 (D-14-06): Helper #2 sibling of
+                # ``_sub_is_valid_helper_row`` above, computed identically
+                # from the Helper #2 row metadata written by plan 14-01. A
+                # subcontractor row with a valid Helper #2 completion must
+                # ALSO be excluded from the primary _REDUCEDSUB_USER_ /
+                # _AEPBILLABLE_USER_ emission below -- it belongs solely to
+                # the Helper #2 shadow files added further down.
+                _sub_is_valid_helper2_row = (
+                    not is_vac_crew_row
+                    and RES_GROUPING_MODE in ('helper', 'both')
+                    and is_helper2_row
+                    and bool(helper2_foreman)
+                    and bool(r.get('__helper2_dept', ''))
+                )
+
                 # Subproject B: resolve the FROZEN primary claimer from
                 # the pre-pass map. ``use`` -> partition by the claimer;
                 # ``hold`` -> defer this row's primary variants this run
@@ -888,7 +903,7 @@ def group_source_rows(rows):
                 # ``if _b_primary_claimer is not None`` gate below and
                 # suppresses the primary _USER_ emission.
                 _b_primary_claimer = None
-                if not _sub_is_valid_helper_row:
+                if not _sub_is_valid_helper_row and not _sub_is_valid_helper2_row:
                     _b_outcome = _sub_primary_claimer_map.get(r.get('__row_id'))
                     if _b_outcome is not None and _b_outcome.action == 'hold':
                         _b_primary_claimer = None
@@ -1002,6 +1017,14 @@ def group_source_rows(rows):
                         _helper_dept_local = r.get('__helper_dept', '')
                         if _helper_dept_local:
                             _valid_helper_row = True
+
+                    # Phase 14 (D-14-06): Helper #2 sibling of
+                    # ``_valid_helper_row`` above, computed identically.
+                    _valid_helper2_row = False
+                    if _helper_mode_enabled and is_helper2_row and helper2_foreman:
+                        _helper2_dept_local = r.get('__helper2_dept', '')
+                        if _helper2_dept_local:
+                            _valid_helper2_row = True
                     if _valid_helper_row and _helper_mode_enabled:
                         # Phase 1.1 Bug C (D-10..D-16 / SUB-11):
                         # per-row claim-history attribution. For
@@ -1242,6 +1265,171 @@ def group_source_rows(rows):
                                     f"💲 AEP BILLABLE HELPER GROUP CREATED: "
                                     f"WR={wr_key}, Week={week_end_for_key}, "
                                     f"Helper={_attributed_helper}"
+                                )
+
+                    if _valid_helper2_row and _helper_mode_enabled:
+                        # Phase 14 (D-14-06): sibling of the Helper #1
+                        # shadow block above -- NEVER merged into it.
+                        # Mirrors the same claim-history attribution flow
+                        # (per-WR dedupe set, attribution-reason /
+                        # remediation branching, group-created logging)
+                        # but resolves through the Helper #2 role
+                        # (billing_audit.ROLE_BY_VARIANT['helper2'], plan
+                        # 14-03) so a Helper #2 shadow file partitions by
+                        # the FROZEN Helper #2 claimer, not the primary or
+                        # Helper #1 claimer.
+                        _attributed_helper2 = helper2_foreman  # D-12 default
+                        _attribution_reason2: str | None = None
+                        if (
+                            is_subcontractor_row
+                            and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                            and (
+                                _attr_status in ('fetch_failure', 'unavailable')
+                                or (
+                                    _attr_status == 'rpc_missing'
+                                    and not ATTRIBUTION_BULK_PREFETCH_FALLBACK
+                                )
+                            )
+                        ):
+                            _attribution_reason2 = (
+                                'unavailable'
+                                if _attr_status == 'unavailable'
+                                else 'fetch_failure'
+                            )
+                        elif (
+                            is_subcontractor_row
+                            and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                        ):
+                            try:
+                                from billing_audit.writer import (
+                                    resolve_claimer as _resolve_claimer_sh2,
+                                )
+                                _sh2_rid = r.get('__row_id')
+                                _sh2_out = _resolve_claimer_sh2(
+                                    'helper2', helper2_foreman,
+                                    wr=wr_key,
+                                    week_ending=week_ending_date,
+                                    row_id=_sh2_rid,
+                                    enabled=SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
+                                    prefetched_map=(
+                                        None if _attr_use_per_row_fallback
+                                        else _attr_map
+                                    ),
+                                )
+                                if _sh2_out.action == 'use':
+                                    _attributed_helper2 = (
+                                        _sh2_out.name or helper2_foreman
+                                    )
+                                    _attribution_reason2 = (
+                                        'no_history'
+                                        if _sh2_out.reason == 'no_history'
+                                        else None
+                                    )
+                                elif _sh2_out.action == 'hold':
+                                    _attribution_reason2 = 'fetch_failure'
+                                else:
+                                    _attribution_reason2 = (
+                                        _sh2_out.reason
+                                        if _sh2_out.reason in ('no_history', 'fetch_failure')
+                                        else None
+                                    )
+                            except Exception:
+                                logging.exception(
+                                    "⚠️ Subcontractor helper2 claim "
+                                    "attribution map-read: unexpected "
+                                    "error (treating as fetch_failure)"
+                                )
+                                _attribution_reason2 = 'fetch_failure'
+
+                        if (
+                            is_subcontractor_row
+                            and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                            and _attribution_reason2 in (
+                                'no_history', 'fetch_failure', 'unavailable'
+                            )
+                        ):
+                            _warning_helper2_key = _RE_SANITIZE_HELPER_NAME.sub(
+                                '_', helper2_foreman
+                            )[:50]
+                            _warning_key2 = (
+                                wr_key, week_end_for_key, _warning_helper2_key
+                            )
+                            if _warning_key2 not in _bug_c_warning_seen:
+                                _bug_c_warning_seen.add(_warning_key2)
+                                if _attribution_reason2 == 'fetch_failure':
+                                    _remediation2 = (
+                                        "To investigate: check Supabase Logs "
+                                        "for PGRST106/PGRST301/PGRST404 on the "
+                                        "'lookup_attribution' op."
+                                    )
+                                elif _attribution_reason2 == 'unavailable':
+                                    _remediation2 = (
+                                        "The Supabase attribution store is "
+                                        "unavailable (no client configured), so "
+                                        "no attribution can be frozen this run. "
+                                        "Verify SUPABASE_* configuration if "
+                                        "frozen attribution was expected; "
+                                        "otherwise this is expected (e.g. local "
+                                        "/ TEST_MODE)."
+                                    )
+                                else:  # no_history
+                                    _remediation2 = (
+                                        "No frozen attribution exists yet (or "
+                                        "the frozen value is a placeholder such "
+                                        "as 'Unknown Foreman', which is never "
+                                        "honored — Phase 12 / OWN-02). This run "
+                                        "freezes the current name if any role "
+                                        "holds a real person; no action needed "
+                                        "unless a prior frozen claim was "
+                                        "expected for this helper."
+                                    )
+                                logging.warning(
+                                    f"⚠️ Subcontractor helper2 claim "
+                                    f"attribution fallback for "
+                                    f"WR={wr_key} week={week_end_for_key} "
+                                    f"helper2={_warning_helper2_key} "
+                                    f"(reason={_attribution_reason2}). "
+                                    f"Helper2 file rows will fall back to "
+                                    f"the current `Foreman Helping? #2` "
+                                    f"value. {_remediation2}"
+                                )
+
+                        _helper2_sanitized = (
+                            _RE_SANITIZE_HELPER_NAME.sub('_', _attributed_helper2)[:50]
+                        )
+                        rs_helper2_key = (
+                            f"{week_end_for_key}_{wr_key}_REDUCEDSUB_HELPER2_"
+                            f"{_helper2_sanitized}"
+                        )
+                        keys_to_add.append(
+                            ('reduced_sub_helper2', rs_helper2_key, _attributed_helper2)
+                        )
+                        if rs_helper2_key not in groups:
+                            logging.info(
+                                f"🔻 REDUCED SUB HELPER2 GROUP CREATED: "
+                                f"WR={wr_key}, Week={week_end_for_key}, "
+                                f"Helper2={_attributed_helper2}"
+                            )
+                        if (
+                            _snap_for_cutoff is not None
+                            and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
+                        ):
+                            aep_helper2_key = (
+                                f"{week_end_for_key}_{wr_key}_AEPBILLABLE_HELPER2_"
+                                f"{_helper2_sanitized}"
+                            )
+                            keys_to_add.append(
+                                (
+                                    'aep_billable_helper2',
+                                    aep_helper2_key,
+                                    _attributed_helper2,
+                                )
+                            )
+                            if aep_helper2_key not in groups:
+                                logging.info(
+                                    f"💲 AEP BILLABLE HELPER2 GROUP CREATED: "
+                                    f"WR={wr_key}, Week={week_end_for_key}, "
+                                    f"Helper2={_attributed_helper2}"
                                 )
 
             # Add row to all applicable groups
