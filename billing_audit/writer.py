@@ -1214,6 +1214,16 @@ ROLE_BY_VARIANT: dict[str, str] = {
     "reduced_sub_helper": "helper",
     "aep_billable_helper": "helper",
     "vac_crew": "vac_crew",
+    # Phase 14 (Foreman Helper #2): own frozen role, resolved
+    # independently of "helper" — never falls back to primary_foreman.
+    # The "helper2" RPC-result column only carries a real value once
+    # the plan 14-09 Supabase migration lands; until then the RPC
+    # result simply lacks the key and ``resolve_claimer`` below reads
+    # that via ``row.get(role)`` -> ``None`` -> the no_history branch,
+    # not a KeyError and not a silent primary_foreman fall-through.
+    "helper2": "helper2",
+    "reduced_sub_helper2": "helper2",
+    "aep_billable_helper2": "helper2",
 }
 
 

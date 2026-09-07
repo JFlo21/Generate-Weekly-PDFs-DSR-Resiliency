@@ -5328,6 +5328,142 @@ class TestResolveClaimer(unittest.TestCase):
         self.assertEqual(out.source, "frozen")
 
 
+class TestResolveClaimerHelper2(unittest.TestCase):
+    """Phase 14 / D-14-07 (14-03 Task 3): the Helper #2 role in
+    ROLE_BY_VARIANT and resolve_claimer.
+
+    resolve_claimer needs zero structural changes for Helper #2 — it
+    is already variant-generic via
+    ``ROLE_BY_VARIANT.get(variant, "primary_foreman")``. This class
+    proves the 3 new variant->role entries resolve correctly, and
+    that the pre-plan-14-09-migration RPC shape (no ``helper2`` key
+    in the row at all) lands on the no_history branch rather than a
+    KeyError or a silent primary_foreman fall-through.
+    """
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def _patch_all(self, row, status):
+        return mock.patch(
+            "billing_audit.writer._lookup_attribution_all",
+            return_value=(row, status),
+        )
+
+    def test_helper2_variant_reads_helper2_role_not_primary(self):
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "helper2": "FrozenCarla", "vac_crew": "Vinny",
+            "source_run_id": "r",
+        }
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "helper2", "CurrentCarla",
+                wr="1", week_ending=datetime.date(2026, 9, 6),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "FrozenCarla")
+        self.assertEqual(out.source, "frozen")
+        self.assertEqual(out.reason, "success")
+        self.assertNotEqual(
+            out.name, "Alice",
+            "helper2 variant must read the helper2 role, never "
+            "primary_foreman",
+        )
+
+    def test_reduced_sub_and_aep_billable_helper2_read_helper2_role(self):
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "helper2": "FrozenCarla", "vac_crew": "Vinny",
+            "source_run_id": "r",
+        }
+        for variant in ("reduced_sub_helper2", "aep_billable_helper2"):
+            with self.subTest(variant=variant), \
+                    self._patch_all(row, "success"):
+                out = resolve_claimer(
+                    variant, "CurrentCarla",
+                    wr="1", week_ending=datetime.date(2026, 9, 6),
+                    row_id=1, enabled=True)
+                self.assertEqual(out.name, "FrozenCarla")
+                self.assertEqual(out.source, "frozen")
+
+    def test_missing_helper2_column_is_no_history_not_keyerror_or_primary(
+        self,
+    ):
+        """Pre-migration RPC shape: the returned row has no
+        ``helper2`` key at all -- outcome must be no_history using
+        the current Smartsheet value, never a KeyError and never a
+        silent fall-through to the primary_foreman value."""
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "vac_crew": "Vinny", "source_run_id": "r",
+            # No "helper2" key -- exactly the shape the deployed RPC
+            # returns before the plan 14-09 migration lands.
+        }
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "helper2", "CurrentCarla",
+                wr="1", week_ending=datetime.date(2026, 9, 6),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentCarla")
+        self.assertEqual(out.source, "current")
+        self.assertEqual(out.reason, "no_history")
+
+    def test_frozen_helper2_named_sentinel_is_no_history(self):
+        """A frozen Helper #2 value that is a named sentinel
+        (``Unknown Helper 2``) is treated as no history, exactly as
+        Helper #1 is."""
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "helper2": "Unknown Helper 2", "vac_crew": "Vinny",
+            "source_run_id": "r",
+        }
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "helper2", "CurrentCarla",
+                wr="1", week_ending=datetime.date(2026, 9, 6),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentCarla")
+        self.assertEqual(out.source, "current")
+        self.assertEqual(out.reason, "no_history")
+
+    def test_role_by_variant_helper2_entries(self):
+        from billing_audit.writer import ROLE_BY_VARIANT
+        self.assertEqual(ROLE_BY_VARIANT["helper2"], "helper2")
+        self.assertEqual(
+            ROLE_BY_VARIANT["reduced_sub_helper2"], "helper2"
+        )
+        self.assertEqual(
+            ROLE_BY_VARIANT["aep_billable_helper2"], "helper2"
+        )
+
+    def test_unknown_variant_still_defaults_to_primary_foreman(self):
+        """An unknown variant string still defaults to
+        primary_foreman, unchanged -- Helper #2's 3 new entries must
+        not disturb the fail-safe default."""
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "helper2": "FrozenCarla", "vac_crew": "Vinny",
+            "source_run_id": "r",
+        }
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "some_future_variant", "CURRENT",
+                wr="1", week_ending=datetime.date(2026, 9, 6),
+                row_id=1, enabled=True)
+        self.assertEqual(out.name, "Alice")
+
+
 class TestAttributionHoldSummary(unittest.TestCase):
     """Foundation A: dormant hold counter + PII-safe summary."""
 
