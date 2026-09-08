@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: September 7, 2026 (updated automatically)_
+_Last updated: September 8, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -18,30 +18,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — September 7, 2026
-
-- ✨ New capability: Phase 12 waves 2-3 — OWN-03 backfill SQL, source 5, runbook (#OWN-03)
-- ✨ New capability: OWN-03 claim-time attribution backfill (wave 1)
-- 📄 Help guides updated: align instruction files (run 1)
-- ⚡ The system now runs faster (bound validation read to 3 rows (G-11.1-4))
-- ✅ Problem fixed: detach abandoned shadow-parity probe workers at interpreter exit
-- ⚡ The system now runs faster (warm-start the frozen-row cache from the attribution prefetch)
-- ✨ New capability: sentinel-superseded cleanup + RESET&#95;WR&#95;LIST scoped to listed WRs
-- ✅ Problem fixed: resolve&#95;claimer week-key coercion + review fixes
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — September 7, 2026
+### 📋 Changelog — September 8, 2026
 
 - 📄 Help guides updated: BUG-030 closed / live-proven -- first green decision-sync run after PR
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -59,9 +41,27 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 7, 2026
+### 📋 Changelog — September 8, 2026
 
-- • 📊 Audit: 2026-08-31T07:04:49Z
+- • 📊 Audit: 2026-09-07T07:04:39Z
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — September 8, 2026
+
+- ✨ New capability: Phase 12 waves 2-3 — OWN-03 backfill SQL, source 5, runbook (#OWN-03)
+- ✨ New capability: OWN-03 claim-time attribution backfill (wave 1)
+- 📄 Help guides updated: align instruction files (run 1)
+- ⚡ The system now runs faster (bound validation read to 3 rows (G-11.1-4))
+- ✅ Problem fixed: detach abandoned shadow-parity probe workers at interpreter exit
+- ⚡ The system now runs faster (warm-start the frozen-row cache from the attribution prefetch)
+- ✨ New capability: sentinel-superseded cleanup + RESET&#95;WR&#95;LIST scoped to listed WRs
+- ✅ Problem fixed: resolve&#95;claimer week-key coercion + review fixes
 
 <!-- /runbook-repo -->
 
@@ -448,7 +448,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 7, 2026
+### 📋 Changelog — September 8, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -459,7 +459,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — September 7, 2026
+### 📋 Changelog — September 8, 2026
 
 - • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits
 - • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts
