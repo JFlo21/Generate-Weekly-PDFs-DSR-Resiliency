@@ -878,7 +878,7 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 6/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
+**Plans:** 7/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
 planning only.
 
 Plans:
@@ -907,7 +907,7 @@ Plans:
 - [x] 14-06-PLAN.md — Subcontractor Helper #2 shadow variants: grouping legs, workbook rendering,
   nested filename parsing, multi-foreman aggregated hashing, and the PPP dual-route
 
-- [ ] 14-07-PLAN.md — One bounded revalidation for pre-Helper-#2 cached mappings, the four
+- [x] 14-07-PLAN.md — One bounded revalidation for pre-Helper-#2 cached mappings, the four
   distinguishable conditions, and the Intake-8-shaped fixture
 
 **Wave 4** *(blocked on Wave 3)*

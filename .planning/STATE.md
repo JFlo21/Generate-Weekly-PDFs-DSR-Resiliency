@@ -5,16 +5,16 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 14
 current_phase_name: foreman-helper-2
 status: executing
-stopped_at: Completed 14-04-PLAN.md
-last_updated: "2026-09-07T03:05:53.795Z"
-last_activity: 2026-09-06
-last_activity_desc: Phase 14 execution started
-state_head: c9739d7f6805001163cc3c72c55d226b7c2c82b7
+stopped_at: Completed 14-07-PLAN.md
+last_updated: "2026-09-08T14:01:33.000Z"
+last_activity: 2026-09-08
+last_activity_desc: Completed 14-07 (marker revalidation, four reasons); O-14-A resolved
+state_head: e7aa054900e2a87e198809dd3a8794dab740156d
 progress:
   total_phases: 14
   completed_phases: 4
   total_plans: 70
-  completed_plans: 65
+  completed_plans: 66
   percent: 29
 ---
 
@@ -37,7 +37,7 @@ pipeline.
 
 Phase: 14 (foreman-helper-2) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 7 of 10
+Plan: 8 of 10
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
@@ -59,7 +59,7 @@ Status: Ready to execute
   built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
   mypy delta neutral 72->72, no re-baseline needed this plan); full
   suite 1886 passed / 1 skipped / 306 subtests.
-Last activity: 2026-09-06 — Phase 14 execution started
+Last activity: 2026-09-08 — Completed 14-07-PLAN.md; O-14-A resolved (helper2-wins), 14-08 Task 2 unblocked
   GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
   Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
   under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
@@ -158,6 +158,7 @@ Progress: [████████████████████] 50/50 p
 | Phase 14 P05 | ~35min | 3 tasks | 6 files |
 | Phase 14-foreman-helper-2 P06 | ~40min | 3 tasks | 6 files |
 | Phase 14 P04 | 9min | 3 tasks | 6 files |
+| Phase 14 P07 | ~100min (3 sessions) | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -305,6 +306,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: 14-06: dropped the local PEP 526 annotation on pipeline/grouping.py's new _attribution_reason2 variable -- an annotated assignment inside the unchecked group_source_rows function adds a new mypy annotation-unchecked note, tripping Gate 4's strict delta check (71->72) with zero actual type-error
 - [Phase 14]: D-14-08-APPLIED (include-now): Helper #2 fields join HASH_FIELDS in the same change as the additive row_state columns; ~217k one-time production row_event churn quantified and accepted (RUN_MEMORY_INCREMENTAL_ENABLED stays off).
 - [Phase 14]: pipeline_memory.upsert_rows_bulk RPC's column list is deliberately left unchanged in plan 14-04; helper2_* values will not persist to row_state until a later rollout plan (14-09/14-10) updates the RPC.
+- [Phase 14]: D-14-10-APPLIED (separate-column): sheet_registry.mapping_schema TEXT NULL, marker `helper2-v1` (pipeline/discovery.py MAPPING_SCHEMA_MARKER), sixth reject-only skip-index admission gate; a not-yet-migrated column degrades to full validation for every sheet with ONE warning, never cache admission; one-time cost 37.7 s / 121 sheets (canary 33683979474). DDL is owner-applied; none executed from any session.
+- [Phase 14]: 14-07: helper2_no_qualifying_completion (capability present, nothing qualified) is logged once per sheet, distinct from helper2_capability_unavailable; a partial Helper #2 column set is capability-unavailable; Intake ProMax 8 (HLP-04) verified fixture-only; discovery strict-mode gate and failed-validation path untouched and pinned by test.
+- [Phase 14]: O-14-A RESOLVED 2026-09-07 (owner): helper2-wins -- precedence Helper #2 > Helper #1 > primary foreman for one physical unit on one row; the losing claim is logged once with a distinct reason, counted in the run summary, and sent to Sentry (ids/counts only, no names); a conflicted row never aborts a run. Plan 14-08 Task 2 is unblocked.
 
 ### Roadmap Evolution
 
@@ -477,7 +481,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session
 
 **Last session:** 2026-09-07T03:05:52.713Z
-**Stopped at:** Completed 14-04-PLAN.md
+**Stopped at:** Completed 14-07-PLAN.md
 **Resume file:** None
 
 ## Session Continuity
