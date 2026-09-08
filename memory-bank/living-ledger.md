@@ -9364,3 +9364,20 @@ LIVE-COLUMN-PROBE finding that the Resource Analyst `Foreman Helper #2` column i
 2026-09-06 — so any pilot run over real data is fixture-only until that changes. Rollout status: documented,
 rehearsed on fixtures and synthetic data only; `HELPER2_ENABLED` stays off in the repository default and the
 GitHub Actions workflow is unwired pending a separate owner-approved change (`D-14-12-ROLLOUT`).
+
+[2026-09-08 18:55] Phase 14 rollout — documented-only, PR #389. Juan's D-14-12-ROLLOUT (recorded `a3998f9`):
+ship Helper #2 dormant (`HELPER2_ENABLED` repo default `'0'`, workflow unwired), skip the live pilot steps, and
+deploy by merging `feat/phase-12-remediation` to master immediately; debugging happens on the live runs if
+needed. Mechanics and rules learned: (1) merge `origin/master` into the branch BEFORE opening the PR — the
+Notion-worker docs commits on master relocate `website/docs/runbook/whats-new.md` blocks, so the merge conflicts
+there whenever both sides touched the DSR block; resolve to ONE `runbook-repo` DSR block and drop the automated
+stub lines that duplicate an earlier changelog. (2) Validate the merged tree, not the pre-merge branch: pytest
+2284 passed / 1 skipped / 557 subtests, `scripts/run_6_gates.sh` ALL 6 PASSED (30-key run_summary), website
+typecheck + build. (3) Master has no branch protection and no required checks; `code/snyk` ("Code test limit
+reached") and the Azure DevOps mirror build (`dev.azure.com/LinetecDevelopment`) fail on every PR (same on
+merged #388) and are not reported on master — treat them as non-blocking noise, not regressions. (4) First
+post-merge scheduled run expectations: one-time ~217k `row_event` churn (HASH_FIELDS now carries the helper2
+fields; `RUN_MEMORY_WRITE_ENABLED=1`), a mapping-schema WARNING with full validation until
+`sheet_registry.mapping_schema` exists, 14-parameter `freeze_attribution` succeeding against the live RPC (no
+degrade warning), every Helper #2 counter 0. Still pending owner approval: the `pipeline_memory.row_state`
+helper2_* columns (D-14-08-APPLIED), `sheet_registry.mapping_schema` (D-14-10-APPLIED), and enabling the flag.

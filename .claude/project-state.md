@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-08 12:30 CDT (2026-09-08 17:30Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-08 18:55 CDT (2026-09-08 23:55Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -189,10 +189,24 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   only). **STOPPED at 14-10 T3 `blocking-human` → `D-14-12-ROLLOUT`:** documented-only (recommended; RA Helper #2 column
   blank on 576 rows) / wiring-only / controlled-upload, plus the flag-default answer. Still OPEN for phase closeout:
   O-14-B (`upsert_rows_bulk` lacks Helper #2 fields → gap-closure plan after `/gsd-verify-work 14`), O-14-A Follow-up 1
-  (per-slot duplication, documented as accepted-pending-confirmation). **NEXT:** Juan's D-14-12-ROLLOUT → 14-10 closeout
-  → phase tail gates (code review, regression, verify-phase-goal, roadmap) → merge/PR decision.
-  Post-merge check still owed: first post-merge run logs no Helper #2 degrade warning and, when a late Helper #2
-  appears, `snapshots_helper2_filled` > 0. No Smartsheet write or workflow change without Juan.
+  (per-slot duplication, documented as accepted-pending-confirmation). **D-14-12-ROLLOUT RECORDED `a3998f9`
+  (Juan, ≈23:05Z: "documented-only … roll out in production like right now … no testing, we can debug"):** flag
+  default stays `'0'`, workflow unwired, pilot live steps skipped, deploy = merge this branch to master now.
+  **ROLLOUT IN PROGRESS:** `origin/master` merged into the branch `6d8942c` (one conflict, `website/docs/runbook/
+  whats-new.md` — master's Notion-worker commits relocated the DSR block; resolved to ONE DSR block carrying the
+  synthesized Helper #2 entry plus the Sept 3 list once); merged tree validated (pytest 2284 passed / 1 skipped /
+  557 subtests, `run_6_gates.sh` ALL 6 PASSED, website typecheck + build green); pushed; **PR #389** opened to
+  master (`feat: Phase 14 Foreman Helper #2 + Phase 12 G-12-3 closure (#HLP-01..07)`). CI on #389: compile/test,
+  coverage, lint, typecheck/build, CodeQL, Vercel, Cursor approval PASS; `code/snyk` ("Code test limit reached")
+  and the Azure DevOps mirror build FAIL exactly as on merged PR #388 (neither reported on master; master has no
+  branch protection / required checks). 14-10 closeout executor (SUMMARY / STATE 71 / ROADMAP 11/11) running; its
+  commit is pushed before the squash-merge. **NEXT:** squash-merge #389 → watch the first post-merge scheduled run
+  (23:00Z slot; expect ~217k `row_event` churn from the HASH_FIELDS change, mapping-schema WARNING + full
+  validation, 14-param freeze OK, Helper #2 counters 0, no degrade warning; debug on failure per Juan) → phase
+  tail gates (code review, regression, verify-phase-goal, roadmap) → vault write-back → ask Juan: enable
+  `HELPER2_ENABLED` now? apply the two pending additive DDLs (`row_state` helper2_* ×4,
+  `sheet_registry.mapping_schema`)? Post-merge check still owed: when a late Helper #2 appears,
+  `snapshots_helper2_filled` > 0. No Smartsheet write or workflow change without Juan.
 
 ## Latest work (2026-09-03 evening → 2026-09-05 00:30 UTC) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); **12-06 Task 1 full-scope dry-run RE-RUN clean (0/0/0 guards) — awaiting Juan's verdict**; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 

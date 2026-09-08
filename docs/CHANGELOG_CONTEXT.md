@@ -948,3 +948,26 @@ attribution rows to Supabase. That is now stated in the runbook so nobody treats
 **Operator effect.** Nothing changed in production. The feature ships flag-off and stays off until the
 rollout decision `D-14-12-ROLLOUT` is recorded. Because the Resource Analyst Helper #2 column is blank on all
 576 rows, the pilot evidence stops at fixtures and synthetic data by construction.
+
+## 2026-09-08 — D-14-12-ROLLOUT recorded; branch merged with master, validated, and PR #389 opened for the documented-only rollout
+
+**What changed.** Juan chose the documented-only rollout and asked for it to reach production immediately without
+a pilot ("we can debug if something goes wrong"). The decision is recorded as `D-14-12-ROLLOUT` (`a3998f9`): the
+Helper #2 feature ships with `HELPER2_ENABLED` defaulting to `'0'`, the GitHub Actions workflow stays unwired, and
+the pilot's live steps are skipped. `origin/master` (five Notion-worker docs commits) was merged into
+`feat/phase-12-remediation` (`6d8942c`); the one conflict, `website/docs/runbook/whats-new.md`, was resolved to a
+single DSR block carrying the synthesized Helper #2 entry and the Sept 3 list once. The merged tree passed the full
+suite (2284 passed, 1 skipped, 557 subtests), the six-gate harness, and the website typecheck and build. The branch
+was pushed and PR #389 opened to master with the Objective / Changes Made / Production Safety Check body.
+
+**Why.** Phase 14 is code-complete (14-01..14-11) and both attribution migrations are already live, so the only
+production-visible change from merging is the dormant code path plus the run-memory hash now covering the helper2
+fields. Merging now lets the scheduled runs prove the 14-parameter `freeze_attribution` call and the mapping-schema
+revalidation in production while the flag stays off.
+
+**Operator effect.** CI on #389: compile/test, coverage, lint, typecheck/build, CodeQL, Vercel, Cursor approval
+PASS; `code/snyk` (quota) and the Azure DevOps mirror build FAIL as they did on merged PR #388 and are not required
+(master has no branch protection). Expect on the first post-merge scheduled run: a one-time ~217k `row_event`
+churn, a mapping-schema WARNING with full validation, no Helper #2 degrade warning, all Helper #2 counters 0.
+Nothing in Excel output changes until `HELPER2_ENABLED` is set. See `memory-bank/living-ledger.md`
+`[2026-09-08 18:55]`.
