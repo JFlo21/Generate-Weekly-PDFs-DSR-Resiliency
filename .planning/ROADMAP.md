@@ -878,7 +878,7 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 7/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
+**Plans:** 8/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
 planning only.
 
 Plans:
@@ -912,7 +912,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 14-08-PLAN.md — O-14-A conflict rule (BLOCKED on Juan's decision) and the Helper #2
+- [x] 14-08-PLAN.md — O-14-A conflict rule (BLOCKED on Juan's decision) and the Helper #2
   run-summary counters
 
 **Wave 5** *(blocked on Wave 4)*

@@ -309,7 +309,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   attribution rows are unchanged with or without Helper #2 present; Helper #2 never overwrites,
   impersonates, or suppresses Helper #1, primary, or VAC outputs.
 
-- [ ] **HLP-03**: On an otherwise eligible source that lacks the optional Helper #2 columns,
+- [x] **HLP-03**: On an otherwise eligible source that lacks the optional Helper #2 columns,
   only the Helper #2 path is skipped (one distinct log reason per sheet); primary, Helper #1,
   and VAC outputs still generate; the sheet is never rejected. Excluded source, no capability,
   no qualifying completion, and failed read stay distinguishable; a read failure is never
@@ -319,7 +319,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   existing configuration/fixtures; its missing Helper #2 columns never fail readiness checks;
   no remediation, formula repair, reconnection, or migration is planned for it.
 
-- [ ] **HLP-05**: Blank, `NA`, `#NO MATCH` / formula-error values, unchecked completion, or
+- [x] **HLP-05**: Blank, `NA`, `#NO MATCH` / formula-error values, unchecked completion, or
   unavailable capability never create a Helper #2 claim, group, workbook, attachment, or
   attribution row.
 
@@ -437,9 +437,9 @@ Which phases cover which requirements.
 | AUD-03 | Phase 13 | Pending |
 | HLP-01 | Phase 14 | Complete |
 | HLP-02 | Phase 14 | Complete |
-| HLP-03 | Phase 14 | Pending |
+| HLP-03 | Phase 14 | Complete |
 | HLP-04 | Phase 14 | Pending |
-| HLP-05 | Phase 14 | Pending |
+| HLP-05 | Phase 14 | Complete |
 | HLP-06 | Phase 14 | Pending |
 | HLP-07 | Phase 14 | Pending |
 
