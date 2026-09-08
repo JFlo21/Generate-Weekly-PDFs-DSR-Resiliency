@@ -175,8 +175,13 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   12-arg call leaves Helper #2 NULL; 14-arg re-freeze with every other value different FILLS only the two Helper #2
   columns + `backfill_provenance.helper2={live,run_id}` with all other columns byte-identical (same `frozen_at`,
   `source_run_id`); a second different Helper #2 is REFUSED; a fresh insert carries Helper #2 and no provenance; both
-  lookups return both rows; 2 rows deleted, 0 left. O-14-C heading → RESOLVED. **NEXT:** 14-11 closeout (SUMMARY /
-  STATE / ROADMAP) → 14-10 (T1–T2 docs/rehearsal, T3 `blocking-human` flag default / wiring / one controlled upload).
+  lookups return both rows; 2 rows deleted, 0 left. O-14-C heading → RESOLVED. Records `c3df1a8`; **14-11 CLOSED
+  `4e20211`** (SUMMARY, STATE completed_plans 70, ROADMAP 10/11). **14-10 DISPATCHED (wave 7, executor) at ≈22:05Z:**
+  T1 docs (runbook page, environment catalog, architecture, living-ledger), T2 rehearsal (fixtures + synthetic only;
+  live upload-suppressed step 3 runs only under a dated owner authorization in 14-DECISIONS.md, else recorded "not run";
+  step 4 never), T3 `blocking-human` (flag-off documented / + workflow wiring as a separate approved change / + one
+  controlled upload by Juan). **NEXT:** 14-10 T3 decision → 14-10 closeout → phase tail gates (code review, regression,
+  verify-phase-goal, roadmap update) → merge/PR decision.
   Post-merge check still owed: first post-merge run logs no Helper #2 degrade warning and, when a late Helper #2
   appears, `snapshots_helper2_filled` > 0. No Smartsheet write or workflow change without Juan.
 
