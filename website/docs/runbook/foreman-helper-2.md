@@ -227,6 +227,38 @@ exactly what it reads, writes, and cleans up — before it is run, not after.
 | 3. Upload-suppressed, filtered WRs | `SKIP_UPLOAD=true WR_FILTER=<pilot WRs> python generate_weekly_pdfs.py` (real token) | **Yes** — real Smartsheet read, real token | **Yes** — `billing_audit` attribution freezes (`freeze_attribution`) run whenever `BILLING_AUDIT_AVAILABLE and not TEST_MODE`, regardless of `SKIP_UPLOAD`; a completed row's attribution is frozen for real | No — `SKIP_UPLOAD` forces every cleanup/purge call into its dry-run branch, so no attachment is deleted or replaced | **Yes** |
 | 4. Controlled upload | Not run in this plan. | — | — | — | — |
 
+### Rehearsal results (2026-09-08)
+
+Steps 1 and 2 were run this session, flag off (`HELPER2_ENABLED` unset, so `'0'`
+by default):
+
+- **Step 1 — fixture pass.** `python -m pytest tests/ -q` → 2284 passed, 1
+  skipped, 557 subtests, in 42.74s. Zero failures.
+- **Step 2 — dry-run pass over synthetic data.** `SMARTSHEET_API_TOKEN=
+  TEST_MODE=true SKIP_UPLOAD=true PYTHONUTF8=1 python generate_weekly_pdfs.py`
+  → completed cleanly, synthetic dataset (14 raw rows, 2 groups), no
+  Smartsheet read, no Supabase write, no attachment cleanup, as predicted by
+  the flag-consumption reading above. `generated_docs/run_summary.json` was
+  written with all 30 baseline keys present, including all four Helper #2
+  counters (`helper2_capability_unavailable_sheets`,
+  `helper2_no_qualifying_completion_sheets`, `helper2_conflict_hold`,
+  `helper2_groups_generated`) zeroed, exactly as expected on a flag-off run
+  with no Helper #2 columns in the synthetic fixture. `python
+  scripts/check_run_summary_structure.py` and `bash scripts/run_6_gates.sh`
+  both passed (all 6 gates).
+- **Step 3 — not run — no credentials/authorization.** As of this rehearsal,
+  `14-DECISIONS.md` carries no dated owner authorization for this specific
+  step, and the Resource Analyst `Foreman Helper #2` column was observed
+  blank on all 576 rows as of 2026-09-06 (`LIVE-COLUMN-PROBE`) — so even if
+  authorized, there are no real Helper #2 rows to scope a real-data
+  comparison to today. Recorded as fixture-only in `14-DECISIONS.md`.
+- **Step 4 — controlled upload.** Not run; requires the Task 3 owner
+  authorization.
+
+This phase's evidence, stated plainly: **fixture pass** (step 1) and **dry-run
+pass over synthetic data** (step 2). Neither **controlled upload verified**
+nor **production observed** was reached or attempted.
+
 **Step 3's Supabase-write finding is the reason it is gated so tightly.**
 Reading `pipeline/orchestrate.py` shows the attribution freeze is controlled
 only by `BILLING_AUDIT_AVAILABLE` (an import-success flag, not an env toggle)

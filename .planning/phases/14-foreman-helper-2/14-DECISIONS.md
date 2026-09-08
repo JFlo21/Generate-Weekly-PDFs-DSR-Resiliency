@@ -414,3 +414,48 @@ before a Helper #2 appeared on it is re-sent once, filled once, counted as
 `snapshots_helper2_filled`, and never touched again for that role. Until
 the merge, the deployed 12-parameter writer never satisfies the gate
 (observation 1), so today's behaviour is unchanged.
+
+## 14-10-PILOT-REHEARSAL (plan 14-10, Task 2) — rehearsed 2026-09-08
+
+Rehearsal of the pilot in escalating order, `HELPER2_ENABLED` unset (off,
+default `'0'`) for both steps run. Full procedure, comparison criteria, and
+the per-command flag-consumption reading are on
+`website/docs/runbook/foreman-helper-2.md` ("The pilot: rehearsed in
+escalating order"). Evidence labels used exactly as defined — never merged.
+
+- **Step 1 — fixtures — EVIDENCE: fixture pass.** `python -m pytest tests/ -q`
+  → 2284 passed, 1 skipped, 557 subtests, 42.74s. Reads nothing, writes
+  nothing, no token.
+- **Step 2 — synthetic mode — EVIDENCE: dry-run pass over synthetic data.**
+  `SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true PYTHONUTF8=1 python
+  generate_weekly_pdfs.py` → synthetic in-memory dataset (14 raw rows, 2
+  groups), no live Smartsheet read, no Supabase write (`billing_audit` freeze
+  and `pipeline_memory` writes are both gated off by `TEST_MODE`), no
+  attachment cleanup (`TEST_MODE` short-circuits both the sheet-attachment
+  pruning and the remote purge). `generated_docs/run_summary.json` written
+  with all 30 baseline keys, all four Helper #2 counters
+  (`helper2_capability_unavailable_sheets`,
+  `helper2_no_qualifying_completion_sheets`, `helper2_conflict_hold`,
+  `helper2_groups_generated`) present and zeroed. `python
+  scripts/check_run_summary_structure.py` PASS (30 keys); `bash
+  scripts/run_6_gates.sh` PASS (all 6 gates).
+- **Step 3 — upload-suppressed, filtered WRs — NOT RUN — no
+  credentials/authorization.** As of this record, this file carries no dated
+  owner authorization for this specific rehearsal step, so condition (a) of
+  the plan's gate is unmet and the step was not run. Independently — the
+  flag-consumption reading (recorded in the runbook page) found that
+  `SKIP_UPLOAD` does **not** disable the `billing_audit.freeze_attribution`
+  write path (gated only by `BILLING_AUDIT_AVAILABLE and not TEST_MODE`, with
+  no flag to suppress it), so condition (b) — "no Supabase writes, or every
+  such path disabled by the flags in force" — would also not be satisfiable
+  by this command as written, independent of authorization. Also independently
+  — `LIVE-COLUMN-PROBE` (above) found the Resource Analyst `Foreman Helper #2`
+  column blank on all 576 rows as of 2026-09-06, so even an authorized run
+  would have no real Helper #2 row to scope to. **Record: fixture-only** — no
+  real-data pilot coverage exists for Helper #2 as of this rehearsal.
+- **Step 4 — controlled upload — NOT RUN.** Requires the Task 3 owner
+  authorization below; never run by an agent.
+
+Overall evidence reached by this plan: **fixture pass** and **dry-run pass
+over synthetic data**. Neither **controlled upload verified** nor
+**production observed** was reached.
