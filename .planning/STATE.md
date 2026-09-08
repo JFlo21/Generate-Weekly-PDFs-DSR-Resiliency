@@ -5,8 +5,8 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: executing
-stopped_at: Completed 14-08-PLAN.md
-last_updated: "2026-09-08T15:04:37.682Z"
+stopped_at: "Phase 14 Plan 09 Task 1 complete (66924c0); paused at Task 2 checkpoint:decision gate=blocking-human -- awaiting Juan decision on applying billing_audit/helper2_attribution.sql"
+last_updated: "2026-09-08T15:29:01.866Z"
 last_activity: 2026-09-08
 last_activity_desc: Phase 14 execution started
 progress:
@@ -407,6 +407,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   isolation before Phase 04 ships.
 
 - Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED). scripts/backfill_claim_time_attribution.py source 3 must strip file extensions before the sentinel check + add a proposed-value guard + rebuild fixtures from the real hash-less filename shape before 12-06 can re-run. See 12-06-SUMMARY.md.
+- Phase 14 / 14-09 Task 2 (checkpoint:decision, gate=blocking-human): Juan must choose sql-first / code-first / defer for applying billing_audit/helper2_attribution.sql, name the quiet window (outside the cron schedule), apply it himself in the Supabase SQL Editor, and record D-14-07-APPLIED in 14-DECISIONS.md before Task 3's D-14-07-VERIFIED read-back can run
 
 ### Quick Tasks Completed
 
@@ -483,9 +484,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-08T15:03:26.885Z
-**Stopped at:** Completed 14-08-PLAN.md
-**Resume file:** None
+**Last session:** 2026-09-08T15:28:51.832Z
+**Stopped at:** Phase 14 Plan 09 Task 1 complete (66924c0); paused at Task 2 checkpoint:decision gate=blocking-human -- awaiting Juan decision on applying billing_audit/helper2_attribution.sql
+**Resume file:** .planning/phases/14-foreman-helper-2/14-09-PLAN.md
 
 ## Session Continuity
 
