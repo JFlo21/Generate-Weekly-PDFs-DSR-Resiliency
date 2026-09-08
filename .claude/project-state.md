@@ -159,9 +159,17 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   → 30 keys); T2 `billing_audit/helper2_attribution_fill.sql` (CREATE OR REPLACE, same 14-param signature, `ON CONFLICT
   DO UPDATE SET frozen_helper2/frozen_helper2_dept/backfill_provenance.helper2={live,run_id} WHERE is_sentinel_value(s.
   frozen_helper2) AND NOT is_sentinel_value(EXCLUDED.frozen_helper2)`) + contract test; T3 `blocking-human` apply
-  (apply-delegated / apply-owner / defer) + synthetic-row read-back → `O-14-C-APPLIED` / `O-14-C-VERIFIED`. **NEXT:**
-  Juan types "approved" at 14-09 T3 → 14-09 closeout; 14-11 T1–T2 execute (repo-only, inert against the deployed
-  function) → T3 decision → 14-10. No Smartsheet write or workflow change without Juan.
+  (apply-delegated / apply-owner / defer) + synthetic-row read-back → `O-14-C-APPLIED` / `O-14-C-VERIFIED`.
+  **14-11 T1–T2 DONE (executor, 2026-09-08 19:40Z; orchestrator re-verified):** `57144a9` RED, `c30d8ed` GREEN
+  (`get_prefetched_helper2_missing_keys`, `billing_audit_cache_key` / `build_helper2_fill_keys` / `helper2_fill_admits`,
+  nested re-admit inside the freeze-loop skip, `snapshots_helper2_filled` classified from returned provenance only,
+  baseline 30 keys, two Rule-1 deviations: counters pin in `test_billing_audit_shadow.py`, search window 18000→19000 in
+  `validate_production_safety.py`), `0bb018b` `billing_audit/helper2_attribution_fill.sql` (STEP 1 capture + self-check,
+  STEP 2 CREATE OR REPLACE with the gated DO UPDATE, STEP 3 read-back + synthetic rows) + contract test + schema.sql.
+  Evidence: focused 548 passed; ALL 6 GATES PASSED; full suite 2284 passed / 1 skipped / 557 subtests. No SQL executed.
+  **STOPPED at 14-11 T3 `blocking-human`: apply-delegated / apply-owner / defer + window.** **NEXT:** Juan types
+  "approved" at 14-09 T3 → 14-09 closeout; 14-11 T3 decision → apply + read-back → 14-11 closeout → 14-10. No
+  Smartsheet write or workflow change without Juan.
 
 ## Latest work (2026-09-03 evening → 2026-09-05 00:30 UTC) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); **12-06 Task 1 full-scope dry-run RE-RUN clean (0/0/0 guards) — awaiting Juan's verdict**; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 

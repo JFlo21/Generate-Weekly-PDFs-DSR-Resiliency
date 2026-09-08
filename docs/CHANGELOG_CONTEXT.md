@@ -886,3 +886,23 @@ Helper #2 is blank across production.
 
 **Operator effect.** None yet. Tasks 1 and 2 are repository-only and inert against the deployed function.
 Task 3 is the owner-gated apply of a same-signature CREATE OR REPLACE, with a synthetic-row read-back.
+
+## 2026-09-08 — Plan 14-11 Tasks 1–2 landed: late Helper #2 admission, fill counter, and the fill migration file
+
+**What changed.** The freeze loop now re-sends an already-frozen row only when the last bulk prefetch
+reported that row's Helper #2 as empty, the row carries a real Helper #2 foreman and a dept, and the
+Helper #2 flag is on (`helper2_fill_admits` in `pipeline/attribution.py`, keys published by
+`pipeline/grouping.py`). `freeze_row` classifies a returned row as `snapshots_helper2_filled` only when the
+database's `backfill_provenance.helper2.run_id` names the current run; the run summary grows to 30 keys.
+`billing_audit/helper2_attribution_fill.sql` is the owner-gated migration: CREATE OR REPLACE on the deployed
+14-parameter signature whose only change is `ON CONFLICT … DO UPDATE` of the two Helper #2 columns plus a
+`live` provenance entry, gated by the sentinel predicate in both directions. Commits `57144a9`, `c30d8ed`,
+`0bb018b`; contract test and schema.sql note included.
+
+**Why it is safe to merge before the apply.** Against the currently deployed function a re-sent row hits
+DO NOTHING and is counted already-frozen, exactly today's outcome. Against the migrated function without
+this code, no row is ever re-sent. Either order is inert; only both together produce a fill.
+
+**Operator effect.** None until Task 3. Two test files outside the plan's list were touched for direct
+consequences: the counters pin in `tests/test_billing_audit_shadow.py` and the search window in
+`tests/validate_production_safety.py`. Full suite 2284 passed; all 6 gates passed.
