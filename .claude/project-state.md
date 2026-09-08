@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-08 11:05 CDT (2026-09-08 16:05Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-08 12:30 CDT (2026-09-08 17:30Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -140,12 +140,21 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   Orchestrator fix `c786ec3`: `DEFAULT NULL` on `p_helper2`/`p_helper2_dept` so the deployed 12-parameter writer still
   resolves the RPC after the migration (PostgREST needs every non-default named arg) — this is what makes sql-first safe.
   Gates on the fixed tree (final rerun after `c786ec3`): full suite 2249 passed / 1 skipped / 550 subtests; ALL 6 GATES
-  PASSED. Checkpoint panel presented to Juan 16:00Z; tracked tree clean. **AWAITING JUAN (14-09 T2):**
-  choose `sql-first` (recommended) / `code-first` / `defer` + a quiet window (cron UTC weekdays 13,15,17,19,21,23,01;
-  weekends 15,19,23; Mon 05 → weekday quiet ≈ 04:00–12:45Z = 23:00–07:45 CDT; widest gap Fri ~19:00 → Sat ~07:00 CDT),
-  apply by hand in `poeyztlmsawfoqlanucc`, record `D-14-07-APPLIED`; then 14-09 T3 read-back (`blocking-human`) → 14-10
-  (T1–T2 docs/rehearsal, T3 `blocking-human` flag default / wiring / one controlled upload). No DDL, Smartsheet write, or
-  workflow change happens without Juan. 14-10 is blocked behind 14-09 (depends_on).
+  PASSED. **14-09 T2 DONE — Juan chose `sql-first` and delegated the apply to the session (Supabase MCP), 2026-09-08:**
+  migration `20260908165511_helper2_attribution_columns_and_rpcs` applied 16:55:11Z on `poeyztlmsawfoqlanucc` as one
+  transaction (2 nullable columns; `freeze_attribution` rebuilt from its live body with `p_helper2`/`p_helper2_dept`
+  appended LAST `DEFAULT NULL`; both lookups DROP+CREATE with the new columns and their live pinned `search_path`; grants
+  restored identically). Landed ≈75 s into run 34253845749's job setup (created 16:53:55Z, before any billing_audit call)
+  rather than the intended run-free gap — recorded as-is. Pre-state + rollback: vault `raw/2026-09-08 - billing_audit
+  Helper #2 attribution migration pre-state (rollback reference).sql`. **T3 read-back (D-14-07-VERIFIED) checks 1–3
+  OBSERVED** (both lookups return the columns on a real row; table has both columns; synthetic-row freeze test: 12-arg
+  writer call resolves, 14-arg call writes Helper #2, conflicting re-freeze leaves the row byte-identical; synthetic rows
+  deleted, total back to 222,260). **Check 4 PENDING:** run 34253845749 (deployed master writer) must complete with
+  freezes succeeding; the Phase 14 degrade-warning check is post-merge only. **Finding O-14-C (OPEN):** the deployed
+  freeze is per-ROW first-write-wins (`ON CONFLICT DO NOTHING`), so pre-merge rows never gain Helper #2 — Juan decides
+  accept / per-role fill-in / backfill before the 14-10 rollout notes. Records + SQL alignment: `3d6263a`. **NEXT:** Juan
+  types "approved" at the T3 checkpoint → 14-09 closeout (SUMMARY/STATE/ROADMAP) → 14-10 (T1–T2 docs/rehearsal, T3
+  `blocking-human` flag default / wiring / one controlled upload). No Smartsheet write or workflow change without Juan.
 
 ## Latest work (2026-09-03 evening → 2026-09-05 00:30 UTC) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); **12-06 Task 1 full-scope dry-run RE-RUN clean (0/0/0 guards) — awaiting Juan's verdict**; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 

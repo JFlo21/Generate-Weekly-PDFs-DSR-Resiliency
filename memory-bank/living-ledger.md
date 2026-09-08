@@ -9317,3 +9317,17 @@ the documented synthetic dry run is `SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_U
 python generate_weekly_pdfs.py` (`PYTHONUTF8=1` also avoids the cp1252 `UnicodeEncodeError` at startup on
 Windows). `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/ai/safe-commands.md` now show that form;
 `scripts/run_6_gates.sh` already forced it. Executor prompts must state the full invocation verbatim.
+
+[2026-09-08 12:25] Helper #2 attribution migration applied to production (Phase 14 Plan 09 Task 2, sql-first, owner-delegated
+to the session over the Supabase MCP): `20260908165511_helper2_attribution_columns_and_rpcs`. Three facts learned at apply
+time that `billing_audit/helper2_attribution.sql` had wrong or missing, now fixed there and in `schema.sql`: (1) Postgres
+requires every parameter after a defaulted one to carry a default, so new `DEFAULT NULL` parameters go LAST; the deployed
+`freeze_attribution` positional order is pole/cu/work_type BEFORE the role parameters (PostgREST binds by name, the writer
+never cares). (2) Both lookup functions carry a pinned `search_path` from the 2026-05-19 advisor remediation that
+`pg_get_functiondef` shows but the repo CREATEs omitted — a DROP+CREATE without it regresses the advisor. (3) The deployed
+`freeze_attribution` is per-ROW first-write-wins (`ON CONFLICT DO NOTHING`), not per-role, so rows frozen before the merge
+never gain Helper #2 (O-14-C). Process rules: capture `pg_get_functiondef` + `role_routine_grants` BEFORE any DROP (grants
+are not in the definition and DROP removes them) and park the capture in the vault `raw/` as the rollback reference; apply
+DDL through `apply_migration` so `supabase_migrations.schema_migrations` records it; the workflow concurrency group queues
+rather than cancels, and run 34253845749 was created at 16:53:55Z for the 17:00Z slot — check `gh run list` immediately
+before applying, not minutes before.

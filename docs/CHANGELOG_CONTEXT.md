@@ -842,3 +842,26 @@ chooses `sql-first` / `code-first` / `defer`, a quiet window outside the cron sc
 in the Supabase SQL Editor, and records `D-14-07-APPLIED` before Task 3's read-back. Evidence on the fixed
 tree (final rerun after `c786ec3`): contract test 19 passed; full suite 2249 passed / 1 skipped / 550 subtests;
 ALL 6 GATES PASSED. The checkpoint panel went to Juan at 16:00Z and the session ended blocked on his answer.
+
+## 2026-09-08 — Plan 14-09 Task 2 applied: Helper #2 attribution migration live in production (sql-first, owner-delegated); Task 3 read-back 3 of 4
+
+**What changed.** Juan chose `sql-first` and delegated the apply to the session over the Supabase MCP
+connection. The migration went in at 16:55:11Z as `20260908165511_helper2_attribution_columns_and_rpcs`,
+one transaction on `poeyztlmsawfoqlanucc`: two nullable columns on `billing_audit.attribution_snapshot`,
+`freeze_attribution` rebuilt from its live body with the two Helper #2 columns spliced into the INSERT and
+the two parameters appended last with `DEFAULT NULL`, both lookup functions dropped and recreated with the
+new return columns, grants restored to the exact pre-state, PostgREST reload. The pre-migration
+definitions, grants, and rollback steps are parked in the vault `raw/` folder. Records: `D-14-07-APPLIED`,
+`D-14-07-VERIFIED`, and the new open item `O-14-C` in `14-DECISIONS.md` (`3d6263a`).
+
+**Why the deviations.** Reading the live definitions before dropping anything showed three things the
+repo file had wrong or missing: Postgres requires every parameter after a defaulted one to carry a
+default, so the template's mid-list placement could not have compiled; both lookups carry a pinned
+`search_path` from the 2026-05-19 advisor remediation that the repo CREATEs omitted; and the deployed
+freeze is per-row first-write-wins, not per-role. The repo SQL and `schema.sql` now match what is deployed.
+
+**Operator effect.** The deployed writer (12 parameters) keeps resolving the RPC, proven by a 12-argument
+named call on a synthetic row. Nothing changes for operators until the branch merges; after the merge the
+first run writes Helper #2 attribution for newly frozen rows only. Rows frozen before the merge never gain
+Helper #2 (O-14-C, Juan's call). The apply landed about 75 seconds into run 34253845749's job setup rather
+than in a run-free gap; that run is the pending evidence for read-back check 4.
