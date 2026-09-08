@@ -9331,3 +9331,15 @@ are not in the definition and DROP removes them) and park the capture in the vau
 DDL through `apply_migration` so `supabase_migrations.schema_migrations` records it; the workflow concurrency group queues
 rather than cancels, and run 34253845749 was created at 16:53:55Z for the 17:00Z slot — check `gh run list` immediately
 before applying, not minutes before.
+
+[2026-09-08 15:35] Helper #2 attribution is now first-write-wins PER ROLE in production (Phase 14 Plan 11 / O-14-C, owner
+decision apply-delegated): migration `20260908201205_helper2_attribution_per_role_fill` replaced `freeze_attribution` in place
+(same 14-parameter signature, CREATE OR REPLACE, grants untouched) so `ON CONFLICT` fills `frozen_helper2` /
+`frozen_helper2_dept` when the stored value is null/sentinel and the incoming one is real, stamping
+`backfill_provenance.helper2 = {source: live, run_id}`; primary / helper / vac_crew keep per-row first-write-wins. The
+pipeline half (`helper2_fill_admits`, `get_prefetched_helper2_missing_keys`, `snapshots_helper2_filled`, baseline 30 keys)
+is on `feat/phase-12-remediation`, unmerged; either order is inert alone, only both together fill. Rules learned: a fill
+inside the RPC is useless unless the freeze loop re-admits the row (the frozen-row cache skips ~221k keys per run), so gate
+admission on BOTH a valid Helper #2 on the row AND an empty prefetched helper2; classify a fill from the RPC's returned
+provenance, never from the request; a same-signature CREATE OR REPLACE needs no drop window but still gets a `gh run list`
+check at the moment of applying; park the pre-apply body in the vault raw/ before any function replace.

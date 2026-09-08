@@ -11,6 +11,13 @@
 -- lesson recorded in D-14-07-APPLIED: check right before applying,
 -- not minutes before).
 --
+-- APPLIED 2026-09-08 20:12:05Z as Supabase migration
+-- 20260908201205_helper2_attribution_per_role_fill, owner-delegated to
+-- the Claude session over the Supabase MCP connection in a run-free gap
+-- (decision record O-14-C-APPLIED; read-back O-14-C-VERIFIED, both in
+-- .planning/phases/14-foreman-helper-2/14-DECISIONS.md). STEP 2 was
+-- applied verbatim; this file stays the reviewable source.
+--
 -- Phase 14 (Foreman Helper #2), requirement HLP-06, closing O-14-C.
 -- The deployed ``freeze_attribution`` (migration 20260908165511,
 -- D-14-07-APPLIED / D-14-07-VERIFIED) is per-ROW first-write-wins:

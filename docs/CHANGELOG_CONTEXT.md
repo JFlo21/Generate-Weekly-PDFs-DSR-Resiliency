@@ -906,3 +906,23 @@ this code, no row is ever re-sent. Either order is inert; only both together pro
 **Operator effect.** None until Task 3. Two test files outside the plan's list were touched for direct
 consequences: the counters pin in `tests/test_billing_audit_shadow.py` and the search window in
 `tests/validate_production_safety.py`. Full suite 2284 passed; all 6 gates passed.
+
+## 2026-09-08 — 14-09 closed on Juan's sign-off; 14-11 per-role Helper #2 fill applied to production and read back
+
+**What changed.** Juan co-signed `D-14-07-VERIFIED` and chose apply-delegated for 14-11. Plan 14-09 closed
+(`a2de0de`) with HLP-06 marked complete. The per-role fill went into production at 20:12:05Z as migration
+`20260908201205_helper2_attribution_per_role_fill`, a same-signature CREATE OR REPLACE applied in a
+run-free gap confirmed at the moment of applying. The pre-fill body is parked in the vault as the
+rollback reference; rolling back is re-running it, no window needed. Records `O-14-C-APPLIED` and
+`O-14-C-VERIFIED` are in the phase decisions file, and O-14-C is marked resolved.
+
+**What was proven on production.** On synthetic rows deleted afterwards: the deployed writer's
+12-argument call leaves Helper #2 null; a re-freeze carrying a Helper #2 with every other value different
+fills only the two Helper #2 columns and stamps a `live` provenance entry, leaving every other column
+byte-identical including the original freeze timestamp and run id; a second, different Helper #2 is
+refused; a fresh insert carries Helper #2 with no provenance; both lookups return the filled values.
+
+**Operator effect.** None until the branch merges: the deployed writer never satisfies the fill gate. After
+the merge, a row frozen before a Helper #2 appeared on it is re-sent once, filled once, and counted as
+`snapshots_helper2_filled` in the run summary. Watch that counter and the Helper #2 degrade warning on the
+first post-merge run.

@@ -282,8 +282,9 @@ exists on the Resource Analyst sheet as of 2026-09-06.
 ## D-14-07-VERIFIED (plan 14-09, Task 3) — read-back 2026-09-08
 
 Observed by the Claude session over the Supabase MCP connection under the
-owner delegation above (label: OWNER-DELEGATED PRODUCTION READ-BACK; Juan
-co-signs by typing "approved" at the Task 3 checkpoint).
+owner delegation above (label: OWNER-DELEGATED PRODUCTION READ-BACK).
+**Co-signed by Juan 2026-09-08 ≈20:05Z** (chat: "i approve the
+d-14-07-verified"); plan 14-09 closed in `a2de0de`.
 
 1. **Both lookups return the Helper #2 columns** (16:56Z): on real row
    WR 91015112 / week ending 2026-09-13 / row 686440379514756 (frozen by run
@@ -322,13 +323,94 @@ Assumption A4 (14-RESEARCH.md): CLOSED by observation for the contract the
 plan asked about — a Helper #2 freeze never alters `frozen_primary`,
 `frozen_helper`, or `frozen_vac_crew`. Caveat recorded as O-14-C.
 
-## O-14-C — OPEN: existing snapshot rows never gain Helper #2 attribution (found 2026-09-08 at apply)
+## O-14-C — RESOLVED 2026-09-08 (plan 14-11): existing snapshot rows never gained Helper #2 attribution (found 2026-09-08 at the 14-09 apply)
 
-The deployed `freeze_attribution` is per-row first-write-wins. Every row
-frozen before the merge (222,260 as of 16:10Z) keeps `frozen_helper2` NULL
-forever; only rows first seen after the merge carry Helper #2. Options for
-Juan, none taken: (1) accept — Helper #2 attribution starts at the merge;
-(2) a per-role fill-in in the function (`ON CONFLICT DO UPDATE SET
-frozen_helper2 = COALESCE(existing, EXCLUDED)`), a business-logic change to
-the owner-maintained body; (3) a one-off backfill through
-`backfill_attribution` provenance. Decide before 14-10's rollout notes.
+The deployed `freeze_attribution` was per-row first-write-wins. Every row
+frozen before the merge (222,260 as of 16:10Z) kept `frozen_helper2` NULL
+forever; only rows first seen after the merge carried Helper #2. Options
+presented: (1) accept; (2) a per-role fill in the function; (3) a one-off
+backfill. **Juan: "work on O-14-C before building out plan 10"** → option
+(2), scoped to Helper #2 only, plus the pipeline admission rule it needs
+(the freeze loop never re-sent frozen rows), delivered by inserted plan
+14-11 (`57144a9`, `c30d8ed`, `0bb018b`) and applied per `O-14-C-APPLIED` /
+`O-14-C-VERIFIED` below. A backfill was moot: Helper #2 is blank across
+production today, so there was nothing historical to fill.
+
+## O-14-C-APPLIED (plan 14-11, Task 3) — owner decision 2026-09-08
+
+- Decision (Juan, chat, 2026-09-08 ≈20:05Z): **apply-delegated** ("i
+  approve the d-14-07-verified & apply-delegated"). Applier: the Claude
+  session over the Supabase MCP connection, as for D-14-07-APPLIED.
+- Pre-state captured 20:11Z (read-only): the post-14-09 body (per-row `DO
+  NOTHING`), identity args unchanged, `search_path = ''`, EXECUTE grants
+  anon / authenticated / PUBLIC / postgres / service_role, 222,465 snapshot
+  rows, 0 synthetic rows. Parked verbatim in the vault at `raw/2026-09-08 -
+  billing_audit freeze_attribution pre-fill body (rollback reference,
+  O-14-C).sql`.
+- Run state at apply time: `gh run list` at 20:10:59Z — no run in progress
+  (34267721160 completed 20:07:03Z; next cron slot 21:00Z). A run-free gap,
+  as the plan required.
+- Applied: **2026-09-08 20:12:05Z** as Supabase migration
+  `20260908201205_helper2_attribution_per_role_fill` — the STEP 2 statement
+  of `billing_audit/helper2_attribution_fill.sql` verbatim (CREATE OR
+  REPLACE on the identical 14-parameter signature; only change: `ON
+  CONFLICT … DO NOTHING` → gated `DO UPDATE` of `frozen_helper2`,
+  `frozen_helper2_dept`, and `backfill_provenance.helper2 = {source: live,
+  run_id}` where `is_sentinel_value(s.frozen_helper2)` and `NOT
+  is_sentinel_value(EXCLUDED.frozen_helper2)`), then `NOTIFY pgrst`.
+- Post-apply shape (20:24Z): definition contains `DO UPDATE` and the gate,
+  no `DO NOTHING`; identity args, `search_path`, and grants identical to the
+  pre-state.
+- Rollback: re-run the pre-fill body from the vault file above (same
+  signature, no window needed), then `NOTIFY pgrst, 'reload schema'`. No
+  data is destroyed by the fill; it only writes into null/sentinel Helper #2
+  columns.
+- Deviation from the plan's original phase wording ("no SQL from an agent
+  session"): owner-authorized, second occurrence, recorded here as with
+  D-14-07-APPLIED.
+
+## O-14-C-VERIFIED (plan 14-11, Task 3) — production read-back 2026-09-08
+
+Synthetic key WR `ZZ-HELPER2-VERIFY` / week 2000-01-01 (cannot exist in
+Smartsheet), rows 1 and 2; PRODUCTION READ-BACK by the delegated session;
+all rows deleted at the end.
+
+1. **12-argument call, row 1** (20:25:09.70Z, the deployed writer's shape):
+   row created with primary / helper / dept, `frozen_helper2` NULL,
+   `backfill_provenance` NULL, `source_run_id` `verify-run-1`.
+2. **14-argument call, row 1, Helper #2 present and EVERY other value
+   different** (pole, cu, work_type, primary, helper, dept, vac_crew,
+   release, run id `verify-run-2`): FILL observed — `frozen_helper2` =
+   `Verify Helper2`, `frozen_helper2_dept` = `DEPT-H2`,
+   `backfill_provenance` = `{"helper2": {"source": "live", "run_id":
+   "verify-run-2"}}`; every other column byte-identical to observation 1,
+   including `frozen_at` 20:25:09.701053Z, `source_run_id` `verify-run-1`,
+   `source_release`, pole/cu/work_type, and `backfill_source` /
+   `backfill_run_id` still NULL.
+3. **14-argument call, row 1, a DIFFERENT Helper #2** (`verify-run-3`):
+   REFUSED — row returned unchanged, `frozen_helper2` still `Verify
+   Helper2`, provenance still names `verify-run-2`. First-write-wins per
+   role holds.
+4. **14-argument call, row 2 (fresh key)** (20:25:12.64Z): a new row with
+   Helper #2 written and `backfill_provenance` NULL — the insert path is
+   untouched; provenance is stamped only by a fill.
+5. **Read-back and cleanup**: `lookup_attribution` returned both rows with
+   `helper2` / `helper2_dept` populated; `lookup_attribution_bulk` returned
+   2 rows; DELETE removed 2 rows; count of synthetic rows afterwards 0
+   (re-confirmed 21:51Z, total 222,587 with 0 rows carrying a `helper2`
+   provenance entry — no real row has been filled yet, as expected before
+   the merge).
+
+Timestamps: observations 1 and 4 carry the database's `frozen_at`
+(20:25:09.70Z, 20:25:12.64Z). Observations 2, 3, and 5 followed in the same
+sequence; their wall-clock times were not captured. Scheduled run
+34279298559 started 21:12:46Z, after the apply and after the synthetic
+writes began; a synthetic WR cannot collide with any real row, and the
+replace was a same-signature CREATE OR REPLACE, so that overlap carries no
+risk, but it is recorded here rather than implied away.
+
+Consequence for the pipeline: with plan 14-11 Task 1 merged, a row frozen
+before a Helper #2 appeared on it is re-sent once, filled once, counted as
+`snapshots_helper2_filled`, and never touched again for that role. Until
+the merge, the deployed 12-parameter writer never satisfies the gate
+(observation 1), so today's behaviour is unchanged.

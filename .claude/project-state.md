@@ -167,9 +167,18 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   `validate_production_safety.py`), `0bb018b` `billing_audit/helper2_attribution_fill.sql` (STEP 1 capture + self-check,
   STEP 2 CREATE OR REPLACE with the gated DO UPDATE, STEP 3 read-back + synthetic rows) + contract test + schema.sql.
   Evidence: focused 548 passed; ALL 6 GATES PASSED; full suite 2284 passed / 1 skipped / 557 subtests. No SQL executed.
-  **STOPPED at 14-11 T3 `blocking-human`: apply-delegated / apply-owner / defer + window.** **NEXT:** Juan types
-  "approved" at 14-09 T3 → 14-09 closeout; 14-11 T3 decision → apply + read-back → 14-11 closeout → 14-10. No
-  Smartsheet write or workflow change without Juan.
+  **Juan ≈20:05Z: "i approve the d-14-07-verified & apply-delegated."** 14-09 CLOSED (`a2de0de`: SUMMARY, STATE
+  completed_plans 69, ROADMAP 9/11, REQUIREMENTS HLP-06 complete). **14-11 T3 APPLIED 20:12:05Z** in a run-free gap
+  (`gh run list` 20:10:59Z: none in progress) as migration `20260908201205_helper2_attribution_per_role_fill` (CREATE OR
+  REPLACE, same signature, grants unchanged; pre-fill body parked in vault `raw/2026-09-08 - billing_audit
+  freeze_attribution pre-fill body (rollback reference, O-14-C).sql`). **O-14-C-VERIFIED** on synthetic rows 20:25–20:28Z:
+  12-arg call leaves Helper #2 NULL; 14-arg re-freeze with every other value different FILLS only the two Helper #2
+  columns + `backfill_provenance.helper2={live,run_id}` with all other columns byte-identical (same `frozen_at`,
+  `source_run_id`); a second different Helper #2 is REFUSED; a fresh insert carries Helper #2 and no provenance; both
+  lookups return both rows; 2 rows deleted, 0 left. O-14-C heading → RESOLVED. **NEXT:** 14-11 closeout (SUMMARY /
+  STATE / ROADMAP) → 14-10 (T1–T2 docs/rehearsal, T3 `blocking-human` flag default / wiring / one controlled upload).
+  Post-merge check still owed: first post-merge run logs no Helper #2 degrade warning and, when a late Helper #2
+  appears, `snapshots_helper2_filled` > 0. No Smartsheet write or workflow change without Juan.
 
 ## Latest work (2026-09-03 evening → 2026-09-05 00:30 UTC) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); **12-06 Task 1 full-scope dry-run RE-RUN clean (0/0/0 guards) — awaiting Juan's verdict**; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 
