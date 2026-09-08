@@ -186,3 +186,42 @@ exists on the Resource Analyst sheet as of 2026-09-06.
   `row_state` DDL and the O-14-B RPC update in one owner SQL session before
   the code merge.
 - No DDL was executed from this session.
+
+## O-14-A RESOLVED (plan 14-08, Task 1) — owner decision 2026-09-07
+
+- Decision: **helper2-wins** — an owner-defined fifth option, not one of
+  the four the plan listed (`hold`, `helper1-wins`, `both-files`,
+  `primary-keeps`). Juan's rule, in his own terms: "if helper 1 & helper 2
+  both claim the row, helper 2 should get the production and helper 1
+  would not; if helper 1 claims the row and the primary foreman also
+  claims the row, that row goes to helper 1's file, not the primary
+  foreman's file."
+- Precedence chain for one physical unit on one source row:
+  **Helper #2 > Helper #1 > primary foreman.** The helper-over-primary
+  half is existing behavior (rows with both "Helping Foreman Completed
+  Unit?" and "Units Completed?" checked already appear only in the helper
+  file, never the main file); the Helper #2-over-Helper #1 half is new and
+  is the O-14-A rule.
+- Rationale (one sentence, owner's terms): the second helping-foreman slot
+  is the later, more specific claim on the unit, so it takes the
+  production credit, and a claim that loses is never billed twice.
+- Implementation reading (orchestrator; Juan may correct): the conflicted
+  row is treated as a Helper #2 row for EVERY flow — internal production
+  credit (Helper #2's file shows the line item), subcontractor payment
+  (the Helper #2 shadow file, never the Helper #1 shadow file), and
+  customer billing (exactly one customer-facing file). The Helper #1 claim
+  on that row is dropped for that row only, never silently: it is logged
+  once with a distinct reason, counted in the run summary, and sent to
+  Sentry.
+- Visibility (owner-answered): the conflict signal reaches **Sentry AND
+  the run summary**. The Sentry event carries WR, week ending, sheet id,
+  and counts only — never a person's name or any row value (PII rule,
+  `pipeline/observability.py` `before_send_log` backstop, `_PII_LOG_MARKERS`).
+- Rejected regardless: the 2026-07 prototype's abort-before-workbook
+  behavior. One conflicted row never stops a production billing run.
+- Follow-up 1 (per-slot file duplication: same person in slot 1 on some
+  rows and slot 2 on others within one WR/week) — NOT answered in this
+  decision; D-14-06's accepted consequence (two files, one per slot) stands.
+  Documentation-only, non-blocking; confirm with Juan before the 14-10
+  rollout notes are finalized.
+- No conflict-handling code existed before this record.
