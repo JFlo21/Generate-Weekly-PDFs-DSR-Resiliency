@@ -18,6 +18,7 @@ not production observed.
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import sys
 import tempfile
@@ -34,6 +35,7 @@ import generate_weekly_pdfs  # noqa: E402
 import pipeline.discovery as _discovery  # noqa: E402
 import pipeline.fetch as _fetch  # noqa: E402
 import pipeline.grouping as _grouping  # noqa: E402
+import pipeline.orchestrate as _orchestrate  # noqa: E402
 from pipeline.config import _RE_SANITIZE_HELPER_NAME  # noqa: E402
 from pipeline.orchestrate import derive_group_identity  # noqa: E402
 from pipeline.types import (  # noqa: E402
@@ -1215,6 +1217,83 @@ class HelperTwoConflictRuleTests(unittest.TestCase):
         ]
         self.assertEqual(
             variants_with_row, ['helper2'], list(groups.keys())
+        )
+
+
+class HelperTwoRunSummaryCounterTests(unittest.TestCase):
+    """Plan 14-08 Task 3: the four Helper #2 run-summary counters
+    (D-14-02 four capability states; O-14-A row conflict) stay present
+    on every run, flag on or off. Reachable, unit-level version of what
+    Gate 6 (scripts/check_run_summary_structure.py) checks at the shell
+    level after a TEST_MODE run."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+
+    def test_synthetic_run_summary_key_set_matches_golden_baseline(self):
+        """A flag-off (repo default HELPER2_ENABLED='0') synthetic run's
+        emitted run_summary.json key set equals the golden baseline's
+        key set -- the same comparison Gate 6 makes, but reachable from
+        the unit suite so a mismatch is caught before the gate."""
+        with mock.patch.object(
+            _orchestrate, 'OUTPUT_FOLDER', self._tmpdir.name
+        ), mock.patch.object(
+            generate_weekly_pdfs, 'OUTPUT_FOLDER', self._tmpdir.name
+        ):
+            _orchestrate._run_synthetic_test_mode(datetime.datetime.now())
+
+        summary_path = os.path.join(self._tmpdir.name, 'run_summary.json')
+        self.assertTrue(
+            os.path.exists(summary_path),
+            "synthetic TEST_MODE path did not write run_summary.json",
+        )
+        with open(summary_path, encoding='utf-8') as f:
+            emitted = json.load(f)
+
+        baseline_path = (
+            _REPO_ROOT / 'tests' / 'golden' / 'run_summary_baseline.json'
+        )
+        baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+
+        self.assertEqual(
+            set(emitted.keys()), set(baseline.keys()),
+            f"emitted keys: {sorted(emitted.keys())}\n"
+            f"baseline keys: {sorted(baseline.keys())}",
+        )
+
+    def test_synthetic_run_summary_includes_four_helper2_counters_zeroed(self):
+        """The four new keys are present with a zero int value on a
+        run with no Helper #2 data -- the key set never varies."""
+        with mock.patch.object(
+            _orchestrate, 'OUTPUT_FOLDER', self._tmpdir.name
+        ), mock.patch.object(
+            generate_weekly_pdfs, 'OUTPUT_FOLDER', self._tmpdir.name
+        ):
+            _orchestrate._run_synthetic_test_mode(datetime.datetime.now())
+
+        summary_path = os.path.join(self._tmpdir.name, 'run_summary.json')
+        with open(summary_path, encoding='utf-8') as f:
+            emitted = json.load(f)
+
+        for key in (
+            'helper2_capability_unavailable_sheets',
+            'helper2_no_qualifying_completion_sheets',
+            'helper2_conflict_hold',
+            'helper2_groups_generated',
+        ):
+            self.assertIn(key, emitted, f"missing key: {key}")
+            self.assertIsInstance(emitted[key], int)
+            self.assertEqual(emitted[key], 0)
+
+    def test_get_helper2_conflict_count_feeds_the_run_summary_key(self):
+        """The counter Task 2 exposes is exactly what Task 3's
+        helper2_conflict_hold key reads -- not a re-derived value."""
+        row = _both_helpers_row()
+        generate_weekly_pdfs.group_source_rows([row])
+        self.assertEqual(
+            _grouping.get_helper2_conflict_count(),
+            _orchestrate.get_helper2_conflict_count(),
         )
 
 
