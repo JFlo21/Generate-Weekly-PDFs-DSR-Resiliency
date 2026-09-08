@@ -306,13 +306,17 @@ co-signs by typing "approved" at the Task 3 checkpoint).
    first-write-wins, deviation (c)). Both lookups returned both rows with
    the new columns.
 4. **Next real run** — run 34253845749 (deployed master code, 12-parameter
-   writer) was in progress at apply time; its freezes against the new
-   function are the evidence for this check: PENDING until the run
-   completes (result appended below). The plan-14-03 degrade-warning check
-   ("no Helper #2 capability-degrade warning") can only be observed after
-   the branch merges, because the deployed writer predates Phase 14
-   entirely; it stays PENDING-UNTIL-MERGE and must be confirmed on the first
-   post-merge run.
+   writer; created 16:53:55Z, completed success 17:49:53Z) ran entirely
+   against the migrated functions. OBSERVED 17:55Z: 74 `freeze_attribution`
+   calls, all HTTP 200, 0 non-200, 0 `PGRST` codes in the job log; 6
+   `lookup_attribution_bulk` calls, all 200, and the frozen-row cache
+   warm-started 221,616 keys from the new 10-column shape; the 74 rows it
+   froze (17:23:09–17:25:23Z, `source_run_id` `34253845749.*`) all carry a
+   primary and `frozen_helper2` NULL, exactly what the 12-parameter writer
+   must produce. The plan-14-03 degrade-warning check ("no Helper #2
+   capability-degrade warning") can only be observed after the branch
+   merges, because the deployed writer predates Phase 14 entirely; it stays
+   PENDING-UNTIL-MERGE and must be confirmed on the first post-merge run.
 
 Assumption A4 (14-RESEARCH.md): CLOSED by observation for the contract the
 plan asked about — a Helper #2 freeze never alters `frozen_primary`,

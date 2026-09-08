@@ -878,8 +878,8 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 8/10 plans executed (planned 2026-09-05; tracer-first, six waves). Not executed — this pass was
-planning only.
+**Plans:** 8/11 plans executed (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to
+close O-14-C, making seven waves).
 
 Plans:
 
@@ -920,7 +920,14 @@ Plans:
 - [ ] 14-09-PLAN.md — Owner-deployed Supabase attribution migration: the Helper #2 role columns,
   the freeze parameters, drop-first for BOTH lookup functions, and the read-back
 
-**Wave 6** *(blocked on Wave 5)*
+**Wave 6** *(blocked on Wave 5; inserted 2026-09-08)*
+
+- [ ] 14-11-PLAN.md — O-14-C closure: first-write-wins per ROLE for Helper #2 — the pipeline re-sends an
+  already-frozen row only when it now carries a valid Helper #2 and the snapshot's helper2 is empty,
+  the freeze function fills the two Helper #2 columns on conflict with a `live` provenance entry, the
+  fill is counted, and the owner gates the apply
+
+**Wave 7** *(blocked on Wave 6)*
 
 - [ ] 14-10-PLAN.md — Rollout: runbook, environment and architecture documentation, the escalating
   pilot rehearsal with rollback, and the owner decisions on flag default, workflow wiring, and the

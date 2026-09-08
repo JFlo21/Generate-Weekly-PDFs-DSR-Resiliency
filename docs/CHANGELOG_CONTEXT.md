@@ -865,3 +865,24 @@ named call on a synthetic row. Nothing changes for operators until the branch me
 first run writes Helper #2 attribution for newly frozen rows only. Rows frozen before the merge never gain
 Helper #2 (O-14-C, Juan's call). The apply landed about 75 seconds into run 34253845749's job setup rather
 than in a run-free gap; that run is the pending evidence for read-back check 4.
+
+## 2026-09-08 — 14-09 read-back check 4 observed; plan 14-11 inserted to close O-14-C (per-role Helper #2 fill)
+
+**What changed.** Run 34253845749, the first full run against the migrated functions, completed with 74
+freeze calls and 6 bulk lookups all returning 200 and no PostgREST error codes; its 74 new rows carry a
+primary and a null Helper #2, which is what the deployed 12-parameter writer must produce. That closes
+`D-14-07-VERIFIED` check 4 for the deployed code; the Phase 14 degrade-warning check stays post-merge.
+Juan then asked for O-14-C to be worked before 14-10, so plan `14-11-PLAN.md` was inserted in wave 6 and
+14-10 moved to wave 7 behind it (ROADMAP, STATE, and 14-10's dependencies updated).
+
+**Why a fill and not a backfill.** The deployed freeze is first-write-wins per row, and the pipeline never
+re-sends an already-frozen row (the frozen-row cache skips 221,616 keys per run). A Helper #2 added to a
+row after its first freeze therefore never reaches the snapshot. The plan mirrors the Phase 12 backfill
+pattern inside the freeze function's conflict clause, for the Helper #2 role only: fill the two columns
+when the existing value is null or a sentinel, never overwrite a real name, record a `live` provenance
+entry, and let the pipeline re-send a frozen row only when it now carries a valid Helper #2 and the
+prefetched snapshot says the role is empty. A historical backfill has nothing to fill today, because
+Helper #2 is blank across production.
+
+**Operator effect.** None yet. Tasks 1 and 2 are repository-only and inert against the deployed function.
+Task 3 is the owner-gated apply of a same-signature CREATE OR REPLACE, with a synthetic-row read-back.

@@ -149,12 +149,19 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   Helper #2 attribution migration pre-state (rollback reference).sql`. **T3 read-back (D-14-07-VERIFIED) checks 1–3
   OBSERVED** (both lookups return the columns on a real row; table has both columns; synthetic-row freeze test: 12-arg
   writer call resolves, 14-arg call writes Helper #2, conflicting re-freeze leaves the row byte-identical; synthetic rows
-  deleted, total back to 222,260). **Check 4 PENDING:** run 34253845749 (deployed master writer) must complete with
-  freezes succeeding; the Phase 14 degrade-warning check is post-merge only. **Finding O-14-C (OPEN):** the deployed
-  freeze is per-ROW first-write-wins (`ON CONFLICT DO NOTHING`), so pre-merge rows never gain Helper #2 — Juan decides
-  accept / per-role fill-in / backfill before the 14-10 rollout notes. Records + SQL alignment: `3d6263a`. **NEXT:** Juan
-  types "approved" at the T3 checkpoint → 14-09 closeout (SUMMARY/STATE/ROADMAP) → 14-10 (T1–T2 docs/rehearsal, T3
-  `blocking-human` flag default / wiring / one controlled upload). No Smartsheet write or workflow change without Juan.
+  deleted, total back to 222,260). **Check 4 OBSERVED 17:55Z:** run 34253845749 (deployed master writer, created
+  16:53:55Z, success 17:49:53Z) made 74 `freeze_attribution` calls, all 200, 0 PGRST; 6 bulk lookups, all 200; 221,616
+  keys warm-started through the new shape; its 74 rows carry a primary and `frozen_helper2` NULL. The Phase 14
+  degrade-warning check is post-merge only (PENDING-UNTIL-MERGE). Records + SQL alignment: `3d6263a`. **O-14-C → plan
+  14-11 (inserted 2026-09-08, wave 6; 14-10 moved to wave 7, depends on 14-11; Juan: "work on O-14-C before building
+  out plan 10"):** first-write-wins per ROLE for Helper #2 only — T1 (TDD) admission rule (`helper2_fill_admits`: row
+  has valid Helper #2 AND prefetched helper2 null/sentinel AND flag on) + `snapshots_helper2_filled` counter (baseline
+  → 30 keys); T2 `billing_audit/helper2_attribution_fill.sql` (CREATE OR REPLACE, same 14-param signature, `ON CONFLICT
+  DO UPDATE SET frozen_helper2/frozen_helper2_dept/backfill_provenance.helper2={live,run_id} WHERE is_sentinel_value(s.
+  frozen_helper2) AND NOT is_sentinel_value(EXCLUDED.frozen_helper2)`) + contract test; T3 `blocking-human` apply
+  (apply-delegated / apply-owner / defer) + synthetic-row read-back → `O-14-C-APPLIED` / `O-14-C-VERIFIED`. **NEXT:**
+  Juan types "approved" at 14-09 T3 → 14-09 closeout; 14-11 T1–T2 execute (repo-only, inert against the deployed
+  function) → T3 decision → 14-10. No Smartsheet write or workflow change without Juan.
 
 ## Latest work (2026-09-03 evening → 2026-09-05 00:30 UTC) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); **12-06 Task 1 full-scope dry-run RE-RUN clean (0/0/0 guards) — awaiting Juan's verdict**; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 
