@@ -630,3 +630,167 @@ Helper #1 / primary / VAC identities are byte-identical when Helper #2 is absent
 **Operator impact:** none — `generate_weekly_pdfs.py`, Smartsheet, Supabase, and the workflow are untouched;
 `HELPER2_ENABLED` does not exist yet. **Next:** Juan reviews the plans, answers O-14-A and the per-slot two-files consequence,
 then `/gsd-execute-phase 14` (not run by this session).
+
+## 2026-09-06 17:20–20:20Z (12:20–15:20 CDT) — GSD tooling incident (global, no repo change): forbidden npm reinstall ran and was rolled back; plugin 1.13.0 bundle rebuilt
+
+**What:** in this repo's session, `/gsd-core:gsd-update` executed `npx @opengsd/gsd-core@latest --claude --global` against
+the ClaudeOS config dir — the path `~/.claude/lessons-learned.md` (2026-08-23) forbids, because the marketplace plugin
+`gsd-core@gsd-core` is the engine and `~/.claude/gsd-core/*` are junctions into its cache. Root chain: the plugin had
+auto-updated to 1.13.0 at session start but its tsc self-build was killed by a hook timeout at 41/213 lib files; its
+"built" sentinel (`cli-exit.cjs`) is emitted early, so it never retried; the junction guard pinned VERSION to the newest
+built tree (1.12.0); the statusline flagged a phantom update; the skill offered the reinstall and the model followed it
+without consulting the lessons ledger. **Repaired the same session:** plugin bundle completed (tsc in the cache dir,
+41→213 files, `runtime-identity` 1.13.0); every installer write reverted by its own manifest (168 files, 76 empty dirs),
+`~/.claude/settings.json` restored from git HEAD hunks (14 duplicate hook entries, Serena workflow-guard matcher, two
+timeouts, `permissions.allow`), `gsd-core/*` re-junctioned into the 1.13.0 plugin tree; verified 0 residue, 0 duplicate
+registrations vs the plugin's hooks.json, `update-context` = 1.13.0 = latest, junction guard clean.
+**Repo impact:** none — no file under this repo changed; `.planning/`, `pipeline/`, workflows, Smartsheet, Supabase all
+untouched. Phase 14 remains at the planning-approval checkpoint. **Why it matters here:** GSD commands in this repo run
+through the junctioned 1.13.0 runtime from the next session; the 1.13.0 changelog adds `workflow.code_review_point`,
+per-lane reviewer timeouts, and the executor's refusal to commit on a protected branch (relevant to `feat/phase-12-remediation`
+execution). **Durable record:** `~/.claude/project-state.md` 2026-09-06 entry; "Recurred 2026-09-06" addendum on the
+2026-08-23 lesson; vault `current-state.md` correction + `log.md [2026-09-06e]`. **Next:** restart the session before any
+GSD command; never accept the npm install prompt on this machine; optional upstream bug report on the build sentinel/lock.
+
+## 2026-09-06 — Phase 14 execution started: Helper #2 tracer slice landed behind `HELPER2_ENABLED` (14-01; `feat/phase-12-remediation`, not pushed)
+**What:** Juan invoked `/gsd-execute-phase 14` at 20:29Z; GSD ran sequentially on the main tree (#683 degrade — the branch
+HEAD is 59 commits ahead of `origin/master`, so harness worktrees would fork the wrong base). Plan 14-01 (tracer) completed in
+four commits `3d6bcfb` → `11a473d`: `HELPER2_ENABLED` (default `'0'`) in `pipeline/config.py`; `FORMULA_ERROR_VALUES` (11
+Smartsheet error tokens) + `normalize_helper_value()` in `pipeline/types.py` (D-14-05 fabricated-claim guard; a separate
+`_NON_CLAIM_LITERALS` check also rejects literal `NA`); six additive Helper #2 column synonyms in `pipeline/discovery.py`;
+`sheet_has_helper2_columns` capability gate + extracted, unit-testable `_detect_helper2_row()` in `pipeline/fetch.py`;
+`valid_helper2_row` + `helper2` group-key emission in `pipeline/grouping.py` (primary-emission gate extended with
+`and not valid_helper2_row`); `HELPER2=`/`HELPER2_DEPT=`/`HELPER2_JOB=` hash meta and the `Helper2` reserved filename token in
+`pipeline/change_detection.py`; a `derive_group_identity` helper2 branch in `pipeline/orchestrate.py`; `_Helper2_<name>`
+suffix + REPORT DETAILS header branch in `pipeline/excel.py`. Every site is a parallel sibling block — no Helper #1 tuple or
+frozenset widened, no facade change. Tests: new `tests/test_foreman_helper_2.py` (production-code E2E tracer + non-claim
+fixture battery) and `tests/test_helper2_family_parity.py` (sibling-literal parity with a `KNOWN_DEFERRED` allowlist naming
+14-06's two `excel.py` shadow branches); legacy identity/hash pins added to `test_group_identity_and_header_foreman.py` and
+`test_change_detection_tiebreak.py`; three source-text-pinning assertions in `tests/test_subcontractor_pricing.py` /
+`tests/test_subcontractor_helper_shadow_rescue.py` updated to the extended gate text (Rule 1 auto-fix, same commit). Suite:
+2140 passed / 1 skipped. Evidence label: FIXTURE PASS only. `REQUIREMENTS.md` deliberately untouched (HLP-* ids are
+cross-plan; the phase verifier reconciles them at the end).
+**Why it matters:** with the flag unset the whole Helper #2 path is inert and every primary / Helper #1 / VAC key, hash, and
+filename is pinned character-for-character (D-14-09), so production is unchanged until a later `blocking-human` checkpoint
+enables the flag. No Smartsheet, Supabase, workflow, attachment, or push.
+**14-02 (docs-only) reached its T3 checkpoint at 21:25Z:** Tasks 1–2 committed (`8dfea37`, `55e3428`) as
+`14-PENDING-RESOLUTIONS.md` — A1/A2: a FIRST `helper2` generation cannot be suppressed (the `group_state` hash-skip is
+keyed on the full `(wr, week_ending, variant, identifier)` tuple; the per-row attachment pre-seed still requires an exact
+variant match downstream); the shadow-parity check is gated off in production and hash-value-opaque, so 14-04's
+`HASH_FIELDS` decision is unaffected; A3: `pipeline/attribution.py` and `pipeline/pricing.py` need no change for plain
+`helper2` (shadow-variant pricing assigned to 14-06), while `pipeline/observability.py` has a PII-marker gap — the new
+`HELPER2 GROUP CREATED` INFO line embeds a raw name that no `_PII_LOG_MARKERS` entry catches (assigned to 14-07/14-08).
+Task 3 is the `blocking-human` owner-run read-only live column probe (four questions; titles/ids/counts only); Juan
+records it in `14-DECISIONS.md` with `LIVE-COLUMN-PROBE: ANSWERED`, then `/gsd-execute-phase 14` resumes wave 1 → 2.
+**14-02 T3 probe executed 2026-09-06 ~23:20Z on Juan's instruction ("Run the probe read only"), through the Smartsheet
+connector, read-only, zero writes** — the same owner-delegated shape as the Phase 12 read-backs. Every sheet in the
+Intake folder (11) and the ProMax Database folder (105: Main, `(NEW)`, Backups 2–104) plus the Resource Analyst sheet
+was read for column metadata only (117 sheets): 114 carry the full six-title Helper #2 set, 3 carry none (Intake
+ProMax 8, Backup 2 — accepted D-14-01 state — and Resource Analyst, not a data source), and **no partial set exists**,
+so 14-07's capability-unavailable fixture stays synthetic. Main ProMax still has all six titles with ids. The Resource
+Analyst `Foreman Helper #2` column (`1589780186173316`) is blank on every row (an `IS_NOT_BLANK` filter projected onto
+a checkbox column returned 0 of 576, so no name or value was read), which makes **plan 14-10's pilot fixture-only**.
+No drift from the 2026-09-05 snapshot. Answers live in `14-DECISIONS.md` (titles/ids/counts only; picklist option
+lists deliberately not recorded); the 14-02 continuation executor was resumed with "approved".
+**14-02 complete (`41f14b1` Task 3, `34c2f56` closeout) and wave 1 closed green** (py_compile OK; 2140 passed /
+1 skipped, unchanged from the 14-01 baseline because 14-02 touched only `.planning/`). The closeout's roadmap tooling
+marked HLP-04, HLP-06, and HLP-07 Complete in `REQUIREMENTS.md`; that was premature (HLP-06 is still delivered by
+14-03/14-04/14-05/14-09, HLP-07 by 14-10, HLP-04 by 14-07/14-10), so `32e8452` returns the three rows to Pending and
+leaves requirement status to the phase verifier. Wave 2 (14-03, 14-04, 14-05; all depend only on 14-01) runs
+sequentially on the main tree; the pre-wave key-links check found no prior-wave wiring gap. 14-04 will stop at its
+Task 1 `blocking-human` decision (owner-applied additive `pipeline_memory.row_state` DDL and the D-14-08 `HASH_FIELDS`
+inclusion), which is Juan's call; 14-03 and 14-05 are autonomous.
+**14-03 complete (`7509709`, `5c44d49`, `58d73d2`; docs `4ecb76a`, `595fe70`):** `billing_audit/writer.py` now sends
+`p_helper2` in the freeze payload and counts a Helper #2-only claimer as real in the all-sentinel gate; when the
+deployed `freeze_attribution` RPC rejects the new parameter the client logs once, bumps `helper2_attribution_degraded`,
+retries without it, and continues (D-14-07a); `helper2` joins `ROLE_BY_VARIANT` for `resolve_claimer`. Four Rule-1
+deviations are recorded in its SUMMARY (separate `_HELPER2_SENTINEL_CLAIMERS` set to keep the SQL-twin parity test,
+reuse of `billing_audit.client` error typing for mypy, three golden key-count pins 24→25, and the new counter mirrored
+into both `pipeline/orchestrate.py` pre-seed dicts after an observed Gate 6 failure). Six gates green, 2156 passed.
+Evidence is FIXTURE PASS only; no live RPC was called. 14-05 was dispatched next. **14-04's Task 1 decision was put to
+Juan with live read-only numbers** from `poeyztlmsawfoqlanucc`: row_state 217,491 rows, row_event 218,931, 58 runs,
+no `helper2_*` columns yet. The plan's premise that the hash churn is "shadow-mode only" is stale: the weekly workflow
+has carried `RUN_MEMORY_WRITE_ENABLED: '1'` since PR #353 (2026-08-26), so including the four fields in `HASH_FIELDS`
+would insert roughly one row_event per row_state row (~217k) on the first production run after deploy. The incremental
+READ path is still off, so that burst changes no Excel output and triggers no regeneration; it is a write-volume and
+run-time cost only. The 14-02 parity finding still holds (the comparator hashes within one run and never reads stored
+hashes).
+**14-05 complete (`9fd7ee4`, `4b7940b`, `3224982`, `a706b11`, `40365e2`; docs `dcf2406`):** `pipeline/cleanup.py`'s
+orphan-supersede gate recognises a primary attachment superseded by a live Helper #2 claim (only the
+`_HELPER_VARIANTS_FOR_ORPHAN_GATE` frozenset changed, 3→6 members; the one-time legacy-migration gates are
+byte-identical), `scripts/publish_artifacts_to_supabase.py` parses the three Helper #2 filename tokens before the bare
+AEP-billable / reduced-sub checks so `_Helper2_` never cross-matches `_Helper_` or normalises to `primary`, and
+`portal-v2/src/lib/variantLabels.ts` gains three readable labels keyed on the snake_case tokens the publisher writes.
+Suite 2172 passed / 1 skipped. One gap is recorded, not hidden: the portal typecheck could not run because
+`portal-v2/node_modules` is not installed here, so the three-entry TypeScript addition is verified by inspection only
+and flagged for a human or CI check with dependencies present. Wave 2 now waits only on Juan's 14-04 Task 1 decision.
+**14-06 ran ahead of 14-04** because it depends only on 14-01, 14-03, and 14-05 and touches none of 14-04's files;
+the wave-2 gate was re-run first (2172 passed). It landed as `b320e6b`, `321d503`, `fbaf085` (docs `33cdc27`): the
+subcontractor Helper #2 shadow variants now partition in `pipeline/grouping.py` without ever emitting both a plain and
+a shadow `helper2` key for one row (the 2026-05-19 duplicate-billing shape), render their own filename, header, and
+hash sub-bucket in `pipeline/excel.py` / `pipeline/change_detection.py`, and pass the PPP dual-route gate in
+`pipeline/upload.py`; the VAC-crew short-circuit, pricing math, and AEP-billable cutoff are untouched. Six gates green,
+2196 passed / 1 skipped, the `HELPER2_ENABLED`-unset byte-identity fixture still passes, one Rule-1 mypy annotation
+fix. Its closeout marked HLP-01, HLP-02, and HLP-05 complete; HLP-05 was returned to Pending (14-08 still delivers the
+fabricated-claim guard and the O-14-A rule) while HLP-01/02 stay marked because every owner plan has landed.
+**Juan answered 14-04 Task 1 with `include-now`.** The record `D-14-08-APPLIED` in `14-DECISIONS.md` names the four
+additive nullable `row_state` columns, their membership in `HASH_FIELDS`, Juan as the person who applies the DDL in
+`poeyztlmsawfoqlanucc` through the SQL Editor, the fact that it is not applied yet, the expected one-time churn
+(~217k row_events, real production writes because the write flag is on while the read flag stays off), and that the
+DDL timing is his call at rollout because either order must be safe and Task 2 has to prove both. The 14-04 executor
+was resumed at Task 2 with that record; no DDL was executed from the session.
+**14-04 complete (`c452f72`, `72dcd8d`, `c9739d7`; docs `3dd88b7`):** `pipeline_memory/schema.sql` carries the four
+additive nullable `row_state` columns as DDL text for Juan to apply, `pipeline_memory/writer.py` sends them raw in the
+payload and appends them to `HASH_FIELDS` (existing order untouched), and `scripts/mem04_passive_compare.py` mirrors
+the same four fields split personnel / non-personnel like Helper #1. Both DDL orders are covered by tests, including
+the PostgREST "column does not exist" shape. Suite 2206 passed / 1 skipped, six gates green. One Rule-3 deviation:
+the Phase 11 blanket `git diff --exit-code` freeze on `schema.sql` in `tests/test_incremental_read.py` was replaced by
+an additive-only invariant (zero removed or modified lines), the same precedent that file already uses for the
+workflow YAML. Its closeout flipped HLP-06 to Complete; `f4e3c14` returns it to Pending because 14-09 still owns it.
+**Orchestrator review found a cross-plan gap, recorded as O-14-B in `14-DECISIONS.md`:** the `upsert_rows_bulk` RPC
+body in `schema.sql` (typed `jsonb_to_recordset`, INSERT, ON CONFLICT, and the row_event change JSON) still names only
+the Helper #1 fields, so after the DDL the Helper #2 columns would stay NULL, the ~217k hash churn would be paid for
+nothing, and no 42703 error would ever fire. 14-04's summary calls this "deferred to 14-09/14-10", but no plan,
+context, or research file in Phase 14 mentions that RPC. Recommendation: a gap-closure plan after execution with the
+RPC column-list update as owner-applied SQL text, a lockstep source-pin test, and the RPC and DDL applied together
+before the code merge. Until then nothing may claim Helper #2 run memory persists.
+**Wave 2 closed green (2206 passed / 1 skipped). Juan answered 14-07 Task 1 with `separate-column` and confirmed the
+degrade direction ("slower but correct").** The record `D-14-10-APPLIED` names the column (`sheet_registry.
+mapping_schema`, nullable TEXT), the marker value (`helper2-v1`, a constant in `pipeline/discovery.py` whose bump
+forces exactly one more revalidation), the sixth skip-index admission gate, the unknown-column degrade (one warning,
+full validation for every sheet, never admit from cache), the measured one-time cost (37.7 s of Phase 1 for 121 full
+validations on the 11.1-04 canary, against runs of 32–55 min and a 165-min budget), and that Juan applies the DDL in
+`poeyztlmsawfoqlanucc`, ideally in the same SQL session as the row_state DDL and the O-14-B RPC fix before the code
+merge. Not applied yet; the 14-07 executor resumes at Task 2.
+**Juan resolved O-14-A on 2026-09-07 with a rule outside the plan's four options: Helper #2 wins.** When both
+helper slots claim one row, Helper #2 takes the production credit and Helper #1 does not; when Helper #1 and the
+primary foreman both claim a row, it goes to Helper #1's file (existing behavior). The recorded precedence is
+Helper #2 over Helper #1 over primary, applied to every flow (production credit, subcontractor shadow file, customer
+billing) so the unit is billed exactly once, and the losing claim is dropped for that row only with a distinct log
+reason, a run-summary count, and a Sentry event that carries no name or row value. The prototype's
+abort-before-workbook behavior stays rejected. The per-slot file-duplication follow-up was not answered, so
+D-14-06's two-files-per-slot consequence stands as documentation-only. 14-08 implements exactly this rule once
+14-07 lands.
+
+## 2026-09-08 — Phase 14 plan 14-07 closed (mapping-schema marker + four Helper #2 reasons); O-14-A committed; 14-08 dispatched
+
+**What changed.** Plan 14-07 finished and was closed out on `feat/phase-12-remediation`: Task 3 landed as a
+RED test commit (`ac38699`) and a GREEN feature commit (`e7aa054`) — `pipeline/fetch.py` now logs
+`helper2_no_qualifying_completion` once per Helper #2-capable sheet that produced no qualifying row (distinct
+from the 14-01 `helper2_capability_unavailable` reason), and the price-exclusion diagnostic tags a Helper #2-only
+claim as a helper row through the same fabricated-claim guard as detection. Partial Helper #2 column sets,
+the Intake ProMax 8-shaped fixture (HLP-04, fixture-only by docstring), and the untouched discovery
+failed-validation path are pinned by named tests. `14-07-SUMMARY.md` was written and STATE/ROADMAP mark 7/10
+plans (`af7d55f`). Juan's O-14-A decision (`helper2-wins`: Helper #2 > Helper #1 > primary foreman; losing claim
+logged once, counted, sent to Sentry without PII; never aborts a run) was committed as `ede01a9`, which is plan
+14-08 Task 1's deliverable. `/gsd-core:execute-phase 14` was resumed and the 14-08 executor dispatched as a
+continuation at Task 2 (sequential on the main tree — the branch is ahead of `origin/master`, so worktree
+isolation auto-degraded).
+
+**Why.** Without the no-qualifying-completion reason an operator could not tell "this sheet lacks Helper #2
+columns" from "nothing qualified this run"; 14-08's run-summary counters consume exactly these signals.
+
+**Operator effect.** None in production yet — no DDL applied, no upload, no workflow change. Evidence at close:
+helper suite 31 passed / 26 subtests; full suite 2222 passed / 1 skipped / 541 subtests; `bash
+scripts/run_6_gates.sh` ALL 6 GATES PASSED. HLP-03 stays Pending until 14-08 lands, HLP-04 until 14-10.
+Ledgers (`.claude/project-state.md`, this file) are updated but uncommitted while the executor holds the tree.

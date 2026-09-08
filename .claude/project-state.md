@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-05 00:50 CDT (2026-09-05 05:50Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-08 09:35 CDT (2026-09-08 14:35Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -28,7 +28,12 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   of the same path" wording is wrong — discovery.py never imports that enum; align to its lazy
   `Sheet` / `Folder` import pattern instead.
 - **GSD health:** HEALTHY as of 2026-09-02 (the inserted Phase 01.1 is now declared to the parser).
-- **Phase 14 "Foreman Helper #2" — PLANNED, STOPPED AT THE PLANNING-APPROVAL CHECKPOINT (2026-09-06 02:45Z):**
+  **GSD tooling (global, 2026-09-06 20:20Z):** gsd-core 1.13.0 via the marketplace plugin + junction layout;
+  this session's `/gsd-core:gsd-update` ran the forbidden npm reinstall and was fully rolled back the same
+  session (no repo file changed). Record: `~/.claude/project-state.md` 2026-09-06 + `~/.claude/lessons-learned.md`
+  (2026-08-23 lesson, "Recurred" addendum). Rule: never accept the npm install prompt on this machine.
+- **Phase 14 "Foreman Helper #2" — EXECUTING since 2026-09-06 20:29Z (Juan invoked `/gsd-execute-phase 14`; wave 1:
+  14-01 ✓, 14-02 in progress — status below). Planning record (02:45Z):**
   `/gsd-plan-phase 14 --research` completed end to end — researcher (`14-RESEARCH.md`, `7b95fe4`), Nyquist seed
   (`7e646e4`), pattern mapper (`14-PATTERNS.md`, `e5287a8`), planner (10 plans / 6 waves), checker × 3 (iter 1: 2 blockers
   — checkpoint tasks lacked the canonical `<decision>/<options>/<resume-signal>` children and four owner checkpoints lacked
@@ -45,7 +50,88 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   STATE.md (GSD-owned): `current_phase: 14`, frontmatter `status: executing` = GSD's "READY TO EXECUTE" position,
   `stopped_at` = planning-approval checkpoint; the Phase 12 resume pointer (12-06 Task 4, Sat 15:00Z run) lives in
   `.planning/HANDOFF.json`. The assembled planner prompt (`14-PLANNER-BUNDLE.md`) was moved to the session scratchpad,
-  not committed. **No code, Smartsheet, Supabase, workflow, or attachment change; `/gsd-execute-phase 14` NOT run.**
+  not committed. **Execution 2026-09-06 (sequential on the main tree — GSD #683 degrade, branch HEAD 59 ahead of
+  `origin/master`):** 14-01 tracer DONE `3d6bcfb`→`11a473d` — `HELPER2_ENABLED` (default `'0'`, `pipeline/config.py`),
+  `FORMULA_ERROR_VALUES` + `normalize_helper_value()` fabricated-claim guard (`types.py`, also rejects literal `NA`), six
+  Helper #2 synonyms (`discovery.py`), `sheet_has_helper2_columns` gate + `_detect_helper2_row()` (`fetch.py`),
+  `valid_helper2_row` + `helper2` emission with the primary gate extended `and not valid_helper2_row` (`grouping.py`),
+  `HELPER2=` hash meta + `Helper2` filename token (`change_detection.py`), `derive_group_identity` branch
+  (`orchestrate.py`), `_Helper2_<name>` suffix + header (`excel.py`) — all parallel sibling blocks, no Helper #1 tuple
+  widened. New `tests/test_foreman_helper_2.py`, `tests/test_helper2_family_parity.py` (`KNOWN_DEFERRED` for 14-06's
+  two `excel.py` shadow branches); 3 source-text pins updated in `test_subcontractor_pricing.py` /
+  `test_subcontractor_helper_shadow_rescue.py`. Suite 2140 passed / 1 skipped; FIXTURE PASS only. `REQUIREMENTS.md`
+  untouched (cross-plan HLP ids). **No Smartsheet, Supabase, workflow, attachment change; nothing pushed.** 14-02
+  (docs-only) T1 `8dfea37` + T2 `55e3428` done → `14-PENDING-RESOLUTIONS.md`: A1/A2 first-run suppression SAFE
+  (`group_state` skip keyed on the full variant tuple; pre-seed needs exact variant match), parity check gated off in
+  prod, A3 = attribution/pricing no change for plain `helper2` (shadow pricing → 14-06), observability PII-marker gap
+  (`HELPER2 GROUP CREATED` embeds a raw name → 14-07/14-08). **STOPPED at T3 `blocking-human` (21:25Z):** owner-run
+  read-only live column probe (4 questions: Main ProMax six titles, partial sets elsewhere, Intake 8/Backup 2 still
+  bare, Resource Analyst `Foreman Helper #2` still blank) → record titles/ids/counts only in `14-DECISIONS.md` with
+  `LIVE-COLUMN-PROBE: ANSWERED` + date + pilot consequence + `read-only`; reply "approved" to resume.
+  **T3 probe RUN (owner-delegated, 2026-09-06 ~23:20Z, read-only via the Smartsheet connector, zero writes):**
+  117 sheets swept (Intake folder 11 + ProMax Database folder 105 + Resource Analyst) → 114 FULL 6/6, 3 NONE
+  (Intake ProMax 8, Backup 2, Resource Analyst), **0 PARTIAL**; Main ProMax 6/6 with ids; RA `Foreman Helper #2`
+  (`1589780186173316`) 0 non-blank of 576 rows → **14-10 pilot is FIXTURE-ONLY**; no drift vs the 09-05 snapshot.
+  Recorded in `14-DECISIONS.md` (titles/ids/counts only, no names, no picklist options). **14-02 ✓** T3 `41f14b1`,
+  closeout `34c2f56` (SUMMARY Self-Check PASSED; only `.planning/` touched). **Wave 1 gate green** (py_compile OK;
+  2140 passed / 1 skipped). Closeout had flipped HLP-04/06/07 to Complete prematurely → reverted to Pending in
+  `32e8452` (owners: 14-03/04/05/09 for HLP-06, 14-10 for HLP-07, 14-07/14-10 for HLP-04; verifier flips on
+  evidence). **Wave 2 (sequential): 14-03 ✓** `7509709` `5c44d49` `58d73d2` + docs `4ecb76a` `595fe70` — `p_helper2`
+  in the freeze payload and all-sentinel gate, D-14-07a degrade path (`helper2_attribution_degraded` counter, golden
+  25 keys), `helper2` in `ROLE_BY_VARIANT`; 6 gates green, 2156 passed / 1 skipped; FIXTURE PASS only. **14-05 ✓**
+  `9fd7ee4` `4b7940b` `3224982` `a706b11` `40365e2` + docs `dcf2406` — cleanup orphan-supersede frozenset gains the
+  three Helper #2 variants (legacy gates byte-identical), `normalize_variant` parses `_AEPBillable_Helper2_` /
+  `_ReducedSub_Helper2_` / `_Helper2_` ahead of the bare checks, portal `VARIANT_LABELS` +3 keys; 2172 passed /
+  1 skipped. **Portal typecheck NOT run** (`portal-v2/node_modules` absent; recorded as human-judgment D6 in the
+  SUMMARY — run `npm run typecheck` in `portal-v2/` before merge). **14-04 T1 `blocking-human`
+  presented to Juan (00:05Z 09-07):** approve four additive nullable `row_state` columns + choose `HASH_FIELDS`
+  include-now / defer-hash / reject-ddl. Live read-only facts (`poeyztlmsawfoqlanucc`): row_state 217,491 rows,
+  row_event 218,931, 58 runs, no helper2 columns yet. **Correction to the plan text:** `RUN_MEMORY_WRITE_ENABLED`
+  is `'1'` in the weekly workflow since PR #353 (2026-08-26), so include-now means ~217k real row_event inserts on
+  the first production run after deploy (read path still OFF, so no output/regeneration effect). Awaiting decision.
+  **14-06 started ahead of 14-04 (00:20Z 09-07)** on dependency truth: it depends on 14-01/03/05 only and shares no
+  file with 14-04 (`pipeline_memory/*`, `scripts/mem04_passive_compare.py`); wave-2 gate re-run in background;
+  key-links for 14-06/14-07 clean. 14-07 (depends on 14-04) and 14-08+ stay blocked until Juan answers 14-04 T1.
+  **Wave-2 gate green** (2172 passed / 1 skipped). **14-06 ✓** `b320e6b` `321d503` `fbaf085` + docs `33cdc27` —
+  subcontractor Helper #2 shadow partition in `grouping.py`, shadow filename/header/hash sub-bucketing in
+  `excel.py` / `change_detection.py`, PPP dual-route gate in `upload.py`; `KNOWN_DEFERRED` cleared; 6 gates green,
+  2196 passed / 1 skipped; D-14-09 byte-identity fixture unaffected; FIXTURE PASS only. Its closeout marked
+  HLP-01/02/05 Complete — HLP-05 reverted to Pending (14-08 still owes it); HLP-01/02 owner plans are all done.
+  **Run is now blocked solely on Juan's 14-04 T1 decision** (14-07 → 14-08 → 14-09 → 14-10 chain behind it).
+  **Juan decided `include-now` (2026-09-06 evening CDT):** recorded as `D-14-08-APPLIED` in `14-DECISIONS.md` (four
+  columns, owner-applied in `poeyztlmsawfoqlanucc` via SQL Editor, NOT applied yet, timing left to rollout, ~217k
+  one-time production row_events because the write flag is ON, read flag OFF). 14-04 continuation executor
+  running Tasks 2–3 (schema.sql DDL text, writer payload + `HASH_FIELDS` append, passive-compare mirror; must prove
+  both DDL orders). No DDL executed from the session.
+  **14-04 ✓** `c452f72` (decision) `72dcd8d` (row_state DDL text + payload + `HASH_FIELDS` append) `c9739d7` (mem04
+  mirror) + docs `3dd88b7`; 2206 passed / 1 skipped, 6 gates green; schema.sql diff additive-only. Rule-3 deviation:
+  `tests/test_incremental_read.py::test_schema_untouched` (Phase 11 blanket freeze) replaced by
+  `test_schema_changes_are_additive_only` (zero removed/modified lines). HLP-06 flipped Complete again → reverted
+  `f4e3c14`. **NEW OPEN ITEM O-14-B (`14-DECISIONS.md`, commit follows):** `upsert_rows_bulk` RPC body still lists
+  only Helper #1 fields, so helper2 columns would stay NULL after the DDL and the ~217k churn buys nothing; no plan
+  owns the RPC update. Recommendation: gap-closure plan via `/gsd-verify-work 14`, owner applies RPC + DDL in one
+  SQL session before the code merge. **Wave 2 closed green** (2206 passed / 1 skipped). **Juan decided 14-07 T1:
+  `separate-column`, degrade "slower but correct"** → `D-14-10-APPLIED` in `14-DECISIONS.md`: `sheet_registry.
+  mapping_schema TEXT NULL`, marker `helper2-v1` (`MAPPING_SCHEMA_MARKER` in `pipeline/discovery.py`), sixth
+  skip-index gate, unknown-column → one warning + full validation for all sheets; one-time cost 37.7 s Phase 1
+  (11.1-04 canary); owner-applied in `poeyztlmsawfoqlanucc`, not applied yet (unverified 2026-09-08). **14-07 COMPLETE
+  (2026-09-08 14:05Z):** `0f2874f` T1 record · `50b630d`/`2e98d3f` T2 marker, sixth skip-index gate, reader degrade,
+  writer · `ac38699`/`e7aa054` T3 `helper2_no_qualifying_completion`, price-exclusion Helper #2 tag, partial-column,
+  Intake-8 fixture (HLP-04, fixture-only), failed-validation pinned · `af7d55f` SUMMARY + STATE/ROADMAP (7/10).
+  Evidence: helper suite 31 passed / 26 subtests; full suite 2222 passed / 1 skipped / 541 subtests; ALL 6 GATES PASSED.
+  HLP-03 stays Pending until 14-08, HLP-04 until 14-10 (last-contributing-plan convention).
+  **Juan resolved O-14-A (2026-09-07): `helper2-wins`** — owner-defined fifth option: Helper #2 > Helper #1 >
+  primary on one row; losing claim dropped for that row with visibility in **Sentry AND run summary** (no PII);
+  prototype abort rejected. Recorded as `O-14-A RESOLVED` in `14-DECISIONS.md`, committed `ede01a9` (= 14-08 T1).
+  Follow-up on per-slot file duplication unanswered → D-14-06 default stands, doc-only. **14-08 executor dispatched
+  2026-09-08 14:10Z** (`/gsd-core:execute-phase 14` resumed; Sonnet, sequential on the main tree — worktree base-check
+  degraded because `feat/phase-12-remediation` is 97 ahead of `origin/master`) as a continuation resuming at T2
+  (helper2-wins at the plain + shadow emission sites in `pipeline/grouping.py`, pre-pass agreement, PII-safe log +
+  Sentry) then T3 (four pre-seeded run-summary counters + `tests/golden/run_summary_baseline.json`, Gate 6 key-set
+  equality). Post-wave: schema-drift gate (blocking), pytest + 6 gates, `verify.key-links` for 14-09. **Next:** 14-09
+  T1 authors the Helper #2 attribution SQL + contract test, then halts at T2 `blocking-human` (Juan applies the
+  migration; T3 read-back also `blocking-human`); 14-10 T1–T2 docs/rehearsal, T3 `blocking-human` (flag default,
+  workflow wiring, one controlled upload). No DDL, Smartsheet write, or workflow change happens without Juan.
 
 ## Latest work (2026-09-03 evening → 2026-09-05 00:30 UTC) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); **12-06 Task 1 full-scope dry-run RE-RUN clean (0/0/0 guards) — awaiting Juan's verdict**; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 
@@ -344,12 +430,14 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
    rows for the target row_ids before `--apply` (Opus MED, 2026-09-03); confirm live `attribution_snapshot` column names, apply
    `billing_audit/own03_backfill_attribution.sql`, approve the dry-run report, run `--apply`, restore the source-5
    cell-history cron only with a candidate source, attachment replacement.
-4. **Phase 14 (Foreman Helper #2) — awaiting Juan's planning approval:** review `.planning/phases/14-foreman-helper-2/14-0N-PLAN.md`
+4. **Phase 14 (Foreman Helper #2) — EXECUTING (wave 1 ✓: 14-01 `11a473d`, 14-02 `34c2f56`, gate green; wave 2 in
+   progress sequentially: 14-03 → 14-04 [T1 `blocking-human`: approve additive `row_state` DDL + `HASH_FIELDS`
+   inclusion, owner-applied] → 14-05; waves 3–6 follow in the same `/gsd-execute-phase 14` run):** for the later checkpoints review `.planning/phases/14-foreman-helper-2/14-0N-PLAN.md`
    (start with 14-01 tracer, 14-08 O-14-A, 14-09 migration, 14-10 rollout). Decide **O-14-A** (row with BOTH helper completions
    checked; recommended = hold the row with visibility, distinct log reason, counter) and confirm the per-slot identity consequence
    (same person in slot 1 and slot 2 within one WR/week → two files; asked again inside 14-08 T1). Two planner calls to accept or
    overrule at their checkpoints: `HASH_FIELDS` includes the Helper #2 fields (14-04 T1) and the mapping-schema marker is a separate
-   nullable `sheet_registry` column (14-07 T1). Then, and only then, `/gsd-execute-phase 14` — waves 1–3 are code + fixtures behind
+   nullable `sheet_registry` column (14-07 T1). Waves 1–3 are code + fixtures behind
    `HELPER2_ENABLED='0'`; every DDL apply, workflow edit, and upload stays behind its `blocking-human` checkpoint.
 
 ## Open owner items
