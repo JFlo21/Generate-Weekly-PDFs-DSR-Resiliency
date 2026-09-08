@@ -52,6 +52,7 @@ from tests.test_billing_audit_shadow import (
 
 _ensure_smartsheet_mocked()
 import generate_weekly_pdfs  # noqa: E402 — must come after mock injection
+import pipeline.grouping as _grouping  # noqa: E402
 from billing_audit.writer import ResolveOutcome  # noqa: E402
 
 
@@ -1677,17 +1678,16 @@ class TestSubcontractorHelper2ShadowRescue(unittest.TestCase):
             "the Helper #2 shadow claimant",
         )
 
-    # ─── O-14-A: no position taken on both-slots-valid ─────────────
+    # ─── O-14-A: helper2-wins conflict resolution ───────────────────
 
-    def test_both_helper_slots_valid_takes_no_position(self):
-        """O-14-A is owner-blocked and belongs to plan 14-08 — this plan
-        must not choose a winner, split the row, duplicate the charge, or
-        silently deduplicate. Documents the CURRENT (unspecified)
-        behavior: since neither shadow-leg gate excludes the other, a row
-        with BOTH a valid Helper #1 AND a valid Helper #2 completion
-        produces BOTH families' shadow keys today — additive, not a
-        chosen winner (see 14-06-PLAN.md 'Blocked and deliberately not
-        decided here')."""
+    def test_both_helper_slots_valid_helper2_wins(self):
+        """O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/
+        14-DECISIONS.md, owner decision 2026-09-07): a subcontractor row
+        with BOTH a valid Helper #1 AND a valid Helper #2 completion is
+        resolved helper2-wins -- the Helper #2 shadow key is emitted and
+        the Helper #1 shadow key is dropped for this row. Replaces this
+        plan's placeholder 'takes no position' test now that Task 1's
+        checkpoint has recorded the rule."""
         with mock.patch(
             'billing_audit.writer.lookup_attribution',
             return_value=None,
@@ -1703,18 +1703,39 @@ class TestSubcontractorHelper2ShadowRescue(unittest.TestCase):
             groups = generate_weekly_pdfs.group_source_rows([row])
         keys = list(groups.keys())
         self.assertTrue(
+            any('REDUCEDSUB_HELPER2_Helper2Person' in k for k in keys),
+            f"Helper #2 shadow key must be emitted -- Helper #2 wins "
+            f"per O-14-A; got: {keys}",
+        )
+        self.assertFalse(
             any(
                 'REDUCEDSUB_HELPER_Helper1Person' in k and 'HELPER2' not in k
                 for k in keys
             ),
-            f"Helper #1 shadow key must still be present; got: {keys}",
+            f"Helper #1 shadow key must be dropped for a conflicted "
+            f"row per O-14-A; got: {keys}",
         )
-        self.assertTrue(
-            any('REDUCEDSUB_HELPER2_Helper2Person' in k for k in keys),
-            f"Helper #2 shadow key must also be present — no winner is "
-            f"chosen here (O-14-A is owner-blocked, plan 14-08's "
-            f"decision); got: {keys}",
-        )
+
+    def test_both_helper_slots_valid_subcontractor_conflict_counted_once(self):
+        """The subcontractor conflict is recorded exactly once — at the
+        shadow leg — never double-counted against the plain-leg site,
+        which defers subcontractor rows to the shadow leg (14-08 Task 2
+        design: the plain leg's Helper #1/#2 blocks never emit a real
+        key for a subcontractor row anyway)."""
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution',
+            return_value=None,
+        ):
+            row = self._make_synth_helper_row(
+                helper_foreman='Helper1Person',
+                snapshot='2026-04-19',
+            )
+            row['__is_helper2_row'] = True
+            row['__helper2_foreman'] = 'Helper2Person'
+            row['__helper2_dept'] = '600'
+            row['__helper2_job'] = 'JOB-B'
+            generate_weekly_pdfs.group_source_rows([row])
+        self.assertEqual(_grouping.get_helper2_conflict_count(), 1)
 
 
 class TestHelper2ShadowExcelRendering(unittest.TestCase):

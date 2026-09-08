@@ -33,6 +33,7 @@ if str(_REPO_ROOT) not in sys.path:
 import generate_weekly_pdfs  # noqa: E402
 import pipeline.discovery as _discovery  # noqa: E402
 import pipeline.fetch as _fetch  # noqa: E402
+import pipeline.grouping as _grouping  # noqa: E402
 from pipeline.config import _RE_SANITIZE_HELPER_NAME  # noqa: E402
 from pipeline.orchestrate import derive_group_identity  # noqa: E402
 from pipeline.types import (  # noqa: E402
@@ -83,6 +84,22 @@ def _helper2_row(**overrides):
         __helper2_foreman='Jamie Helper2',
         __helper2_dept='NA-07',
         __helper2_job='J-88',
+    )
+    row.update(overrides)
+    return row
+
+
+def _both_helpers_row(**overrides):
+    """A row with BOTH a valid Helper #1 AND a valid Helper #2
+    completion -- the O-14-A conflict case
+    (.planning/phases/14-foreman-helper-2/14-DECISIONS.md
+    'O-14-A RESOLVED')."""
+    row = _helper2_row(
+        __row_id=90003,
+        __is_helper_row=True,
+        __helper_foreman='Helper1 Person',
+        __helper_dept='500',
+        __helper_job='JOB-A',
     )
     row.update(overrides)
     return row
@@ -1104,6 +1121,101 @@ class HelperTwoDiscoveryFailedValidationUnchangedTests(unittest.TestCase):
                     os.environ[k] = v
 
         self.assertIn('5551111', str(ctx.exception))
+
+
+class HelperTwoConflictRuleTests(unittest.TestCase):
+    """Plan 14-08 Task 2: the O-14-A RESOLVED conflict rule
+    (.planning/phases/14-foreman-helper-2/14-DECISIONS.md) -- a source
+    row with BOTH a valid Helper #1 completion AND a valid Helper #2
+    completion is resolved helper2-wins: the Helper #2 key is emitted,
+    the Helper #1 claim is dropped for that row, counted, and never
+    aborts the run. Sibling of HelperTwoTracerTests above; same
+    fixture idiom (non-subcontractor, non-VAC plain leg)."""
+
+    def setUp(self):
+        # Ensure this test's synthetic sheet id is never accidentally
+        # treated as a subcontractor sheet by cross-test global state.
+        patcher = mock.patch.object(
+            _discovery, '_FOLDER_DISCOVERED_SUB_IDS', frozenset()
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_both_slots_valid_helper2_wins_helper1_dropped(self):
+        """The conflicted row lands in exactly one helper2 group and no
+        helper (Helper #1) group -- O-14-A precedence (Helper #2 >
+        Helper #1) applies at the plain leg."""
+        row = _both_helpers_row()
+        groups = generate_weekly_pdfs.group_source_rows([row])
+
+        helper2_keys = [
+            k for k, rows in groups.items()
+            if rows[0].get('__variant') == 'helper2'
+        ]
+        self.assertEqual(len(helper2_keys), 1, groups.keys())
+        self.assertEqual(
+            {r.get('__row_id') for r in groups[helper2_keys[0]]},
+            {row['__row_id']},
+        )
+
+        helper_keys = [
+            k for k, rows in groups.items()
+            if rows[0].get('__variant') == 'helper'
+        ]
+        self.assertEqual(
+            helper_keys, [],
+            f"Helper #1 must not emit a group for a conflicted row; "
+            f"got: {list(groups.keys())}",
+        )
+
+    def test_both_slots_valid_conflict_counted_once(self):
+        """get_helper2_conflict_count() increments by exactly one for
+        one conflicted row."""
+        row = _both_helpers_row()
+        generate_weekly_pdfs.group_source_rows([row])
+        self.assertEqual(_grouping.get_helper2_conflict_count(), 1)
+
+    def test_conflict_never_aborts_run_other_groups_still_generate(self):
+        """T-14-08-03: one conflicted row never stops workbook
+        generation for any other group -- the explicit rejection of
+        the 2026-07 prototype's abort-before-workbook behavior."""
+        conflicted = _both_helpers_row()
+        unrelated_primary = _row(**{
+            '__row_id': 90099,
+            'Work Request #': '77777',
+        })
+        groups = generate_weekly_pdfs.group_source_rows(
+            [conflicted, unrelated_primary]
+        )
+        primary_keys = [
+            k for k, rows in groups.items()
+            if rows[0].get('__variant') == 'primary'
+            and rows[0].get('Work Request #') == '77777'
+        ]
+        self.assertEqual(
+            len(primary_keys), 1,
+            f"the unrelated row's primary group must still generate; "
+            f"got: {list(groups.keys())}",
+        )
+        self.assertEqual(_grouping.get_helper2_conflict_count(), 1)
+
+    def test_same_person_both_slots_collapses_to_single_credit(self):
+        """Edge assumption (14-08-PLAN.md HLP-05 adjacency): the SAME
+        person named in both slots on one row is still the conflict
+        case; the person is credited exactly once, via Helper #2."""
+        row = _both_helpers_row(
+            __helper_foreman='Same Person',
+            __helper2_foreman='Same Person',
+        )
+        groups = generate_weekly_pdfs.group_source_rows([row])
+        variants_with_row = [
+            rows[0].get('__variant')
+            for rows in groups.values()
+            if any(r.get('__row_id') == row['__row_id'] for r in rows)
+        ]
+        self.assertEqual(
+            variants_with_row, ['helper2'], list(groups.keys())
+        )
 
 
 if __name__ == "__main__":
