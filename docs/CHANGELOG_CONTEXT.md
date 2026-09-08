@@ -794,3 +794,50 @@ columns" from "nothing qualified this run"; 14-08's run-summary counters consume
 helper suite 31 passed / 26 subtests; full suite 2222 passed / 1 skipped / 541 subtests; `bash
 scripts/run_6_gates.sh` ALL 6 GATES PASSED. HLP-03 stays Pending until 14-08 lands, HLP-04 until 14-10.
 Ledgers (`.claude/project-state.md`, this file) are updated but uncommitted while the executor holds the tree.
+
+## 2026-09-08 — Plan 14-08 closed: helper2-wins conflict rule + four Helper #2 run-summary counters; TEST_MODE token footgun closed; 14-09 dispatched
+
+**What changed.** The 14-08 executor (Sonnet, sequential on the main tree) implemented Juan's O-14-A rule:
+a source row where BOTH helper slots are valid claims is now emitted for Helper #2 only, at the single
+plain-leg and shadow-leg emission sites in `pipeline/grouping.py`, with the pre-pass exclusions agreeing, the
+losing Helper #1 claim logged once with the locked conflict reason (PII-safe), counted, and surfaced to Sentry
+with ids/counts only (`c1d096b` RED, `b3ae217` GREEN; plan 14-06's "takes no position" placeholder test is
+replaced). `pipeline/orchestrate.py` now pre-seeds four Helper #2 counters on every run (capability-absent,
+capability-present-but-idle, conflicted, generated) and `tests/golden/run_summary_baseline.json` grew from 25
+to 29 keys in the same commit (`4aeea1e` RED, `bede1c0` GREEN). `30d7d8a` wrote 14-08-SUMMARY.md, marked
+8/10 plans, and flipped HLP-03 and HLP-05 to Complete. Orchestrator gates after the plan: full suite 2230
+passed / 1 skipped / 541 subtests, ALL 6 GATES PASSED, schema-drift and UI gates clear.
+
+**Incident (read-only, closed).** Before finding the right invocation the executor ran a bare
+`TEST_MODE=true python generate_weekly_pdfs.py`; python-dotenv loaded the real token from `.env` and the run
+fetched 121 live source sheets / 217,741 rows over 18.8 min, ran the rate-sanity audit, and was killed by the
+orchestrator before Excel generation or upload. No Smartsheet write occurred. `0203e27` changes the documented
+synthetic dry run in `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/ai/safe-commands.md` to
+`SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true PYTHONUTF8=1 python generate_weekly_pdfs.py` and
+records the lesson in `memory-bank/living-ledger.md` (`[2026-09-08 10:20]`).
+
+**Operator effect.** Nothing in production changed: no DDL, no upload, no workflow edit. The 14-09 executor is
+authoring the owner-deployed attribution SQL and will stop at its `blocking-human` checkpoint for Juan to
+choose the deployment order and quiet window; nothing is applied from an agent session.
+
+## 2026-09-08 — Plan 14-09 Task 1: owner-deployed Helper #2 attribution SQL authored; stopped at the apply checkpoint; DEFAULT NULL fix
+
+**What changed.** The 14-09 executor authored `billing_audit/helper2_attribution.sql` (`66924c0`): two additive
+nullable columns on `billing_audit.attribution_snapshot`, a read-then-manual-splice procedure for
+`freeze_attribution` (its body lives only in Supabase and is never fabricated in the repo), both lookup
+functions recreated DROP-first so their return columns actually change (the 2026-05-27 silent non-deploy
+lesson), GRANTs, a schema-cache reload, and read-back queries. `billing_audit/schema.sql` documents the new
+contract and corrects the stale bulk-lookup comment; `tests/test_helper2_attribution_sql_contract.py` pins
+drop-before-create, no plain create-or-replace, parameter/return-column parity with `billing_audit/writer.py`,
+and no touch of the backfill function or provenance columns. The orchestrator then added `DEFAULT NULL` to the
+two new freeze parameters, documented it, and pinned it in the contract test (`c786ec3`).
+
+**Why the fix.** PostgREST resolves a named-argument RPC call only when every parameter without a default is
+supplied. The currently deployed writer sends the 12 pre-Phase-14 parameters, so a 14-parameter function
+without defaults would reject every freeze between the SQL apply and the code merge. With the defaults, both
+deployment orders are safe.
+
+**Operator effect.** Nothing applied. Plan 14-09 is stopped at its `blocking-human` Task 2 checkpoint: Juan
+chooses `sql-first` / `code-first` / `defer`, a quiet window outside the cron schedule, applies the file by hand
+in the Supabase SQL Editor, and records `D-14-07-APPLIED` before Task 3's read-back. Evidence on the fixed
+tree: contract test 19 passed; full suite 2248 passed / 1 skipped / 548 subtests; ALL 6 GATES PASSED.

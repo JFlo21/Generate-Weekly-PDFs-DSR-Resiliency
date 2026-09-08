@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-08 09:35 CDT (2026-09-08 14:35Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-08 10:55 CDT (2026-09-08 15:55Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -123,15 +123,28 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   **Juan resolved O-14-A (2026-09-07): `helper2-wins`** — owner-defined fifth option: Helper #2 > Helper #1 >
   primary on one row; losing claim dropped for that row with visibility in **Sentry AND run summary** (no PII);
   prototype abort rejected. Recorded as `O-14-A RESOLVED` in `14-DECISIONS.md`, committed `ede01a9` (= 14-08 T1).
-  Follow-up on per-slot file duplication unanswered → D-14-06 default stands, doc-only. **14-08 executor dispatched
-  2026-09-08 14:10Z** (`/gsd-core:execute-phase 14` resumed; Sonnet, sequential on the main tree — worktree base-check
-  degraded because `feat/phase-12-remediation` is 97 ahead of `origin/master`) as a continuation resuming at T2
-  (helper2-wins at the plain + shadow emission sites in `pipeline/grouping.py`, pre-pass agreement, PII-safe log +
-  Sentry) then T3 (four pre-seeded run-summary counters + `tests/golden/run_summary_baseline.json`, Gate 6 key-set
-  equality). Post-wave: schema-drift gate (blocking), pytest + 6 gates, `verify.key-links` for 14-09. **Next:** 14-09
-  T1 authors the Helper #2 attribution SQL + contract test, then halts at T2 `blocking-human` (Juan applies the
-  migration; T3 read-back also `blocking-human`); 14-10 T1–T2 docs/rehearsal, T3 `blocking-human` (flag default,
-  workflow wiring, one controlled upload). No DDL, Smartsheet write, or workflow change happens without Juan.
+  Follow-up on per-slot file duplication unanswered → D-14-06 default stands, doc-only. **14-08 COMPLETE (2026-09-08
+  15:07Z; `/gsd-core:execute-phase 14` resumed, Sonnet executor sequential on the main tree — worktree base-check
+  degraded, branch 97+ ahead of `origin/master`):** `c1d096b`/`b3ae217` T2 helper2-wins at the plain + shadow emission
+  sites in `pipeline/grouping.py` (pre-pass agreement, conflict reason logged once, counted, Sentry ids/counts only;
+  14-06 placeholder test replaced) · `4aeea1e`/`bede1c0` T3 four pre-seeded Helper #2 run-summary counters in
+  `pipeline/orchestrate.py` + `tests/golden/run_summary_baseline.json` (25 → 29 keys) · `30d7d8a` SUMMARY + STATE/
+  ROADMAP (8/10) + HLP-03/HLP-05 Complete (that docs commit lacks the session trailers — left un-amended). Orchestrator
+  gates: full suite 2230 passed / 1 skipped / 541 subtests; ALL 6 GATES PASSED; schema-drift/ui gates clear. Ledgers
+  `fe01e6e`. **Incident (read-only):** the executor's first `TEST_MODE=true` run loaded the `.env` token and fetched
+  121 live sheets / 217,741 rows (18.8 min) before the orchestrator killed it ahead of Excel/upload — no write; fixed
+  in `0203e27` (CLAUDE.md/copilot/safe-commands now `SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true
+  PYTHONUTF8=1 …`, living-ledger `[2026-09-08 10:20]`). **14-09 T1 DONE `66924c0` (+ `a64f761` blocker
+  record), STOPPED at T2 `blocking-human` 15:45Z:** `billing_audit/helper2_attribution.sql` (5 owner-run steps; STEP 2b is a
+  manual splice because the freeze body lives only in Supabase), `schema.sql` contract/comment fix, contract test (19 passed).
+  Orchestrator fix `c786ec3`: `DEFAULT NULL` on `p_helper2`/`p_helper2_dept` so the deployed 12-parameter writer still
+  resolves the RPC after the migration (PostgREST needs every non-default named arg) — this is what makes sql-first safe.
+  Gates on the fixed tree: full suite 2248 passed / 1 skipped / 548 subtests; ALL 6 GATES PASSED. **AWAITING JUAN (14-09 T2):**
+  choose `sql-first` (recommended) / `code-first` / `defer` + a quiet window (cron UTC weekdays 13,15,17,19,21,23,01;
+  weekends 15,19,23; Mon 05 → weekday quiet ≈ 04:00–12:45Z = 23:00–07:45 CDT; widest gap Fri ~19:00 → Sat ~07:00 CDT),
+  apply by hand in `poeyztlmsawfoqlanucc`, record `D-14-07-APPLIED`; then 14-09 T3 read-back (`blocking-human`) → 14-10
+  (T1–T2 docs/rehearsal, T3 `blocking-human` flag default / wiring / one controlled upload). No DDL, Smartsheet write, or
+  workflow change happens without Juan. 14-10 is blocked behind 14-09 (depends_on).
 
 ## Latest work (2026-09-03 evening → 2026-09-05 00:30 UTC) — Phase 12 waves 2–3 merged (PR #388 → `1f159bc`, master green); 12-03 SQL live + verified; G-12-3 gap closure DONE on `feat/phase-12-remediation` (12-07..12-10 ✓; RPC extension guard + `attribution_snapshot_backup_20260904` live); **12-06 Task 1 full-scope dry-run RE-RUN clean (0/0/0 guards) — awaiting Juan's verdict**; code-quality pass: CR-01 latent (0 live rows), WR-01 ledger-test brittleness — nothing pushed
 
