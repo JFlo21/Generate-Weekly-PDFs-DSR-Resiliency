@@ -778,5 +778,333 @@ class MappingSchemaMarkerWriterTests(unittest.TestCase):
             self.assertNotIn("mapping_schema", row)
 
 
+# ── Task 3 (14-07) fixture helpers: a synthetic Smartsheet sheet ────────
+# shaped by column_mapping + row cells, driven through
+# pipeline.fetch.get_all_source_rows with smartsheet_call_with_retry
+# patched -- mirrors tests/test_fetch_auth_errors.py's pattern.
+
+def _column_id_map(*fields):
+    return {field: idx + 1 for idx, field in enumerate(fields)}
+
+
+def _fetch_cell(column_id, value):
+    return SimpleNamespace(column_id=column_id, value=value, display_value=None)
+
+
+def _fetch_row(row_id, values, column_mapping):
+    cells = [
+        _fetch_cell(column_mapping[field], value)
+        for field, value in values.items()
+        if field in column_mapping
+    ]
+    return SimpleNamespace(id=row_id, cells=cells, modified_at=None)
+
+
+def _fetch_sheet(rows, version=1):
+    return SimpleNamespace(rows=rows, version=version)
+
+
+class HelperTwoPartialColumnCapabilityTests(unittest.TestCase):
+    """Task 3 (14-07, D-14-02): a sheet mapping only SOME of the three
+    key Helper #2 columns is treated as capability-unavailable, not
+    partially capable -- the same distinct reason a zero-Helper-#2-
+    column sheet logs. 14-02's live probe found no partial set on any
+    of the 117 sheets surveyed; this is a defensive shape, not an
+    observed one."""
+
+    def test_partial_helper2_column_set_is_capability_unavailable(self):
+        # Only 'Foreman Helping? #2' mapped; the other two key columns
+        # ('Helping Foreman #2 Completed Unit?', 'Helper #2 Dept #')
+        # are absent from column_mapping -- the D-14-04 three-column
+        # AND-gate must still evaluate to capability-unavailable.
+        column_mapping = _column_id_map(
+            'Work Request #', 'Weekly Reference Logged Date',
+            'Units Completed?', 'Units Total Price', 'CU', 'Foreman',
+            'Foreman Helping? #2',
+        )
+        source = {
+            'id': 4443456, 'name': 'Partial Helper2 Sheet',
+            'column_mapping': column_mapping,
+        }
+        row = _fetch_row(90030, {
+            'Work Request #': '90030',
+            'Weekly Reference Logged Date': '2026-07-30',
+            'Units Completed?': True,
+            'Units Total Price': '$50.00',
+            'CU': 'CU-500',
+            'Foreman': 'Primary Person',
+            'Foreman Helping? #2': 'Jamie Helper2',
+        }, column_mapping)
+        sheet = _fetch_sheet([row])
+
+        def _side_effect(_fn, _sheet_id, **_kwargs):
+            return sheet
+
+        with mock.patch.object(
+            _fetch, 'smartsheet_call_with_retry', side_effect=_side_effect,
+        ), self.assertLogs(level='INFO') as cm:
+            result = _fetch.get_all_source_rows(mock.Mock(), [source])
+
+        self.assertEqual(len(result), 1)
+        self.assertFalse(result[0]['__is_helper2_row'])
+        capability_lines = [
+            m for m in cm.output if 'helper2_capability_unavailable' in m
+        ]
+        self.assertEqual(len(capability_lines), 1)
+
+
+class HelperTwoNoQualifyingCompletionTests(unittest.TestCase):
+    """Task 3 (14-07, D-14-02): the eligible-source-with-no-qualifying-
+    completion condition logs a reason distinct from capability-
+    unavailable -- capability present, but no row this run satisfies the
+    Helper #2 completion criteria."""
+
+    def setUp(self):
+        patcher = mock.patch.object(_fetch, 'HELPER2_ENABLED', True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _helper2_capable_columns():
+        return _column_id_map(
+            'Work Request #', 'Weekly Reference Logged Date',
+            'Units Completed?', 'Units Total Price', 'CU', 'Foreman',
+            'Foreman Helping? #2', 'Helping Foreman #2 Completed Unit?',
+            'Helper #2 Dept #',
+        )
+
+    def _run(self, values, name='Helper2 Capable Sheet', sheet_id=4441234):
+        column_mapping = self._helper2_capable_columns()
+        source = {'id': sheet_id, 'name': name, 'column_mapping': column_mapping}
+        row = _fetch_row(90040, values, column_mapping)
+        sheet = _fetch_sheet([row])
+
+        def _side_effect(_fn, _sheet_id, **_kwargs):
+            return sheet
+
+        with mock.patch.object(
+            _fetch, 'smartsheet_call_with_retry', side_effect=_side_effect,
+        ), self.assertLogs(level='INFO') as cm:
+            result = _fetch.get_all_source_rows(mock.Mock(), [source])
+        return result, cm.output
+
+    def test_capability_present_no_qualifying_row_logs_distinct_reason(self):
+        result, log_output = self._run({
+            'Work Request #': '90005',
+            'Weekly Reference Logged Date': '2026-07-30',
+            'Units Completed?': True,
+            'Units Total Price': '$75.00',
+            'CU': 'CU-100',
+            'Foreman': 'Primary Person',
+            'Foreman Helping? #2': '',  # never qualifies
+            'Helping Foreman #2 Completed Unit?': False,
+            'Helper #2 Dept #': '',
+        })
+
+        self.assertEqual(len(result), 1)  # primary row still produced
+        self.assertFalse(result[0]['__is_helper2_row'])
+        no_qual_lines = [
+            m for m in log_output if 'helper2_no_qualifying_completion' in m
+        ]
+        self.assertEqual(len(no_qual_lines), 1)
+        # Distinct from the capability-unavailable reason -- capability
+        # IS present here.
+        self.assertEqual(
+            [m for m in log_output if 'helper2_capability_unavailable' in m],
+            [],
+        )
+        # No raw person's name in the reason line itself (only the
+        # sheet name is interpolated).
+        for line in no_qual_lines:
+            self.assertNotIn('Primary Person', line)
+
+    def test_qualifying_row_suppresses_no_qualifying_reason(self):
+        result, log_output = self._run({
+            'Work Request #': '90005',
+            'Weekly Reference Logged Date': '2026-07-30',
+            'Units Completed?': True,
+            'Units Total Price': '$75.00',
+            'CU': 'CU-100',
+            'Foreman': 'Primary Person',
+            'Foreman Helping? #2': 'Jamie Helper2',
+            'Helping Foreman #2 Completed Unit?': True,
+            'Helper #2 Dept #': 'NA-07',
+        })
+
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0]['__is_helper2_row'])
+        self.assertEqual(
+            [m for m in log_output if 'helper2_no_qualifying_completion' in m],
+            [],
+        )
+
+
+class HelperTwoPriceExclusionDiagnosticTagTests(unittest.TestCase):
+    """Task 3 (14-07): the price-exclusion diagnostic's specialized-row
+    condition covers the Helper #2 slot -- a price-excluded Helper #2
+    row is tagged as a 'helper' row in the diagnostic WARNING (the SAME
+    tag Helper #1 gets), not a VAC-crew row, and not falling through
+    untagged."""
+
+    def setUp(self):
+        patcher = mock.patch.object(_fetch, 'HELPER2_ENABLED', True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_price_excluded_helper2_row_tagged_as_helper(self):
+        column_mapping = _column_id_map(
+            'Work Request #', 'Weekly Reference Logged Date',
+            'Units Completed?', 'Units Total Price', 'CU', 'Foreman',
+            'Foreman Helping? #2', 'Helping Foreman #2 Completed Unit?',
+            'Helper #2 Dept #',
+        )
+        source = {
+            'id': 4442345, 'name': 'Helper2 Price-Excluded Sheet',
+            'column_mapping': column_mapping,
+        }
+        row = _fetch_row(90020, {
+            'Work Request #': '90020',
+            'Weekly Reference Logged Date': '2026-07-30',
+            'Units Completed?': True,
+            'Units Total Price': None,  # missing price -- excluded
+            'CU': 'CU-400',
+            'Foreman': 'Primary Person',
+            'Foreman Helping? #2': 'Jamie Helper2',
+            'Helping Foreman #2 Completed Unit?': True,
+            'Helper #2 Dept #': 'NA-07',
+        }, column_mapping)
+        sheet = _fetch_sheet([row])
+
+        def _side_effect(_fn, _sheet_id, **_kwargs):
+            return sheet
+
+        with mock.patch.object(
+            _fetch, 'smartsheet_call_with_retry', side_effect=_side_effect,
+        ), self.assertLogs(level='WARNING') as cm:
+            result = _fetch.get_all_source_rows(mock.Mock(), [source])
+
+        self.assertEqual(result, [])  # excluded, not appended
+        dropped_helper_lines = [
+            m for m in cm.output if 'Dropped helper row' in m
+        ]
+        self.assertEqual(len(dropped_helper_lines), 1)
+        self.assertEqual(
+            [m for m in cm.output if 'Dropped VAC crew row' in m], [],
+        )
+
+
+class HelperTwoIntake8ShapedFixtureTests(unittest.TestCase):
+    """Task 3 (14-07, HLP-04): a source shaped exactly like Intake
+    ProMax 8 (sheet id 2244739192541060, per the read-only live-column
+    probe recorded in 14-DECISIONS.md, plan 14-02 Task 3) -- full
+    Helper #1 column set, none of the six Helper #2 titles -- is
+    accepted, produces normal (primary) output, produces NO Helper #2
+    output, and logs the capability-unavailable reason.
+
+    FIXTURE ONLY: this test never reads, repairs, reconnects, or
+    migrates sheet 2244739192541060 or any other live Smartsheet sheet.
+    A deliberately fictional sheet id is used below (mirroring
+    HelperTwoCapabilityAbsentDiscoveryTests' precedent) so this fixture
+    can never be mistaken for a live call -- everything here is a
+    synthetic column_mapping + row fixture with
+    smartsheet_call_with_retry patched out entirely."""
+
+    def setUp(self):
+        patcher = mock.patch.object(_fetch, 'HELPER2_ENABLED', True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_intake8_shaped_source_accepted_no_helper2_output(self):
+        column_mapping = _column_id_map(
+            'Work Request #', 'Weekly Reference Logged Date',
+            'Units Completed?', 'Units Total Price', 'CU', 'Foreman',
+            'Foreman Helping?', 'Helping Foreman Completed Unit?',
+            'Helper Dept #', 'Helper Job #',
+            # No Helper #2 titles -- the Intake-8 shape (0/6, D-14-01).
+        )
+        source = {
+            # Fictional id -- NEVER the real Intake ProMax 8 id, and no
+            # Smartsheet client call happens in this test regardless.
+            'id': 9990008, 'name': 'Intake-8-shaped Sheet (fixture)',
+            'column_mapping': column_mapping,
+        }
+        row = _fetch_row(90010, {
+            'Work Request #': '90010',
+            'Weekly Reference Logged Date': '2026-07-30',
+            'Units Completed?': True,
+            'Units Total Price': '$50.00',
+            'CU': 'CU-300',
+            'Foreman': 'Primary Person',
+        }, column_mapping)
+        sheet = _fetch_sheet([row])
+
+        def _side_effect(_fn, _sheet_id, **_kwargs):
+            return sheet
+
+        with mock.patch.object(
+            _fetch, 'smartsheet_call_with_retry', side_effect=_side_effect,
+        ), self.assertLogs(level='INFO') as cm:
+            result = _fetch.get_all_source_rows(mock.Mock(), [source])
+
+        # Accepted: normal (primary) output produced, not rejected/empty.
+        self.assertEqual(len(result), 1)
+        self.assertFalse(result[0]['__is_helper2_row'])
+        self.assertNotIn('__helper2_foreman', result[0])
+
+        capability_lines = [
+            m for m in cm.output if 'helper2_capability_unavailable' in m
+        ]
+        self.assertEqual(len(capability_lines), 1)
+
+
+class HelperTwoDiscoveryFailedValidationUnchangedTests(unittest.TestCase):
+    """Task 3 (14-07, D-14-02): pins that pipeline/discovery.py's
+    strict-mode acceptance gate and failed-validation except branch are
+    untouched by Helper #2 -- a genuine sheet-read failure still routes
+    through _failed_validation_sids and still aborts the run; it is
+    never reported as a Helper #2 absence. Test-only obligation (14-07
+    Task 3 action text); no discovery.py code change accompanies this
+    test (see `git diff pipeline/discovery.py`, empty for this task)."""
+
+    def test_genuine_read_failure_still_aborts_not_reported_as_helper2_absence(self):
+        saved_env = {
+            k: os.environ.get(k) for k in (
+                'LIMITED_SHEET_IDS', 'SUBCONTRACTOR_FOLDER_IDS',
+                'ORIGINAL_CONTRACT_FOLDER_IDS',
+            )
+        }
+        saved_attrs = {
+            k: getattr(generate_weekly_pdfs, k) for k in (
+                'SUBCONTRACTOR_FOLDER_IDS', 'ORIGINAL_CONTRACT_FOLDER_IDS',
+            )
+        }
+        client = mock.MagicMock()
+        client.Sheets.get_sheet.side_effect = RuntimeError("transport down")
+        client.Sheets.list_sheets.return_value = SimpleNamespace(data=[])
+        try:
+            os.environ['LIMITED_SHEET_IDS'] = '5551111'
+            os.environ['SUBCONTRACTOR_FOLDER_IDS'] = ''
+            os.environ['ORIGINAL_CONTRACT_FOLDER_IDS'] = ''
+            generate_weekly_pdfs.SUBCONTRACTOR_FOLDER_IDS = []
+            generate_weekly_pdfs.ORIGINAL_CONTRACT_FOLDER_IDS = []
+            with mock.patch.object(
+                _discovery, '_FOLDER_DISCOVERED_SUB_IDS', set()
+            ), mock.patch.object(
+                _discovery, '_FOLDER_DISCOVERED_ORIG_IDS', set()
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    _discovery.discover_source_sheets(client)
+        finally:
+            for k, v in saved_attrs.items():
+                setattr(generate_weekly_pdfs, k, v)
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        self.assertIn('5551111', str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
