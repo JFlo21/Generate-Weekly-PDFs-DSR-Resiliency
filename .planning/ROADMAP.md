@@ -878,8 +878,8 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 10/11 plans executed (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to
-close O-14-C, making seven waves).
+**Plans:** 11/11 plans executed (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to
+close O-14-C, making seven waves). Phase 14 is fully executed.
 
 Plans:
 
@@ -929,7 +929,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6)*
 
-- [ ] 14-10-PLAN.md — Rollout: runbook, environment and architecture documentation, the escalating
+- [x] 14-10-PLAN.md — Rollout: runbook, environment and architecture documentation, the escalating
   pilot rehearsal with rollback, and the owner decisions on flag default, workflow wiring, and the
   single controlled upload
 

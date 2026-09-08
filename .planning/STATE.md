@@ -5,17 +5,17 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: executing
-stopped_at: "Phase 14 Plan 11 complete (O-14-C-APPLIED + O-14-C-VERIFIED, O-14-C RESOLVED, 14-11-SUMMARY.md written); next is Plan 14-10 (Wave 7 rollout), the phase's last plan"
-last_updated: "2026-09-08T22:00:00.000Z"
+stopped_at: "Phase 14 Plan 10 complete (rollout: runbook, pilot rehearsal, D-14-12-ROLLOUT documented-only, deploy-now merge to master 6d8942c); Phase 14 is fully executed (11/11 plans)"
+last_updated: "2026-09-08T23:00:00.000Z"
 last_activity: 2026-09-08
-last_activity_desc: Phase 14 Plan 11 closed out (O-14-C per-role Helper #2 fill applied and verified)
+last_activity_desc: Phase 14 Plan 10 closed out (rollout runbook/pilot/owner decisions; phase complete)
 progress:
   total_phases: 14
   completed_phases: 12
   total_plans: 71
-  completed_plans: 70
-  percent: 99
-state_head: c3df1a8060546c34730139e4f06865eeee92eb8a
+  completed_plans: 71
+  percent: 100
+state_head: 6d8942c80033bb73da308c927c50945adadbd927
 ---
 
 # Project State
@@ -162,6 +162,7 @@ Progress: [████████████████████] 50/50 p
 | Phase 14 P08 | 50min | 3 tasks | 8 files |
 | Phase 14 P09 | ~2h10m (3 checkpoint-gated stretches) | 3 tasks | 4 files |
 | Phase 14 P11 | ~40min (2 checkpoint-gated stretches) | 3 tasks | 12 files |
+| Phase 14 P10 | ~12min active (2 stretches, 1 gate wait) | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -317,6 +318,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: D-14-07-APPLIED (2026-09-08): Juan chose sql-first and explicitly delegated the apply to the orchestrating Claude session over the Supabase MCP connection (owner-authorized deviation from "never apply from an agent session," T-14-09-05); applied 16:55:11Z as migration 20260908165511_helper2_attribution_columns_and_rpcs, with 3 preserve-live-definition deviations (parameter order, pinned search_path, per-row not per-role first-write-wins) back-ported into the repo file in the same commit.
 - [Phase 14]: D-14-07-VERIFIED (2026-09-08): 4 owner-delegated, owner-co-signed production read-back checks confirm both lookups return the new columns, the table has both columns, a Helper #2 freeze leaves the other 3 role columns byte-identical, and the first post-apply run shows zero PGRST errors. Assumption A4 CLOSED by observation. HLP-06 marked complete.
 - [Phase 14]: O-14-C RESOLVED (plan 14-11, 2026-09-08): Juan chose apply-delegated; the per-role Helper #2 fill migration (`billing_audit/helper2_attribution_fill.sql`) applied 20:12:05Z as migration `20260908201205_helper2_attribution_per_role_fill` (ON CONFLICT ... DO UPDATE gated by `is_sentinel_value`, Helper #2 only); synthetic-row read-back confirms the fill writes only the two Helper #2 columns plus provenance, every other column byte-identical, a second differing Helper #2 refused, fresh inserts carry no provenance. Post-merge, real-row confirmation of `snapshots_helper2_filled` and the no-degrade-warning check remain PENDING (Helper #2 is blank across production today).
+- [Phase 14]: D-14-12-ROLLOUT (plan 14-10, 2026-09-08 ~22:45Z): Juan chose documented-only -- `HELPER2_ENABLED` stays off in the repository default, no workflow wiring, no controlled upload authorized this phase; Juan separately instructed an immediate deploy ("i want this to roll out in production like right now"), and the orchestrating session merged `feat/phase-12-remediation` into `master` (`6d8942c`) on that instruction, skipping the pilot's live steps and relying on the already-passing automated gates as evidence. Phase 14 (Foreman Helper #2) is fully executed: 11/11 plans; HLP-04 and HLP-07 marked Complete.
 
 ### Roadmap Evolution
 
@@ -489,9 +491,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-08T22:00:00.000Z
-**Stopped at:** Phase 14 Plan 11 complete -- Juan approved Task 3 ("i approve the d-14-07-verified & apply-delegated"); the per-role Helper #2 fill migration was applied (O-14-C-APPLIED, migration `20260908201205_helper2_attribution_per_role_fill`) and read back on synthetic rows (O-14-C-VERIFIED); O-14-C is RESOLVED; 14-11-SUMMARY.md written. Phase 14's only remaining plan is 14-10 (Wave 7 rollout: runbook, pilot, flag default, workflow wiring).
-**Resume file:** .planning/phases/14-foreman-helper-2/14-10-PLAN.md
+**Last session:** 2026-09-08T23:00:00.000Z
+**Stopped at:** Phase 14 Plan 10 complete -- Task 1 shipped the operator runbook + environment/architecture docs (`fe70b28`); Task 2 rehearsed the pilot in escalating order, fixture pass and dry-run pass over synthetic data, step 3 recorded not-run (`b080d59`); Task 3's `checkpoint:decision gate="blocking-human"` resolved as `documented-only` -- `HELPER2_ENABLED` stays off in the repository default, no workflow wiring, no controlled upload (`D-14-12-ROLLOUT`, `a3998f9`) -- and Juan separately instructed an immediate deploy, so the orchestrating session merged `feat/phase-12-remediation` into `master` (`6d8942c`), validated by the full suite (2284 passed / 1 skipped / 557 subtests), `scripts/run_6_gates.sh` (ALL 6 GATES PASSED), and the website typecheck+build. Phase 14 (Foreman Helper #2) is now fully executed: 11/11 plans. Post-merge production observation (the fill counter and no-degrade-warning checks) and the two Smartsheet-side operator preconditions remain open, owner-tracked items -- not phase-blocking.
+**Resume file:** None
 
 ## Session Continuity
 
