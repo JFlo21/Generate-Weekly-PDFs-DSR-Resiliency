@@ -180,8 +180,17 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   T1 docs (runbook page, environment catalog, architecture, living-ledger), T2 rehearsal (fixtures + synthetic only;
   live upload-suppressed step 3 runs only under a dated owner authorization in 14-DECISIONS.md, else recorded "not run";
   step 4 never), T3 `blocking-human` (flag-off documented / + workflow wiring as a separate approved change / + one
-  controlled upload by Juan). **NEXT:** 14-10 T3 decision → 14-10 closeout → phase tail gates (code review, regression,
-  verify-phase-goal, roadmap update) → merge/PR decision.
+  controlled upload by Juan). **14-10 T1–T2 DONE (executor, ≈22:30Z; orchestrator re-verified):** `fe70b28` runbook
+  `website/docs/runbook/foreman-helper-2.md` (292 lines) + sidebar + `environment.md` + `configuration-environment.md`
+  + `docs/ai/architecture.md` + `whats-new.md` + living-ledger; `b080d59` rehearsal: step 1 fixture pass (2284 passed),
+  step 2 dry-run pass over synthetic data (30-key run_summary, 6 gates), step 3 NOT RUN — no credentials/authorization
+  (fixture-only; also: `SKIP_UPLOAD` never suppresses `freeze_attribution`, so an upload-suppressed live run still
+  writes Supabase), step 4 NOT RUN; record `14-10-PILOT-REHEARSAL`. Workflow file untouched (proposed line recorded
+  only). **STOPPED at 14-10 T3 `blocking-human` → `D-14-12-ROLLOUT`:** documented-only (recommended; RA Helper #2 column
+  blank on 576 rows) / wiring-only / controlled-upload, plus the flag-default answer. Still OPEN for phase closeout:
+  O-14-B (`upsert_rows_bulk` lacks Helper #2 fields → gap-closure plan after `/gsd-verify-work 14`), O-14-A Follow-up 1
+  (per-slot duplication, documented as accepted-pending-confirmation). **NEXT:** Juan's D-14-12-ROLLOUT → 14-10 closeout
+  → phase tail gates (code review, regression, verify-phase-goal, roadmap) → merge/PR decision.
   Post-merge check still owed: first post-merge run logs no Helper #2 degrade warning and, when a late Helper #2
   appears, `snapshots_helper2_filled` > 0. No Smartsheet write or workflow change without Juan.
 

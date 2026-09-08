@@ -926,3 +926,25 @@ refused; a fresh insert carries Helper #2 with no provenance; both lookups retur
 the merge, a row frozen before a Helper #2 appeared on it is re-sent once, filled once, and counted as
 `snapshots_helper2_filled` in the run summary. Watch that counter and the Helper #2 degrade warning on the
 first post-merge run.
+
+## 2026-09-08 — Plan 14-10 Tasks 1–2: Helper #2 runbook and environment docs shipped; pilot rehearsed to fixture and synthetic evidence; rollout decision open
+
+**What changed.** A new runbook page, `website/docs/runbook/foreman-helper-2.md`, documents what Helper #2
+is, the `HELPER2_ENABLED` flag and where it is consumed, the four run conditions and how to tell them apart
+in a log, filenames and attachment placement, how a Helper #2 change is picked up, the two decision-born
+operator notes (one person in two slots produces two files; the both-slots-checked row goes to Helper #2),
+rollback, the proposed workflow wiring line (recorded, not applied), and the pilot procedure with its
+comparison criteria and evidence labels. The environment reference, the operator quick reference, the
+architecture doc, and the what's-new page were updated to match (`fe70b28`). The pilot was then rehearsed
+in order: fixtures pass, synthetic dry run passes with the 30-key run summary and all six gates, the live
+upload-suppressed step was not run because no dated owner authorization exists, and the controlled upload
+is never run by an agent (`b080d59`, record `14-10-PILOT-REHEARSAL`).
+
+**Why the live step stayed off.** Beyond the missing authorization, the rehearsal's flag-consumption reading
+found that `SKIP_UPLOAD` suppresses uploads and attachment cleanup but never the `freeze_attribution` write,
+which is gated only by `TEST_MODE`. An upload-suppressed run over live sheets therefore still writes
+attribution rows to Supabase. That is now stated in the runbook so nobody treats that command as read-only.
+
+**Operator effect.** Nothing changed in production. The feature ships flag-off and stays off until the
+rollout decision `D-14-12-ROLLOUT` is recorded. Because the Resource Analyst Helper #2 column is blank on all
+576 rows, the pilot evidence stops at fixtures and synthetic data by construction.
