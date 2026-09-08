@@ -115,8 +115,16 @@ WHERE n.nspname = 'billing_audit'
 -- pre-existing parameters already documented in
 -- billing_audit/schema.sql's freeze_attribution contract block.
 -- Preserve every existing parameter's name, type, and position
--- EXACTLY; the two new parameters are appended at the end, matching
--- the order billing_audit/writer.py already sends them in.
+-- EXACTLY; the two new parameters sit after p_vac_crew, matching the
+-- documented contract order in billing_audit/schema.sql (PostgREST
+-- matches RPC arguments by NAME, so their position never affects the
+-- writer's call). Both new parameters carry DEFAULT NULL on purpose:
+-- PostgREST resolves a named-argument RPC call only when every
+-- parameter WITHOUT a default is supplied, so without the defaults the
+-- currently deployed writer (which still sends the 12 pre-Phase-14
+-- parameters) would get PGRST202 on every freeze between this apply
+-- and the code merge. The defaults are what make `sql-first` safe;
+-- tests/test_helper2_attribution_sql_contract.py pins them.
 --
 -- DROP FUNCTION also removes any GRANT on the old function -- after
 -- completing 2b, re-apply whatever GRANT EXECUTE ... TO service_role
@@ -137,8 +145,8 @@ WHERE n.nspname = 'billing_audit'
 --     p_helper            TEXT,
 --     p_helper_dept       TEXT,
 --     p_vac_crew          TEXT,
---     p_helper2           TEXT,
---     p_helper2_dept      TEXT,
+--     p_helper2           TEXT DEFAULT NULL,
+--     p_helper2_dept      TEXT DEFAULT NULL,
 --     p_pole              TEXT,
 --     p_cu                TEXT,
 --     p_work_type         TEXT,

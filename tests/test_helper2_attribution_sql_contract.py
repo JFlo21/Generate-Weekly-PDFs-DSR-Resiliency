@@ -365,6 +365,31 @@ class SchemaSqlCommentCorrectionTests(unittest.TestCase):
         self.assertIn("helper2", columns_bulk)
         self.assertIn("helper2_dept", columns_bulk)
 
+class FreezeParameterDefaultTests(unittest.TestCase):
+    """Both Helper #2 freeze parameters must carry DEFAULT NULL.
+    PostgREST resolves a named-argument RPC call only when every
+    parameter without a default is supplied; the currently deployed
+    writer still sends the 12 pre-Phase-14 parameters, so without the
+    defaults every freeze between the SQL apply and the code merge
+    would fail with PGRST202. This is what makes ``sql-first`` safe."""
+
+    def test_helper2_freeze_params_default_null(self):
+        raw = _read_source(_SQL_RELPATH)
+        match = re.search(
+            r"CREATE FUNCTION billing_audit\.freeze_attribution"
+            r"\(([^)]*(?:\([^)]*\)[^)]*)*)\)",
+            raw,
+            re.DOTALL,
+        )
+        assert match, "no freeze_attribution parameter list found"
+        for name in ("p_helper2", "p_helper2_dept"):
+            with self.subTest(param=name):
+                self.assertRegex(
+                    match.group(1),
+                    name + r"\s+TEXT\s+DEFAULT\s+NULL",
+                    name + " must be declared TEXT DEFAULT NULL",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -185,10 +185,13 @@ ALTER TABLE billing_audit.group_content_hash
 --     p_helper           TEXT  (helper foreman, NULL on primary rows)
 --     p_helper_dept      TEXT
 --     p_vac_crew         TEXT
---     p_helper2          TEXT  (Phase 14 / D-14-07 -- Helper #2's own
+--     p_helper2          TEXT DEFAULT NULL  (Phase 14 / D-14-07 -- Helper #2's own
 --                                frozen role, NULL when absent; never
 --                                falls back to p_helper)
---     p_helper2_dept     TEXT
+--     p_helper2_dept     TEXT DEFAULT NULL
+--                        (both DEFAULT NULL so the 12-parameter pre-Phase-14
+--                         writer still resolves after the migration -- see
+--                         billing_audit/helper2_attribution.sql STEP 2b)
 --     p_pole             TEXT
 --     p_cu               TEXT
 --     p_work_type        TEXT
