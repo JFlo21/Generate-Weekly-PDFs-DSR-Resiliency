@@ -9307,3 +9307,13 @@ Two owner decisions closed the remaining scope questions before 12-10 can re-run
 
 See `.planning/phases/12-ownership-last-known-foreman-as-of-the-week/12-08-SUMMARY.md` for
 Juan's verbatim wording on both decisions.
+
+[2026-09-08 10:20] TEST_MODE is not token-safe: a bare `TEST_MODE=true python generate_weekly_pdfs.py`
+picks up the real `SMARTSHEET_API_TOKEN` from the repo `.env` (python-dotenv) and runs a LIVE fetch of
+every source sheet instead of the synthetic dataset — observed today when a Phase 14 executor mis-invoked
+it: 121 sheets / 217,741 rows read (18.8 min), rate-sanity audit ran, then the process was killed by the
+orchestrator before Excel generation or upload (exit 1, no write, `SKIP_UPLOAD` had not been set). Rule:
+the documented synthetic dry run is `SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true PYTHONUTF8=1
+python generate_weekly_pdfs.py` (`PYTHONUTF8=1` also avoids the cp1252 `UnicodeEncodeError` at startup on
+Windows). `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/ai/safe-commands.md` now show that form;
+`scripts/run_6_gates.sh` already forced it. Executor prompts must state the full invocation verbatim.

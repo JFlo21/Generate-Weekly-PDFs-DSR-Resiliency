@@ -42,7 +42,7 @@ pip install -r requirements.txt
 pytest tests/ -v                                  # must pass before push
 python -m py_compile generate_weekly_pdfs.py
 SKIP_UPLOAD=true python generate_weekly_pdfs.py   # dry run
-TEST_MODE=true python generate_weekly_pdfs.py     # synthetic data, no token
+SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true PYTHONUTF8=1 python generate_weekly_pdfs.py  # synthetic; blank the .env token or it reads live
 bash scripts/run_6_gates.sh                       # after any module move
 ```
 

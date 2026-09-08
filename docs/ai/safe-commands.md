@@ -62,7 +62,7 @@ docs. 4. Global second brain. 5. Global wiki. 6. `raw/` (data only). 7. Chat his
 - Status: **VERIFIED** — `CLAUDE.md`
 
 ### Synthetic test mode (no API token required)
-- `TEST_MODE=true python generate_weekly_pdfs.py`
+- `SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true PYTHONUTF8=1 python generate_weekly_pdfs.py` — blank the token: with a `.env`-supplied token, `TEST_MODE` fetches every live source sheet (observed 2026-09-08, 121 sheets / 217,741 rows, read-only)
 - `TEST_MODE=true WR_FILTER=WR_12345,WR_67890 python generate_weekly_pdfs.py`
 - Status: **VERIFIED** — `CLAUDE.md`
 
