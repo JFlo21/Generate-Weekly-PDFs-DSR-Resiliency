@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-08 10:55 CDT (2026-09-08 15:55Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-08 11:05 CDT (2026-09-08 16:05Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -139,7 +139,8 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   manual splice because the freeze body lives only in Supabase), `schema.sql` contract/comment fix, contract test (19 passed).
   Orchestrator fix `c786ec3`: `DEFAULT NULL` on `p_helper2`/`p_helper2_dept` so the deployed 12-parameter writer still
   resolves the RPC after the migration (PostgREST needs every non-default named arg) — this is what makes sql-first safe.
-  Gates on the fixed tree: full suite 2248 passed / 1 skipped / 548 subtests; ALL 6 GATES PASSED. **AWAITING JUAN (14-09 T2):**
+  Gates on the fixed tree (final rerun after `c786ec3`): full suite 2249 passed / 1 skipped / 550 subtests; ALL 6 GATES
+  PASSED. Checkpoint panel presented to Juan 16:00Z; tracked tree clean. **AWAITING JUAN (14-09 T2):**
   choose `sql-first` (recommended) / `code-first` / `defer` + a quiet window (cron UTC weekdays 13,15,17,19,21,23,01;
   weekends 15,19,23; Mon 05 → weekday quiet ≈ 04:00–12:45Z = 23:00–07:45 CDT; widest gap Fri ~19:00 → Sat ~07:00 CDT),
   apply by hand in `poeyztlmsawfoqlanucc`, record `D-14-07-APPLIED`; then 14-09 T3 read-back (`blocking-human`) → 14-10

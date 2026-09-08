@@ -840,4 +840,5 @@ deployment orders are safe.
 **Operator effect.** Nothing applied. Plan 14-09 is stopped at its `blocking-human` Task 2 checkpoint: Juan
 chooses `sql-first` / `code-first` / `defer`, a quiet window outside the cron schedule, applies the file by hand
 in the Supabase SQL Editor, and records `D-14-07-APPLIED` before Task 3's read-back. Evidence on the fixed
-tree: contract test 19 passed; full suite 2248 passed / 1 skipped / 548 subtests; ALL 6 GATES PASSED.
+tree (final rerun after `c786ec3`): contract test 19 passed; full suite 2249 passed / 1 skipped / 550 subtests;
+ALL 6 GATES PASSED. The checkpoint panel went to Juan at 16:00Z and the session ended blocked on his answer.
