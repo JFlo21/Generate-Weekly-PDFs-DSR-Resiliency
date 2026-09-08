@@ -198,6 +198,15 @@ ALTER TABLE billing_audit.group_content_hash
 --     p_release          TEXT
 --     p_run_id           TEXT
 --
+--   Deployed POSITIONAL order (read back 2026-09-08 via
+--   pg_get_functiondef): p_wr, p_week_ending, p_smartsheet_row_id,
+--   p_pole, p_cu, p_work_type, p_primary, p_helper, p_helper_dept,
+--   p_vac_crew, p_release, p_run_id, p_helper2, p_helper2_dept. The
+--   two Helper #2 parameters are LAST because Postgres requires every
+--   parameter after a defaulted one to carry a default; the writer
+--   binds by name, so the listing above is a contract, not a signature.
+--   Deployed 2026-09-08 (migration 20260908165511; D-14-07-APPLIED).
+--
 --   RETURNS: a row (or scalar) with ``source_run_id`` matching
 --     ``p_run_id`` if THIS call wrote the snapshot, or a prior
 --     run_id if a prior call already wrote it (first-write-wins).
@@ -366,6 +375,7 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 STABLE
+SET search_path TO 'billing_audit', 'public', 'extensions', 'pg_temp'
 AS $$
     SELECT
         CASE WHEN s.frozen_primary     LIKE '#%' OR btrim(s.frozen_primary)     = '' THEN NULL ELSE s.frozen_primary     END AS primary_foreman,
@@ -425,6 +435,7 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 STABLE
+SET search_path TO 'billing_audit', 'public', 'extensions', 'pg_temp'
 AS $$
     SELECT
         s.wr,

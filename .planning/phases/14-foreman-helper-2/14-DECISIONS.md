@@ -225,3 +225,106 @@ exists on the Resource Analyst sheet as of 2026-09-06.
   Documentation-only, non-blocking; confirm with Juan before the 14-10
   rollout notes are finalized.
 - No conflict-handling code existed before this record.
+
+## D-14-07-APPLIED (plan 14-09, Task 2) — owner decision 2026-09-08
+
+- Decision (Juan, chat, 2026-09-08 ≈16:10Z): **sql-first**, and the apply was
+  delegated to the Claude session over the Supabase MCP connection ("do sql
+  first but apply it yourself through the supabase connection"). This is an
+  owner-authorized deviation from the plan's acceptance criterion "No SQL was
+  executed from an agent session" and from threat T-14-09-05; the authority
+  stayed with Juan, the hands were the session's.
+- Applied: **2026-09-08 16:55:11Z** on project `poeyztlmsawfoqlanucc` as
+  Supabase migration `20260908165511_helper2_attribution_columns_and_rpcs`
+  (single transaction: STEP 1 columns, STEP 2 freeze_attribution drop +
+  create + grants, STEP 3/4 both lookups drop + create + grants, NOTIFY
+  pgrst). The applied text is the repo file's intent with three deviations
+  that preserve the LIVE definitions read back beforehand:
+  (a) `freeze_attribution` keeps its deployed positional order (`p_pole`,
+  `p_cu`, `p_work_type` precede the role parameters) and the two new
+  parameters are appended LAST — Postgres rejects a non-defaulted parameter
+  after a defaulted one, so the repo template's mid-list placement could not
+  have compiled; PostgREST binds by name, so the writer is unaffected.
+  (b) Both lookups keep their deployed pinned `search_path`
+  (`billing_audit, public, extensions, pg_temp`), which the repo CREATEs
+  omitted; `freeze_attribution` keeps `search_path = ''`.
+  (c) The deployed `freeze_attribution` body is per-ROW first-write-wins
+  (`ON CONFLICT (wr, week_ending, smartsheet_row_id) DO NOTHING`), not
+  per-role as the file's D-12-A note assumes. The splice adds
+  `frozen_helper2`/`frozen_helper2_dept` to the INSERT list only and changes
+  nothing else. Consequence: a row frozen before the merge never gains a
+  Helper #2 value — see O-14-C below.
+  The repo file and `schema.sql` were aligned to (a) and (b) in the same
+  commit as this record; the contract test still passes.
+- Window: intended gap after run 34243784963 (completed 16:49:55Z; nothing
+  queued at 16:50:27Z). In fact run 34253845749 was created at 16:53:55Z, so
+  the transaction landed ≈75 s into that job's checkout/setup, before the
+  pipeline reaches discovery, fetch, grouping, or any billing_audit call.
+  Recorded as-is; the intended discipline was a run-free gap.
+- Deployment order: SQL first (this record); code merge of
+  `feat/phase-12-remediation` still pending. Until the merge, the deployed
+  12-parameter writer keeps resolving the RPC (proved below) and writes
+  `frozen_helper2` = NULL.
+- Pre-state (16:10Z): 222,260 snapshot rows; all three functions owned by
+  `postgres`; EXECUTE grants — freeze: anon, authenticated, PUBLIC, postgres,
+  service_role; both lookups: PUBLIC, postgres, service_role. Grants were
+  re-applied identically (verified post-apply). No triggers on the table; no
+  dependent objects on any of the three functions.
+- Rollback (no data destroyed by the migration): DROP the 14-parameter
+  `freeze_attribution`, the 7-column `lookup_attribution`, and the 10-column
+  `lookup_attribution_bulk`; re-run the three pre-state `CREATE OR REPLACE`
+  statements and the grant list captured verbatim in the vault at
+  `raw/2026-09-08 - billing_audit Helper #2 attribution migration pre-state
+  (rollback reference).sql`; optionally `ALTER TABLE ... DROP COLUMN
+  frozen_helper2, DROP COLUMN frozen_helper2_dept`; `NOTIFY pgrst, 'reload
+  schema'`. Do it in a run-free window.
+
+## D-14-07-VERIFIED (plan 14-09, Task 3) — read-back 2026-09-08
+
+Observed by the Claude session over the Supabase MCP connection under the
+owner delegation above (label: OWNER-DELEGATED PRODUCTION READ-BACK; Juan
+co-signs by typing "approved" at the Task 3 checkpoint).
+
+1. **Both lookups return the Helper #2 columns** (16:56Z): on real row
+   WR 91015112 / week ending 2026-09-13 / row 686440379514756 (frozen by run
+   34243784963), `lookup_attribution` returned 7 keys and
+   `lookup_attribution_bulk` (16 rows for that WR/week) returned 10 keys —
+   `helper2` and `helper2_dept` PRESENT with null values, not absent.
+   `pg_get_function_result` confirms both RETURNS TABLE shapes.
+2. **Table has both columns** (16:56Z): `frozen_helper2` (ordinal 17) and
+   `frozen_helper2_dept` (ordinal 18), TEXT, nullable.
+3. **Helper #2 freeze leaves the other role columns byte-identical**
+   (16:59–17:03Z), on synthetic key WR `ZZ-HELPER2-VERIFY` / 2000-01-01
+   (cannot exist in Smartsheet), rows 1 and 2, all deleted afterwards
+   (count 0 confirmed, total back to 222,260): the deployed writer's
+   12-argument named call froze row 1 (`frozen_helper2` NULL) — the DEFAULT
+   NULL compatibility holds; a 14-argument call froze row 2 with
+   `frozen_helper2`/`frozen_helper2_dept` written; a second 14-argument call
+   on row 1 with DIFFERENT primary, helper, helper_dept, and vac_crew
+   returned the original row unchanged — same values and the same
+   `frozen_at` (16:59:51.275279Z) — and left `frozen_helper2` NULL (per-row
+   first-write-wins, deviation (c)). Both lookups returned both rows with
+   the new columns.
+4. **Next real run** — run 34253845749 (deployed master code, 12-parameter
+   writer) was in progress at apply time; its freezes against the new
+   function are the evidence for this check: PENDING until the run
+   completes (result appended below). The plan-14-03 degrade-warning check
+   ("no Helper #2 capability-degrade warning") can only be observed after
+   the branch merges, because the deployed writer predates Phase 14
+   entirely; it stays PENDING-UNTIL-MERGE and must be confirmed on the first
+   post-merge run.
+
+Assumption A4 (14-RESEARCH.md): CLOSED by observation for the contract the
+plan asked about — a Helper #2 freeze never alters `frozen_primary`,
+`frozen_helper`, or `frozen_vac_crew`. Caveat recorded as O-14-C.
+
+## O-14-C — OPEN: existing snapshot rows never gain Helper #2 attribution (found 2026-09-08 at apply)
+
+The deployed `freeze_attribution` is per-row first-write-wins. Every row
+frozen before the merge (222,260 as of 16:10Z) keeps `frozen_helper2` NULL
+forever; only rows first seen after the merge carry Helper #2. Options for
+Juan, none taken: (1) accept — Helper #2 attribution starts at the merge;
+(2) a per-role fill-in in the function (`ON CONFLICT DO UPDATE SET
+frozen_helper2 = COALESCE(existing, EXCLUDED)`), a business-logic change to
+the owner-maintained body; (3) a one-off backfill through
+`backfill_attribution` provenance. Decide before 14-10's rollout notes.

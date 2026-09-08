@@ -10,6 +10,14 @@
 -- weekly-excel-generation.yml cron schedule (chosen at that
 -- checkpoint, not by this file).
 --
+-- APPLIED 2026-09-08 16:55:11Z as Supabase migration
+-- 20260908165511_helper2_attribution_columns_and_rpcs, owner-delegated to
+-- the Claude session over the Supabase MCP connection (decision record
+-- D-14-07-APPLIED in .planning/phases/14-foreman-helper-2/14-DECISIONS.md,
+-- which also lists the three deviations that preserved the live
+-- definitions). Read-back: D-14-07-VERIFIED. This file stays the
+-- reviewable source; re-running it is idempotent for STEP 1 only.
+--
 -- Phase 14 (Foreman Helper #2), requirement HLP-06. Gives Helper #2
 -- its own frozen attribution role: two additive nullable columns on
 -- ``billing_audit.attribution_snapshot``, two new named parameters on
@@ -115,10 +123,14 @@ WHERE n.nspname = 'billing_audit'
 -- pre-existing parameters already documented in
 -- billing_audit/schema.sql's freeze_attribution contract block.
 -- Preserve every existing parameter's name, type, and position
--- EXACTLY; the two new parameters sit after p_vac_crew, matching the
--- documented contract order in billing_audit/schema.sql (PostgREST
--- matches RPC arguments by NAME, so their position never affects the
--- writer's call). Both new parameters carry DEFAULT NULL on purpose:
+-- EXACTLY as STEP 2a printed them (the deployed order puts p_pole,
+-- p_cu, p_work_type before the role parameters -- it is not the
+-- listing order in billing_audit/schema.sql). The two new parameters
+-- go LAST: Postgres rejects a non-defaulted parameter after a
+-- defaulted one ("input parameters after one with a default value
+-- must also have defaults"), and PostgREST matches RPC arguments by
+-- NAME, so their position never affects the writer's call. Both new
+-- parameters carry DEFAULT NULL on purpose:
 -- PostgREST resolves a named-argument RPC call only when every
 -- parameter WITHOUT a default is supplied, so without the defaults the
 -- currently deployed writer (which still sends the 12 pre-Phase-14
@@ -141,17 +153,17 @@ WHERE n.nspname = 'billing_audit'
 --     p_wr                TEXT,
 --     p_week_ending       DATE,
 --     p_smartsheet_row_id BIGINT,
+--     p_pole              TEXT,
+--     p_cu                TEXT,
+--     p_work_type         TEXT,
 --     p_primary           TEXT,
 --     p_helper            TEXT,
 --     p_helper_dept       TEXT,
 --     p_vac_crew          TEXT,
---     p_helper2           TEXT DEFAULT NULL,
---     p_helper2_dept      TEXT DEFAULT NULL,
---     p_pole              TEXT,
---     p_cu                TEXT,
---     p_work_type         TEXT,
 --     p_release           TEXT,
---     p_run_id            TEXT
+--     p_run_id            TEXT,
+--     p_helper2           TEXT DEFAULT NULL,
+--     p_helper2_dept      TEXT DEFAULT NULL
 -- )
 -- <<PASTE STEP 2a's RETURNS clause and $$ ... $$ body here UNCHANGED,
 --   THEN add exactly two per-role writes inside it, mirroring the
@@ -175,7 +187,9 @@ WHERE n.nspname = 'billing_audit'
 -- CREATE OR REPLACE cannot change RETURNS TABLE columns. Same
 -- sentinel-nulling CASE idiom as the currently-deployed version,
 -- copied verbatim, with two new CASE expressions appended for the two
--- new columns.
+-- new columns. The deployed function carries a pinned search_path
+-- (advisor remediation, 2026-05-19); DROP + CREATE without it would
+-- regress the function_search_path_mutable advisor, so it is kept.
 DROP FUNCTION IF EXISTS billing_audit.lookup_attribution(TEXT, DATE, BIGINT);
 
 CREATE FUNCTION billing_audit.lookup_attribution(
@@ -194,6 +208,7 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 STABLE
+SET search_path TO 'billing_audit', 'public', 'extensions', 'pg_temp'
 AS $$
     SELECT
         CASE WHEN s.frozen_primary     LIKE '#%' OR btrim(s.frozen_primary)     = '' THEN NULL ELSE s.frozen_primary     END AS primary_foreman,
@@ -237,6 +252,7 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 STABLE
+SET search_path TO 'billing_audit', 'public', 'extensions', 'pg_temp'
 AS $$
     SELECT
         s.wr,
