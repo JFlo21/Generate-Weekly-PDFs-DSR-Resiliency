@@ -185,6 +185,10 @@ ALTER TABLE billing_audit.group_content_hash
 --     p_helper           TEXT  (helper foreman, NULL on primary rows)
 --     p_helper_dept      TEXT
 --     p_vac_crew         TEXT
+--     p_helper2          TEXT  (Phase 14 / D-14-07 -- Helper #2's own
+--                                frozen role, NULL when absent; never
+--                                falls back to p_helper)
+--     p_helper2_dept     TEXT
 --     p_pole             TEXT
 --     p_cu               TEXT
 --     p_work_type        TEXT
@@ -317,7 +321,8 @@ ALTER TABLE billing_audit.group_content_hash
 --
 --   RETURNS: one row with
 --     primary_foreman TEXT, helper TEXT, helper_dept TEXT,
---     vac_crew TEXT, source_run_id TEXT
+--     vac_crew TEXT, source_run_id TEXT, helper2 TEXT,
+--     helper2_dept TEXT
 --   or zero rows when no snapshot exists for the tuple.
 --
 -- Each role value is normalized: Smartsheet error tokens (anything
@@ -352,7 +357,9 @@ RETURNS TABLE (
     helper          TEXT,
     helper_dept     TEXT,
     vac_crew        TEXT,
-    source_run_id   TEXT
+    source_run_id   TEXT,
+    helper2         TEXT,
+    helper2_dept    TEXT
 )
 LANGUAGE sql
 STABLE
@@ -362,7 +369,9 @@ AS $$
         CASE WHEN s.frozen_helper      LIKE '#%' OR btrim(s.frozen_helper)      = '' THEN NULL ELSE s.frozen_helper      END AS helper,
         CASE WHEN s.frozen_helper_dept LIKE '#%' OR btrim(s.frozen_helper_dept) = '' THEN NULL ELSE s.frozen_helper_dept END AS helper_dept,
         CASE WHEN s.frozen_vac_crew    LIKE '#%' OR btrim(s.frozen_vac_crew)    = '' THEN NULL ELSE s.frozen_vac_crew    END AS vac_crew,
-        s.source_run_id
+        s.source_run_id,
+        CASE WHEN s.frozen_helper2      LIKE '#%' OR btrim(s.frozen_helper2)      = '' THEN NULL ELSE s.frozen_helper2      END AS helper2,
+        CASE WHEN s.frozen_helper2_dept LIKE '#%' OR btrim(s.frozen_helper2_dept) = '' THEN NULL ELSE s.frozen_helper2_dept END AS helper2_dept
     FROM billing_audit.attribution_snapshot AS s
     WHERE s.wr                = p_wr
       AND s.week_ending       = p_week_ending
@@ -379,12 +388,24 @@ GRANT EXECUTE ON FUNCTION billing_audit.lookup_attribution(TEXT, DATE, BIGINT) T
 -- per-role #NO MATCH / blank -> NULL normalization (one source of
 -- truth, D-01). Replaces ~137k per-row lookup_attribution RPCs/run.
 --
--- OPERATOR: apply this CREATE OR REPLACE in the Supabase SQL Editor,
--- then run `NOTIFY pgrst, 'reload schema';` (or Project Settings ->
--- API -> Reload schema cache). Required before the bulk-prefetch fix
--- resolves real claimers at runtime (D-01 operator coordination,
--- mirrors the existing lookup_attribution deployment).
-CREATE OR REPLACE FUNCTION billing_audit.lookup_attribution_bulk(
+-- OPERATOR: apply this DROP + CREATE in the Supabase SQL Editor, then
+-- run `NOTIFY pgrst, 'reload schema';` (or Project Settings -> API ->
+-- Reload schema cache). Required before the bulk-prefetch fix resolves
+-- real claimers at runtime (D-01 operator coordination, mirrors the
+-- existing lookup_attribution deployment).
+--
+-- The DROP is REQUIRED: this function has the IDENTICAL RETURNS TABLE
+-- restriction as lookup_attribution above. Postgres CREATE OR REPLACE
+-- FUNCTION cannot change a function's return columns, so a bare
+-- CREATE OR REPLACE over a differently-shaped prior version silently
+-- never deploys -- the same 2026-05-27 incident class documented above
+-- (an earlier version of this comment recommended CREATE OR REPLACE,
+-- which is exactly the mistake that incident was about; corrected
+-- Phase 14 / D-14-07). DROP FUNCTION IF EXISTS first, then create the
+-- 10-column version below.
+DROP FUNCTION IF EXISTS billing_audit.lookup_attribution_bulk(jsonb);
+
+CREATE FUNCTION billing_audit.lookup_attribution_bulk(
     p_wr_weeks jsonb   -- e.g. '[{"wr":"90001","week_ending":"2026-04-19"}, ...]'
 )
 RETURNS TABLE (
@@ -395,7 +416,9 @@ RETURNS TABLE (
     helper            TEXT,
     helper_dept       TEXT,
     vac_crew          TEXT,
-    source_run_id     TEXT
+    source_run_id     TEXT,
+    helper2           TEXT,
+    helper2_dept      TEXT
 )
 LANGUAGE sql
 STABLE
@@ -409,7 +432,9 @@ AS $$
         CASE WHEN s.frozen_helper      LIKE '#%' OR btrim(s.frozen_helper)      = '' THEN NULL ELSE s.frozen_helper      END,
         CASE WHEN s.frozen_helper_dept LIKE '#%' OR btrim(s.frozen_helper_dept) = '' THEN NULL ELSE s.frozen_helper_dept END,
         CASE WHEN s.frozen_vac_crew    LIKE '#%' OR btrim(s.frozen_vac_crew)    = '' THEN NULL ELSE s.frozen_vac_crew    END,
-        s.source_run_id
+        s.source_run_id,
+        CASE WHEN s.frozen_helper2      LIKE '#%' OR btrim(s.frozen_helper2)      = '' THEN NULL ELSE s.frozen_helper2      END,
+        CASE WHEN s.frozen_helper2_dept LIKE '#%' OR btrim(s.frozen_helper2_dept) = '' THEN NULL ELSE s.frozen_helper2_dept END
     FROM jsonb_to_recordset(p_wr_weeks) AS q(wr TEXT, week_ending DATE)
     JOIN billing_audit.attribution_snapshot AS s
       ON s.wr = q.wr AND s.week_ending = q.week_ending;
