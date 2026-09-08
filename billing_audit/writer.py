@@ -185,6 +185,12 @@ _counters_lock = threading.Lock()
 _counters: dict[str, int] = {
     "snapshots_written": 0,
     "snapshots_already_frozen": 0,
+    # Plan 14-11 (O-14-C): bumped instead of snapshots_already_frozen
+    # when an already-frozen row's freeze_attribution call FILLED a
+    # still-empty per-role Helper #2 column pair -- read from the RPC's
+    # returned backfill_provenance.helper2.run_id, never inferred from
+    # the request. See freeze_row's result classification below.
+    "snapshots_helper2_filled": 0,
     "snapshots_errored": 0,
     "fingerprint_changes_detected": 0,
     # Foundation A: rows held this run pending attribution (dormant
@@ -605,10 +611,14 @@ def freeze_row(row: dict, release: str | None,
 
     Returns:
         ``True`` if an RPC was attempted and completed without error
-        (whether the row was newly written or was already frozen from
-        a prior run).  ``False`` in all other cases — client
-        unavailable, ``write_attribution_snapshot`` flag is
-        definitively off, row is ineligible (missing/non-integer
+        (whether the row was newly written, was already frozen from a
+        prior run, or FILLED an already-frozen row's still-empty
+        per-role Helper #2 columns -- Plan 14-11 / O-14-C's
+        ``snapshots_helper2_filled`` counter, distinguished from
+        ``snapshots_already_frozen`` by the RPC's returned
+        ``backfill_provenance.helper2.run_id``).  ``False`` in all
+        other cases — client unavailable, ``write_attribution_snapshot``
+        flag is definitively off, row is ineligible (missing/non-integer
         ``__row_id``, ``Units Completed?`` not checked, missing WR or
         week-ending), or the RPC call itself failed after retries.
 
@@ -829,21 +839,46 @@ def freeze_row(row: dict, release: str | None,
         return False
 
     data = getattr(result, "data", None)
-    source_run_id: Any = None
+    row_data: dict | None = None
     if isinstance(data, dict):
-        source_run_id = data.get("source_run_id")
+        row_data = data
     elif isinstance(data, list) and data:
         first = data[0]
         if isinstance(first, dict):
-            source_run_id = first.get("source_run_id")
-    else:
-        source_run_id = data  # Some clients return scalar.
+            row_data = first
+    source_run_id: Any = row_data.get("source_run_id") if row_data else data
 
     if source_run_id is not None and str(source_run_id) == str(run_id or ""):
         _bump_counter("snapshots_written")
+    elif _helper2_fill_provenance_matches_run(row_data, run_id):
+        # Plan 14-11 (O-14-C): the row was already frozen (source_run_id
+        # differs), but the RPC's ON CONFLICT DO UPDATE filled the
+        # still-empty per-role Helper #2 columns THIS run -- distinct
+        # from an ordinary already-frozen no-op. Never inferred from the
+        # outgoing request: only the RPC's returned provenance counts.
+        _bump_counter("snapshots_helper2_filled")
     else:
         _bump_counter("snapshots_already_frozen")
     return True
+
+
+def _helper2_fill_provenance_matches_run(
+    row_data: dict | None, run_id: str | None,
+) -> bool:
+    """True when ``row_data['backfill_provenance']['helper2']['run_id']``
+    names THIS run (Plan 14-11 / O-14-C). Any other shape -- no
+    ``backfill_provenance``, not a dict, no ``helper2`` entry, or a
+    different run id -- is NOT a fill; the caller keeps today's
+    already-frozen classification for it exactly."""
+    if not row_data:
+        return False
+    provenance = row_data.get("backfill_provenance")
+    if not isinstance(provenance, dict):
+        return False
+    helper2_entry = provenance.get("helper2")
+    if not isinstance(helper2_entry, dict):
+        return False
+    return str(helper2_entry.get("run_id")) == str(run_id or "")
 
 
 def emit_run_fingerprint(wr: str, week_ending: datetime.date,

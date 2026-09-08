@@ -154,6 +154,14 @@ def validate_per_group_try_catches_all() -> None:
     # 2026-04-25 14:00 rule 3, the cap is bumped if-and-only-if the
     # block grows past the cap; it has not, so no bump is required.
     #
+    # Bumped to 19000 (Phase 14 plan 14-11, O-14-C): the Helper #2
+    # late-fill admission gate (billing_audit_helper2_fill_keys build +
+    # log, and the fill-admits check inside the per-row freeze loop)
+    # measured the ``except Exception as _audit_err:`` clause at offset
+    # 18260 from the header, 260 chars past the prior 18000 cap. Per the
+    # SAME CLAUDE.md rule cited above, the cap is bumped exactly enough
+    # to restore headroom (740 chars) — not raised speculatively.
+    #
     # Warning 8 reconciliation (Plan 06 Task 1): Plan 05 Task 3's
     # inline `inspect.getsource` substring check uses a 24 kB window
     # from the same header. The 24 kB window in Plan 05 is
@@ -175,7 +183,7 @@ def validate_per_group_try_catches_all() -> None:
     # source-of-truth on max allowed block size, and Plan 05's 24 kB
     # window is a superset that exists for substring-discovery
     # robustness only.
-    window = src[idx:idx + 18000]
+    window = src[idx:idx + 19000]
     has_broad_except = "except Exception as _audit_err:" in window
     _record(name, has_broad_except,
             "per-group block lacks 'except Exception' — narrow catch "

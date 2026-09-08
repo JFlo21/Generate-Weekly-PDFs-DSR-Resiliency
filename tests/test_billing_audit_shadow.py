@@ -1684,6 +1684,9 @@ class CountersTests(unittest.TestCase):
             {
                 "snapshots_written": 0,
                 "snapshots_already_frozen": 0,
+                # Phase 14 plan 14-11 (O-14-C): per-role Helper #2
+                # late-fill counter.
+                "snapshots_helper2_filled": 0,
                 "snapshots_errored": 0,
                 "fingerprint_changes_detected": 0,
                 # Foundation A: pre-seeded for a stable counter schema.

@@ -18,6 +18,7 @@
   "timestamp": "2026-06-09T02:23:09.970379+00:00",
   "snapshots_written": 0,
   "snapshots_already_frozen": 0,
+  "snapshots_helper2_filled": 0,
   "snapshots_errored": 0,
   "fingerprint_changes_detected": 0,
   "attribution_rows_held": 0,

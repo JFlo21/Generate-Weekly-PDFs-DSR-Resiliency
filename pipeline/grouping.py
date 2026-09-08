@@ -63,6 +63,27 @@ def get_prefetched_frozen_row_keys() -> frozenset[
     return _PREFETCHED_FROZEN_ROW_KEYS
 
 
+# Plan 14-11 (O-14-C fill admission): subset of the keys above whose
+# prefetched row still lacks a real Helper #2 -- null, a named
+# sentinel, or the key absent entirely from a pre-14-09 bulk-lookup
+# shape. Non-empty only when the same prefetch reported 'success'.
+# pipeline.orchestrate turns this into the freeze loop's fill-key set
+# so an already-frozen row is re-sent ONLY when it may fill one of
+# these still-empty Helper #2 slots -- never any other already-frozen
+# row.
+_PREFETCHED_HELPER2_MISSING_KEYS: frozenset[
+    tuple[str, datetime.date, int]
+] = frozenset()
+
+
+def get_prefetched_helper2_missing_keys() -> frozenset[
+    tuple[str, datetime.date, int]
+]:
+    """Return the Helper #2 fill-candidate keys published by the last
+    prefetch (see ``_PREFETCHED_HELPER2_MISSING_KEYS``)."""
+    return _PREFETCHED_HELPER2_MISSING_KEYS
+
+
 # O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/14-DECISIONS.md,
 # owner decision 2026-09-07, plan 14-08): count of source rows this
 # process has resolved via the helper2-wins conflict rule -- both
@@ -178,7 +199,9 @@ def group_source_rows(rows):
     # orchestrator's freeze-row cache warm start. Reset first so a call
     # whose prefetch is disabled or fails never leaks a stale set.
     global _PREFETCHED_FROZEN_ROW_KEYS, _HELPER2_CONFLICT_COUNT
+    global _PREFETCHED_HELPER2_MISSING_KEYS
     _PREFETCHED_FROZEN_ROW_KEYS = frozenset()
+    _PREFETCHED_HELPER2_MISSING_KEYS = frozenset()
     _HELPER2_CONFLICT_COUNT = 0
     # Phase 09 W4 (behaviour-preserving relocation): bind the
     # test-mutable / facade-resident constants from the
@@ -261,12 +284,24 @@ def group_source_rows(rows):
 
         try:
             from billing_audit.writer import (
+                _null_if_named_sentinel,
                 prefetch_attribution as _prefetch_attribution,
             )
             _prefetch_pairs_filtered = {(wr, we) for wr, we, _ in _prefetch_pairs}
             _attr_map, _attr_status = _prefetch_attribution(_prefetch_pairs_filtered)
             if _attr_status == 'success':
                 _PREFETCHED_FROZEN_ROW_KEYS = frozenset(_attr_map)
+                # Plan 14-11 (O-14-C): a prefetched row whose helper2 is
+                # still null/sentinel/absent is a fill candidate. The
+                # deployed lookup_attribution_bulk already nulls both
+                # sentinels and blanks server-side (billing_audit/writer.py
+                # prefetch_attribution), so `.get('helper2')` is either a
+                # real name or None -- a missing key (pre-14-09 shape)
+                # reads as None too, which is the safe (DO NOTHING) default.
+                _PREFETCHED_HELPER2_MISSING_KEYS = frozenset(
+                    _key for _key, _prow in _attr_map.items()
+                    if _null_if_named_sentinel(_prow.get('helper2')) is None
+                )
             if _attr_status == 'fetch_failure':
                 logging.warning(
                     "⚠️ Attribution bulk prefetch failed "

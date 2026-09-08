@@ -226,6 +226,7 @@ from pipeline.fetch import get_all_source_rows  # noqa: E402
 from pipeline.grouping import (  # noqa: E402
     get_helper2_conflict_count,
     get_prefetched_frozen_row_keys,
+    get_prefetched_helper2_missing_keys,
     group_source_rows,
     validate_group_totals,
 )
@@ -262,6 +263,8 @@ from pipeline.attribution import (  # noqa: E402
     _run_subproject_b_hash_prune,
     _run_subproject_d_hash_prune,
     _run_vac_crew_hash_prune,
+    build_helper2_fill_keys,
+    helper2_fill_admits,
     load_billing_audit_row_cache,
     run_claimer_remediation,
     save_billing_audit_row_cache,
@@ -614,6 +617,10 @@ def _run_synthetic_test_mode(session_start):
             "attribution_rows_held": 0,
             "snapshots_written": 0,
             "snapshots_already_frozen": 0,
+            # Phase 14 plan 14-11 (O-14-C): mirrors
+            # billing_audit.writer's new per-role Helper #2 late-fill
+            # counter (see the comment on the production path below).
+            "snapshots_helper2_filled": 0,
             "snapshots_errored": 0,
             "sentinel_claimers_ignored": 0,
             "sentinel_freezes_deferred": 0,
@@ -3210,6 +3217,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 f"prefetch: {_warm_started:,} row(s) already frozen; "
                 "freeze_attribution is skipped for them"
             )
+        # Plan 14-11 (O-14-C): the subset of already-frozen rows whose
+        # prefetched snapshot still lacks a Helper #2 -- the ONLY
+        # already-frozen rows the freeze loop below is allowed to
+        # re-send, and only when they now carry a valid Helper #2
+        # (helper2_fill_admits).
+        billing_audit_helper2_fill_keys = build_helper2_fill_keys(
+            get_prefetched_helper2_missing_keys(),
+        )
+        if billing_audit_helper2_fill_keys:
+            logging.info(
+                "🧊 "
+                f"{len(billing_audit_helper2_fill_keys):,} frozen row(s) "
+                "still lack a Helper #2 and may be filled this run"
+            )
         billing_audit_row_cache_dirty = False
         history_updates = 0
         _groups_skipped = 0
@@ -3729,7 +3750,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                     continue
                                 _cache_key = f"{wr_num}|{week_raw}|{_row_id}"
                                 if _cache_key in billing_audit_row_cache:
-                                    continue
+                                    # Plan 14-11 (O-14-C): re-admit ONLY
+                                    # when this row may fill a still-
+                                    # empty Helper #2 -- every other
+                                    # already-frozen row stays skipped.
+                                    if not helper2_fill_admits(
+                                        _row, _cache_key,
+                                        billing_audit_helper2_fill_keys,
+                                    ):
+                                        continue
                                 _rows_to_freeze.append(_row)
                                 _freeze_row_keys[id(_row)] = _cache_key
                             _bas.set_data("row_count", len(_rows_to_freeze))
@@ -5266,6 +5295,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "snapshots_written": 0,
             "snapshots_already_frozen": 0,
+            # Phase 14 plan 14-11 (O-14-C): a re-sent already-frozen row
+            # whose returned backfill_provenance.helper2.run_id names
+            # THIS run filled a still-empty per-role Helper #2 -- counted
+            # separately from snapshots_already_frozen (billing_audit
+            # .writer.freeze_row's result classification).
+            "snapshots_helper2_filled": 0,
             "snapshots_errored": 0,
             "fingerprint_changes_detected": 0,
             # Every billing_audit.writer counter is mirrored here so the
