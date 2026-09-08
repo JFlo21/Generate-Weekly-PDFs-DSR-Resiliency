@@ -821,10 +821,12 @@ class WatermarkPersistenceTests(unittest.TestCase):
         ``groups_skipped_no_target_row`` (PR #365) plus the two Phase 12
         / OWN-02 sentinel counters (``sentinel_claimers_ignored``,
         ``sentinel_freezes_deferred``) plus Phase 14 / D-14-07a's
-        ``helper2_attribution_degraded`` counter."""
+        ``helper2_attribution_degraded`` counter plus Phase 14 / 14-08's
+        four Helper #2 run-summary counters (D-14-02 four capability
+        states; O-14-A row conflict)."""
         golden = _REPO_ROOT / "tests" / "golden" / "run_summary_baseline.json"
         data = json.loads(golden.read_text(encoding="utf-8"))
-        self.assertEqual(len(data), 25)
+        self.assertEqual(len(data), 29)
         self.assertIn("groups_skipped_no_target_row", data)
 
     def test_schema_changes_are_additive_only(self):
@@ -2151,7 +2153,8 @@ class ScopedCounterTests(unittest.TestCase):
         data = json.loads(golden.read_text(encoding="utf-8"))
         # 21 + groups_skipped_no_target_row + 2 Phase 12 sentinel counters
         # + Phase 14 / D-14-07a's helper2_attribution_degraded counter
-        self.assertEqual(len(data), 25)
+        # + Phase 14 / 14-08's four Helper #2 run-summary counters
+        self.assertEqual(len(data), 29)
 
 
 # ── Plan 07 Task 1: pipeline_memory.reader.get_parity_streak (D-09) ─────

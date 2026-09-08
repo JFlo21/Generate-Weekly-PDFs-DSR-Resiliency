@@ -23,5 +23,9 @@
   "attribution_rows_held": 0,
   "sentinel_claimers_ignored": 0,
   "sentinel_freezes_deferred": 0,
-  "helper2_attribution_degraded": 0
+  "helper2_attribution_degraded": 0,
+  "helper2_capability_unavailable_sheets": 0,
+  "helper2_no_qualifying_completion_sheets": 0,
+  "helper2_conflict_hold": 0,
+  "helper2_groups_generated": 0
 }
