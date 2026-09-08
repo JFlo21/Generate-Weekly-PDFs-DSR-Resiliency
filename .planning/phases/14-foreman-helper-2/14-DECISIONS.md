@@ -459,3 +459,47 @@ escalating order"). Evidence labels used exactly as defined — never merged.
 Overall evidence reached by this plan: **fixture pass** and **dry-run pass
 over synthetic data**. Neither **controlled upload verified** nor
 **production observed** was reached.
+
+## D-14-12-ROLLOUT (plan 14-10, Task 3) — owner decision 2026-09-08
+
+- Decision (Juan, chat, 2026-09-08 ≈22:45Z): **documented-only** — no
+  workflow wiring in this phase, no controlled upload. **Flag default stays
+  off** (`HELPER2_ENABLED` default `'0'` in `pipeline/config.py`; the
+  workflow does not set it), so the merge ships Helper #2 dormant; any later
+  flip is its own approved change.
+- Deployment instruction (same message): "i want this to roll out in
+  production like right now if it is ready no testing we can debug if
+  something goes wrong." Read as: merge `feat/phase-12-remediation` to
+  `master` now (the production cron runs from `master`), skipping the pilot
+  rehearsal's live steps; the automated gates that already ran stand as the
+  evidence (full suite 2284 passed / 1 skipped / 557 subtests; ALL 6 GATES
+  PASSED; website typecheck + build). The orchestrating session performs
+  the push / PR / merge under this instruction.
+- Live preconditions at decision time (read-only, 22:50Z): billing_audit
+  `freeze_attribution` carries the per-role fill and both lookups return
+  the Helper #2 columns (D-14-07 / O-14-C applied); `pipeline_memory.
+  row_state` has **0** of the four D-14-08 Helper #2 columns and
+  `pipeline_memory.sheet_registry` has **no** `mapping_schema` column
+  (D-14-10) — neither DDL has been applied. Both absences are tolerated by
+  the merged code by design: the bulk row_state RPC ignores the extra keys
+  (O-14-B, values not persisted), and the mapping-schema marker degrades to
+  full validation of every sheet with one warning per run (≈40 s per run
+  until the column exists). Applying those two additive nullable columns is
+  a separate owner call, not a merge precondition.
+- Expected first-run effects after merge (not defects): one-time
+  `row_event` churn of roughly one event per observed row (~217k) because
+  `HASH_FIELDS` now includes the Helper #2 fields and
+  `RUN_MEMORY_WRITE_ENABLED` is `'1'` in the workflow (D-14-08-APPLIED);
+  full sheet validation with the mapping-schema warning; the 14-parameter
+  freeze call resolving against the live function; zero Helper #2 groups,
+  counters at 0, no degrade warning (flag off). Excel output is unchanged
+  by design (HLP legacy byte-identity fixtures; `RUN_MEMORY_INCREMENTAL_
+  ENABLED` off).
+- Also carried in the same merge: Phase 12 gap-closure work (12-06 … 12-09)
+  already on this branch since 2026-09-03, whose live steps (OWN-03
+  backfill apply, 1,758 rows) were owner-authorized in their own records.
+- Still open after the merge: O-14-B (bulk RPC Helper #2 fields) and
+  O-14-A Follow-up 1 (per-slot file duplication, accepted pending Juan's
+  confirmation); the Smartsheet-side preconditions (Resource Analyst
+  assignment automation, Helper #2 Job producer) remain owner checklist
+  items.
