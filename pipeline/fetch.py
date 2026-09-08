@@ -516,6 +516,12 @@ def get_all_source_rows(client, source_sheets):
         sheet_foreman_counts = collections.defaultdict(lambda: collections.Counter())
         sheet_wr_exclusion_reasons = collections.defaultdict(lambda: collections.Counter())
         sheet_row_counter = 0
+        # Phase 14 Plan 07 (D-14-02): tracks whether ANY row this run
+        # qualified as a Helper #2 completion on a Helper #2-capable
+        # sheet -- distinguishes "capability present but nothing
+        # qualified" from "capability absent" in the post-loop summary
+        # below (two of D-14-02's four distinguishable conditions).
+        sheet_helper2_qualified_seen = False
         # Track post-cutoff rate recalc outcomes for operator visibility
         # ('skipped' covers rows where Snapshot Date>=cutoff but the new
         # rates table has no matching group/CU, so the SmartSheet price
@@ -956,11 +962,12 @@ def get_all_source_rows(client, source_sheets):
                             # above, never merged into it. See
                             # _detect_helper2_row's docstring for the
                             # deliberate normalize_helper_value deviation.
-                            _detect_helper2_row(
+                            if _detect_helper2_row(
                                 row_data,
                                 sheet_has_helper2_columns=sheet_has_helper2_columns,
                                 units_completed_checked=units_completed_checked,
-                            )
+                            ):
+                                sheet_helper2_qualified_seen = True
 
                             # Direct column-based foreman assignment
                             effective_user = None
@@ -1056,9 +1063,24 @@ def get_all_source_rows(client, source_sheets):
                                 _vc_completed = is_checked(row_data.get('Vac Crew Completed Unit?'))
                                 _fh_helping = str(row_data.get('Foreman Helping?') or '').strip()
                                 _fh_completed = is_checked(row_data.get('Helping Foreman Completed Unit?'))
+                                # Phase 14 Plan 07: fold the Helper #2
+                                # slot into the same diagnostic --
+                                # normalize_helper_value (not bare
+                                # str().strip()) mirrors
+                                # _detect_helper2_row's fabricated-claim
+                                # guard (D-14-04/D-14-05) so a blank/NA/
+                                # formula-error Helper #2 claim is never
+                                # counted as "specialized" here either.
+                                _fh2_helping = normalize_helper_value(
+                                    row_data.get('Foreman Helping? #2')
+                                )
+                                _fh2_completed = is_checked(
+                                    row_data.get('Helping Foreman #2 Completed Unit?')
+                                )
                                 _is_specialized = (
                                     (bool(_vc_helping) and _vc_completed)
                                     or (bool(_fh_helping) and _fh_completed)
+                                    or (bool(_fh2_helping) and _fh2_completed)
                                 )
                                 if _is_specialized:
                                     _variant_tag = 'VAC crew' if (_vc_helping and _vc_completed) else 'helper'
@@ -1158,6 +1180,22 @@ def get_all_source_rows(client, source_sheets):
                                     )
 
                     sheet_row_counter += 1
+
+                # Phase 14 Plan 07 (D-14-02): the eligible-source-with-
+                # no-qualifying-completion condition -- capability was
+                # present (sheet_has_helper2_columns) but no row this
+                # run satisfied the Helper #2 completion criteria. Kept
+                # distinct from helper2_capability_unavailable (logged
+                # once per sheet above, only when capability is
+                # ABSENT) so operators can tell "nothing to detect
+                # here" apart from "this sheet doesn't support Helper
+                # #2 yet".
+                if sheet_has_helper2_columns and not sheet_helper2_qualified_seen:
+                    logging.info(
+                        f"ℹ️ helper2_no_qualifying_completion: {source['name']} "
+                        "has Helper #2 capability but no row qualified as a "
+                        "Helper #2 completion this run"
+                    )
 
                 sentry_add_breadcrumb("sheet_processing", f"Processed sheet {source['name']}", data={
                     "sheet_id": source['id'],
