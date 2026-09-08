@@ -63,6 +63,66 @@ def get_prefetched_frozen_row_keys() -> frozenset[
     return _PREFETCHED_FROZEN_ROW_KEYS
 
 
+# O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/14-DECISIONS.md,
+# owner decision 2026-09-07, plan 14-08): count of source rows this
+# process has resolved via the helper2-wins conflict rule -- both
+# Helper #1 and Helper #2 valid on the same row. Reset at the top of
+# group_source_rows() below, mirroring _PREFETCHED_FROZEN_ROW_KEYS
+# above; read by pipeline/orchestrate.py (plan 14-08 Task 3) via
+# get_helper2_conflict_count() after group_source_rows() returns.
+_HELPER2_CONFLICT_COUNT: int = 0
+
+
+def get_helper2_conflict_count() -> int:
+    """Return the number of rows the last group_source_rows() call
+    resolved via the O-14-A helper2-wins conflict rule."""
+    return _HELPER2_CONFLICT_COUNT
+
+
+def _record_helper2_wins_conflict(
+    *,
+    wr_key: str,
+    week_end_for_key: str,
+    sheet_id: object,
+    leg: str,
+) -> None:
+    """Apply the O-14-A RESOLVED record for one conflicted row.
+
+    O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/14-DECISIONS.md,
+    owner decision 2026-09-07): Helper #2 > Helper #1 > primary foreman.
+    Call exactly once per conflicted row, at the single point per leg
+    (plain or shadow) where both slots would otherwise each emit a key.
+    The Helper #1 claim is dropped for this row only -- logged once with
+    the conflict reason locked in plan 14-01 (``helper2_conflict_hold``),
+    counted, and sent to Sentry with WR / week ending / sheet id / counts
+    only. Never a person's name or any other row value is passed to
+    either the log line or the Sentry call.
+    """
+    global _HELPER2_CONFLICT_COUNT
+    _HELPER2_CONFLICT_COUNT += 1
+    logging.info(
+        f"⚖️ helper2_conflict_hold: WR={wr_key}, Week={week_end_for_key}, "
+        f"leg={leg} -- both Helper #1 and Helper #2 valid on one row; "
+        f"Helper #2 wins per O-14-A (14-DECISIONS.md); the Helper #1 "
+        f"claim is dropped for this row only"
+    )
+    sentry_capture_message_with_context(
+        message=(
+            "helper2_conflict_hold: Helper #2 wins per O-14-A; Helper #1 "
+            "claim dropped for one row"
+        ),
+        level="warning",
+        context_name="helper2_conflict_hold",
+        context_data={
+            "wr": wr_key,
+            "week_ending": week_end_for_key,
+            "sheet_id": sheet_id,
+            "leg": leg,
+            "count": 1,
+        },
+    )
+
+
 def group_source_rows(rows):
     """
     VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper/vac_crew).
@@ -117,8 +177,9 @@ def group_source_rows(rows):
     # INC-05 D-12 follow-up: publish the bulk-prefetch key set for the
     # orchestrator's freeze-row cache warm start. Reset first so a call
     # whose prefetch is disabled or fails never leaks a stale set.
-    global _PREFETCHED_FROZEN_ROW_KEYS
+    global _PREFETCHED_FROZEN_ROW_KEYS, _HELPER2_CONFLICT_COUNT
     _PREFETCHED_FROZEN_ROW_KEYS = frozenset()
+    _HELPER2_CONFLICT_COUNT = 0
     # Phase 09 W4 (behaviour-preserving relocation): bind the
     # test-mutable / facade-resident constants from the
     # generate_weekly_pdfs facade so test-time rebinds on
@@ -721,7 +782,7 @@ def group_source_rows(rows):
                         logging.info(f"➖ EXCLUDING from main Excel: WR={wr_key}, Week={week_end_for_key} (Helper row with both checkboxes)")
                 
                 # Helper variant - ONLY created when mode allows it
-                if valid_helper_row and helper_mode_enabled:
+                if valid_helper_row and helper_mode_enabled and not valid_helper2_row:
                     helper_dept = r.get('__helper_dept', '')
                     helper_job = r.get('__helper_job', '')
                     # PERFORMANCE: Use pre-compiled regex for helper name sanitization
@@ -756,6 +817,33 @@ def group_source_rows(rows):
                             f"➖ EXCLUDING from main Excel (subcontractor legacy helper): "
                             f"WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}"
                         )
+                elif valid_helper_row and helper_mode_enabled and valid_helper2_row:
+                    # O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/
+                    # 14-DECISIONS.md, owner decision 2026-09-07): both
+                    # slots are valid on this row -- Helper #2 wins, and
+                    # the Helper #1 claim is dropped for this row only.
+                    # The Helper #2 block below still fires unconditionally
+                    # on its own gate and emits the winning key -- this is
+                    # the single point where the plain leg would otherwise
+                    # emit both families' keys for one physical unit.
+                    # Subcontractor rows never emitted a plain 'helper' key
+                    # anyway (see the is_subcontractor_row dispatch above);
+                    # their conflict is recorded exactly once at the
+                    # shadow-leg site instead, so it is never double-counted.
+                    if not is_subcontractor_row:
+                        _record_helper2_wins_conflict(
+                            wr_key=wr_key,
+                            week_end_for_key=week_end_for_key,
+                            sheet_id=r.get('__source_sheet_id'),
+                            leg='plain',
+                        )
+                    else:
+                        logging.debug(
+                            f"➖ EXCLUDING from main Excel (subcontractor "
+                            f"legacy helper, O-14-A conflict recorded at "
+                            f"the shadow leg): WR={wr_key}, "
+                            f"Week={week_end_for_key}"
+                        )
                 elif is_helper_row and not helper_mode_enabled:
                     # In primary mode, helper rows go to main
                     logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - including in main Excel")
@@ -769,6 +857,10 @@ def group_source_rows(rows):
                 # the Helper #1 variant above, NEVER merged into it or into
                 # the ('helper', 'aep_billable_helper', 'reduced_sub_helper')
                 # tuple elsewhere in this module (D-14-11 vocabulary lock).
+                # Fires unconditionally on its own gate -- per O-14-A
+                # RESOLVED (14-DECISIONS.md), Helper #2 always wins when
+                # both slots are valid, so this block needs no conflict
+                # check of its own; the elif above suppresses Helper #1.
                 if valid_helper2_row and helper_mode_enabled:
                     helper2_dept = r.get('__helper2_dept', '')
                     helper2_job = r.get('__helper2_job', '')
@@ -1025,7 +1117,7 @@ def group_source_rows(rows):
                         _helper2_dept_local = r.get('__helper2_dept', '')
                         if _helper2_dept_local:
                             _valid_helper2_row = True
-                    if _valid_helper_row and _helper_mode_enabled:
+                    if _valid_helper_row and _helper_mode_enabled and not _valid_helper2_row:
                         # Phase 1.1 Bug C (D-10..D-16 / SUB-11):
                         # per-row claim-history attribution. For
                         # subcontractor rows ONLY (D-15), partition
@@ -1266,6 +1358,22 @@ def group_source_rows(rows):
                                     f"WR={wr_key}, Week={week_end_for_key}, "
                                     f"Helper={_attributed_helper}"
                                 )
+                    elif _valid_helper_row and _helper_mode_enabled and _valid_helper2_row:
+                        # O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/
+                        # 14-DECISIONS.md): subcontractor sibling of the
+                        # plain-leg conflict site above -- same rule, same
+                        # helper function. Every row reaching this shadow
+                        # block is already a subcontractor row (the outer
+                        # is_subcontractor_row gate further up), so this is
+                        # the SOLE place a subcontractor conflicted row's
+                        # conflict is recorded -- the plain-leg site defers
+                        # subcontractor rows here to avoid double counting.
+                        _record_helper2_wins_conflict(
+                            wr_key=wr_key,
+                            week_end_for_key=week_end_for_key,
+                            sheet_id=r.get('__source_sheet_id'),
+                            leg='shadow',
+                        )
 
                     if _valid_helper2_row and _helper_mode_enabled:
                         # Phase 14 (D-14-06): sibling of the Helper #1
