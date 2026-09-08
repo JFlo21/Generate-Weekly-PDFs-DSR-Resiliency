@@ -32,6 +32,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 import generate_weekly_pdfs  # noqa: E402
+import pipeline.attribution as _attribution  # noqa: E402
 import pipeline.discovery as _discovery  # noqa: E402
 import pipeline.fetch as _fetch  # noqa: E402
 import pipeline.grouping as _grouping  # noqa: E402
@@ -41,6 +42,10 @@ from pipeline.orchestrate import derive_group_identity  # noqa: E402
 from pipeline.types import (  # noqa: E402
     FORMULA_ERROR_VALUES,
     normalize_helper_value,
+)
+from tests.test_billing_audit_shadow import (  # noqa: E402
+    _make_fake_supabase_client,
+    _reset_all,
 )
 
 
@@ -1294,6 +1299,338 @@ class HelperTwoRunSummaryCounterTests(unittest.TestCase):
         self.assertEqual(
             _grouping.get_helper2_conflict_count(),
             _orchestrate.get_helper2_conflict_count(),
+        )
+
+    def test_synthetic_run_summary_includes_snapshots_helper2_filled_zeroed(
+        self,
+    ):
+        """Plan 14-11 Task 1's fifth counter is present with a zero int
+        value on a run with no Helper #2 fill activity -- the key set
+        never varies."""
+        with mock.patch.object(
+            _orchestrate, 'OUTPUT_FOLDER', self._tmpdir.name
+        ), mock.patch.object(
+            generate_weekly_pdfs, 'OUTPUT_FOLDER', self._tmpdir.name
+        ):
+            _orchestrate._run_synthetic_test_mode(datetime.datetime.now())
+
+        summary_path = os.path.join(self._tmpdir.name, 'run_summary.json')
+        with open(summary_path, encoding='utf-8') as f:
+            emitted = json.load(f)
+
+        self.assertIn('snapshots_helper2_filled', emitted)
+        self.assertIsInstance(emitted['snapshots_helper2_filled'], int)
+        self.assertEqual(emitted['snapshots_helper2_filled'], 0)
+
+
+class PrefetchedHelper2MissingKeysTests(unittest.TestCase):
+    """Plan 14-11 Task 1: grouping publishes the Helper #2 'still
+    missing' key set -- the fill-admission candidates -- only for
+    prefetched rows whose helper2 is null, a named sentinel, or absent
+    from the bulk map entirely (a pre-14-09 shape). Populated only
+    after a successful prefetch, mirroring
+    get_prefetched_frozen_row_keys() (INC-05 D-12 follow-up)."""
+
+    def setUp(self):
+        patcher = mock.patch.object(
+            _discovery, '_FOLDER_DISCOVERED_SUB_IDS', frozenset()
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self._saved = {
+            'attr': generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+            'avail': generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE,
+            'mode': generate_weekly_pdfs.RES_GROUPING_MODE,
+        }
+        generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = True
+        generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE = True
+        generate_weekly_pdfs.RES_GROUPING_MODE = 'both'
+        self.addCleanup(self._restore)
+        self._last_key = None
+
+    def _restore(self):
+        generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = (
+            self._saved['attr']
+        )
+        generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE = self._saved['avail']
+        generate_weekly_pdfs.RES_GROUPING_MODE = self._saved['mode']
+
+    def _run(self, frozen_row: dict, status: str = 'success'):
+        def _fake_prefetch(pairs_filtered):
+            wr, week = next(iter(pairs_filtered))
+            self._last_key = (wr, week, 90001)
+            return {self._last_key: frozen_row}, status
+
+        with mock.patch(
+            'billing_audit.writer.prefetch_attribution',
+            side_effect=_fake_prefetch,
+        ):
+            generate_weekly_pdfs.group_source_rows([_row()])
+
+    def test_missing_keys_cover_null_sentinel_and_absent_helper2(self):
+        cases = {
+            'null': {'helper2': None},
+            'named_sentinel': {'helper2': 'Unknown Helper 2'},
+            'absent_key': {},
+        }
+        for label, frozen_row in cases.items():
+            with self.subTest(label=label):
+                self._run(frozen_row)
+                self.assertIn(
+                    self._last_key,
+                    _grouping.get_prefetched_helper2_missing_keys(),
+                )
+
+    def test_missing_keys_exclude_rows_with_a_real_helper2(self):
+        self._run({'helper2': 'Jamie Helper2'})
+        self.assertNotIn(
+            self._last_key,
+            _grouping.get_prefetched_helper2_missing_keys(),
+        )
+
+    def test_missing_keys_empty_on_fetch_failure(self):
+        self._run({'helper2': None}, status='fetch_failure')
+        self.assertEqual(
+            _grouping.get_prefetched_helper2_missing_keys(), frozenset()
+        )
+
+    def test_missing_keys_reset_when_next_call_has_no_prefetch(self):
+        self._run({'helper2': None})
+        self.assertTrue(_grouping.get_prefetched_helper2_missing_keys())
+        generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE = False
+        generate_weekly_pdfs.group_source_rows([_row()])
+        self.assertEqual(
+            _grouping.get_prefetched_helper2_missing_keys(), frozenset()
+        )
+
+
+class Helper2FillKeyHelpersTests(unittest.TestCase):
+    """Plan 14-11 Task 1: pipeline.attribution's Helper #2 fill-
+    admission helpers -- build_helper2_fill_keys() and
+    helper2_fill_admits()."""
+
+    _WR = '90005'
+    _WEEK = datetime.date(2026, 7, 30)
+    _ROW_ID = 90001
+
+    def test_warm_billing_audit_row_cache_unchanged_output(self):
+        """Factoring the key format into billing_audit_cache_key() must
+        not change warm_billing_audit_row_cache's existing output
+        (regression pin, mirrors
+        tests/test_freeze_row_cache_warm_start.py::WarmCacheHelperTests)."""
+        cache: set[str] = set()
+        added = _attribution.warm_billing_audit_row_cache(
+            cache, {('12345678', datetime.date(2026, 8, 30), 4242)},
+        )
+        self.assertEqual(added, 1)
+        self.assertEqual(cache, {'12345678|083026|4242'})
+
+    def test_build_helper2_fill_keys_matches_warm_start_key_format(self):
+        keys = {(self._WR, self._WEEK, self._ROW_ID)}
+        cache: set[str] = set()
+        _attribution.warm_billing_audit_row_cache(cache, keys)
+        fill_keys = _attribution.build_helper2_fill_keys(keys)
+        self.assertEqual(fill_keys, cache)
+
+    def test_admits_false_without_helper2_foreman(self):
+        with mock.patch.object(_attribution, 'HELPER2_ENABLED', True):
+            fill_keys = _attribution.build_helper2_fill_keys(
+                {(self._WR, self._WEEK, self._ROW_ID)}
+            )
+            cache_key = next(iter(fill_keys))
+            row = _row(__helper2_foreman='', __helper2_dept='NA-07')
+            self.assertFalse(
+                _attribution.helper2_fill_admits(row, cache_key, fill_keys)
+            )
+
+    def test_admits_false_for_sentinel_foreman(self):
+        with mock.patch.object(_attribution, 'HELPER2_ENABLED', True):
+            fill_keys = _attribution.build_helper2_fill_keys(
+                {(self._WR, self._WEEK, self._ROW_ID)}
+            )
+            cache_key = next(iter(fill_keys))
+            row = _row(
+                __helper2_foreman='Unknown Helper 2',
+                __helper2_dept='NA-07',
+            )
+            self.assertFalse(
+                _attribution.helper2_fill_admits(row, cache_key, fill_keys)
+            )
+
+    def test_admits_false_without_helper2_dept(self):
+        with mock.patch.object(_attribution, 'HELPER2_ENABLED', True):
+            fill_keys = _attribution.build_helper2_fill_keys(
+                {(self._WR, self._WEEK, self._ROW_ID)}
+            )
+            cache_key = next(iter(fill_keys))
+            row = _row(__helper2_foreman='Jamie Helper2', __helper2_dept='')
+            self.assertFalse(
+                _attribution.helper2_fill_admits(row, cache_key, fill_keys)
+            )
+
+    def test_admits_false_when_key_not_in_fill_set(self):
+        with mock.patch.object(_attribution, 'HELPER2_ENABLED', True):
+            fill_keys = _attribution.build_helper2_fill_keys(set())
+            row = _row(
+                __helper2_foreman='Jamie Helper2',
+                __helper2_dept='NA-07',
+            )
+            self.assertFalse(
+                _attribution.helper2_fill_admits(
+                    row, '90005|073026|90001', fill_keys,
+                )
+            )
+
+    def test_admits_false_when_flag_off(self):
+        with mock.patch.object(_attribution, 'HELPER2_ENABLED', False):
+            fill_keys = _attribution.build_helper2_fill_keys(
+                {(self._WR, self._WEEK, self._ROW_ID)}
+            )
+            cache_key = next(iter(fill_keys))
+            row = _row(
+                __helper2_foreman='Jamie Helper2',
+                __helper2_dept='NA-07',
+            )
+            self.assertFalse(
+                _attribution.helper2_fill_admits(row, cache_key, fill_keys)
+            )
+
+    def test_admits_true_for_the_one_admitted_shape(self):
+        with mock.patch.object(_attribution, 'HELPER2_ENABLED', True):
+            fill_keys = _attribution.build_helper2_fill_keys(
+                {(self._WR, self._WEEK, self._ROW_ID)}
+            )
+            cache_key = next(iter(fill_keys))
+            row = _row(
+                __helper2_foreman='Jamie Helper2',
+                __helper2_dept='NA-07',
+            )
+            self.assertTrue(
+                _attribution.helper2_fill_admits(row, cache_key, fill_keys)
+            )
+
+
+class FreezeLoopHelper2AdmissionTests(unittest.TestCase):
+    """Plan 14-11 Task 1: the freeze loop sends exactly the admitted
+    row -- an already-frozen row stays skipped unless
+    helper2_fill_admits allows it through. Mirrors
+    tests/test_freeze_row_cache_warm_start.py::
+    SeededKeySkipsFreezeRpcTests -- the loop's candidate filter,
+    verbatim, extended with the Task 1 admission gate."""
+
+    def test_only_the_admitted_row_reaches_freeze_row(self):
+        wr_num, week_raw = '90005', '073026'
+        cache_key_1 = f"{wr_num}|{week_raw}|90001"
+        cache_key_2 = f"{wr_num}|{week_raw}|90002"
+        cache = {cache_key_1, cache_key_2}  # both already frozen
+        fill_keys = {cache_key_2}  # only row 90002 still lacks Helper #2
+
+        with mock.patch.object(_attribution, 'HELPER2_ENABLED', True):
+            row_no_fill = _row(
+                __row_id=90001, __helper2_foreman='Jamie Helper2',
+                __helper2_dept='NA-07',
+            )
+            row_admitted = _row(
+                __row_id=90002, __helper2_foreman='Jamie Helper2',
+                __helper2_dept='NA-07',
+            )
+            rows = [row_no_fill, row_admitted]
+
+            # The freeze loop's candidate filter (pipeline/orchestrate.py),
+            # verbatim, extended with the Task 1 admission gate.
+            _rows_to_freeze = []
+            for r in rows:
+                _row_id = r.get('__row_id')
+                _cache_key = f"{wr_num}|{week_raw}|{_row_id}"
+                if _cache_key in cache:
+                    if not _attribution.helper2_fill_admits(
+                        r, _cache_key, fill_keys,
+                    ):
+                        continue
+                _rows_to_freeze.append(r)
+
+            freeze_row = mock.Mock(return_value=True)
+            for r in _rows_to_freeze:
+                freeze_row(r)
+
+        self.assertEqual(
+            [r['__row_id'] for r in _rows_to_freeze], [90002],
+        )
+        freeze_row.assert_called_once_with(row_admitted)
+
+
+class FreezeRowHelper2FillCounterTests(unittest.TestCase):
+    """Plan 14-11 Task 1: freeze_row classifies a fill (per-role
+    Helper #2 write on an already-frozen row) as
+    snapshots_helper2_filled, read from the returned provenance --
+    never inferred from the request."""
+
+    def setUp(self):
+        _reset_all()
+        self.addCleanup(_reset_all)
+
+    @staticmethod
+    def _row():
+        return {
+            "__row_id": 90001,
+            "Work Request #": "90005",
+            "__week_ending_date": datetime.date(2026, 7, 30),
+            "Units Completed?": True,
+            "__helper2_foreman": "Jamie Helper2",
+            "__helper2_dept": "NA-07",
+        }
+
+    def test_bumps_helper2_filled_when_provenance_names_this_run(self):
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        resp = mock.Mock()
+        resp.data = {
+            "source_run_id": "prior-run",
+            "backfill_provenance": {
+                "helper2": {"source": "live", "run_id": "current-run"},
+            },
+        }
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            resp
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client,
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True,
+        ):
+            result = ba_writer.freeze_row(
+                self._row(), release="r", run_id="current-run",
+            )
+        self.assertIs(result, True)
+        self.assertEqual(
+            ba_writer.get_counters().get("snapshots_helper2_filled", 0), 1,
+        )
+        self.assertEqual(
+            ba_writer.get_counters()["snapshots_already_frozen"], 0,
+        )
+
+    def test_stays_already_frozen_without_a_matching_provenance_entry(self):
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        resp = mock.Mock()
+        resp.data = {"source_run_id": "prior-run"}
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            resp
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client,
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True,
+        ):
+            result = ba_writer.freeze_row(
+                self._row(), release="r", run_id="current-run",
+            )
+        self.assertIs(result, True)
+        self.assertEqual(
+            ba_writer.get_counters()["snapshots_already_frozen"], 1,
+        )
+        self.assertEqual(
+            ba_writer.get_counters().get("snapshots_helper2_filled", 0), 0,
         )
 
 
