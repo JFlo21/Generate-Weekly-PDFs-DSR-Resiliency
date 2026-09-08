@@ -5,17 +5,17 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: executing
-stopped_at: "Phase 14 Plan 09 complete (D-14-07-APPLIED + D-14-07-VERIFIED, HLP-06 done, 14-09-SUMMARY.md written); Plan 14-11 (O-14-C closure) Tasks 1-2 landed, Task 3 apply in progress in the orchestrating session"
-last_updated: "2026-09-08T20:25:44.000Z"
+stopped_at: "Phase 14 Plan 11 complete (O-14-C-APPLIED + O-14-C-VERIFIED, O-14-C RESOLVED, 14-11-SUMMARY.md written); next is Plan 14-10 (Wave 7 rollout), the phase's last plan"
+last_updated: "2026-09-08T22:00:00.000Z"
 last_activity: 2026-09-08
-last_activity_desc: Phase 14 Plan 09 closed out; Plan 14-11 in progress
+last_activity_desc: Phase 14 Plan 11 closed out (O-14-C per-role Helper #2 fill applied and verified)
 progress:
   total_phases: 14
   completed_phases: 12
   total_plans: 71
-  completed_plans: 69
-  percent: 97
-state_head: 9367299c2b8f45e47672280569f3b1b5ea012e62
+  completed_plans: 70
+  percent: 99
+state_head: c3df1a8060546c34730139e4f06865eeee92eb8a
 ---
 
 # Project State
@@ -160,6 +160,8 @@ Progress: [████████████████████] 50/50 p
 | Phase 14 P04 | 9min | 3 tasks | 6 files |
 | Phase 14 P07 | ~100min (3 sessions) | 3 tasks | 8 files |
 | Phase 14 P08 | 50min | 3 tasks | 8 files |
+| Phase 14 P09 | ~2h10m (3 checkpoint-gated stretches) | 3 tasks | 4 files |
+| Phase 14 P11 | ~40min (2 checkpoint-gated stretches) | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -314,7 +316,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: 14-08: run_summary.json gained 4 Helper #2 counters (capability-unavailable sheets, no-qualifying-completion sheets, conflict-hold, groups generated), pre-seeded on every run; golden baseline grew 25->29 keys
 - [Phase 14]: D-14-07-APPLIED (2026-09-08): Juan chose sql-first and explicitly delegated the apply to the orchestrating Claude session over the Supabase MCP connection (owner-authorized deviation from "never apply from an agent session," T-14-09-05); applied 16:55:11Z as migration 20260908165511_helper2_attribution_columns_and_rpcs, with 3 preserve-live-definition deviations (parameter order, pinned search_path, per-row not per-role first-write-wins) back-ported into the repo file in the same commit.
 - [Phase 14]: D-14-07-VERIFIED (2026-09-08): 4 owner-delegated, owner-co-signed production read-back checks confirm both lookups return the new columns, the table has both columns, a Helper #2 freeze leaves the other 3 role columns byte-identical, and the first post-apply run shows zero PGRST errors. Assumption A4 CLOSED by observation. HLP-06 marked complete.
-- [Phase 14]: O-14-C (open at 14-09 close, 2026-09-08): the deployed freeze_attribution is per-ROW first-write-wins, so rows frozen before the 16:55:11Z apply never gain Helper #2 -- plan 14-11 (inserted same day) closes this with a per-role fill; Tasks 1-2 landed, Task 3 apply in progress.
+- [Phase 14]: O-14-C RESOLVED (plan 14-11, 2026-09-08): Juan chose apply-delegated; the per-role Helper #2 fill migration (`billing_audit/helper2_attribution_fill.sql`) applied 20:12:05Z as migration `20260908201205_helper2_attribution_per_role_fill` (ON CONFLICT ... DO UPDATE gated by `is_sentinel_value`, Helper #2 only); synthetic-row read-back confirms the fill writes only the two Helper #2 columns plus provenance, every other column byte-identical, a second differing Helper #2 refused, fresh inserts carry no provenance. Post-merge, real-row confirmation of `snapshots_helper2_filled` and the no-degrade-warning check remain PENDING (Helper #2 is blank across production today).
 
 ### Roadmap Evolution
 
@@ -410,7 +412,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   isolation before Phase 04 ships.
 
 - Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED). scripts/backfill_claim_time_attribution.py source 3 must strip file extensions before the sentinel check + add a proposed-value guard + rebuild fixtures from the real hash-less filename shape before 12-06 can re-run. See 12-06-SUMMARY.md.
-- ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: O-14-C (existing rows never gain Helper #2 under the deployed per-row first-write-wins body) is open and being closed by plan 14-11, inserted the same day.
+- ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: ~~O-14-C~~ RESOLVED 2026-09-08 (plan 14-11) -- Juan chose apply-delegated; the per-role fill was applied and verified on synthetic rows (see the O-14-C decision entry above). Real-row post-merge confirmation of the fill counter and degrade-warning check stays PENDING until a live Helper #2 row exists.
 
 ### Quick Tasks Completed
 
@@ -487,9 +489,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-08T20:25:44.000Z
-**Stopped at:** Phase 14 Plan 09 complete -- Juan approved the Task 3 read-back ("i approve the d-14-07-verified"), HLP-06 marked complete, 14-09-SUMMARY.md written. Plan 14-11 (O-14-C closure, inserted 2026-09-08) has Tasks 1-2 landed (`57144a9`, `c30d8ed`, `0bb018b`); its Task 3 apply is in progress in the orchestrating session, concurrent with this closeout.
-**Resume file:** .planning/phases/14-foreman-helper-2/14-11-PLAN.md
+**Last session:** 2026-09-08T22:00:00.000Z
+**Stopped at:** Phase 14 Plan 11 complete -- Juan approved Task 3 ("i approve the d-14-07-verified & apply-delegated"); the per-role Helper #2 fill migration was applied (O-14-C-APPLIED, migration `20260908201205_helper2_attribution_per_role_fill`) and read back on synthetic rows (O-14-C-VERIFIED); O-14-C is RESOLVED; 14-11-SUMMARY.md written. Phase 14's only remaining plan is 14-10 (Wave 7 rollout: runbook, pilot, flag default, workflow wiring).
+**Resume file:** .planning/phases/14-foreman-helper-2/14-10-PLAN.md
 
 ## Session Continuity
 
