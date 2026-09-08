@@ -878,7 +878,7 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 8/11 plans executed (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to
+**Plans:** 9/11 plans executed (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to
 close O-14-C, making seven waves).
 
 Plans:
@@ -917,7 +917,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4)*
 
-- [ ] 14-09-PLAN.md — Owner-deployed Supabase attribution migration: the Helper #2 role columns,
+- [x] 14-09-PLAN.md — Owner-deployed Supabase attribution migration: the Helper #2 role columns,
   the freeze parameters, drop-first for BOTH lookup functions, and the read-back
 
 **Wave 6** *(blocked on Wave 5; inserted 2026-09-08)*

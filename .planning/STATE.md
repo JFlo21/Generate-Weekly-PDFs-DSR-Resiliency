@@ -5,17 +5,17 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: executing
-stopped_at: "Phase 14 Plan 09 Task 1 complete (66924c0); paused at Task 2 checkpoint:decision gate=blocking-human -- awaiting Juan decision on applying billing_audit/helper2_attribution.sql"
-last_updated: "2026-09-08T15:29:01.866Z"
+stopped_at: "Phase 14 Plan 09 complete (D-14-07-APPLIED + D-14-07-VERIFIED, HLP-06 done, 14-09-SUMMARY.md written); Plan 14-11 (O-14-C closure) Tasks 1-2 landed, Task 3 apply in progress in the orchestrating session"
+last_updated: "2026-09-08T20:25:44.000Z"
 last_activity: 2026-09-08
-last_activity_desc: Phase 14 execution started
+last_activity_desc: Phase 14 Plan 09 closed out; Plan 14-11 in progress
 progress:
   total_phases: 14
   completed_phases: 12
   total_plans: 71
-  completed_plans: 68
-  percent: 86
-state_head: ede01a9256056cb2d37d39fc51e5b012da42fa38
+  completed_plans: 69
+  percent: 97
+state_head: 9367299c2b8f45e47672280569f3b1b5ea012e62
 ---
 
 # Project State
@@ -312,6 +312,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: O-14-A RESOLVED 2026-09-07 (owner): helper2-wins -- precedence Helper #2 > Helper #1 > primary foreman for one physical unit on one row; the losing claim is logged once with a distinct reason, counted in the run summary, and sent to Sentry (ids/counts only, no names); a conflicted row never aborts a run. Plan 14-08 Task 2 is unblocked.
 - [Phase ?]: 14-08: O-14-A helper2-wins conflict rule implemented -- Helper #2 > Helper #1 > primary foreman precedence, recorded once per row at the plain leg (non-subcontractor) or shadow leg (subcontractor), never both
 - [Phase ?]: 14-08: run_summary.json gained 4 Helper #2 counters (capability-unavailable sheets, no-qualifying-completion sheets, conflict-hold, groups generated), pre-seeded on every run; golden baseline grew 25->29 keys
+- [Phase 14]: D-14-07-APPLIED (2026-09-08): Juan chose sql-first and explicitly delegated the apply to the orchestrating Claude session over the Supabase MCP connection (owner-authorized deviation from "never apply from an agent session," T-14-09-05); applied 16:55:11Z as migration 20260908165511_helper2_attribution_columns_and_rpcs, with 3 preserve-live-definition deviations (parameter order, pinned search_path, per-row not per-role first-write-wins) back-ported into the repo file in the same commit.
+- [Phase 14]: D-14-07-VERIFIED (2026-09-08): 4 owner-delegated, owner-co-signed production read-back checks confirm both lookups return the new columns, the table has both columns, a Helper #2 freeze leaves the other 3 role columns byte-identical, and the first post-apply run shows zero PGRST errors. Assumption A4 CLOSED by observation. HLP-06 marked complete.
+- [Phase 14]: O-14-C (open at 14-09 close, 2026-09-08): the deployed freeze_attribution is per-ROW first-write-wins, so rows frozen before the 16:55:11Z apply never gain Helper #2 -- plan 14-11 (inserted same day) closes this with a per-role fill; Tasks 1-2 landed, Task 3 apply in progress.
 
 ### Roadmap Evolution
 
@@ -407,7 +410,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   isolation before Phase 04 ships.
 
 - Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED). scripts/backfill_claim_time_attribution.py source 3 must strip file extensions before the sentinel check + add a proposed-value guard + rebuild fixtures from the real hash-less filename shape before 12-06 can re-run. See 12-06-SUMMARY.md.
-- Phase 14 / 14-09 Task 2 (checkpoint:decision, gate=blocking-human): Juan must choose sql-first / code-first / defer for applying billing_audit/helper2_attribution.sql, name the quiet window (outside the cron schedule), apply it himself in the Supabase SQL Editor, and record D-14-07-APPLIED in 14-DECISIONS.md before Task 3's D-14-07-VERIFIED read-back can run
+- ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: O-14-C (existing rows never gain Helper #2 under the deployed per-row first-write-wins body) is open and being closed by plan 14-11, inserted the same day.
 
 ### Quick Tasks Completed
 
@@ -484,9 +487,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-08T15:28:51.832Z
-**Stopped at:** Phase 14 Plan 09 Task 1 complete (66924c0); paused at Task 2 checkpoint:decision gate=blocking-human -- awaiting Juan decision on applying billing_audit/helper2_attribution.sql
-**Resume file:** .planning/phases/14-foreman-helper-2/14-09-PLAN.md
+**Last session:** 2026-09-08T20:25:44.000Z
+**Stopped at:** Phase 14 Plan 09 complete -- Juan approved the Task 3 read-back ("i approve the d-14-07-verified"), HLP-06 marked complete, 14-09-SUMMARY.md written. Plan 14-11 (O-14-C closure, inserted 2026-09-08) has Tasks 1-2 landed (`57144a9`, `c30d8ed`, `0bb018b`); its Task 3 apply is in progress in the orchestrating session, concurrent with this closeout.
+**Resume file:** .planning/phases/14-foreman-helper-2/14-11-PLAN.md
 
 ## Session Continuity
 
