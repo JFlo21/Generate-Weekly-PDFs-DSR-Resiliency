@@ -9343,3 +9343,24 @@ inside the RPC is useless unless the freeze loop re-admits the row (the frozen-r
 admission on BOTH a valid Helper #2 on the row AND an empty prefetched helper2; classify a fill from the RPC's returned
 provenance, never from the request; a same-signature CREATE OR REPLACE needs no drop window but still gets a `gh run list`
 check at the moment of applying; park the pre-apply body in the vault raw/ before any function replace.
+
+[2026-09-08 22:20] Phase 14 (Foreman Helper #2) rollout documented; generator-side code and the Helper #2
+attribution migrations are complete and live, but the flag has not been flipped anywhere. Variant vocabulary
+locked in 14-01 and unchanged since: `helper2` (plain), `aep_billable_helper2` / `reduced_sub_helper2`
+(subcontractor shadow siblings), filename tokens `_Helper2_<name>` / `_AEPBillable_Helper2_<name>` /
+`_ReducedSub_Helper2_<name>`, row metadata `__is_helper2_row` / `__helper2_foreman` / `__helper2_dept` /
+`__helper2_job`, kill switch `HELPER2_ENABLED` (default `'0'`, truthy `1`/`true`/`yes`/`on`). The family-parity
+invariant (`tests/test_helper2_family_parity.py`) pins every file that must recognize the Helper #2 family in
+lockstep, so a future synonym or filename-shape change cannot land in one file (e.g. the publisher script) while
+silently missing another; it exists because plan 14-05's research found the ORIGINAL audit scope had already
+missed two such sites outside the initial file list — `pipeline/cleanup.py` (variant-migration-orphan detection)
+and `scripts/publish_artifacts_to_supabase.py` (variant normalization/precedence) — both now covered and pinned.
+Decisions of record (full text in `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`): O-14-A RESOLVED
+(helper2-wins precedence — Helper #2 > Helper #1 > primary foreman on a same-row conflict, Follow-up 1 on
+per-slot file duplication still accepted-pending-Juan's-explicit-confirmation); D-14-07-APPLIED/VERIFIED and
+O-14-C-APPLIED/VERIFIED (the two Helper #2 attribution migrations, `20260908165511_helper2_attribution_columns_and_rpcs`
+and `20260908201205_helper2_attribution_per_role_fill`, both live in production as of this entry); and the
+LIVE-COLUMN-PROBE finding that the Resource Analyst `Foreman Helper #2` column is blank on all 576 rows as of
+2026-09-06 — so any pilot run over real data is fixture-only until that changes. Rollout status: documented,
+rehearsed on fixtures and synthetic data only; `HELPER2_ENABLED` stays off in the repository default and the
+GitHub Actions workflow is unwired pending a separate owner-approved change (`D-14-12-ROLLOUT`).

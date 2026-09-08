@@ -99,15 +99,29 @@ into the Smartsheet pipeline.
   gated by `sheet_has_vac_crew_columns` (`pipeline/fetch.py:554-570`). VAC-crew rows live in the same
   sheets as primary/helper rows; `VAC_CREW_FOLDER_IDS` (`pipeline/config.py:317`) is a discovery
   folder list, not a row tag.
+- **Helper #2 family (Phase 14, `HELPER2_ENABLED`, default off):** three additional variants, all
+  gated behind the flag — `helper2` (plain, mirrors `helper`), `aep_billable_helper2` and
+  `reduced_sub_helper2` (subcontractor shadow siblings of `aep_billable_helper` /
+  `reduced_sub_helper`). A row qualifies when the sheet is Helper #2-capable
+  (`Foreman Helping? #2`, `Helping Foreman #2 Completed Unit?`, and `Helper #2 Dept #` all mapped —
+  `pipeline/fetch.py:638-644`) and `Foreman Helping? #2` is non-blank, `Helping Foreman #2 Completed
+  Unit?` and `Units Completed?` are checked, and `Helper #2 Dept #` is present (`Helper #2 Job [#]`
+  optional). When a row has BOTH a valid Helper #1 and a valid Helper #2 completion, Helper #2 wins
+  (owner decision O-14-A, `helper2_conflict_hold`) — the row is emitted only under `helper2`, never
+  both. Operator procedure: `website/docs/runbook/foreman-helper-2.md`.
 - **Row metadata set during fetch:** helper → `__is_helper_row`, `__helper_foreman`, `__helper_dept`,
-  `__helper_job`; VAC → `__is_vac_crew`, `__vac_crew_name`, `__vac_crew_dept`, `__vac_crew_job`,
+  `__helper_job`; Helper #2 → `__is_helper2_row`, `__helper2_foreman`, `__helper2_dept`,
+  `__helper2_job`; VAC → `__is_vac_crew`, `__vac_crew_name`, `__vac_crew_dept`, `__vac_crew_job`,
   `__vac_crew_email` (populated, no Excel consumer). Each variant's Excel header reads its own fields
   (`pipeline/excel.py` `elif variant == 'vac_crew'`) — no fallthrough to the primary foreman or `Job #`
   (the April-2026 Arrowhead job-number leak; ledger `[2026-09-02 21:20]`).
 - **Group keys** (`pipeline/grouping.py:76-108`): `MMDDYY_WR`, `MMDDYY_WR_HELPER_<sanitized>`,
-  `MMDDYY_WR_VACCREW[_<sanitized claimer>]`; filenames
-  `WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{|_User_<x>|_Helper_<x>|_VacCrew}_{hash}.xlsx`.
-  Change-detection identity stays `(WR, week_ending, variant, foreman, dept, job)`.
+  `MMDDYY_WR_HELPER2_<sanitized>`, `MMDDYY_WR_VACCREW[_<sanitized claimer>]`; filenames
+  `WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{|_User_<x>|_Helper_<x>|_Helper2_<x>|_VacCrew}_{hash}.xlsx`,
+  plus the two Helper #2 subcontractor shadow shapes `_AEPBillable_Helper2_<x>` and
+  `_ReducedSub_Helper2_<x>` (the latter dual-routed to `TARGET_SHEET_ID` and
+  `SUBCONTRACTOR_PPP_SHEET_ID`, like its Helper #1 sibling). Change-detection identity stays
+  `(WR, week_ending, variant, foreman, dept, job)` for every variant including the Helper #2 family.
 - **Rates** (`pipeline/pricing.py:51-87`): `NEW_RATES_CSV` (default
   `New Contract Rates copy regenerated again.csv`, committed), `OLD_RATES_CSV` (default
   `CU List - Corpus North & South.csv`, not committed), `SUBCONTRACTOR_RATES_CSV` (default

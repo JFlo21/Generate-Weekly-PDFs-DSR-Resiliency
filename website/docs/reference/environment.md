@@ -846,6 +846,45 @@ All sub-budgets sit inside `TIME_BUDGET_MINUTES` (165) under the runner's
 180-minute ceiling; a guard that fires logs `⏩ Skipping …` and records
 `skipped` — it never fails the run.
 
+## Phase 14 — Foreman Helper #2
+
+*(Added 2026-09-08, Phase 14 — second helping-foreman slot.)*
+
+**Component owner:** Python billing pipeline (`generate_weekly_pdfs.py` via
+`pipeline/`). Neither the portal nor the Notion sync consumes this flag.
+Full operator procedure — the four detectable conditions, filenames, forcing a
+regeneration, the both-slots-checked precedence rule, and rollback — is on
+[Foreman Helper #2 rollout](../runbook/foreman-helper-2.md).
+
+### `HELPER2_ENABLED`
+
+**Default:** `'0'` (off). Truthy values (case-insensitive): `1`, `true`, `yes`,
+`on`. Anything else, including unset, is off.
+
+**Purpose:** Default-off kill switch for the second independently identifiable
+helping-foreman slot (the `Foreman Helping? #2` column family). When off, the
+Helper #2 detection block is a complete no-op — no group, file, attribution
+row, or log line is produced, even on a sheet that has all six Helper #2
+columns mapped. `RES_GROUPING_MODE` (default `both`) remains the shared
+grouping-mode switch for both Helper #1 and Helper #2; this flag only decides
+whether the Helper #2 path is inert.
+
+**Rollback:** Set back to `'0'` (or leave unset). Existing Helper #2
+attachments and `billing_audit.attribution_snapshot` rows are retained —
+cleanup never treats a live Helper #2 identity as a placeholder to sweep,
+flag on or off. A unit already claimed by a Helper #2 person is never moved
+back to the primary foreman by turning the flag off.
+
+**Startup banner:** not yet added; grep the sheet-level capability log line
+(`helper2_capability_unavailable` / Helper #2 columns present) to confirm the
+resolved state per sheet until a dedicated startup banner line ships.
+
+**Workflow pin:** not yet wired into
+`.github/workflows/weekly-excel-generation.yml` — GitHub Actions is
+inspect-only for Phase 14; the proposed wiring is recorded in the runbook page
+above and in `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`
+(`D-14-12-ROLLOUT`) as a separate approval item.
+
 ## Ownership attribution backfill (source 5)
 
 *(Added 2026-09-03, Phase 12 Plan 04 — OWN-03.)*
