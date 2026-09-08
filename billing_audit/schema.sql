@@ -214,6 +214,25 @@ ALTER TABLE billing_audit.group_content_hash
 -- The exact body lives in Supabase. Do NOT rename or change
 -- the parameter names without the corresponding update in
 -- ``billing_audit/writer.py:freeze_row``.
+--
+-- ON CONFLICT semantics (Phase 14 plan 14-11, O-14-C): the ORIGINAL
+-- four roles (``frozen_primary``, ``frozen_helper``,
+-- ``frozen_helper_dept``, ``frozen_vac_crew``) keep first-write-wins
+-- PER ROW -- ``ON CONFLICT (wr, week_ending, smartsheet_row_id) DO
+-- NOTHING``, unchanged by this plan. Helper #2
+-- (``frozen_helper2`` / ``frozen_helper2_dept``) instead has
+-- first-write-wins PER ROLE: an already-frozen row whose
+-- ``frozen_helper2`` is still a sentinel gains the two Helper #2
+-- columns the first time a call supplies a real value, gated by
+-- ``billing_audit.is_sentinel_value`` on both the current and
+-- incoming value, with a ``live``-sourced entry merged into
+-- ``backfill_provenance.helper2`` (never ``backfill_source`` /
+-- ``backfill_run_id`` -- those mean "the most recent BACKFILL write",
+-- and a live fill from the pipeline is not a backfill). Source of
+-- truth: ``billing_audit/helper2_attribution_fill.sql``, applied only
+-- after the Task 3 owner decision recorded as ``O-14-C-APPLIED`` /
+-- ``O-14-C-VERIFIED`` in
+-- ``.planning/phases/14-foreman-helper-2/14-DECISIONS.md``.
 
 -- ── attribution_snapshot (READ surface) ─────────────────────
 -- ``billing_audit.attribution_snapshot`` is the per-row personnel
