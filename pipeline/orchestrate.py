@@ -2154,6 +2154,48 @@ def _compute_registry_mapping_sheets(
     }
 
 
+def _compute_registry_marker_sheets(
+    registry_sheets: list[dict[str, Any]],
+    skip_sids: set[int],
+    column_mapping_sheets: set[int] | None,
+) -> dict[int, str]:
+    """Phase 14 Plan 13 (O-14-E): compute ``upsert_sheet_registry``'s
+    ``mapping_schema_by_sheet`` kwarg -- the sheets whose stored mapping
+    this call certifies as generated under ``MAPPING_SCHEMA_MARKER``.
+
+    A sheet earns the marker only when BOTH hold:
+
+    - it was NOT admitted from the discovery skip index this run
+      (``skip_sids``, from ``discovery.get_last_discovery_skip_sids``) --
+      it took a full validation, so its discovered mapping is current; and
+    - its ``column_mapping`` is actually WRITTEN by this call
+      (``column_mapping_sheets`` is ``None`` on the weekly deep run, or
+      contains the id -- see ``_compute_registry_mapping_sheets``). On a
+      frequent run an already-registered sheet's stored mapping is echoed,
+      not refreshed, so stamping it would certify a mapping this run never
+      validated (possibly a pre-Helper-#2 one), which would let a later
+      run admit that sheet from cache with Helper #2 columns missing.
+
+    Consequence: existing sheets earn the marker on the next
+    ``weekly_comprehensive`` run; brand-new sheets earn it immediately.
+    A skip-admitted sheet is never promoted (14-07 writer contract).
+
+    PURE (no I/O, never raises) -- directly unit-testable.
+    """
+    marker_sheets: dict[int, str] = {}
+    for sheet in registry_sheets:
+        sid = sheet.get("id")
+        if sid in skip_sids:
+            continue
+        if (
+            column_mapping_sheets is not None
+            and sid not in column_mapping_sheets
+        ):
+            continue
+        marker_sheets[sid] = _discovery.MAPPING_SCHEMA_MARKER
+    return marker_sheets
+
+
 def _log_column_mapping_drift(
     sheets: list[dict[str, Any]],
     watermarks: dict[Any, dict[str, Any]],
@@ -2568,6 +2610,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         _registry_mapping_sheets = _compute_registry_mapping_sheets(
             _is_deep_run, source_sheets, _watermarks,
         )
+        # Phase 14 Plan 13 (O-14-E): the mapping-schema marker goes only
+        # to sheets that were fully validated this run AND whose mapping
+        # this call writes (see _compute_registry_marker_sheets). Shared
+        # by both registry passes, like _registry_mapping_sheets.
+        _registry_marker_sheets = _compute_registry_marker_sheets(
+            _registry_sheets,
+            _discovery.get_last_discovery_skip_sids(),
+            _registry_mapping_sheets,
+        )
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
                 _mem_writer.upsert_sheet_registry(
@@ -2577,6 +2628,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     full_read_sheets=_registry_full_read_ids,
                     column_mapping_sheets=_registry_mapping_sheets,
                     watermarks=_watermarks,
+                    mapping_schema_by_sheet=_registry_marker_sheets,
                 )
             except Exception:
                 logging.warning(
@@ -2728,6 +2780,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     full_read_sheets=_registry_full_read_ids,
                     column_mapping_sheets=_registry_mapping_sheets,
                     watermarks=_watermarks,
+                    mapping_schema_by_sheet=_registry_marker_sheets,
                 )
             except Exception:
                 logging.warning(

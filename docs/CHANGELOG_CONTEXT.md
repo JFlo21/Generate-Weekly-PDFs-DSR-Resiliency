@@ -1014,3 +1014,11 @@ The one-time `row_event` churn landed (218,338 rows, 5,451 changed). One gap: `s
 NULL because the orchestrate call sites never pass `mapping_schema_by_sheet` — every run now fully validates all
 121 sheets (slower but correct, ~38 s). Recorded as `O-14-E` with proposed plan 14-13; the `Shadow parity FAIL` on
 this run is the pre-existing, intermittent flag-off shadow READ probe. Ledger `[2026-09-09 09:40]`. Records: PR #394.
+
+**Plan 14-13 — O-14-E fixed (2026-09-09).** `pipeline/discovery.py` publishes the skip-admitted sheet ids
+(`get_last_discovery_skip_sids()`), `pipeline/orchestrate.py` derives `_compute_registry_marker_sheets()` and passes
+it as `mapping_schema_by_sheet` at both `upsert_sheet_registry` call sites. The marker is written only for a sheet
+that was fully validated this run AND whose column_mapping this call writes, so a frequent run never certifies an
+echoed (possibly pre-Helper-#2) mapping. Existing sheets earn `helper2-v1` on the next Monday deep run; new sheets
+immediately. `tests/test_mapping_schema_marker_caller.py` (8 tests, RED first) pins the caller. Full suite 2304
+passed / 1 skipped; six gates pass. Ledger `[2026-09-09 10:35]`. Fix: PR #395.

@@ -581,7 +581,23 @@ over synthetic data**. Neither **controlled upload verified** nor
   `bc2de79` runs, so it is intermittent and pre-existing, and the 25-minute probe is what makes long
   runs long. (2) **`sheet_registry.mapping_schema` was NOT written** — see O-14-E.
 
-## O-14-E — OPEN 2026-09-09: mapping_schema marker never written, registry skip defeated
+## O-14-E — FIXED 2026-09-09 (plan 14-13), production observation pending: mapping_schema marker never written, registry skip defeated
+
+- **Fix (plan 14-13, Juan approved 2026-09-09 "yes lets write up the fix").** `pipeline/discovery.py`
+  now publishes the skip-admitted ids (`get_last_discovery_skip_sids()`, reset per call, mirrors
+  `fetch.get_last_sheet_versions`); `pipeline/orchestrate.py` derives
+  `_compute_registry_marker_sheets(registry_sheets, skip_sids, column_mapping_sheets)` and passes it as
+  `mapping_schema_by_sheet` at BOTH `upsert_sheet_registry` call sites. Marker semantics: fully
+  validated this run AND column_mapping written this call — an echoed stored mapping is never
+  certified, so a frequent run cannot stamp a possibly pre-Helper-#2 mapping. Consequence: the 121
+  existing sheets earn `helper2-v1` on the next `weekly_comprehensive` (Monday 05:00Z) deep run and
+  are cache-admitted from then on; a brand-new sheet earns it on its first run.
+  `tests/test_mapping_schema_marker_caller.py` (8 tests) pins the getter, the pure helper, both call
+  sites (source pin on `orch.main`), and the marker reaching the real writer's payload.
+- **Close when observed:** after the first Monday deep run, `select count(*) filter (where
+  mapping_schema = 'helper2-v1') from pipeline_memory.sheet_registry` = 121 and the next frequent run
+  logs `skipped via sheet_registry` ≈ 121.
+- Original record (kept for traceability):
 
 - Expected on the first enabled run: one full validation per sheet, then the `helper2-v1` marker
   written so later runs are admitted from cache again (D-14-10-APPLIED). Observed: all 121 sheets
