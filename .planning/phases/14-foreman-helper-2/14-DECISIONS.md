@@ -120,7 +120,7 @@ exists on the Resource Analyst sheet as of 2026-09-06.
   cannot disturb a parity streak.
 - No DDL was executed from this session.
 
-## O-14-B — OPEN: `pipeline_memory.upsert_rows_bulk` does not carry the Helper #2 fields (found 2026-09-06, orchestrator review of 14-04)
+## O-14-B — RESOLVED 2026-09-09 (plan 14-12, D-14-13-VERIFIED; was OPEN): `pipeline_memory.upsert_rows_bulk` does not carry the Helper #2 fields (found 2026-09-06, orchestrator review of 14-04)
 
 - Plan 14-04 added `helper2_observed / helper2_completed / helper2_dept /
   helper2_job` to the `row_state` DDL (`pipeline_memory/schema.sql`
@@ -503,3 +503,58 @@ over synthetic data**. Neither **controlled upload verified** nor
   confirmation); the Smartsheet-side preconditions (Resource Analyst
   assignment automation, Helper #2 Job producer) remain owner checklist
   items.
+
+## D-14-13-DDL-APPLIED (plan 14-12, Task 2) — owner decision 2026-09-08
+
+- Decision: Juan (chat, 2026-09-08 evening CDT) approved applying the two pending additive DDLs
+  (D-14-08-APPLIED `row_state` helper2_* x4; D-14-10-APPLIED `sheet_registry.mapping_schema`) and
+  closing O-14-B, apply delegated to the session: "do this and then enable the helper 2 once these
+  issues are fixed".
+- Applied 2026-09-09 02:21:29Z as Supabase migration
+  `20260909022129_helper2_row_state_columns_marker_and_rpc` (one transaction): the five
+  `ADD COLUMN IF NOT EXISTS` statements from `pipeline_memory/helper2_columns_migration.sql`, then the
+  `upsert_rows_bulk` block of `pipeline_memory/schema.sql` at `cf556d8` verbatim (CREATE OR REPLACE on
+  the unchanged signature), then the GRANT line. Run window: run 34299267004 (01:00Z slot) had
+  completed; next slot 13:00Z.
+- Pre-state parked in the vault raw folder: "2026-09-08 - pipeline_memory upsert_rows_bulk pre-state +
+  row_state and sheet_registry columns (rollback reference, O-14-B).sql" (def md5 5987e5ed…, len 10240,
+  grants service_role/postgres/PUBLIC EXECUTE, proconfig search_path="").
+- Rollback: re-run that file's function body; DROP the five columns.
+
+## D-14-13-VERIFIED (plan 14-12, Task 2) — production read-back 2026-09-09
+
+- (a) Columns: `row_state.helper2_observed TEXT`, `helper2_completed BOOLEAN`, `helper2_dept TEXT`,
+  `helper2_job TEXT`; `sheet_registry.mapping_schema TEXT` — all nullable, no default.
+- (b) Function: `pipeline_memory.upsert_rows_bulk(bigint,text,jsonb)` def md5 378b3353…, len 12035,
+  36 `helper2_` mentions, `SET search_path TO ''` kept; grants unchanged (PUBLIC, postgres,
+  service_role EXECUTE); proconfig unchanged.
+- (c) Synthetic round-trip on `sheet_id = -14012` (DB time 02:22–02:26Z): call 1 (two rows, one with
+  Helper #2 values, one without the keys) returned both (wr, week_ending) pairs; row_state stored
+  `Helper Two Test / true / 42 / J-99` and NULLs respectively; both row_event after_images carry the
+  four helper2 keys. Call 2 (identical payload) returned 0 pairs and added 0 events. Call 3 (Helper #2
+  dept 43 / job J-100, new hash) returned 1 pair; row_state updated through the ON CONFLICT set list
+  (last_changed_run advanced, first_seen_run kept); third row_event = `update` carrying dept 43.
+  Synthetic rows deleted afterwards (3 events + 2 state rows; 0 remain).
+- Consequence: O-14-B RESOLVED; HLP-06 cached half met (14-VERIFICATION.md addendum).
+
+## O-14-A-FOLLOWUP-1 — CONFIRMED 2026-09-08 (owner)
+
+- Follow-up 1 (the same person as Helper #1 on some rows and Helper #2 on others within one WR/week
+  produces two files, one per slot) was listed as needing written confirmation; Juan replied
+  "do this and then enable the helper 2 once these issues are fixed" to that list on 2026-09-08.
+  Recorded as confirmed; D-14-06's accepted consequence stands and the runbook documents it.
+
+## D-14-14-ENABLE (plan 14-12, Task 3) — owner decision 2026-09-08
+
+- Decision: enable Helper #2 for the scheduled workflow once the DDLs and O-14-B are fixed (Juan,
+  2026-09-08: "…then enable the helper 2 once these issues are fixed"). Overrides the 14-10 runbook
+  caution to wait for a real-data pilot: the Resource Analyst Helper #2 column is blank on every live
+  row, so enabling changes no workbook until a crew records a second helper.
+- Mechanism (as proposed in 14-10 / D-14-12-ROLLOUT): `.github/workflows/weekly-excel-generation.yml`
+  "Generate reports" env gains `HELPER2_ENABLED: ${{ vars.HELPER2_ENABLED || '0' }}`; the repo
+  variable `HELPER2_ENABLED` is set to `1` after PR #390 merges. Rollback = set the variable to `0`
+  (no code change). The repo default in `pipeline/config.py` stays `'0'` so local and synthetic runs
+  are byte-identical unless a caller opts in.
+- Expected on the first enabled scheduled run: the four Helper #2 counters present in run_summary,
+  `helper2_capability_unavailable` on sheets without the column family, no degrade warning, zero
+  `_Helper2_` workbooks until real data appears.

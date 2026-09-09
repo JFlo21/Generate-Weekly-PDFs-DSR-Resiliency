@@ -237,6 +237,14 @@ jobs:
           # delete this line or set '0'; no other change needed.
           # Checklist: docs/run-memory-write-flip-checklist.md.
           RUN_MEMORY_WRITE_ENABLED: '1'
+          # Phase 14 D-14-14-ENABLE (2026-09-08, owner-approved after the
+          # O-14-B closure): Helper #2 generation is driven by the repo
+          # variable HELPER2_ENABLED (Settings > Variables). Unset or '0'
+          # keeps the pipeline byte-identical to pre-Phase-14 output; '1'
+          # bills a second helping foreman into its own _Helper2_<name>
+          # workbook. Rollback: `gh variable set HELPER2_ENABLED --body 0`
+          # -- no code change. Runbook: website/docs/runbook/foreman-helper-2.md.
+          HELPER2_ENABLED: ${{ vars.HELPER2_ENABLED || '0' }}
           # Shadow-parity delta-probe sub-budget (minutes). The code
           # default (10) covered only 56 of 121 sheets on run #2801
           # (~11 s/sheet incl. Smartsheet 5xx retries), so the read

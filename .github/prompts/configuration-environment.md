@@ -13,8 +13,9 @@ re-exported by the `generate_weekly_pdfs.py` facade). Env var NAMES only — nev
 - `RES_GROUPING_MODE` ∈ {`primary`, `helper`, `both`} (default `both`)
 - `HELPER2_ENABLED` (default `'0'`, truthy `1`/`true`/`yes`/`on`) — Phase 14 default-off kill switch
   for the second helping-foreman slot (`Foreman Helping? #2` family). Off = complete no-op, even on a
-  sheet with all six Helper #2 columns mapped. Not yet wired into the workflow `env:` block — see
-  `website/docs/runbook/foreman-helper-2.md` and `14-DECISIONS.md` `D-14-12-ROLLOUT`.
+  sheet with all six Helper #2 columns mapped. Wired into the workflow `env:` block as
+  `${{ vars.HELPER2_ENABLED || '0' }}` (`D-14-14-ENABLE`): the repo variable `HELPER2_ENABLED` is the
+  on/off switch for scheduled runs — see `website/docs/runbook/foreman-helper-2.md`.
 - `TEST_MODE`, `FORCE_GENERATION`, `WR_FILTER` (comma list), `MAX_GROUPS`
 - `RESET_HASH_HISTORY=true` for full CI regeneration — forces the `pipeline_memory.group_state`-backed
   change detection to treat every group as changed (D-02 trigger 5)

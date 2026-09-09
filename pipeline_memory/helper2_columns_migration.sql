@@ -1,4 +1,6 @@
 -- pipeline_memory/helper2_columns_migration.sql
+-- APPLIED 2026-09-09 02:21:29Z as Supabase migration 20260909022129_helper2_row_state_columns_marker_and_rpc
+-- together with the schema.sql RPC block (D-14-13-DDL-APPLIED / D-14-13-VERIFIED in 14-DECISIONS.md).
 -- Phase 14 Plan 12 (O-14-B closure): additive DDL for D-14-08-APPLIED
 -- (row_state Helper #2 columns) and D-14-10-APPLIED (sheet_registry
 -- mapping-schema marker). Both decisions were owner-approved on

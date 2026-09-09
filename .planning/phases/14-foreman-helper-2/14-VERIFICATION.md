@@ -1,8 +1,8 @@
 ---
 phase: 14-foreman-helper-2
 verified: 2026-09-09T01:54:36Z
-status: gaps_found
-score: 6/7 must-haves verified
+status: passed
+score: 7/7 must-haves verified (HLP-06 closed by plan 14-12 — see addendum)
 covered_files: [".github/prompts/configuration-environment.md", ".planning/REQUIREMENTS.md", ".planning/ROADMAP.md", ".planning/phases/14-foreman-helper-2/14-01-PLAN.md", ".planning/phases/14-foreman-helper-2/14-01-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-02-PLAN.md", ".planning/phases/14-foreman-helper-2/14-02-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-03-PLAN.md", ".planning/phases/14-foreman-helper-2/14-03-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-04-PLAN.md", ".planning/phases/14-foreman-helper-2/14-04-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-05-PLAN.md", ".planning/phases/14-foreman-helper-2/14-05-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-06-PLAN.md", ".planning/phases/14-foreman-helper-2/14-06-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-07-PLAN.md", ".planning/phases/14-foreman-helper-2/14-07-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-08-PLAN.md", ".planning/phases/14-foreman-helper-2/14-08-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-09-PLAN.md", ".planning/phases/14-foreman-helper-2/14-09-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-10-PLAN.md", ".planning/phases/14-foreman-helper-2/14-10-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-11-PLAN.md", ".planning/phases/14-foreman-helper-2/14-11-SUMMARY.md", ".planning/phases/14-foreman-helper-2/14-CONTEXT.md", ".planning/phases/14-foreman-helper-2/14-DECISIONS.md", ".planning/phases/14-foreman-helper-2/14-DISCUSSION-LOG.md", ".planning/phases/14-foreman-helper-2/14-PATTERNS.md", ".planning/phases/14-foreman-helper-2/14-PENDING-RESOLUTIONS.md", ".planning/phases/14-foreman-helper-2/14-RESEARCH.md", ".planning/phases/14-foreman-helper-2/14-VALIDATION.md", "billing_audit/helper2_attribution.sql", "billing_audit/helper2_attribution_fill.sql", "billing_audit/schema.sql", "billing_audit/writer.py", "docs/ai/architecture.md", "memory-bank/living-ledger.md", "pipeline/attribution.py", "pipeline/change_detection.py", "pipeline/cleanup.py", "pipeline/config.py", "pipeline/discovery.py", "pipeline/excel.py", "pipeline/fetch.py", "pipeline/grouping.py", "pipeline/orchestrate.py", "pipeline/types.py", "pipeline/upload.py", "pipeline_memory/reader.py", "pipeline_memory/schema.sql", "pipeline_memory/writer.py", "portal-v2/src/lib/variantLabels.ts", "scripts/mem04_passive_compare.py", "scripts/publish_artifacts_to_supabase.py", "tests/golden/run_summary_baseline.json", "tests/test_billing_audit_shadow.py", "tests/test_change_detection_tiebreak.py", "tests/test_foreman_helper_2.py", "tests/test_group_identity_and_header_foreman.py", "tests/test_helper2_attribution_fill_sql_contract.py", "tests/test_helper2_attribution_sql_contract.py", "tests/test_helper2_family_parity.py", "tests/test_incremental_read.py", "tests/test_parity_shadow.py", "tests/test_pipeline_memory_shadow.py", "tests/test_publish_artifacts_to_supabase.py", "tests/test_sentinel_superseded_cleanup.py", "tests/test_subcontractor_helper_shadow_rescue.py", "website/docs/reference/environment.md", "website/docs/runbook/foreman-helper-2.md", "website/docs/runbook/whats-new.md", "website/sidebars.ts"]
 covered_digest: "v1:sha256:1477b02b24982119c12b5aa8551eab16de9a63c231f6d71e925b97b0f19f3cc0"
 behavior_unverified: 0
@@ -168,3 +168,16 @@ One genuine, code-confirmed gap: **O-14-B** (`pipeline_memory.upsert_rows_bulk` 
 
 *Verified: 2026-09-08*
 *Verifier: Claude (gsd-verifier)*
+
+## Addendum 2026-09-09 — HLP-06 gap closed (plan 14-12)
+
+- O-14-B closed: `pipeline_memory.upsert_rows_bulk` now carries helper2_observed / helper2_completed /
+  helper2_dept / helper2_job in every column list (`cf556d8`; lockstep test
+  `tests/test_upsert_rows_bulk_helper2_contract.py`, 12 passed); Supabase migration
+  `20260909022129_helper2_row_state_columns_marker_and_rpc` applied 02:21:29Z and read back
+  (D-14-13-VERIFIED in 14-DECISIONS.md: columns, function text, grants, synthetic insert / no-op
+  resend / update round-trip on sheet_id -14012, rows deleted afterwards).
+- HLP-06 cached half: met — a later Helper #2 on a cached row changes content_hash, row_state stores
+  the new values through the ON CONFLICT set list, and a row_event of kind `update` records them.
+- Status after addendum: passed (7/7). Remaining human items unchanged: portal `variantLabels.ts`
+  labels unbuilt locally; real-data pilot pending real data (Resource Analyst column blank).

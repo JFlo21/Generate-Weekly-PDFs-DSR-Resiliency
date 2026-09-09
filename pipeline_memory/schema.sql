@@ -311,7 +311,8 @@ CREATE TABLE IF NOT EXISTS pipeline_memory.run_ledger (
 -- drop a hashed field again. Re-apply this block (CREATE OR REPLACE on
 -- the unchanged signature keeps the live grants and search_path pin)
 -- AFTER pipeline_memory/helper2_columns_migration.sql has added the
--- columns -- the INSERT list references them.
+-- columns -- the INSERT list references them. APPLIED to production
+-- 2026-09-09 02:21:29Z (migration 20260909022129, D-14-13-VERIFIED).
 CREATE OR REPLACE FUNCTION pipeline_memory.upsert_rows_bulk(
     p_sheet_id BIGINT,
     p_run_id   TEXT,

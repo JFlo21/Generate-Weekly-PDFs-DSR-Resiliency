@@ -323,7 +323,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   unavailable capability never create a Helper #2 claim, group, workbook, attachment, or
   attribution row.
 
-- [ ] **HLP-06** (PARTIAL — frozen half live via 14-09/14-11; cached half blocked on O-14-B, see 14-VERIFICATION.md): A later Helper #2 completion on a row already frozen or cached with primary
+- [x] **HLP-06** (frozen half live via 14-09/14-11; cached half closed by 14-12, D-14-13-VERIFIED): A later Helper #2 completion on a row already frozen or cached with primary
   or Helper #1 attribution is recorded for the Helper #2 role without overwriting other roles
   or inheriting ownership from another week; repeated runs are idempotent; legacy hashes and
   filenames are unchanged when Helper #2 is absent (no empty-field append to every key).
@@ -440,7 +440,7 @@ Which phases cover which requirements.
 | HLP-03 | Phase 14 | Complete |
 | HLP-04 | Phase 14 | Complete |
 | HLP-05 | Phase 14 | Complete |
-| HLP-06 | Phase 14 | Partial — frozen half live; cached half blocked on O-14-B (`upsert_rows_bulk` lacks helper2_* fields, `row_state` DDL pending owner approval) |
+| HLP-06 | Phase 14 | Complete (14-12 closed O-14-B; D-14-13-VERIFIED 2026-09-09) |
 | HLP-07 | Phase 14 | Complete |
 
 **Coverage:**
@@ -448,8 +448,8 @@ Which phases cover which requirements.
 - v1.1 requirements: 33 total — mapped to phases: 33 (Phase 03: 5, Phase 04: 15, Phase 05: 9, Phase 06: 4, Phase 07: 5); unmapped: 0 ✓
 - v1.2 requirements: 6 total — mapped to phases: 6 (Phase 08: 6); unmapped: 0 ✓
 - v1.4 requirements: 16 total — mapped to phases: 16 (Phase 10: 4, Phase 11: 5, Phase 12: 4, Phase 13: 3); unmapped: 0 ✓ (DRAFT — Phase 10 pending spec §8 decisions)
-- v1.4 Foreman Helper #2 (HLP-01..07, Phase 14): 7 total — mapped to phases: 7 (Phase 14: 7); unmapped: 0 ✓ — 6 Complete + HLP-06 Partial (O-14-B) after PR #389 (`ba6eeaf`; 14-VERIFICATION.md gaps_found 6/7)
+- v1.4 Foreman Helper #2 (HLP-01..07, Phase 14): 7 total — mapped to phases: 7 (Phase 14: 7); unmapped: 0 ✓ — 7 Complete (HLP-06 closed by 14-12, D-14-13-VERIFIED, after PR #389 `ba6eeaf`)
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-08-24 — appended v1.4 MEM-01..04 / INC-01..05 / OWN-01..04 / AUD-01..03 (Supabase Run Memory), mapped to Phases 10–13; merged from `.planning/milestones/v1.4-REQUIREMENTS.md` so plan-phase's requirements-coverage gate can see them; 2026-09-08 — HLP-01..07 (Foreman Helper #2, Phase 14) HLP-01..05,07 Complete, HLP-06 Partial (O-14-B) after PR #389 merged; 14-VERIFICATION.md gaps_found.*
+*Last updated: 2026-08-24 — appended v1.4 MEM-01..04 / INC-01..05 / OWN-01..04 / AUD-01..03 (Supabase Run Memory), mapped to Phases 10–13; merged from `.planning/milestones/v1.4-REQUIREMENTS.md` so plan-phase's requirements-coverage gate can see them; 2026-09-08 — HLP-01..07 (Foreman Helper #2, Phase 14) HLP-01..07 Complete (HLP-06 closed by 14-12 on 2026-09-09, D-14-13-VERIFIED).*
