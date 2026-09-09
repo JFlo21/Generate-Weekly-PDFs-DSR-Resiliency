@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 9, 2026
 
+- 📄 Help guides updated: align status files with plan 14-14 merge (#HLP-06)
 - ✅ Problem fixed: frequent runs adopt validated mapping, clear O-14-E now
 - ✅ Problem fixed: write mapping&#95;schema marker from caller (O-14-E)
 - 📄 Help guides updated: resolve O-14-D, record first enabled run, open O-14-E ( follow-up)
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✨ New capability: close O-14-B, wire HELPER2&#95;ENABLED; Phase 14 post-merge docs (#HLP-06)
 - ✨ New capability: Phase 14 Foreman Helper + Phase 12 G-12-3 closure (#HLP-01..07)
 - ✨ New capability: Phase 12 waves 2-3 — OWN-03 backfill SQL, source 5, runbook (#OWN-03)
-- ✨ New capability: OWN-03 claim-time attribution backfill (wave 1)
 
 <!-- /runbook-repo -->
 
