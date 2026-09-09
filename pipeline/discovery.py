@@ -70,6 +70,28 @@ _FOLDER_DISCOVERED_ORIG_IDS: set[int] = set()
 # to force exactly one more revalidation across every sheet.
 MAPPING_SCHEMA_MARKER = "helper2-v1"
 
+# Phase 14 Plan 13 (O-14-E): the sheet ids ADMITTED from the discovery
+# skip index on the most recent ``discover_source_sheets`` call -- i.e. the
+# sheets that did NOT take a full validation this run. Mirrors
+# ``pipeline/fetch.py::get_last_sheet_versions``. ``pipeline/orchestrate.py``
+# reads it to derive ``upsert_sheet_registry``'s ``mapping_schema_by_sheet``
+# (a marker is written only for a sheet that was fully validated). Written
+# once, on the main thread, after the discovery executor has joined, so no
+# lock is needed; reset at the top of every ``discover_source_sheets`` call.
+_LAST_DISCOVERY_SKIP_SIDS: set = set()
+
+
+def _set_last_discovery_skip_sids(sids) -> None:
+    global _LAST_DISCOVERY_SKIP_SIDS
+    _LAST_DISCOVERY_SKIP_SIDS = set(sids)
+
+
+def get_last_discovery_skip_sids() -> set:
+    """Return a defensive copy of the sheet ids admitted from the
+    registry skip index during the most recent ``discover_source_sheets``
+    call. Empty before the first call this run."""
+    return set(_LAST_DISCOVERY_SKIP_SIDS)
+
 
 def discover_folder_sheets(client, folder_ids: list[int], label: str) -> set[int]:
     """Discover all sheet IDs inside the given Smartsheet folders (recursively including subfolders).
@@ -473,6 +495,7 @@ def discover_source_sheets(client):
     # `_failed_validation_sids`.
     _discovery_skip_index = _build_discovery_skip_index(client, base_sheet_ids)
     _discovery_skip_sids: list = []
+    _set_last_discovery_skip_sids([])
 
     discovered = []
 
@@ -777,6 +800,9 @@ def discover_source_sheets(client):
         f"{_skipped_count} skipped via sheet_registry, {_full_count} "
         f"fully validated (D-11.1-01)"
     )
+    # Phase 14 Plan 13 (O-14-E): publish the admitted ids for the
+    # sheet_registry marker decision in pipeline/orchestrate.py.
+    _set_last_discovery_skip_sids(_discovery_skip_sids)
     if _failed_validation_sids:
         # PR #373 review (fail-closed). Before INC-05, the 7-day discovery
         # cache masked a validation failure on most runs; now every run

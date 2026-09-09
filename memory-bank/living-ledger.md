@@ -9437,3 +9437,15 @@ registry skip is defeated (121 full validations, ~38 s, no billing impact). Less
 kwarg, the verification gate must assert the production CALLER passes it, not only that the callee honors it.
 Also noted: `Shadow parity FAIL` (flag-off shadow READ probe, 25-min budget, 18 sheets abandoned) is intermittent
 and pre-existing — it fired on 2 of 9 pre-merge `bc2de79` runs too; group verdict passes. Not a Phase 14 regression.
+
+[2026-09-09 10:35] Plan 14-13 — O-14-E fixed: the mapping_schema marker now reaches sheet_registry. Root cause was a
+caller gap (14-07 tested the writer's `mapping_schema_by_sheet` kwarg, no caller passed it). Fix: `pipeline/discovery.py`
+records the skip-admitted ids per `discover_source_sheets` call (`get_last_discovery_skip_sids()`, same shape as
+`fetch.get_last_sheet_versions`); `pipeline/orchestrate.py::_compute_registry_marker_sheets(registry_sheets, skip_sids,
+column_mapping_sheets)` returns `{sid: MAPPING_SCHEMA_MARKER}` for sheets NOT skip-admitted AND whose column_mapping is
+written this call; passed at both `upsert_sheet_registry` call sites. RULE: never stamp the marker on an echoed stored
+mapping — on a frequent run an already-registered sheet's mapping is echoed, not refreshed (Phase 11 D-03), so
+certifying it could later admit a pre-Helper-#2 mapping from cache and silently disable Helper #2 on that sheet.
+Consequence: the 121 existing sheets earn `helper2-v1` on the next `weekly_comprehensive` Monday run; until then the
+~38 s full validation per run continues (slower but correct). Evidence: `tests/test_mapping_schema_marker_caller.py`
+8 tests RED→GREEN; full suite 2304 passed / 1 skipped / 557 subtests; `scripts/run_6_gates.sh` ALL 6 GATES PASSED.

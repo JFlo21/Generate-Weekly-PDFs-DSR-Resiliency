@@ -69,9 +69,10 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Open items / owner decisions
 
-- **O-14-E** (NEW 2026-09-09): `mapping_schema` marker never written by the orchestrate call sites, so the
-  D-11.1-01 registry skip is defeated every run (slower but correct). Fix = plan 14-13, one kwarg at two
-  call sites + caller test; production Python, needs Juan's go-ahead.
+- **O-14-E** (`mapping_schema` marker never written): FIXED 2026-09-09 by plan 14-13 (Juan approved) —
+  `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed as
+  `mapping_schema_by_sheet` at both call sites; marker = fully validated AND mapping written this call.
+  Existing 121 sheets earn `helper2-v1` on the next Monday 05:00Z deep run; close once observed.
 - **O-14-D** (flag-off routing): RESOLVED 2026-09-09 — option (a) accepted; Helper #2 is permanent, the
   flag is an emergency kill switch only, persisted-claim routing declined (`14-DECISIONS.md`).
 - **O-14-B** (`upsert_rows_bulk` RPC gap): RESOLVED 2026-09-09 (`D-14-13-VERIFIED`).
@@ -81,8 +82,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Next actions
 
-1. Juan approves plan 14-13 (O-14-E: pass `mapping_schema_by_sheet` at both `upsert_sheet_registry` call
-   sites + caller test); then verify on the next scheduled run that `skipped via sheet_registry` ≈ 121.
+1. Merge PR #394 (docs) and the plan 14-13 PR (O-14-E fix); after the Mon 2026-09-14 05:00Z deep run confirm
+   `mapping_schema = 'helper2-v1'` on all 121 `sheet_registry` rows and `skipped via sheet_registry` ≈ 121
+   on the following frequent run; then close O-14-E.
 2. `/gsd-code-review 14` on master.
 3. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
 4. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
