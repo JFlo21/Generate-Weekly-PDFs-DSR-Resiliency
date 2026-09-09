@@ -9,6 +9,24 @@ _Last updated: September 9, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — September 9, 2026
+
+- 📄 Help guides updated: record HELPER2&#95;ENABLED=1 after merge
+- ✨ New capability: close O-14-B, wire HELPER2&#95;ENABLED; Phase 14 post-merge docs (#HLP-06)
+- ✨ New capability: Phase 14 Foreman Helper + Phase 12 G-12-3 closure (#HLP-01..07)
+- ✨ New capability: Phase 12 waves 2-3 — OWN-03 backfill SQL, source 5, runbook (#OWN-03)
+- ✨ New capability: OWN-03 claim-time attribution backfill (wave 1)
+- 📄 Help guides updated: align instruction files (run 1)
+- ⚡ The system now runs faster (bound validation read to 3 rows (G-11.1-4))
+- ✅ Problem fixed: detach abandoned shadow-parity probe workers at interpreter exit
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
 
@@ -23,16 +41,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
 
-### 📋 Changelog — September 8, 2026
+### 📋 Changelog — September 9, 2026
 
 - 📄 Help guides updated: BUG-030 closed / live-proven -- first green decision-sync run after PR
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: GF Workbook shows honest no-Gen-A copy instead of the unassigned message
 - 📄 Help guides updated: renumber the Phase 32 sidebar entry BUG-026 -&gt; BUG-029 (PR merge collision)
 - • Phase 32 GF Workbook v2 branch + BUG-027/028 RCAs + Phase 33 context
 - ✅ Problem fixed: BUG-028 -- No-Revisions D-07 confirmation, Billers churn guards, dropped-refusal accounting, claims-pending visibility
 - ✨ New capability: service heartbeat, /api/health deploy proof, deploy-smoke, CODEOWNERS + CI/CD contract (CICD-02..04)
 - ✅ Problem fixed: ingest GF revisions on 'Approved with Modifications' rows; approval tail matches the Requests row's Manifest ID token (BUG-026, WR 91783278)
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
@@ -41,27 +59,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 8, 2026
-
-- • 📊 Audit: 2026-09-07T07:04:39Z
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
 ### 📋 Changelog — September 9, 2026
 
-- ✨ New capability: close O-14-B, wire HELPER2&#95;ENABLED; Phase 14 post-merge docs (#HLP-06)
-- ✨ New capability: Phase 14 Foreman Helper + Phase 12 G-12-3 closure (#HLP-01..07)
-- ✨ New capability: Phase 12 waves 2-3 — OWN-03 backfill SQL, source 5, runbook (#OWN-03)
-- ✨ New capability: OWN-03 claim-time attribution backfill (wave 1)
-- 📄 Help guides updated: align instruction files (run 1)
-- ⚡ The system now runs faster (bound validation read to 3 rows (G-11.1-4))
-- ✅ Problem fixed: detach abandoned shadow-parity probe workers at interpreter exit
-- ⚡ The system now runs faster (warm-start the frozen-row cache from the attribution prefetch)
+- • 📊 Audit: 2026-09-07T07:04:39Z
 
 <!-- /runbook-repo -->
 
@@ -448,7 +448,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 8, 2026
+### 📋 Changelog — September 9, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -459,7 +459,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — September 8, 2026
+### 📋 Changelog — September 9, 2026
 
 - • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits
 - • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts
@@ -487,3 +487,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
