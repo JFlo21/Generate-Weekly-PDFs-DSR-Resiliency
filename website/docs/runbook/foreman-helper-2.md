@@ -215,10 +215,12 @@ This preserves the existing key-value `advanced_options` parser format the
 operational runbooks depend on, and does not change `TIME_BUDGET_MINUTES`
 (`165`) or the runner's `timeout-minutes` (`180`) — Helper #2 adds output
 volume, not a new I/O phase, so the existing time-budget headroom is expected
-to absorb it. The owner enabled the flag on 2026-09-09 before a real-data pilot
-existed (the Resource Analyst Helper #2 column was blank on every live row, so
-nothing changes in any workbook until a crew records a second helper); watch the
-run duration on the first run that produces a `_Helper2_` workbook.
+to absorb it. The owner approved enabling on 2026-09-08 (`D-14-14-ENABLE`); the
+repository variable is set to `1` right after the change that adds this line
+merges, before any real-data pilot exists (the Resource Analyst Helper #2 column
+was blank on every live row, so nothing changes in any workbook until a crew
+records a second helper). Watch the run duration on the first run that produces
+a `_Helper2_` workbook.
 
 ## The pilot: rehearsed in escalating order
 

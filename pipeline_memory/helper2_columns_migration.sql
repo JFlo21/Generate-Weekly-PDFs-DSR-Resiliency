@@ -19,9 +19,11 @@
 -- a brief ACCESS EXCLUSIVE metadata lock only). Code on either side of
 -- the apply is safe: old code ignores the columns; new code degrades
 -- when they are absent (pipeline_memory/writer.py fail-open contract,
--- pipeline_memory/reader.py mapping_schema degrade). Rollback = drop the
--- five columns; the pre-state (column lists, RPC definition, grants,
--- search_path pin) is parked in the owner's vault raw folder under
+-- pipeline_memory/reader.py mapping_schema degrade). Rollback ORDER matters: first re-run the
+-- pre-state upsert_rows_bulk body (it no longer references helper2_*),
+-- THEN drop the five columns -- dropping the columns first would break
+-- the live write path. The pre-state (column lists, RPC definition,
+-- grants, search_path pin) is parked in the owner's vault raw folder under
 -- "2026-09-08 - pipeline_memory upsert_rows_bulk pre-state ...".
 --
 -- Sequencing (O-14-B record): apply this file and the RPC block in ONE

@@ -425,8 +425,10 @@ BEGIN
             helper_dept, helper_job, vac_crew_observed, vac_completed,
             row_modified_at, content_hash, first_seen_run, last_seen_run,
             last_changed_run
-            -- Helper #2 (14-12) appended last, leading commas: the diff
-            -- stays purely additive (test_schema_changes_are_additive_only)
+            -- Helper #2 (14-12) appended last, leading commas: the pre-commit
+            -- working-tree tripwire (test_schema_changes_are_additive_only)
+            -- stayed clean; tests/test_upsert_rows_bulk_helper2_contract.py
+            -- is the CI guard that pins these lists to HASH_FIELDS.
             , helper2_observed, helper2_completed, helper2_dept, helper2_job
         )
         SELECT
