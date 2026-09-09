@@ -971,3 +971,7 @@ PASS; `code/snyk` (quota) and the Azure DevOps mirror build FAIL as they did on 
 churn, a mapping-schema WARNING with full validation, no Helper #2 degrade warning, all Helper #2 counters 0.
 Nothing in Excel output changes until `HELPER2_ENABLED` is set. See `memory-bank/living-ledger.md`
 `[2026-09-08 18:55]`.
+
+**Merged.** PR #389 squash-merged to master as `ba6eeaf` at 2026-09-09 01:37Z with the 14-10 closeout and these ledgers
+inside it. The 01:00Z scheduled run had already started (01:27Z) on the previous master, so the first run on the merged code
+is the Tuesday 13:00Z slot.
