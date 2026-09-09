@@ -83,7 +83,10 @@ class DriftLogLabelTests(unittest.TestCase):
     def test_label_prefixes_warning(self):
         from pipeline.orchestrate import _log_column_mapping_drift
 
-        sheets = [{"id": 111, "column_mapping": {"Foreman": 1, "Helper #2 Dept #": 9}}]
+        sheets = [{
+            "id": 111,
+            "column_mapping": {"Foreman": 1, "Helper #2 Dept #": 9},
+        }]
         watermarks = {111: {"column_mapping": {"Foreman": 1}}}
         with self.assertLogs(level="WARNING") as captured:
             changed = _log_column_mapping_drift(
@@ -105,7 +108,10 @@ class DriftLogLabelTests(unittest.TestCase):
         with self.assertLogs(level="WARNING") as captured:
             _log_column_mapping_drift(sheets, {})
         self.assertTrue(
-            any("Deep-run column_mapping refresh" in line for line in captured.output),
+            any(
+                "Deep-run column_mapping refresh" in line
+                for line in captured.output
+            ),
             captured.output,
         )
 
@@ -117,7 +123,9 @@ class OrchestrateFrequentRunWiringTests(unittest.TestCase):
         from pipeline import orchestrate as orch
 
         src = inspect.getsource(orch.main)
-        self.assertIn("fully_validated_sids=_registry_fully_validated_sids", src)
+        self.assertIn(
+            "fully_validated_sids=_registry_fully_validated_sids", src
+        )
         self.assertEqual(src.count("_log_column_mapping_drift("), 2)
         self.assertIn('label="Frequent-run full-validation"', src)
 
@@ -163,7 +171,7 @@ class AdoptedMappingReachesWriterTests(unittest.TestCase):
         upsert_obj.execute.side_effect = _execute
         return client
 
-    def test_fresh_mapping_and_marker_for_fully_validated_registered_sheet(self):
+    def test_fresh_mapping_and_marker_for_fully_validated_sheet(self):
         from pipeline.discovery import MAPPING_SCHEMA_MARKER
         from pipeline.orchestrate import (
             _compute_registry_mapping_sheets,
