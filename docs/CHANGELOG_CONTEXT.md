@@ -1006,3 +1006,11 @@ Ledger `[2026-09-08 21:58]`. Records: PR #391.
 regroup-on-disable limitation stands, reconciled by hand if it ever happens; persisted-claim routing (option b)
 and attachment retirement (option c) declined, no code change. Runbook, environment reference, project-state,
 STATE.md, and `14-DECISIONS.md` updated. Ledger `[2026-09-09 08:45]`.
+
+**First enabled scheduled run observed (2026-09-09).** Run `34356004448` on `be60755` succeeded (70 min). Helper #2
+counters and log lines exactly as expected: capability-unavailable on the two Arrowhead sheets, no qualifying
+completion elsewhere, zero Helper #2 groups or workbooks, no degrade warning, every `freeze_attribution` call 200.
+The one-time `row_event` churn landed (218,338 rows, 5,451 changed). One gap: `sheet_registry.mapping_schema` stays
+NULL because the orchestrate call sites never pass `mapping_schema_by_sheet` — every run now fully validates all
+121 sheets (slower but correct, ~38 s). Recorded as `O-14-E` with proposed plan 14-13; the `Shadow parity FAIL` on
+this run is the pre-existing, intermittent flag-off shadow READ probe. Ledger `[2026-09-09 09:40]`.
