@@ -35,7 +35,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   --body 0`): with the flag off, detection clears the Helper #2 marker, so a row that also carries
   "Units Completed?" or a Helper #1 claim regroups into the primary / Helper #1 workbook while cleanup
   keeps the old `_Helper2_` attachment (D-14-12) — the same unit in two files until reconciled by hand.
-  Harmless today (no live row carries a Helper #2 claim). Open owner decision **O-14-D**.
+  Harmless today (no live row carries a Helper #2 claim). Owner decision **O-14-D RESOLVED 2026-09-09**:
+  Helper #2 is permanent (flag stays `1` indefinitely, flag-off is an emergency kill switch only), the
+  regroup-on-disable limitation is accepted, reconcile by hand if it ever happens — no code change.
 - **Plan 14-12 (gap closure) — COMPLETE**: Task 1 `1563199` lockstep test (`upsert_rows_bulk` lists ⊇
   `HASH_FIELDS`) + `cf556d8` RPC text and `pipeline_memory/helper2_columns_migration.sql`; Task 2 applied
   2026-09-09 02:21:29Z as Supabase migration `20260909022129_helper2_row_state_columns_marker_and_rpc` and
@@ -65,8 +67,8 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Open items / owner decisions
 
-- **O-14-D** (NEW 2026-09-09): flag-off routing — accept and reconcile by hand, add persisted-claim
-  routing (grouping behaviour change, own plan + fixtures), or retire `_Helper2_` attachments on disable.
+- **O-14-D** (flag-off routing): RESOLVED 2026-09-09 — option (a) accepted; Helper #2 is permanent, the
+  flag is an emergency kill switch only, persisted-claim routing declined (`14-DECISIONS.md`).
 - **O-14-B** (`upsert_rows_bulk` RPC gap): RESOLVED 2026-09-09 (`D-14-13-VERIFIED`).
 - **O-14-A Follow-up 1** (per-slot Helper #2 duplication): CONFIRMED by Juan 2026-09-08 (`O-14-A-FOLLOWUP-1`).
 - **12-06 Task 4**: first post-apply scheduled-run check still owed — pointer `.planning/HANDOFF.json`.
@@ -77,10 +79,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 1. Watch the Wed 2026-09-09 13:00Z scheduled run (first enabled run): one-time `row_event` churn, Helper #2
    counters present, no degrade warning, no `_Helper2_` workbook (RA column blank). Record the outcome as
    an addendum under `D-14-14-ENABLE`; if anything degrades, disable with the variable (O-14-D caveat).
-2. Juan decides O-14-D before any real Helper #2 claim is expected on the Resource Analyst sheet.
-3. `/gsd-code-review 14` on master.
-4. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
-5. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
+2. `/gsd-code-review 14` on master.
+3. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
+4. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
 
 ## Risks and guardrails
 

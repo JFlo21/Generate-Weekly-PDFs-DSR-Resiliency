@@ -998,5 +998,11 @@ appears until a crew records a second helper. See `memory-bank/living-ledger.md`
 
 **Enabled.** PR #390 squash-merged to master `661d6d3` at 2026-09-09 02:49:30Z; repo variable `HELPER2_ENABLED=1`
 set at 02:49:58Z (`D-14-14-ENABLE` addendum). First enabled scheduled run = Wed 2026-09-09 13:00Z. Flag-off is an
-emergency disable, not a billing-safe rollback once real Helper #2 claims exist (open owner decision `O-14-D`).
+emergency disable, not a billing-safe rollback once real Helper #2 claims exist (owner decision `O-14-D`).
 Ledger `[2026-09-08 21:58]`. Records: PR #391.
+
+**O-14-D resolved (2026-09-09).** Juan confirmed Helper #2 is a permanent capability, not a one-time backfill:
+`HELPER2_ENABLED` stays `1` indefinitely and flag-off is an emergency kill switch only. Option (a) accepted — the
+regroup-on-disable limitation stands, reconciled by hand if it ever happens; persisted-claim routing (option b)
+and attachment retirement (option c) declined, no code change. Runbook, environment reference, project-state,
+STATE.md, and `14-DECISIONS.md` updated. Ledger `[2026-09-09 08:45]`.

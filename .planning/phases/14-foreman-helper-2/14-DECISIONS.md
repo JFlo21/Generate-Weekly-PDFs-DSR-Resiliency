@@ -566,7 +566,19 @@ over synthetic data**. Neither **controlled upload verified** nor
   flag enabled). Next records: the 13:00Z run check against the expectations above, then
   `/gsd-code-review 14`.
 
-## O-14-D — OPEN 2026-09-09: flag-off re-routes rows that carried a Helper #2 claim
+## O-14-D — RESOLVED 2026-09-09: flag-off re-routes rows that carried a Helper #2 claim
+
+- **Resolution (Juan, 2026-09-09, option (a) — accept).** Helper #2 is a permanent production
+  capability, not a one-time backfill: a crew can record a second helper in any week, so
+  `HELPER2_ENABLED` stays at `1` indefinitely. The flag exists only as an emergency kill switch
+  (stop the Helper #2 path in one command without a code rollback); there is no planned or scheduled
+  flag-off. Option (b) persisted-claim routing would change protected grouping behaviour for a
+  scenario the owner never intends to trigger, and option (c) would reverse D-14-12's
+  evidence-retention choice — both declined. Accepted rollback behaviour: if an emergency disable
+  ever happens with real Helper #2 claims present, rows regroup into the primary / Helper #1
+  workbook while the retained `_Helper2_` attachment stays, and the operator reconciles by hand per
+  the runbook Rollback section. No code change; docs updated to reflect the closure.
+- Original record (kept for traceability):
 
 - Raised by Greptile (P1) and Copilot on PR #391 against the "rollback = set the variable to `0`"
   wording; verified in code 2026-09-09: with `HELPER2_ENABLED` off, `pipeline/fetch.py` sets
