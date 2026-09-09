@@ -400,10 +400,14 @@ def upsert_sheet_registry(
     of execution type, or its INSERT half of the upsert fails the whole
     call with a 23502 (not_null_violation), the same failure class
     ``run_ledger_finish``'s ``mode`` column already taught this codebase
-    to guard against. An ALREADY-REGISTERED sheet on a frequent run
-    never has its stored mapping touched -- a drifted mapping there is
-    D-02 trigger 2's job to ESCALATE (force a full read of that sheet),
-    never to silently adopt.
+    to guard against. Phase 14 Plan 14 (O-14-E) widened the frequent-run
+    set: it also carries every registered sheet that took a FULL column
+    validation this run (not admitted from the discovery skip index),
+    and the caller logs drift for each adopted sheet before this call.
+    A skip-admitted sheet on a frequent run never has its stored
+    mapping touched -- a drifted mapping there is D-02 trigger 2's job
+    to ESCALATE (force a full read of that sheet), never to silently
+    adopt.
 
     Empty input performs ZERO calls, checked before the client/flag
     guards, same as ``upsert_rows_bulk``.
