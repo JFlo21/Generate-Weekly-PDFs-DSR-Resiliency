@@ -878,8 +878,9 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 11/11 plans executed (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to
-close O-14-C, making seven waves). Phase 14 is fully executed.
+**Plans:** 12/12 plans executed (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to
+close O-14-C, making seven waves; 14-12 inserted 2026-09-08/09 to close O-14-B, making eight waves).
+Phase 14 is fully executed.
 
 Plans:
 
@@ -932,6 +933,15 @@ Plans:
 - [x] 14-10-PLAN.md — Rollout: runbook, environment and architecture documentation, the escalating
   pilot rehearsal with rollback, and the owner decisions on flag default, workflow wiring, and the
   single controlled upload
+
+**Wave 8** *(gap closure; blocked on Wave 4/14-04, Wave 3/14-07, and Wave 7/14-10; inserted 2026-09-08/09)*
+
+- [x] 14-12-PLAN.md — O-14-B closure: `pipeline_memory.upsert_rows_bulk` carries every Helper #2 field
+  through its typed recordset, incoming projection, after_image, INSERT list, and ON CONFLICT set list,
+  pinned by a lockstep contract test against `HASH_FIELDS`; the pending `row_state` helper2_* and
+  `sheet_registry.mapping_schema` DDLs are applied to production alongside the RPC and read back on
+  synthetic rows; `HELPER2_ENABLED` is wired into the scheduled workflow as a repo-variable flip;
+  HLP-06 is Complete (7/7)
 
 **Open owner decisions the plans depend on:**
 
