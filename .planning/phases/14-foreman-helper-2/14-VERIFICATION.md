@@ -9,7 +9,7 @@ behavior_unverified: 0
 overrides_applied: 0
 gaps:
   - truth: "HLP-06 (Success Criterion 5, 'cached' half): a later Helper #2 completion on a row already cached in pipeline_memory.row_state is persisted for the Helper #2 role."
-    status: partial
+    status: closed (plan 14-12, D-14-13-VERIFIED 2026-09-09; see the addendum at the end of this report)
     reason: "O-14-B (documented as an OPEN known gap in 14-DECISIONS.md) is real and unresolved in code: pipeline_memory.upsert_rows_bulk's typed jsonb_to_recordset column list, INSERT column list, and row_event change JSON (pipeline_memory/schema.sql ~306-420) never name helper2_observed/helper2_completed/helper2_dept/helper2_job. The Python payload (pipeline_memory/writer.py _row_to_payload, lines 857-862) builds and hashes these four fields correctly, and HASH_FIELDS includes them (lines 665-668), so a Helper #2-only change still pays the one-time content_hash churn -- but Postgres jsonb_to_recordset silently drops JSON keys not in its typed column list, so the four helper2_* row_state columns (added by plan 14-04's DDL) will stay NULL forever until the RPC is updated. No plan in Phase 14 (14-01..14-11) touches upsert_rows_bulk's RPC body; 14-04's own SUMMARY explicitly deferred it to '14-09/14-10', but neither of those plans (nor 14-11) picked it up. 14-DECISIONS.md's own O-14-B section states outright: 'Until closed: no plan, summary, or pilot may claim that Helper #2 run memory persists. HLP-06 stays Pending' -- yet REQUIREMENTS.md's status table marks HLP-06 'Complete'. This is a real, code-confirmed contradiction between the phase's own decision ledger and its requirements-tracking table, not a re-derivation of the already-known O-14-B fact."
     artifacts:
       - path: "pipeline_memory/schema.sql"
@@ -24,9 +24,11 @@ human_verification:
   - test: "Juan confirms in writing whether the 'one person in two slots produces two files' consequence (D-14-06, documented in website/docs/runbook/foreman-helper-2.md as 'accepted-pending-confirmation') is acceptable as permanent behavior."
     expected: "A recorded yes/no from Juan, mirroring how he already confirmed the O-14-A helper2-wins precedence in writing."
     why_human: "This is a business-rule acceptance question, not something grep or a test can answer. 14-10-SUMMARY.md itself lists this as a 'still-open follow-up' after the phase's own rollout plan closed."
+    resolved: "O-14-A-FOLLOWUP-1 CONFIRMED 2026-09-08 (owner reply recorded in 14-DECISIONS.md)."
   - test: "Before ever setting HELPER2_ENABLED=1 in production (repo default stays '0'; the workflow file does not set it), rehearse pilot Steps 3-4 from website/docs/runbook/foreman-helper-2.md (upload-suppressed filtered-WR run, then at most one controlled upload) against a real Helper #2 row."
     expected: "A dated 'controlled upload verified' and/or 'production observed' evidence label distinct from the 'fixture pass' / 'dry-run pass over synthetic data' labels already on record in 14-DECISIONS.md's 14-10-PILOT-REHEARSAL section."
     why_human: "As of this verification, every Helper #2 evidence label on record is fixture/synthetic: the Resource Analyst 'Foreman Helper #2' column was blank on all 576 rows at the 2026-09-06 live-column probe, so no real Helper #2 row has ever existed to pilot against. This requires live Smartsheet data and Juan's authorization -- it cannot be verified from the codebase."
+    owner_override: "D-14-14-ENABLE (2026-09-08): enabled by owner decision without a real-data pilot; the Resource Analyst column is blank on every live row, so no workbook changes until real data appears."
 ---
 
 # Phase 14: Foreman Helper #2 Verification Report
@@ -37,7 +39,7 @@ discovery/extraction → completion eligibility → attribution → grouping →
 incremental change detection → attachment publication — without disrupting primary foremen, Helper #1,
 VAC crews, billing attribution, historical records, or the production Python ingestion.
 
-**Verified:** 2026-09-08 (branch `chore/phase-14-post-merge`, == `master` `ba6eeaf`, PR #389 squash-merged)
+**Verified:** 2026-09-08, addendum 2026-09-09 (branch `chore/phase-14-post-merge`, == `master` `ba6eeaf`, PR #389 squash-merged)
 **Status:** gaps_found
 **Re-verification:** No — initial verification
 
@@ -56,9 +58,9 @@ VAC crews, billing attribution, historical records, or the production Python ing
 | 6b | SC5/HLP-06 ("cached" half): a later Helper #2 completion on a row already **cached** in `pipeline_memory.row_state` is persisted for the Helper #2 role | ✗ FAILED | See Gaps below — `pipeline_memory.upsert_rows_bulk` (`pipeline_memory/schema.sql` ~306-420) never lists the four `helper2_*` fields in its `jsonb_to_recordset`/INSERT/ON CONFLICT column lists; Postgres silently drops the extra JSON keys (O-14-B, open) |
 | 7 | SC6/HLP-07: pilot scope, comparison criteria, rollback documented and rehearsed on fixtures; flag default off | ✓ VERIFIED | `pipeline/config.py:49-50` `HELPER2_ENABLED` defaults `'0'`; `grep` of `.github/workflows/` confirms the flag is never set (documented-only rollout, D-14-12-ROLLOUT); `website/docs/runbook/foreman-helper-2.md` (324 lines) documents enable/disable, 4 conditions, filenames, forced regen, rollback; `14-DECISIONS.md` 14-10-PILOT-REHEARSAL records distinct evidence labels (fixture pass; dry-run pass over synthetic data) never merged with unreached labels (controlled upload verified; production observed) |
 
-**Score:** 6/7 truths verified (0 present-but-behavior-unverified)
+**Score:** 6/7 truths verified at the original pass (0 present-but-behavior-unverified); 7/7 after the 2026-09-09 addendum (row 6b closed by plan 14-12)
 
-### Decision Coverage (informational, non-blocking per verifier-phase-gates.md)
+### Decision Coverage (informational, non-blocking)
 
 All 12 trackable `14-CONTEXT.md` decisions (D-14-01 through D-14-12) were cross-checked against
 shipped code/docs and are honored: D-14-01 (Intake 8 excluded, fixture-only) · D-14-02 (missing
@@ -156,7 +158,7 @@ None. Scanned every phase-modified file listed in `covered_files` for `TBD|FIXME
 
 ### Human Verification Required
 
-1. **portal-v2 build/test for the new Helper #2 labels** — `npm --prefix portal-v2 ci && npm run build` (and Vitest) could not run in this environment; `node_modules` is confirmed absent. 14-05-SUMMARY.md already flags this as `human_judgment: true` / UNRUN. Recommend running it once, and adding 3 assertions to `variantLabels.test.ts` for `helper2`/`aep_billable_helper2`/`reduced_sub_helper2`.
+1. **portal-v2 build/test for the new Helper #2 labels** — `npm --prefix portal-v2 ci && npm --prefix portal-v2 run build` (and Vitest) could not run in this environment; `node_modules` is confirmed absent. 14-05-SUMMARY.md already flags this as `human_judgment: true` / UNRUN. Recommend running it once, and adding 3 assertions to `variantLabels.test.ts` for `helper2`/`aep_billable_helper2`/`reduced_sub_helper2`.
 2. **O-14-A Follow-up 1 confirmation** — Juan confirmed the helper2-wins precedence in writing but has not separately confirmed the "one person, two files" per-slot consequence documented as "accepted-pending-confirmation" in the runbook.
 3. **Live pilot / flag enablement** — every Helper #2 evidence label on record today is fixture or synthetic (Resource Analyst column blank on all 576 rows as of the 2026-09-06 probe). Before `HELPER2_ENABLED` is ever set to `1` anywhere, rehearse the runbook's Step 3 (upload-suppressed, filtered WRs) and Step 4 (controlled upload) against a real row.
 

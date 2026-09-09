@@ -974,7 +974,7 @@ Nothing in Excel output changes until `HELPER2_ENABLED` is set. See `memory-bank
 
 **Merged.** PR #389 squash-merged to master as `ba6eeaf` at 2026-09-09 01:37Z with the 14-10 closeout and these ledgers
 inside it. The 01:00Z scheduled run had already started (01:27Z) on the previous master, so the first run on the merged code
-is the Tuesday 13:00Z slot.
+is the Wednesday 13:00Z slot.
 
 ## 2026-09-09 — Plan 14-12: O-14-B closed in production, Helper #2 run-memory columns live, flag wired for enablement
 

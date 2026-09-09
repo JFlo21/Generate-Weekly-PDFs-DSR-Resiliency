@@ -9381,9 +9381,10 @@ fields; `RUN_MEMORY_WRITE_ENABLED=1`), a mapping-schema WARNING with full valida
 `sheet_registry.mapping_schema` exists, 14-parameter `freeze_attribution` succeeding against the live RPC (no
 degrade warning), every Helper #2 counter 0. Still pending owner approval: the `pipeline_memory.row_state`
 helper2_* columns (D-14-08-APPLIED), `sheet_registry.mapping_schema` (D-14-10-APPLIED), and enabling the flag.
-MERGED 2026-09-09 01:37Z: PR #389 squash → master `ba6eeaf` (14-10 closeout `7d2610b` and ledgers `ce94754` inside the squash; only
+
+[2026-09-08 20:40] PR #389 MERGED 2026-09-09 01:37Z: squash → master `ba6eeaf` (14-10 closeout `7d2610b` and ledgers `ce94754` inside the squash; only
 `code/snyk` quota + the Azure mirror build failed, as on #388). The 01:00Z scheduled run 34299267004 started 01:27Z on `bc2de79`
-(pre-merge), so the first post-merge run is the Tue 2026-09-09 13:00Z slot; post-merge work continues on `chore/phase-14-post-merge`.
+(pre-merge), so the first post-merge run is the Wed 2026-09-09 13:00Z slot; post-merge work continues on `chore/phase-14-post-merge`.
 
 [2026-09-08 21:30] Plan 14-12 — O-14-B closed in production; Helper #2 run-memory columns + mapping marker live;
 flag wired and enabled by owner decision; project-state.md condensed. Juan (2026-09-08): apply both pending DDLs,

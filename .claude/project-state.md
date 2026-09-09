@@ -42,7 +42,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   PR #390, then `gh variable set HELPER2_ENABLED --body 1`.
 - **Owner instruction** (Juan, 2026-09-08): apply both DDLs, close O-14-B, confirm Follow-up 1, "then enable
   the helper 2 once these issues are fixed".
-- **First scheduled run on merged code** is the Tue 2026-09-09 13:00Z slot (the 01:00Z run `34299267004`
+- **First scheduled run on merged code** is the Wed 2026-09-09 13:00Z slot (the 01:00Z run `34299267004`
   ran pre-merge on `bc2de79`, success). Expect a one-time ~217k `row_event` churn from the `HASH_FIELDS`
   change, one full validation per sheet then `mapping_schema` markers written (no degrade warning — the
   column now exists), 14-param `freeze_attribution` OK, and Helper #2 counters at 0 (Resource Analyst
@@ -71,9 +71,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 1. Commit 14-12 Tasks 2–3 + the Greptile condensation, push, retitle PR #390 as the 14-12 feature PR, wait
    for CI, squash-merge.
 2. `gh variable set HELPER2_ENABLED --body 1` right after the merge; confirm with `gh variable list`.
-3. Watch the Tue 2026-09-09 13:00Z scheduled run: one-time `row_event` churn, Helper #2 counters present,
+3. Watch the Wed 2026-09-09 13:00Z scheduled run: one-time `row_event` churn, Helper #2 counters present,
    no degrade warning, no `_Helper2_` workbook (RA column blank). Then `/gsd-code-review 14`.
-5. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check).
+4. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check).
 
 ## Risks and guardrails
 

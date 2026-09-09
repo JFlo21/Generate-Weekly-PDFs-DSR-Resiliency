@@ -452,4 +452,4 @@ Which phases cover which requirements.
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-08-24 — appended v1.4 MEM-01..04 / INC-01..05 / OWN-01..04 / AUD-01..03 (Supabase Run Memory), mapped to Phases 10–13; merged from `.planning/milestones/v1.4-REQUIREMENTS.md` so plan-phase's requirements-coverage gate can see them; 2026-09-08 — HLP-01..07 (Foreman Helper #2, Phase 14) HLP-01..07 Complete (HLP-06 closed by 14-12 on 2026-09-09, D-14-13-VERIFIED).*
+*Last updated: 2026-09-09 (HLP-01..07 Complete) · 2026-08-24 — appended v1.4 MEM-01..04 / INC-01..05 / OWN-01..04 / AUD-01..03 (Supabase Run Memory), mapped to Phases 10–13; merged from `.planning/milestones/v1.4-REQUIREMENTS.md` so plan-phase's requirements-coverage gate can see them; 2026-09-08 — HLP-01..07 (Foreman Helper #2, Phase 14) HLP-01..07 Complete (HLP-06 closed by 14-12 on 2026-09-09, D-14-13-VERIFIED).*
