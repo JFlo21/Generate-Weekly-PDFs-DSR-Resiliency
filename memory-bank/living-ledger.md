@@ -9384,3 +9384,23 @@ helper2_* columns (D-14-08-APPLIED), `sheet_registry.mapping_schema` (D-14-10-AP
 MERGED 2026-09-09 01:37Z: PR #389 squash → master `ba6eeaf` (14-10 closeout `7d2610b` and ledgers `ce94754` inside the squash; only
 `code/snyk` quota + the Azure mirror build failed, as on #388). The 01:00Z scheduled run 34299267004 started 01:27Z on `bc2de79`
 (pre-merge), so the first post-merge run is the Tue 2026-09-09 13:00Z slot; post-merge work continues on `chore/phase-14-post-merge`.
+
+[2026-09-08 21:30] Plan 14-12 — O-14-B closed in production; Helper #2 run-memory columns + mapping marker live;
+flag wired and enabled by owner decision; project-state.md condensed. Juan (2026-09-08): apply both pending DDLs,
+close O-14-B, Follow-up 1 confirmed, "then enable the helper 2 once these issues are fixed". Done sql-first:
+lockstep contract test `tests/test_upsert_rows_bulk_helper2_contract.py` (`1563199`, 11 RED → 12 GREEN) pins every
+HASH_FIELDS member into the `upsert_rows_bulk` typed recordset / projection / after_image / INSERT / ON CONFLICT
+lists; schema.sql RPC text + `pipeline_memory/helper2_columns_migration.sql` (`cf556d8`; the diff was kept purely
+additive — the two mid-line spots became leading-comma appends so `test_schema_changes_are_additive_only` still
+guards the file). Applied 2026-09-09 02:21:29Z as Supabase migration
+`20260909022129_helper2_row_state_columns_marker_and_rpc` between the finished 01:00Z run and the 13:00Z slot; read
+back (D-14-13-VERIFIED): five nullable columns, function md5 378b3353… with 36 helper2 mentions, grants + search_path
+pin unchanged, synthetic round-trip on sheet_id -14012 (insert with values → stored and in after_image; identical
+resend → 0 pairs / 0 events; changed Helper #2 + new hash → 1 pair, row_state updated, `update` event), rows deleted.
+Rules learned: (1) a VOLATILE RPC's writes are invisible to sibling subqueries of the SAME statement (snapshot at
+statement start) — read back in a separate statement; (2) `row_event` has no `id` column — order by (run_id,
+row_id); (3) keep schema.sql edits purely additive (insert lines, never rewrite one) or the additive-only tripwire
+fires. Enable: the workflow env gains `HELPER2_ENABLED: ${{ vars.HELPER2_ENABLED || '0' }}` (D-14-14-ENABLE); the
+repo variable is the switch, set to `1` after PR #390 merges; rollback = set it to `0`. Also:
+`.claude/project-state.md` condensed from 565 lines to 94 (CRLF) per its own ≤120-line rule after Greptile flagged
+the growth on PR #390 — nothing lost: the last full version is commit `bc37103` and the dated specifics live here.

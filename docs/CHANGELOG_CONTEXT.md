@@ -975,3 +975,23 @@ Nothing in Excel output changes until `HELPER2_ENABLED` is set. See `memory-bank
 **Merged.** PR #389 squash-merged to master as `ba6eeaf` at 2026-09-09 01:37Z with the 14-10 closeout and these ledgers
 inside it. The 01:00Z scheduled run had already started (01:27Z) on the previous master, so the first run on the merged code
 is the Tuesday 13:00Z slot.
+
+## 2026-09-09 — Plan 14-12: O-14-B closed in production, Helper #2 run-memory columns live, flag wired for enablement
+
+**What changed.** `pipeline_memory.upsert_rows_bulk` now carries the four Helper #2 fields the writer has sent
+since 14-04 (typed recordset, projection, `row_event.after_image`, `row_state` INSERT and ON CONFLICT lists), pinned
+to `HASH_FIELDS` by a new lockstep contract test. The two long-pending additive DDLs (`row_state` helper2_* x4,
+`sheet_registry.mapping_schema`) and the RPC were applied together as Supabase migration
+`20260909022129_helper2_row_state_columns_marker_and_rpc` and read back with a synthetic insert / no-op resend /
+update round-trip (`D-14-13-DDL-APPLIED`, `D-14-13-VERIFIED`). The scheduled workflow gains
+`HELPER2_ENABLED: ${{ vars.HELPER2_ENABLED || '0' }}`; the repository variable becomes the on/off switch
+(`D-14-14-ENABLE`). `.claude/project-state.md` was condensed to 94 lines after Greptile flagged its growth.
+
+**Why.** Without the RPC change the first post-merge run would pay the ~217k `row_event` churn without persisting a
+single Helper #2 value, and every run would re-validate every sheet for lack of the marker column. Juan approved both
+DDLs, the O-14-B closure, O-14-A Follow-up 1, and enabling the flag once those landed.
+
+**Operator effect.** `HELPER2_ENABLED` is set through the repo variable (`gh variable set HELPER2_ENABLED --body 1`
+after PR #390 merges; `0` to roll back, no code change). The first scheduled run after the merge writes the
+`mapping_schema` marker after one full validation per sheet and logs the Helper #2 counters; no `_Helper2_` workbook
+appears until a crew records a second helper. See `memory-bank/living-ledger.md` `[2026-09-08 21:30]`.
