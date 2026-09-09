@@ -1028,7 +1028,8 @@ A SQL backfill of the marker was rejected on evidence (0 of 121 stored mappings 
 silently disable Helper #2 detection). Instead `_compute_registry_mapping_sheets` gains `fully_validated_sids`: a frequent
 run writes the freshly validated `column_mapping` (and, via 14-13, the `helper2-v1` marker) for every sheet it fully
 validated, and `_log_column_mapping_drift` fires with the `Frequent-run full-validation` label for each adopted sheet
-whose mapping actually changed. Operators: the first run after merge still shows `0 skipped ... 121 fully validated`
+whose mapping actually changed, logged before the first registry write (Copilot round 2).
+Operators: the first run after merge still shows `0 skipped ... 121 fully validated`
 plus one `column_mapping refresh` warning per sheet whose stored mapping gained keys (up to 121; the seven
 capability-unavailable sheets may not change), then `skipped via sheet_registry` ≈ 121 from the run after.
-Full suite 2313 passed / 1 skipped; six gates pass. Ledger `[2026-09-09 16:50]`. Fix: plan 14-14 PR.
+Full suite 2313 passed / 1 skipped; six gates pass. Ledger `[2026-09-09 16:50]`. Fix: PR #396.

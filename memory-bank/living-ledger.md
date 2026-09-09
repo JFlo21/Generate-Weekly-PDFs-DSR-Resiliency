@@ -9459,7 +9459,8 @@ RULE: never backfill a cache-admission marker by SQL unless the data it certifie
 Fix (Juan approved, TDD): `_compute_registry_mapping_sheets(..., fully_validated_sids=None)` — on a frequent run the
 written set is new sheets ∪ sheets fully validated this run (not skip-admitted); `_log_column_mapping_drift(..., label=)`
 fires for each adopted sheet with `Frequent-run full-validation` so adoption is never silent (Phase 11 D-03 kept in
-spirit: adoption requires a full validation this run and is logged); skip-admitted sheets still echo unmarked. 14-13's
+spirit: adoption requires a full validation this run and is logged);
+the log fires in pass 1 before the first registry write (PR #396 review round 2); skip-admitted sheets still echo unmarked. 14-13's
 marker helper then stamps `helper2-v1` on the same call. Expected: first scheduled run after merge writes Helper #2-aware
 mappings + marker on all 121; the next run skips ≈ 121 via the registry. Evidence: 9 new tests RED→GREEN
 (`tests/test_frequent_run_mapping_adoption.py`), full suite 2313 passed / 1 skipped, ALL 6 GATES PASSED (mypy delta
