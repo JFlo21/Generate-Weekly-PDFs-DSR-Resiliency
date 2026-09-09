@@ -205,8 +205,13 @@ _Latest ledger entries: `[2026-09-03 15:55]` (RPC EXECUTE defaults to PUBLIC; da
   log `[2026-09-08g]`; seven parked packets cleared). **NEXT:** watch the first post-merge scheduled run — the **Tue
   2026-09-09 13:00Z slot** (the 01:00Z run 34299267004 started 01:27Z on `bc2de79`, pre-merge; expect ~217k
   `row_event` churn from the HASH_FIELDS change, mapping-schema WARNING + full validation, 14-param freeze OK,
-  Helper #2 counters 0, no degrade warning; debug on failure per Juan) → phase tail gates (verify-phase-goal
-  running, code review, regression, roadmap) → ask Juan: enable
+  Helper #2 counters 0, no degrade warning; debug on failure per Juan) → remaining tail gates (code review via
+  `/gsd-code-review 14`; regression = full suite green on `ba6eeaf`; roadmap 11/11). **verify-phase-goal DONE:**
+  `14-VERIFICATION.md` = `gaps_found`, 6/7 — HLP-01..05, 07 verified; HLP-06 PARTIAL because its "cached" half is
+  O-14-B (`upsert_rows_bulk` column lists omit `helper2_*`, so `row_state.helper2_*` would stay NULL even after the
+  DDL); REQUIREMENTS.md reconciled to Partial. Human items: portal `variantLabels.ts` labels unbuilt locally, O-14-A
+  Follow-up 1 unconfirmed, no real-data pilot (RA column blank). O-14-B closure needs the `row_state` DDL + an RPC
+  change (both owner-approved Supabase DDL) + writer wiring → gap-closure plan after Juan's go. Ask Juan: enable
   `HELPER2_ENABLED` now? apply the two pending additive DDLs (`row_state` helper2_* ×4,
   `sheet_registry.mapping_schema`)? Post-merge check still owed: when a late Helper #2 appears,
   `snapshots_helper2_filled` > 0. No Smartsheet write or workflow change without Juan.
