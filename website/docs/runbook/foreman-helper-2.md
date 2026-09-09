@@ -165,29 +165,41 @@ even after the conflict clears out of the run summary.
 
 ## Rollback
 
-**Turn the flag off.** That is the entire rollback. Specifically:
+**Turn the flag off.** `HELPER2_ENABLED` returns to `'0'` (or any falsy value)
+and the Helper #2 detection block becomes a no-op again on the next run. Treat
+this as an **emergency disable**, not a billing-safe rollback, once real
+Helper #2 claims exist — the third bullet says why.
 
-- `HELPER2_ENABLED` returns to `'0'` (or any falsy value) and the Helper #2
-  detection block becomes a no-op again on the next run.
 - **Existing Helper #2 attachments and attribution rows are retained.** Cleanup
   does not treat a live Helper #2 attachment as a placeholder or legacy-orphan
   file to sweep, whether the flag is on or off — proven by test
   (`tests/test_sentinel_superseded_cleanup.py::Helper2RollbackProtectionTests::test_helper2_attachment_survives_cleanup_with_flag_off`
   and `::test_helper2_attachment_survives_cleanup_with_flag_on`). A Helper #2
   file already on `TARGET_SHEET_ID` (or `SUBCONTRACTOR_PPP_SHEET_ID` for the
-  subcontractor shadow variant) stays there after rollback.
-- **A unit already claimed by a Helper #2 person is never moved back to the
-  primary foreman.** Rolling back the flag stops *new* Helper #2 detection; it
-  does not re-run history or re-attribute rows that were already frozen under a
-  Helper #2 role in `billing_audit.attribution_snapshot`.
+  subcontractor shadow variant) stays there after the flag goes off.
+- **Frozen attribution is not reversed.** Turning the flag off stops *new*
+  Helper #2 detection; it does not re-run history or re-attribute rows that
+  were already frozen under a Helper #2 role in
+  `billing_audit.attribution_snapshot`.
+- **Excel routing follows the live flag, not the frozen claim.** With the flag
+  off, `pipeline/fetch.py` clears the Helper #2 marker on every row, so a row
+  that also carries "Units Completed?" (the dual-checkbox case) or a Helper #1
+  claim is grouped into the primary (or Helper #1) workbook on the next run —
+  `pipeline/grouping.py` keeps no persisted-claim memory. Because the old
+  `_Helper2_` workbook is retained (first bullet), the same unit can then sit
+  in two workbooks until the Helper #2 attachment is removed by hand or the
+  flag returns to `1`. Open owner decision `O-14-D` in
+  `.planning/phases/14-foreman-helper-2/14-DECISIONS.md` tracks whether to add
+  persisted-claim routing.
 
-**What rollback does not do**, because this is the part an operator needs at two
-in the morning: it does not delete anything, it does not un-freeze an
-attribution row, and it does not make a previously-billed Helper #2 line item
-reappear in the primary or Helper #1 file. If a Helper #2 claim needs to be
-corrected, that is a data-team / Smartsheet-side correction, the same as any
-other frozen attribution — see [Ownership and claim-time
-attribution](ownership-attribution.md).
+**What flag-off does not do**, because this is the part an operator needs at two
+in the morning: it does not delete anything and it does not un-freeze an
+attribution row. If a Helper #2 claim needs to be corrected, that is a
+data-team / Smartsheet-side correction, the same as any other frozen
+attribution — see [Ownership and claim-time
+attribution](ownership-attribution.md). While no live row carries a Helper #2
+claim (the state at enablement on 2026-09-09), flipping the flag either way
+changes no workbook.
 
 ## Workflow wiring
 

@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-08 21:58 CDT (2026-09-09 02:58Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-08 22:30 CDT (2026-09-09 03:30Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -30,14 +30,17 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   plan 14-12: O-14-B closure, `HELPER2_ENABLED` wiring, post-merge docs) are both on master.
 - **Enabled**: repo variable `HELPER2_ENABLED=1` set 2026-09-09 02:49:58Z (`D-14-14-ENABLE` addendum). The
   workflow "Generate reports" env reads `${{ vars.HELPER2_ENABLED || '0' }}`; the repo default in
-  `pipeline/config.py` stays `'0'` (local and synthetic runs unchanged). **Rollback** = `gh variable set
-  HELPER2_ENABLED --body 0` (no code change; the next scheduled run picks it up).
+  `pipeline/config.py` stays `'0'` (local and synthetic runs unchanged).
+- **Flag-off is an emergency disable, not a billing-safe rollback** (`gh variable set HELPER2_ENABLED
+  --body 0`): with the flag off, detection clears the Helper #2 marker, so a row that also carries
+  "Units Completed?" or a Helper #1 claim regroups into the primary / Helper #1 workbook while cleanup
+  keeps the old `_Helper2_` attachment (D-14-12) — the same unit in two files until reconciled by hand.
+  Harmless today (no live row carries a Helper #2 claim). Open owner decision **O-14-D**.
 - **Plan 14-12 (gap closure) — COMPLETE**: Task 1 `1563199` lockstep test (`upsert_rows_bulk` lists ⊇
   `HASH_FIELDS`) + `cf556d8` RPC text and `pipeline_memory/helper2_columns_migration.sql`; Task 2 applied
   2026-09-09 02:21:29Z as Supabase migration `20260909022129_helper2_row_state_columns_marker_and_rpc` and
-  read back clean (`D-14-13-DDL-APPLIED` / `D-14-13-VERIFIED`: columns, function text, grants, synthetic
-  insert / no-op resend / update round-trip, rows deleted); Task 3 workflow env line + runbook/environment
-  docs + records (`O-14-B RESOLVED`, `O-14-A-FOLLOWUP-1 CONFIRMED`, `D-14-14-ENABLE`).
+  read back clean (`D-14-13-DDL-APPLIED` / `D-14-13-VERIFIED`); Task 3 workflow env line + runbook /
+  environment docs + records (`O-14-B RESOLVED`, `O-14-A-FOLLOWUP-1 CONFIRMED`, `D-14-14-ENABLE`).
 - **Owner instruction** (Juan, 2026-09-08): apply both DDLs, close O-14-B, confirm Follow-up 1, "then enable
   the helper 2 once these issues are fixed" — executed in full 2026-09-09.
 - **First scheduled run on merged + enabled code** is the Wed 2026-09-09 13:00Z slot (the 01:00Z run
@@ -46,9 +49,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   warning — the column now exists), 14-param `freeze_attribution` OK, the four Helper #2 counters present
   in run_summary at 0, and no `_Helper2_` workbook (Resource Analyst Helper #2 column is blank on all
   576 rows). Not yet observed — check `gh run list --workflow weekly-excel-generation.yml`.
-- **Review-bot notes not acted on**: Codex bot comments on PR #390 (P1 "Preserve Helper #2 routing when
-  the kill switch is rolled back", HLP-02/HLP-04 reconciliation, ALTER statements) are outside the
-  ClaudeOS harness boundary; listed for Juan, never applied.
+- **Review bots**: Greptile/Copilot's P1 on PR #391 (flag-off re-routes Helper #2 rows) was verified in
+  code and recorded as O-14-D with docs corrected, no code change. Codex bot comments on PR #390 are
+  outside the ClaudeOS harness boundary — listed for Juan, never applied.
 
 ## Live Supabase state
 
@@ -62,6 +65,8 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Open items / owner decisions
 
+- **O-14-D** (NEW 2026-09-09): flag-off routing — accept and reconcile by hand, add persisted-claim
+  routing (grouping behaviour change, own plan + fixtures), or retire `_Helper2_` attachments on disable.
 - **O-14-B** (`upsert_rows_bulk` RPC gap): RESOLVED 2026-09-09 (`D-14-13-VERIFIED`).
 - **O-14-A Follow-up 1** (per-slot Helper #2 duplication): CONFIRMED by Juan 2026-09-08 (`O-14-A-FOLLOWUP-1`).
 - **12-06 Task 4**: first post-apply scheduled-run check still owed — pointer `.planning/HANDOFF.json`.
@@ -71,10 +76,11 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 1. Watch the Wed 2026-09-09 13:00Z scheduled run (first enabled run): one-time `row_event` churn, Helper #2
    counters present, no degrade warning, no `_Helper2_` workbook (RA column blank). Record the outcome as
-   an addendum under `D-14-14-ENABLE`; roll back with the variable if anything degrades.
-2. `/gsd-code-review 14` on master `661d6d3`.
-3. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
-4. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
+   an addendum under `D-14-14-ENABLE`; if anything degrades, disable with the variable (O-14-D caveat).
+2. Juan decides O-14-D before any real Helper #2 claim is expected on the Resource Analyst sheet.
+3. `/gsd-code-review 14` on master.
+4. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
+5. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
 
 ## Risks and guardrails
 

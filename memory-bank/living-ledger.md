@@ -9411,5 +9411,7 @@ the growth on PR #390 — nothing lost: the last full version is commit `bc37103
 tests+coverage, semgrep, Cursor Security all pass; only the known `code/snyk` limit and the Azure mirror failed).
 Repo variable `HELPER2_ENABLED` set to `1` at 02:49:58Z (`gh variable set … --body 1`, confirmed by `gh variable
 list`) — recorded as the `D-14-14-ENABLE` addendum. First enabled scheduled run = Wed 2026-09-09 13:00Z slot;
-rollback = set the variable to `0`. Codex bot review comments on #390 were listed for Juan and deliberately not
+flag-off (`0`) is an emergency disable, not a billing-safe rollback once real Helper #2 claims exist (O-14-D, raised
+by Greptile/Copilot on PR #391, verified in code, docs corrected, no code change). Codex bot review comments on #390
+were listed for Juan and deliberately not
 acted on (ClaudeOS harness boundary). Vault write-back applied (project page, current-state, log `[2026-09-08h]`).
