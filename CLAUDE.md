@@ -99,8 +99,8 @@ documented-but-unconsumed flags) is `.github/prompts/configuration-environment.m
 ## Pipeline flow (one screen)
 
 Smartsheet folder discovery (local discovery cache retired; a sheet skips full validation only when
-its live version matches `pipeline_memory.sheet_registry` and a stored column mapping exists, any
-doubt → full validation, D-11.1-01) → parallel fetch (≤ 8 workers) → filter and group by
+its live version matches `pipeline_memory.sheet_registry`, a stored column mapping exists, and the
+`helper2-v1` mapping marker is set; any doubt → full validation, D-11.1-01 + Phase 14) → parallel fetch (≤ 8 workers) → filter and group by
 `(WR, week_ending, variant, foreman, dept, job)` → attachment identity from `pipeline_memory.group_state`
 → SHA-256 change detection → Excel (`openpyxl`;
 `generated_docs/WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant_suffix}_{hash}.xlsx`) → billing audit

@@ -581,7 +581,7 @@ over synthetic data**. Neither **controlled upload verified** nor
   `bc2de79` runs, so it is intermittent and pre-existing, and the 25-minute probe is what makes long
   runs long. (2) **`sheet_registry.mapping_schema` was NOT written** — see O-14-E.
 
-## O-14-E — FIXED 2026-09-09 (plan 14-13), production observation pending: mapping_schema marker never written, registry skip defeated
+## O-14-E — FIXED 2026-09-09 (plans 14-13 `d079e81` + 14-14 `736141a`), production observation pending: mapping_schema marker never written, registry skip defeated
 
 - **Fix (plan 14-13, Juan approved 2026-09-09 "yes lets write up the fix").** `pipeline/discovery.py`
   now publishes the skip-admitted ids (`get_last_discovery_skip_sids()`, reset per call, mirrors
@@ -608,7 +608,12 @@ over synthetic data**. Neither **controlled upload verified** nor
   `Frequent-run full-validation`). Phase 11 D-03's "never silently adopt a drifted mapping" is kept
   in spirit: adoption requires a full validation this run and is logged. Skip-admitted sheets still
   echo their stored mapping unmarked. Expected: the first scheduled run after the 14-14 merge stamps
-  all 121 sheets and writes Helper #2-aware mappings; the run after that skips ≈ 121 via the registry.
+  all 121 sheets and writes Helper #2-aware mappings (keys present on the 114 capable sheets; the 7
+  capability-unavailable sheets may lack them); the run after that skips ≈ 121 via the registry.
+  Plan 14-14 merged `736141a` (PR #396, 2026-09-09 22:17Z) after three bot review rounds: the
+  frequent-run drift log moved into pass 1 BEFORE the first registry write (an early no-data exit can
+  no longer adopt silently), an ordering pin test guards that placement, and the marker/writer
+  docstrings plus the closing condition above were aligned.
   First run on the 14-13 merge (`34393726548`, `cbff797`) was clean: both registry upserts 200, 0
   skipped as expected, counters unchanged (114 capable / 7 unavailable), no tracebacks.
 - Original record (kept for traceability):

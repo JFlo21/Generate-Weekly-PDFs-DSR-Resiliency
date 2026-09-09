@@ -878,7 +878,7 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 14 plans — 13 executed, 14-14 Task 1 executed with Task 2 (production observation) pending
+**Plans:** 14 plans — 14 executed (14-14 Task 1 merged `736141a`, PR #396); 14-14 Task 2 (production observation) pending
 (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to close O-14-C, making seven
 waves; 14-12 inserted 2026-09-08/09 to close O-14-B, making eight waves; 14-13 and 14-14 inserted
 2026-09-09 to close O-14-E — the mapping_schema marker was never written by the caller, then the owner
@@ -945,6 +945,15 @@ Plans:
   `sheet_registry.mapping_schema` DDLs are applied to production alongside the RPC and read back on
   synthetic rows; `HELPER2_ENABLED` is wired into the scheduled workflow as a repo-variable flip;
   HLP-06 is Complete (7/7)
+- [x] 14-13-PLAN.md — O-14-E fix: `discovery` exposes the last discovery skip sids; `orchestrate`
+  derives the `mapping_schema` marker per sheet (fully validated this run AND mapping written this
+  call) and passes `mapping_schema_by_sheet` on both `sheet_registry` upserts — the caller pin that
+  14-07's writer contract lacked (PR #395 → `d079e81`)
+- [x] 14-14-PLAN.md — O-14-E closure without the Monday deep run: frequent runs adopt the freshly
+  validated `column_mapping` (+ marker) for every sheet fully validated this run, drift logged with
+  the `Frequent-run full-validation` label BEFORE the first registry write; skip-admitted sheets
+  still echo unmarked; SQL marker backfill rejected on evidence (PR #396 → `736141a`). Task 2
+  (observe the marker on all 121 rows, then ≈ 121 registry skips) pending
 
 **Open owner decisions the plans depend on:**
 

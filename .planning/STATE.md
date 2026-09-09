@@ -5,7 +5,7 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: executing
-stopped_at: "Phase 14 Plan 14 Task 1 complete (frequent-run mapping adoption, PR #396 open); plans 14-13 (merged d079e81) and 14-14 inserted 2026-09-09 as gap closure for O-14-E; Phase 14 has 14 plans, 13 executed + 14-14 Task 2 (production observation: marker on all 121 sheet_registry rows, then ~121 registry skips) pending; O-14-D resolved; first enabled run 34356004448 observed clean"
+stopped_at: "Phase 14 Plan 14 Task 1 merged 736141a (PR #396, frequent-run mapping adoption); Task 2 observation pending; plans 14-13 (merged d079e81) and 14-14 inserted 2026-09-09 as gap closure for O-14-E; Phase 14 has 14 plans, 13 executed + 14-14 Task 2 (production observation: marker on all 121 sheet_registry rows, then ~121 registry skips) pending; O-14-D resolved; first enabled run 34356004448 observed clean"
 last_updated: "2026-09-09T22:20:00.000Z"
 last_activity: 2026-09-09
 last_activity_desc: Plans 14-13 + 14-14 (O-14-E gap closure); O-14-D resolved; first enabled run verified
@@ -35,31 +35,20 @@ pipeline.
 
 ## Current Position
 
-Phase: 14 (Foreman Helper #2) — EXECUTING
-  `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 2 of 10
-  (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
-  (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
-  master. Greptile round fixed on-branch (never-raising ceiling parse,
-  typed skip index). Merged with 9 bot threads unresolved — see
-  Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
-Status: Ready to execute
-  candidate whose live Smartsheet version still matches
-  `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
-  `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
-  confirmation now pre-seeds the existing `_live_row_attachments` memo
-  from 2 bulk `Attachments.list_all_attachments` calls (target sheet +
-  PPP sheet) run once before the group loop, instead of one serial
-  `list_row_attachments` call per skip-candidate row (D-11.1-02);
-  `_live_row_attachments` and both `_has_existing_week_attachment` call
-  sites are byte-for-byte unmodified. Any probe/listing failure or a
-  `total_count` above the 25000-row `BULK_ATTACHMENT_LISTING_MAX_TOTAL`
-  ceiling seeds nothing and falls back to today's lazy per-row path
-  (D-11.1-05 accepted residual risk — option (b) documented, not
-  built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
-  mypy delta neutral 72->72, no re-baseline needed this plan); full
-  suite 1886 passed / 1 skipped / 306 subtests.
-Last activity: 2026-09-08 — Phase 14 execution started
+Phase: 14 (Foreman Helper #2) — EXECUTING (gap closure)
+Plan: 14 of 14 — all 14 plans executed; 14-14 Task 2 (production
+  observation of the `helper2-v1` marker) pending
+Status: Observing — plan 14-14 merged `736141a` (PR #396, 2026-09-09
+  22:17Z) after three bot review rounds (drift log moved before the
+  pass-1 registry write; ordering pin test; docstrings and status docs
+  aligned). Helper #2 ENABLED (`HELPER2_ENABLED=1`, O-14-D: permanent).
+  Next: the first scheduled run on the merge should show `0 skipped ...
+  121 fully validated` plus `Frequent-run full-validation column_mapping
+  refresh` warnings and both registry upserts 200; then
+  `sheet_registry.mapping_schema='helper2-v1'` on all 121 rows (Helper #2
+  keys on the 114 capable sheets); the following run skips ≈ 121.
+  Then mark O-14-E RESOLVED and close Phase 14.
+Last activity: 2026-09-09 — plan 14-14 merged; O-14-E observation pending
   GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
   Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
   under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
@@ -323,7 +312,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: D-14-13-DDL-APPLIED (plan 14-12, Task 2, 2026-09-08 evening CDT -> applied 2026-09-09T02:21:29Z): Juan approved applying both pending additive DDLs (row_state helper2_* x4, sheet_registry.mapping_schema) and closing O-14-B in one message ("do this and then enable the helper 2 once these issues are fixed"), apply delegated to the session -- the third apply-delegated occurrence in Phase 14 (after D-14-07-APPLIED/14-09 and O-14-C-APPLIED/14-11). Applied as Supabase migration `20260909022129_helper2_row_state_columns_marker_and_rpc`; pre-state parked in the owner's vault raw folder.
 - [Phase 14]: D-14-13-VERIFIED (plan 14-12, Task 2, production read-back 2026-09-09 02:22-02:27Z): four helper2 columns + mapping_schema confirmed present; `upsert_rows_bulk` def md5 changed 5987e5ed...->378b3353... with 36 helper2_ mentions, search_path pin and grants unchanged; synthetic round-trip on sheet_id -14012 proved insert-then-identical-resend adds 0 events and a changed Helper #2 value produces exactly 1 update event; synthetic rows deleted, 0 remain. **O-14-B RESOLVED.**
 - [Phase 14]: D-14-14-ENABLE (plan 14-12, Task 3, 2026-09-08): enable `HELPER2_ENABLED` for the scheduled workflow once the DDLs and O-14-B are fixed, overriding 14-10's pilot-wait caution -- the Resource Analyst Helper #2 column is blank on every live row today, so flipping the variable changes zero workbooks until a crew records a second helper. Workflow wired (`${{ vars.HELPER2_ENABLED || '0' }}`); the `gh variable set HELPER2_ENABLED --body 1` post-merge step was DONE 2026-09-09 02:49:58Z, after PR #390 merged as `661d6d3` (flag-off = emergency disable, see O-14-D). HLP-06 flipped to Complete (7/7) in REQUIREMENTS.md and the 14-VERIFICATION.md addendum. Phase 14 (Foreman Helper #2) is fully executed: 12/12 plans.
-- [Phase 14]: O-14-E — plan 14-13 merged `d079e81`; plan 14-14 (2026-09-09, Juan: "cannot wait for that deep run") makes frequent runs adopt the freshly validated mapping + marker for fully-validated sheets after a SQL backfill was rejected on evidence (0/121 stored mappings carry Helper #2 keys). Earlier record: Helper #2 path verified clean (counters, 0 groups, 0 files, no degrade, freeze_attribution 200s, one-time 218k `row_event` churn) but `sheet_registry.mapping_schema` stays NULL on all 121 rows -- `pipeline/orchestrate.py` never passes `mapping_schema_by_sheet` to `upsert_sheet_registry`, so the D-11.1-01 registry skip is defeated every run (slower but correct). Plan 14-13 implemented (marker = fully validated AND column_mapping written this call; existing sheets earn it on the Mon 2026-09-14 deep run); close after that run shows `mapping_schema = 'helper2-v1'` on all 121 rows.
+- [Phase 14]: O-14-E — plan 14-13 merged `d079e81`; plan 14-14 (2026-09-09, Juan: "cannot wait for that deep run") makes frequent runs adopt the freshly validated mapping + marker for fully-validated sheets (merged `736141a`, PR #396) after a SQL backfill was rejected on evidence (0/121 stored mappings carry Helper #2 keys). Earlier record: Helper #2 path verified clean (counters, 0 groups, 0 files, no degrade, freeze_attribution 200s, one-time 218k `row_event` churn) but `sheet_registry.mapping_schema` stays NULL on all 121 rows -- `pipeline/orchestrate.py` never passes `mapping_schema_by_sheet` to `upsert_sheet_registry`, so the D-11.1-01 registry skip is defeated every run (slower but correct). Plan 14-13 implemented (marker = fully validated AND column_mapping written this call; existing sheets earn it on the Mon 2026-09-14 deep run); close after that run shows `mapping_schema = 'helper2-v1'` on all 121 rows.
 - [Phase 14]: O-14-D RESOLVED (2026-09-09, Juan): Helper #2 is a permanent capability, not a one-time backfill -- `HELPER2_ENABLED` stays `1` indefinitely and flag-off is an emergency kill switch only. Option (a) accepted (regroup-on-disable limitation stands, reconcile by hand if it ever happens); persisted-claim routing (b) and attachment retirement (c) declined. No code change; runbook, environment reference, project-state, changelog, ledger `[2026-09-09 08:45]` updated.
 
 ### Roadmap Evolution
