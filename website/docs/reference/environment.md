@@ -869,11 +869,15 @@ columns mapped. `RES_GROUPING_MODE` (default `both`) remains the shared
 grouping-mode switch for both Helper #1 and Helper #2; this flag only decides
 whether the Helper #2 path is inert.
 
-**Rollback:** Set back to `'0'` (or leave unset). Existing Helper #2
-attachments and `billing_audit.attribution_snapshot` rows are retained —
-cleanup never treats a live Helper #2 identity as a placeholder to sweep,
-flag on or off. A unit already claimed by a Helper #2 person is never moved
-back to the primary foreman by turning the flag off.
+**Rollback:** Set back to `'0'` (or leave unset) — an *emergency disable*, not a
+billing-safe rollback once real Helper #2 claims exist. Existing Helper #2
+attachments and `billing_audit.attribution_snapshot` rows are retained (cleanup
+never sweeps a live Helper #2 identity, flag on or off) and frozen attribution
+is not reversed, but Excel routing follows the live flag: a row with a Helper #2
+claim plus "Units Completed?" or a Helper #1 claim regroups into the primary /
+Helper #1 workbook while the old `_Helper2_` workbook stays — the same unit in
+two files until reconciled by hand. Details and the open owner decision
+(`O-14-D`): [Foreman Helper #2 → Rollback](../runbook/foreman-helper-2.md#rollback).
 
 **Startup banner:** not yet added; grep the sheet-level capability log line
 (`helper2_capability_unavailable` / Helper #2 columns present) to confirm the

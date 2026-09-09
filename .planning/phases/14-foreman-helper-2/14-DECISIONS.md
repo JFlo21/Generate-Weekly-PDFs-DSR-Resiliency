@@ -558,3 +558,31 @@ over synthetic data**. Neither **controlled upload verified** nor
 - Expected on the first enabled scheduled run: the four Helper #2 counters present in run_summary,
   `helper2_capability_unavailable` on sheets without the column family, no degrade warning, zero
   `_Helper2_` workbooks until real data appears.
+- **Addendum 2026-09-09 — APPLIED.** PR #390 squash-merged to master `661d6d3` at 02:49:30Z; the repo
+  variable `HELPER2_ENABLED` was set to `1` at 02:49:58Z (`gh variable set HELPER2_ENABLED --body 1`,
+  confirmed with `gh variable list`). First scheduled run with the flag on: the Wed 2026-09-09 13:00Z
+  slot. Flag-off (`gh variable set HELPER2_ENABLED --body 0`) is an emergency disable, not a
+  billing-safe rollback once real Helper #2 claims exist — see O-14-D below. Owner instruction fully executed (DDLs applied, O-14-B closed, Follow-up 1 confirmed,
+  flag enabled). Next records: the 13:00Z run check against the expectations above, then
+  `/gsd-code-review 14`.
+
+## O-14-D — OPEN 2026-09-09: flag-off re-routes rows that carried a Helper #2 claim
+
+- Raised by Greptile (P1) and Copilot on PR #391 against the "rollback = set the variable to `0`"
+  wording; verified in code 2026-09-09: with `HELPER2_ENABLED` off, `pipeline/fetch.py` sets
+  `__is_helper2_row = False` on every row, `pipeline/grouping.py` then computes
+  `valid_helper2_row = False`, so a row that also carries "Units Completed?" (dual-checkbox) or a
+  Helper #1 claim is emitted to the primary / Helper #1 group on the next run. Cleanup keeps the
+  existing `_Helper2_` attachment by design (D-14-12 rollback protection,
+  `tests/test_sentinel_superseded_cleanup.py::Helper2RollbackProtectionTests`), so the same unit can
+  appear in two workbooks until reconciled by hand. Frozen `billing_audit` attribution is unaffected.
+- Impact today: none — no live row carries a Helper #2 claim (Resource Analyst Helper #2 column blank
+  on all 576 rows at enablement), so flipping the flag either way changes no workbook.
+- Docs corrected in PR #391 (no code change): runbook Rollback section, environment reference,
+  project-state, ledger, and the D-14-14-ENABLE addendum now call flag-off an emergency disable.
+- Owner decision needed: (a) accept the limitation and reconcile by hand if the flag is ever turned
+  off with real Helper #2 data present; (b) add persisted-claim routing — keep a row on its Helper #2
+  route while the flag is off when `pipeline_memory.row_state.helper2_*` /
+  `billing_audit.attribution_snapshot` show a prior Helper #2 claim (a grouping behaviour change that
+  needs its own plan and fixtures); or (c) on disable, also retire the retained `_Helper2_`
+  attachments (reverses D-14-12's evidence-retention choice).
