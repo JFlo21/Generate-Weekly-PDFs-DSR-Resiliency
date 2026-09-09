@@ -29,6 +29,7 @@ import sys
 import unittest
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -175,7 +176,7 @@ class MarkerReachesWriterPayloadTests(unittest.TestCase):
             sheets, {222}, column_mapping_sheets,
         )
 
-        upsert_capture: list = []
+        upsert_capture: list[Any] = []
         client = self._fake_client(upsert_capture)
         with mock.patch(
             "pipeline_memory.writer.get_client", return_value=client
