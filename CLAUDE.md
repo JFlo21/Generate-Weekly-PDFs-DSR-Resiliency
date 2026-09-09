@@ -81,7 +81,9 @@ pip install -r requirements.txt
 pytest tests/ -v                                  # full suite — must pass before push
 python -m py_compile generate_weekly_pdfs.py      # syntax check
 SKIP_UPLOAD=true python generate_weekly_pdfs.py   # local dry run, no upload
-TEST_MODE=true python generate_weekly_pdfs.py     # synthetic data, no token needed
+SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true PYTHONUTF8=1 python generate_weekly_pdfs.py
+                                                  # synthetic data; blank the token — with a .env token
+                                                  # TEST_MODE performs a LIVE read of every source sheet
 bash scripts/run_6_gates.sh                       # 6-gate harness after any module move
 ```
 

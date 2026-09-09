@@ -820,33 +820,57 @@ class WatermarkPersistenceTests(unittest.TestCase):
         """run_summary.json's contract: 21 keys frozen by this plan plus
         ``groups_skipped_no_target_row`` (PR #365) plus the two Phase 12
         / OWN-02 sentinel counters (``sentinel_claimers_ignored``,
-        ``sentinel_freezes_deferred``)."""
+        ``sentinel_freezes_deferred``) plus Phase 14 / D-14-07a's
+        ``helper2_attribution_degraded`` counter plus Phase 14 / 14-08's
+        four Helper #2 run-summary counters (D-14-02 four capability
+        states; O-14-A row conflict) plus Phase 14 / 14-11's
+        ``snapshots_helper2_filled`` counter (O-14-C late-fill)."""
         golden = _REPO_ROOT / "tests" / "golden" / "run_summary_baseline.json"
         data = json.loads(golden.read_text(encoding="utf-8"))
-        self.assertEqual(len(data), 24)
+        self.assertEqual(len(data), 30)
         self.assertIn("groups_skipped_no_target_row", data)
 
-    def test_schema_untouched(self):
-        """git diff --exit-code equivalent for pipeline_memory/schema.sql.
+    def test_schema_changes_are_additive_only(self):
+        """Phase 11 Plan 08 pinned pipeline_memory/schema.sql byte-
+        identical for that phase's own duration (a blanket
+        ``git diff --exit-code``). Phase 14 Plan 04 legitimately
+        appends four nullable Helper #2 columns to ``row_state`` behind
+        an owner checkpoint (D-14-08-APPLIED,
+        .planning/phases/14-foreman-helper-2/14-DECISIONS.md) -- mirrors
+        ``test_workflow_caches_retired_but_schedule_and_budget_survive``'s
+        own precedent immediately below for retiring a stale blanket
+        freeze in favor of a specific invariant once a later phase is
+        explicitly authorised to touch the file.
 
-        Zero schema drift is a hard requirement across the whole phase
-        (CLAUDE.md-adjacent hard rule cited by every plan in this phase),
-        unlike the workflow file below -- which 11-08 Task 3 is explicitly
-        authorised to edit.
+        This pins the REAL invariant the freeze existed to protect:
+        the file's committed-history-relative diff contains ONLY added
+        lines, never a modified or removed one -- so an accidental edit
+        to an existing column, RPC body, or comment is still caught,
+        while a sanctioned additive column is not. ``--unified=0``
+        drops context lines entirely, so a pure mid-file insertion
+        (this repo's DDL discipline: additive, surgical changes only)
+        never appears as a removal of its unchanged neighbors.
         """
         import subprocess
 
         result = subprocess.run(
             [
-                "git", "diff", "--exit-code", "--",
+                "git", "diff", "--unified=0", "--",
                 "pipeline_memory/schema.sql",
             ],
             cwd=str(_REPO_ROOT),
             capture_output=True,
         )
+        diff_text = result.stdout.decode()
+        removed_lines = [
+            line for line in diff_text.splitlines()
+            if line.startswith("-") and not line.startswith("---")
+        ]
         self.assertEqual(
-            result.returncode, 0,
-            f"pipeline_memory/schema.sql was modified:\n{result.stdout.decode()}",
+            removed_lines, [],
+            "pipeline_memory/schema.sql has a removed or modified "
+            f"line -- only additive changes are permitted:\n"
+            f"{removed_lines}",
         )
 
     def test_workflow_caches_retired_but_schedule_and_budget_survive(self):
@@ -2129,7 +2153,10 @@ class ScopedCounterTests(unittest.TestCase):
         golden = _REPO_ROOT / "tests" / "golden" / "run_summary_baseline.json"
         data = json.loads(golden.read_text(encoding="utf-8"))
         # 21 + groups_skipped_no_target_row + 2 Phase 12 sentinel counters
-        self.assertEqual(len(data), 24)
+        # + Phase 14 / D-14-07a's helper2_attribution_degraded counter
+        # + Phase 14 / 14-08's four Helper #2 run-summary counters
+        # + Phase 14 / 14-11's snapshots_helper2_filled counter
+        self.assertEqual(len(data), 30)
 
 
 # ── Plan 07 Task 1: pipeline_memory.reader.get_parity_streak (D-09) ─────
@@ -3462,6 +3489,7 @@ class DiscoverySkipIndexTests(unittest.TestCase):
                 "last_sheet_version": 8,
                 "column_mapping": {"Weekly Reference Logged Date": 55},
                 "name": "Test Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             }
         }
 
@@ -3508,6 +3536,7 @@ class DiscoverySkipIndexTests(unittest.TestCase):
                 "last_sheet_version": 3,
                 "column_mapping": {"Weekly Reference Logged Date": 1},
                 "name": "Other Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             }
         }
 
@@ -3618,6 +3647,7 @@ class DiscoverySkipIndexTests(unittest.TestCase):
                 "last_sheet_version": 3,
                 "column_mapping": {"Weekly Reference Logged Date": 1},
                 "name": "Other Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             },
         }
 
@@ -3735,6 +3765,7 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
                 "last_sheet_version": 8,
                 "column_mapping": {"Weekly Reference Logged Date": 55},
                 "name": "Test Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             }
         }
 
@@ -3961,6 +3992,8 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
         split line (D-11.1-01) names candidates/skipped/fully-validated
         counts for a run mixing one registry-skipped and one
         fully-validated sheet."""
+        from pipeline import discovery
+
         os.environ['LIMITED_SHEET_IDS'] = '111222,999999'
         # 111222: registry-matched -> skip fast path.
         # 999999: no registry row -> falls through to full validation.
@@ -3977,6 +4010,7 @@ class DiscoveryRegistrySkipTests(unittest.TestCase):
                 "last_sheet_version": 8,
                 "column_mapping": {"Weekly Reference Logged Date": 55},
                 "name": "Skipped Sheet",
+                "mapping_schema": discovery.MAPPING_SCHEMA_MARKER,
             },
         }
 

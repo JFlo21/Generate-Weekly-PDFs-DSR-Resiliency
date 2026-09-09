@@ -435,6 +435,25 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         meta_parts.append(f"HELPER={helper_foreman}")
         meta_parts.append(f"HELPER_DEPT={helper_dept}")
         meta_parts.append(f"HELPER_JOB={helper_job}")  # Include even if empty for hash consistency
+
+    if variant in ('helper2', 'aep_billable_helper2', 'reduced_sub_helper2'):
+        # Phase 14 (D-14-09): SIBLING block to the Helper #1 block above,
+        # never merged into it. This is the pattern that keeps HLP-06's
+        # byte-identity guarantee: a HELPER2= token can only ever appear
+        # on a helper2-family hash, and a HELPER= token can only ever
+        # appear on a helper-family hash — never both, never on primary
+        # or vac_crew.
+        _first2 = sorted_rows[0] if sorted_rows else {}
+        helper2_foreman = _first2.get('__helper2_foreman', '')
+        helper2_dept = _first2.get('__helper2_dept', '')
+        helper2_job = _first2.get('__helper2_job', '')
+        if not helper2_foreman or not helper2_dept:
+            logging.warning(f"⚠️ Helper2 variant missing required fields: foreman={helper2_foreman}, dept={helper2_dept}")
+        if not helper2_job:
+            logging.info(f"ℹ️ Helper2 variant without Job #: foreman={helper2_foreman}, dept={helper2_dept} (proceeding anyway)")
+        meta_parts.append(f"HELPER2={helper2_foreman}")
+        meta_parts.append(f"HELPER2_DEPT={helper2_dept}")
+        meta_parts.append(f"HELPER2_JOB={helper2_job}")
     # vac_crew variant intentionally has no meta_parts block: VAC crew
     # name/dept/job are already captured per-row in the row_str loop above,
     # which is strictly more sensitive than meta_parts aggregation and is not
@@ -535,6 +554,31 @@ def _compute_aggregated_content_hash(rows: list[dict]) -> str:
             ]
             variant_hash = hashlib.sha256(
                 "|".join(sub_parts).encode('utf-8')
+            ).hexdigest()[:16]
+        elif v == 'helper2':
+            # Phase 14 (D-14-06): sibling of the 'helper' sub-bucketing
+            # above, never merged into it. Without this, a 'helper2'
+            # bucket aggregating rows from 2+ distinct Helper #2 foremen
+            # would depend on row sort order for which foreman's identity
+            # reaches the hash (Pitfall 5) -- the shadow variants
+            # (reduced_sub_helper2 / aep_billable_helper2) are excluded
+            # from this special case, same as their Helper #1 shadow
+            # siblings, and fall to the generic branch below (a
+            # documented pre-existing gap, not introduced by this phase).
+            sub2: dict[tuple[str, str, str], list[dict]] = {}
+            for r in variant_rows:
+                sk2 = (
+                    str(r.get('__helper2_foreman', '')),
+                    str(r.get('__helper2_dept', '')),
+                    str(r.get('__helper2_job', '')),
+                )
+                sub2.setdefault(sk2, []).append(r)
+            sub_parts2 = [
+                f"{sk2}={calculate_data_hash(sub2[sk2])}"
+                for sk2 in sorted(sub2.keys())
+            ]
+            variant_hash = hashlib.sha256(
+                "|".join(sub_parts2).encode('utf-8')
             ).hexdigest()[:16]
         else:
             variant_hash = calculate_data_hash(variant_rows)
@@ -750,7 +794,7 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
     # TestBuildGroupIdentityWithUnderscoresInWr.
     _reserved_positions = {
         _tok: tail.index(_tok)
-        for _tok in ('AEPBillable', 'ReducedSub', 'VacCrew', 'Helper', 'User')
+        for _tok in ('AEPBillable', 'ReducedSub', 'VacCrew', 'Helper', 'Helper2', 'User')
         if _tok in tail
     }
     _first_marker = (
@@ -768,6 +812,16 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
             # the identifier is everything after the marker.
             variant = 'aep_billable'
             identifier = '_'.join(post_aep[1:])
+        elif 'Helper2' in post_aep:
+            # Phase 14 (D-14-06): checked BEFORE the bare 'Helper' check
+            # below in this same branch -- 'Helper2' and 'Helper' are
+            # distinct underscore-split tokens, so a real hybrid filename
+            # can never contain both as adjacent list elements, but the
+            # more-specific token is still checked first defensively.
+            variant = 'aep_billable_helper2'
+            helper2_idx_rel = post_aep.index('Helper2')
+            if helper2_idx_rel + 1 < len(post_aep):
+                identifier = '_'.join(post_aep[helper2_idx_rel + 1:])
         elif 'Helper' in post_aep:
             variant = 'aep_billable_helper'
             helper_idx_rel = post_aep.index('Helper')
@@ -783,6 +837,13 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         if post_rs and post_rs[0] == 'User':
             variant = 'reduced_sub'
             identifier = '_'.join(post_rs[1:])
+        elif 'Helper2' in post_rs:
+            # Phase 14 (D-14-06): checked BEFORE the bare 'Helper' check
+            # below, mirroring the AEPBillable branch above.
+            variant = 'reduced_sub_helper2'
+            helper2_idx_rel = post_rs.index('Helper2')
+            if helper2_idx_rel + 1 < len(post_rs):
+                identifier = '_'.join(post_rs[helper2_idx_rel + 1:])
         elif 'Helper' in post_rs:
             variant = 'reduced_sub_helper'
             helper_idx_rel = post_rs.index('Helper')
@@ -805,6 +866,13 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
         helper_idx_rel = tail.index('Helper')
         if helper_idx_rel + 1 < len(tail):
             identifier = '_'.join(tail[helper_idx_rel + 1:])
+    elif _first_marker == 'Helper2':
+        # Phase 14 sibling of the 'Helper' branch above — 'Helper2' and
+        # 'Helper' are distinct underscore-split tokens and never collide.
+        variant = 'helper2'
+        helper2_idx_rel = tail.index('Helper2')
+        if helper2_idx_rel + 1 < len(tail):
+            identifier = '_'.join(tail[helper2_idx_rel + 1:])
     elif _first_marker == 'User':
         variant = 'primary'
         user_idx_rel = tail.index('User')

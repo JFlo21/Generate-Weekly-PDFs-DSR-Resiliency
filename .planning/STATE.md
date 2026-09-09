@@ -1,21 +1,21 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
-current_phase: 12
-current_phase_name: Ownership — last known foreman as of the week
+milestone_name: Supabase Run Memory — incremental billing pipeline
+current_phase: 14
+current_phase_name: "Foreman Helper #2"
 status: executing
-stopped_at: Phase 11.1 complete, ready to plan Phase 12
-last_updated: "2026-09-03T17:15:09.997Z"
-last_activity: 2026-09-03
-last_activity_desc: Phase 12 waves 2-3 done; gates + PR prep
-state_head: 77a675b5a07b938b093943295fb68216913d45ed
+stopped_at: "Phase 14 Plan 10 complete (rollout: runbook, pilot rehearsal, D-14-12-ROLLOUT documented-only, deploy-now merge to master 6d8942c); Phase 14 is fully executed (11/11 plans)"
+last_updated: "2026-09-08T23:00:00.000Z"
+last_activity: 2026-09-08
+last_activity_desc: Phase 14 Plan 10 closed out (rollout runbook/pilot/owner decisions; phase complete)
 progress:
-  total_phases: 13
-  completed_phases: 4
-  total_plans: 56
-  completed_plans: 51
-  percent: 31
+  total_phases: 14
+  completed_phases: 12
+  total_plans: 71
+  completed_plans: 71
+  percent: 100
+state_head: 6d8942c80033bb73da308c927c50945adadbd927
 ---
 
 # Project State
@@ -31,19 +31,19 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 12 — Ownership — last known foreman as of the week
+**Current focus:** Phase 14 — Foreman Helper #2
 
 ## Current Position
 
-Phase: 12 (Ownership — last known foreman as of the week) — EXECUTING
+Phase: 14 (Foreman Helper #2) — EXECUTING
   `675e3e2`, 2026-09-01 20:14Z); awaiting the post-merge SC-1 observation
-Plan: 5 of 6 (12-02 … 12-05 complete; 12-03 SQL applied live 2026-09-03; 12-06 owner-run after merge)
+Plan: 2 of 10
   (Fix 2 — bulk attachment pre-seed) both executed, gate-verified
   (11.1-VERIFICATION.md 12/12, 0 gaps, `human_needed`), and merged to
   master. Greptile round fixed on-branch (never-raising ceiling parse,
   typed skip index). Merged with 9 bot threads unresolved — see
   Blockers/Concerns. Post-merge gate on master: ALL 6 PASSED.
-Status: Executing Phase 12
+Status: Ready to execute
   candidate whose live Smartsheet version still matches
   `pipeline_memory.sheet_registry.last_sheet_version` and whose stored
   `column_mapping` is valid (D-11.1-01). Group-processing skip-gate
@@ -59,7 +59,7 @@ Status: Executing Phase 12
   built). `bash scripts/run_6_gates.sh` = ALL 6 GATES PASSED (Gate 4
   mypy delta neutral 72->72, no re-baseline needed this plan); full
   suite 1886 passed / 1 skipped / 306 subtests.
-Last activity: 2026-09-03 — Phase 12 waves 2-3 done; 12-04 dispatch-only; phase gates running
+Last activity: 2026-09-08 — Phase 14 execution started
   GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
   Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
   under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
@@ -89,7 +89,7 @@ Last activity: 2026-09-03 — Phase 12 waves 2-3 done; 12-04 dispatch-only; phas
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 50/50 plans (100%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
+Progress: [████████████████████] 50/50 plans ([██████████] 97%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
 ```
 
 ## Performance Metrics
@@ -148,6 +148,21 @@ Progress: [████████████████████] 50/50 p
 | Phase 11.1 P01 | ~30 min | 3 tasks | 6 files |
 | Phase 11.1 P02 | ~10min | 3 tasks | 3 files |
 | Phase 11.1 P04 | ~25min (Task 4 continuation) | 1 tasks | 5 files |
+| Phase 12 P07 | ~15min | 3 tasks | 2 files |
+| Phase 12 P08 | ~25min | 3 tasks | 4 files |
+| Phase 12 P09 | ~10min | 3 tasks | 3 files |
+| Phase 12 P10 | ~15min | 3 tasks | 4 files |
+| Phase 14-foreman-helper-2 P01 | ~30min | 3 tasks | 12 files |
+| Phase 14-foreman-helper-2 P02 | ~15min (Task 3 continuation) | 3 tasks | 2 files |
+| Phase 14-foreman-helper-2 P03 | 40min | 3 tasks | 6 files |
+| Phase 14 P05 | ~35min | 3 tasks | 6 files |
+| Phase 14-foreman-helper-2 P06 | ~40min | 3 tasks | 6 files |
+| Phase 14 P04 | 9min | 3 tasks | 6 files |
+| Phase 14 P07 | ~100min (3 sessions) | 3 tasks | 8 files |
+| Phase 14 P08 | 50min | 3 tasks | 8 files |
+| Phase 14 P09 | ~2h10m (3 checkpoint-gated stretches) | 3 tasks | 4 files |
+| Phase 14 P11 | ~40min (2 checkpoint-gated stretches) | 3 tasks | 12 files |
+| Phase 14 P10 | ~12min active (2 stretches, 1 gate wait) | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -268,6 +283,42 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 11.1]: [Phase 11.1] 11.1-01: discovery registry-version skip fast path (D-11.1-01) ships INC-05-compatible -- registry hit requires exact version equality + valid stored column_mapping, any doubt falls back to full validation; Gate-4 mypy re-baselined 70->72 (zero accepted findings, pure annotation-note line drift)
 - [Phase 11.1]: [Phase 11.1] 11.1-02: bulk attachment pre-seed (D-11.1-02) pre-seeds the existing _live_row_attachments memo from 2 bulk list_all_attachments calls before the group loop -- _live_row_attachments and both call sites left byte-for-byte unmodified; total_count pre-flight + 25000 ceiling fallback to today's lazy per-row path (D-11.1-05); Phase 11.1 both fixes complete on feat/11.1-runtime-remediation
 - [Phase 11.1]: [Phase 11.1] 11.1-04: G-11.1-4 residual (b) RESOLVED — bounded discovery validation read (row_numbers=[1,2,3], reused as sample-row cache) replaces the unbounded full-sheet download; PR #384 merged 13e8e76; production canary (skip-MISS run 33683979474) confirms Phase 1 37.7s (was 3,214-4,999s) and Python Duration 50.8min (< 75min SC-1); fix candidate (b) column-set-hash skip key stays DEFERRED, motivation removed by cheap-miss result
+- [Phase 12]: 12-06 Task 1: Juan REJECTED the OWN-03 live dry-run (reason: source-3 filename parser defect proposing 'Unknown Foreman.xlsx' as a real name for 4,070 rows); no --apply run; routed to /gsd:plan-phase 12 --gaps
+- [Phase ?]: 12-07: G-12-3 source-3 half closed -- _extract_claimer_from_filename now strips a trailing document extension when no hash suffix is present, and _build_apply_payload gained a defensive proposed_value guard; OWN-03 stays blocked pending 12-08/12-09/12-10 (shared-ID gate).
+- [Phase ?]: D-12-C (2026-09-04): #NO MATCH scope for OWN-03 is option defer
+- [Phase ?]: D-12-D (2026-09-04): ROADMAP SC3 known-good sample is option substitute-89829163
+- [Phase ?]: Owner-authorized deviation: Juan instructed the orchestrating session to apply 12-09 STEP 4 + STEP 5 via the Supabase MCP in his place; approved the live read-backs (EXECUTE postgres/service_role only, guard present, 0 rows written).
+- [Phase ?]: 12-09: requirements.mark-complete NOT run for OWN-03 -- 12-06/12-10 still pending, shared-ID gate applies.
+- [Phase ?]: 12-10 Task 1: independent Opus production-risk judgment verdict pass on the combined 12-07+12-09 fix (8-point rubric, zero fix round)
+- [Phase ?]: 12-10 Task 2: owner-authorized deviation -- STEP 1 same-UTC-day backup (attribution_snapshot_backup_20260904) applied via Supabase MCP at Juan's explicit direction, mirroring 12-09's STEP 4/5 pattern
+- [Phase ?]: 12-10 Task 3: zero-defect scoped dry-run confirmed -- WR 89732091 x 7 weeks went from 235/235 to 0/0 extension-bearing proposals
+- [Phase ?]: 12-06 declared re-entrant from its own Task 1 per Juan's re-enter-12-06 resume signal (2026-09-04); backup valid for --apply only through 2026-09-04 23:59 UTC
+- [Phase 14]: 14-01: extracted pipeline/fetch.py's Helper #2 row detection into a standalone _detect_helper2_row() function (unlike Helper #1's inline block) for direct unit-testability without a Smartsheet client mock
+- [Phase 14]: 14-01: normalize_helper_value() rejects the literal 'NA' (case-insensitive) in addition to the 11-member FORMULA_ERROR_VALUES set, per D-14-05's must-have (FORMULA_ERROR_VALUES itself stays exactly the 11 tokens the plan specifies)
+- [Phase 14]: 14-01: tests/test_helper2_family_parity.py uses a KNOWN_DEFERRED allowlist for pipeline/excel.py's two subcontractor Helper #2 shadow branches, explicitly deferred to plan 14-06
+- [Phase 14]: [Phase 14] 14-02 A1/A2: group_state hash-skip and _live_row_attachments pre-seed structurally cannot suppress a first Helper #2 generation -- no guard needed
+- [Phase 14]: [Phase 14] 14-02 A3: pricing.py exclusion tuple + rate-column selector must be extended in plan 14-06 for future aep_billable_helper2/reduced_sub_helper2 subcontractor shadow variants; observability.py _PII_LOG_MARKERS extension assigned to plans 14-07/14-08
+- [Phase 14]: [Phase 14] 14-02 Task 3: owner-delegated read-only Smartsheet probe (2026-09-06) confirms Resource Analyst Foreman Helper #2 blank on all 576 rows -- plan 14-10 pilot is FIXTURE-ONLY
+- [Phase ?]: Kept _HELPER2_SENTINEL_CLAIMERS as a separate frozenset from _SENTINEL_CLAIMERS to avoid breaking the SQL-twin parity test
+- [Phase ?]: Reused billing_audit.client's typed _PGAPIError/_classify_postgrest_error for the PGRST202 capability probe instead of a local re-declaration, avoiding a new mypy finding
+- [Phase ?]: Mirrored the new helper2_attribution_degraded counter key in both of pipeline/orchestrate.py's pre-seed dicts (synthetic and production) after Gate 6 proved the synthetic path needed it
+- [Phase 14]: 14-05: generalized family-parity test's literal matcher to check both single- and double-quote forms, since scripts/publish_artifacts_to_supabase.py quotes helper-family tokens with double quotes exclusively unlike every other pinned file
+- [Phase 14]: 14-05: did not run npm install for portal-v2 (node_modules missing) per project guardrail; portal build/typecheck verify command is unrun, confirmed only by manual code inspection
+- [Phase 14]: 14-05: left variantLabels.ts pre-existing key-convention inconsistency untouched (14-RESEARCH.md Assumption A5 unresolved); new Helper 2 keys follow the snake_case token normalize_variant() actually writes
+- [Phase ?]: 14-06: subcontractor Helper #2 shadow leg mirrors Helper #1 exactly -- separate _sub_is_valid_helper2_row gate, separate resolve_claimer('helper2', ...) call, separate reduced_sub_helper2/aep_billable_helper2 shadow keys; the primary reduced_sub/aep_billable emission now also excludes Helper #2-completed subcontractor rows
+- [Phase ?]: 14-06: both-slots-valid (Helper #1 AND Helper #2 both valid on one row) takes NO position -- both families' shadow keys emit additively today; O-14-A remains owner-blocked, plan 14-08 owns the eventual rule
+- [Phase ?]: 14-06: dropped the local PEP 526 annotation on pipeline/grouping.py's new _attribution_reason2 variable -- an annotated assignment inside the unchecked group_source_rows function adds a new mypy annotation-unchecked note, tripping Gate 4's strict delta check (71->72) with zero actual type-error
+- [Phase 14]: D-14-08-APPLIED (include-now): Helper #2 fields join HASH_FIELDS in the same change as the additive row_state columns; ~217k one-time production row_event churn quantified and accepted (RUN_MEMORY_INCREMENTAL_ENABLED stays off).
+- [Phase 14]: pipeline_memory.upsert_rows_bulk RPC's column list is deliberately left unchanged in plan 14-04; helper2_* values will not persist to row_state until a later rollout plan (14-09/14-10) updates the RPC.
+- [Phase 14]: D-14-10-APPLIED (separate-column): sheet_registry.mapping_schema TEXT NULL, marker `helper2-v1` (pipeline/discovery.py MAPPING_SCHEMA_MARKER), sixth reject-only skip-index admission gate; a not-yet-migrated column degrades to full validation for every sheet with ONE warning, never cache admission; one-time cost 37.7 s / 121 sheets (canary 33683979474). DDL is owner-applied; none executed from any session.
+- [Phase 14]: 14-07: helper2_no_qualifying_completion (capability present, nothing qualified) is logged once per sheet, distinct from helper2_capability_unavailable; a partial Helper #2 column set is capability-unavailable; Intake ProMax 8 (HLP-04) verified fixture-only; discovery strict-mode gate and failed-validation path untouched and pinned by test.
+- [Phase 14]: O-14-A RESOLVED 2026-09-07 (owner): helper2-wins -- precedence Helper #2 > Helper #1 > primary foreman for one physical unit on one row; the losing claim is logged once with a distinct reason, counted in the run summary, and sent to Sentry (ids/counts only, no names); a conflicted row never aborts a run. Plan 14-08 Task 2 is unblocked.
+- [Phase ?]: 14-08: O-14-A helper2-wins conflict rule implemented -- Helper #2 > Helper #1 > primary foreman precedence, recorded once per row at the plain leg (non-subcontractor) or shadow leg (subcontractor), never both
+- [Phase ?]: 14-08: run_summary.json gained 4 Helper #2 counters (capability-unavailable sheets, no-qualifying-completion sheets, conflict-hold, groups generated), pre-seeded on every run; golden baseline grew 25->29 keys
+- [Phase 14]: D-14-07-APPLIED (2026-09-08): Juan chose sql-first and explicitly delegated the apply to the orchestrating Claude session over the Supabase MCP connection (owner-authorized deviation from "never apply from an agent session," T-14-09-05); applied 16:55:11Z as migration 20260908165511_helper2_attribution_columns_and_rpcs, with 3 preserve-live-definition deviations (parameter order, pinned search_path, per-row not per-role first-write-wins) back-ported into the repo file in the same commit.
+- [Phase 14]: D-14-07-VERIFIED (2026-09-08): 4 owner-delegated, owner-co-signed production read-back checks confirm both lookups return the new columns, the table has both columns, a Helper #2 freeze leaves the other 3 role columns byte-identical, and the first post-apply run shows zero PGRST errors. Assumption A4 CLOSED by observation. HLP-06 marked complete.
+- [Phase 14]: O-14-C RESOLVED (plan 14-11, 2026-09-08): Juan chose apply-delegated; the per-role Helper #2 fill migration (`billing_audit/helper2_attribution_fill.sql`) applied 20:12:05Z as migration `20260908201205_helper2_attribution_per_role_fill` (ON CONFLICT ... DO UPDATE gated by `is_sentinel_value`, Helper #2 only); synthetic-row read-back confirms the fill writes only the two Helper #2 columns plus provenance, every other column byte-identical, a second differing Helper #2 refused, fresh inserts carry no provenance. Post-merge, real-row confirmation of `snapshots_helper2_filled` and the no-degrade-warning check remain PENDING (Helper #2 is blank across production today).
+- [Phase 14]: D-14-12-ROLLOUT (plan 14-10, 2026-09-08 ~22:45Z): Juan chose documented-only -- `HELPER2_ENABLED` stays off in the repository default, no workflow wiring, no controlled upload authorized this phase; Juan separately instructed an immediate deploy ("i want this to roll out in production like right now"), and the orchestrating session merged `feat/phase-12-remediation` into `master` (`6d8942c`) on that instruction, skipping the pilot's live steps and relying on the already-passing automated gates as evidence. Phase 14 (Foreman Helper #2) is fully executed: 11/11 plans; HLP-04 and HLP-07 marked Complete.
 
 ### Roadmap Evolution
 
@@ -286,7 +337,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - Phase 02 added (2026-05-26): v1.0 hotfix. Replaced the per-row
   `lookup_attribution` pre-passes with single bulk RPC.
+
 - Phase 11.1 inserted after Phase 11: Post-INC-05 Runtime Remediation (URGENT)
+- Phase 14 added: Foreman Helper #2 — second independently identifiable helping-foreman slot through the Excel-generation workflow (planning-only authorization; Intake 8 excluded; optional Helper #2 columns skip, never fail)
 
 ### Blockers/Concerns
 
@@ -298,8 +351,10 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   the NEXT run's registry-version skip serves a stale mapping. Verify what
   `upsert_sheet_registry` writes on non-deep runs before trusting SC-2 skip counts; if
   real, the fail-closed remedy is to also compare a stored-mapping fingerprint.
+
 - ⚠️ [Phase 11.1] Copilot `pipeline/orchestrate.py:1339`: a missing `total_count` on the
   probe may bypass the 25000 ceiling and proceed to the unbounded `include_all=True` listing.
+
 - ⚠️ [Phase 11.1] Codex-connector P1 `orchestrate.py:2967`: pre-seed probe + listings run
   before the first `TIME_BUDGET_MINUTES` check. P2 `discovery.py:284`: registry mapping
   shape not validated before skip admission. Doc/test nits: STATE.md progress arithmetic
@@ -316,6 +371,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   could delete a real person's historical attachment when another real person later holds the same
   (wr, week, variant). Narrow the heuristic to the known sanitized error spellings (`_REF_`, `_INVALID`,
   `_NO_MATCH`, …) or de-sanitize before `is_sentinel_claimer`, plus a test with a leading-space name.
+
 - ⚠️ [Phase 12 / INC-06] WR-01 `pipeline/orchestrate.py`: top-level `from smartsheet.models.enums.
   attachment_parent_type import AttachmentParentType` — a future SDK relocation would break module
   import instead of degrading; `discovery.py` uses the lazy/defensive pattern for deep `smartsheet.models.*` paths.
@@ -356,6 +412,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - Vercel preview vs production hCaptcha keys: verify environment-scoped env var
   isolation before Phase 04 ships.
+
+- Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED). scripts/backfill_claim_time_attribution.py source 3 must strip file extensions before the sentinel check + add a proposed-value guard + rebuild fixtures from the real hash-less filename shape before 12-06 can re-run. See 12-06-SUMMARY.md.
+- ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: ~~O-14-C~~ RESOLVED 2026-09-08 (plan 14-11) -- Juan chose apply-delegated; the per-role fill was applied and verified on synthetic rows (see the O-14-C decision entry above). Real-row post-merge confirmation of the fill counter and degrade-warning check stays PENDING until a live Helper #2 row exists.
 
 ### Quick Tasks Completed
 
@@ -432,8 +491,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-02T22:16:09.857Z
-**Stopped at:** Phase 11.1 complete, ready to plan Phase 12
+**Last session:** 2026-09-08T23:00:00.000Z
+**Stopped at:** Phase 14 Plan 10 complete -- Task 1 shipped the operator runbook + environment/architecture docs (`fe70b28`); Task 2 rehearsed the pilot in escalating order, fixture pass and dry-run pass over synthetic data, step 3 recorded not-run (`b080d59`); Task 3's `checkpoint:decision gate="blocking-human"` resolved as `documented-only` -- `HELPER2_ENABLED` stays off in the repository default, no workflow wiring, no controlled upload (`D-14-12-ROLLOUT`, `a3998f9`) -- and Juan separately instructed an immediate deploy, so the orchestrating session merged `feat/phase-12-remediation` into `master` (`6d8942c`), validated by the full suite (2284 passed / 1 skipped / 557 subtests), `scripts/run_6_gates.sh` (ALL 6 GATES PASSED), and the website typecheck+build. Phase 14 (Foreman Helper #2) is now fully executed: 11/11 plans. Post-merge production observation (the fill counter and no-degrade-warning checks) and the two Smartsheet-side operator preconditions remain open, owner-tracked items -- not phase-blocking.
 **Resume file:** None
 
 ## Session Continuity

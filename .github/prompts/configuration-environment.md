@@ -11,6 +11,10 @@ re-exported by the `generate_weekly_pdfs.py` facade). Env var NAMES only — nev
 - `TARGET_SHEET_ID` (default `5723337641643908`), `AUDIT_SHEET_ID`, `SENTRY_DSN`
 - `SKIP_UPLOAD`, `SKIP_CELL_HISTORY`
 - `RES_GROUPING_MODE` ∈ {`primary`, `helper`, `both`} (default `both`)
+- `HELPER2_ENABLED` (default `'0'`, truthy `1`/`true`/`yes`/`on`) — Phase 14 default-off kill switch
+  for the second helping-foreman slot (`Foreman Helping? #2` family). Off = complete no-op, even on a
+  sheet with all six Helper #2 columns mapped. Not yet wired into the workflow `env:` block — see
+  `website/docs/runbook/foreman-helper-2.md` and `14-DECISIONS.md` `D-14-12-ROLLOUT`.
 - `TEST_MODE`, `FORCE_GENERATION`, `WR_FILTER` (comma list), `MAX_GROUPS`
 - `RESET_HASH_HISTORY=true` for full CI regeneration — forces the `pipeline_memory.group_state`-backed
   change detection to treat every group as changed (D-02 trigger 5)

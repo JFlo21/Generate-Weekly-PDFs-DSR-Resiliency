@@ -280,7 +280,8 @@ CU pricing, rate recalculation, and billing formulas do not change.
   non-sentinel `attribution_snapshot`, and the 2025 `hash_history.json` foreman field;
   the 93 WRs / 5,824 rows frozen as `Unknown Foreman` are remediated and their
   `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
-  (WR 19073866 WE 082425–092125 → Avery Example).
+  (WR 89829163 WE 082425/083125/091425/092125 → a real name via `backfill_artifacts`;
+  D-12-D replaced the placeholder WR 19073866, which has no rows in any Supabase store).
 
 - [ ] **OWN-04**: The change to Foundation A's first-write-wins contract is documented in
   the Living Ledger and the runbook; helper/VAC roles follow the same ladder.
@@ -295,6 +296,42 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 - [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
   queryable per WR.
+
+### Foreman Helper #2 (Phase 14)
+
+- [x] **HLP-01**: An eligible Helper #2 completion (real name in `Foreman Helping? #2`,
+  `Helping Foreman #2 Completed Unit?` checked, `Helper #2 Dept #` present; `Helper #2 Job [#]`
+  optional — the Helper #1 contract) produces its own weekly Excel output with the Helper #2
+  foreman, dept/job metadata, units, prices, dates, filename, and destination; group key, hash,
+  workbook header, filename, and attachment routing all name the same Helper #2 claimant.
+
+- [x] **HLP-02**: Helper #1 stays independent — its outputs, group keys, hashes, filenames, and
+  attribution rows are unchanged with or without Helper #2 present; Helper #2 never overwrites,
+  impersonates, or suppresses Helper #1, primary, or VAC outputs.
+
+- [x] **HLP-03**: On an otherwise eligible source that lacks the optional Helper #2 columns,
+  only the Helper #2 path is skipped (one distinct log reason per sheet); primary, Helper #1,
+  and VAC outputs still generate; the sheet is never rejected. Excluded source, no capability,
+  no qualifying completion, and failed read stay distinguishable; a read failure is never
+  treated as "no helper".
+
+- [x] **HLP-04**: Intake ProMax 8 (`2244739192541060`) remains excluded from generation via
+  existing configuration/fixtures; its missing Helper #2 columns never fail readiness checks;
+  no remediation, formula repair, reconnection, or migration is planned for it.
+
+- [x] **HLP-05**: Blank, `NA`, `#NO MATCH` / formula-error values, unchecked completion, or
+  unavailable capability never create a Helper #2 claim, group, workbook, attachment, or
+  attribution row.
+
+- [x] **HLP-06**: A later Helper #2 completion on a row already frozen or cached with primary
+  or Helper #1 attribution is recorded for the Helper #2 role without overwriting other roles
+  or inheriting ownership from another week; repeated runs are idempotent; legacy hashes and
+  filenames are unchanged when Helper #2 is absent (no empty-field append to every key).
+
+- [x] **HLP-07**: Helper #2 generation ships behind existing release controls (one additive
+  flag only if a real deployment boundary requires it), default off, with a scoped pilot,
+  comparison criteria, and a rollback that preserves created Helper #2 evidence and never
+  moves claimed units back to the primary foreman.
 
 ## v2 / Future Requirements
 
@@ -398,6 +435,13 @@ Which phases cover which requirements.
 | AUD-01 | Phase 13 | Pending |
 | AUD-02 | Phase 13 | Pending |
 | AUD-03 | Phase 13 | Pending |
+| HLP-01 | Phase 14 | Complete |
+| HLP-02 | Phase 14 | Complete |
+| HLP-03 | Phase 14 | Complete |
+| HLP-04 | Phase 14 | Complete |
+| HLP-05 | Phase 14 | Complete |
+| HLP-06 | Phase 14 | Complete |
+| HLP-07 | Phase 14 | Complete |
 
 **Coverage:**
 

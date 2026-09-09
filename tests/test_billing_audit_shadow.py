@@ -619,6 +619,398 @@ class FreezeRowTests(unittest.TestCase):
             ba_client.reset_cache_for_tests()
 
 
+class FreezeRowHelper2Tests(unittest.TestCase):
+    """Phase 14 / D-14-07 (14-03 Task 1): ``p_helper2`` joins the
+    freeze payload AND the all-sentinel gate in the same edit.
+
+    Regression coverage for the CRITICAL silent-drop finding: before
+    this plan, a row whose ONLY real claimer was the Helper #2 person
+    (primary/helper/vac_crew all blank or sentinel) was classified as
+    fully sentinel and ``freeze_attribution`` was never invoked -- no
+    error, no distinguishable log.
+    """
+
+    def setUp(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        _reset_all()
+
+    def _base_row(self, **overrides):
+        row = {
+            "__row_id": 987654321,
+            "Work Request #": "22334455",
+            "__week_ending_date": datetime.datetime(2026, 9, 6),
+            "Units Completed?": True,
+            "Foreman": "",
+            "__helper_foreman": "",
+            "__helper_dept": "",
+            "__vac_crew_name": "",
+            "__helper2_foreman": "",
+            "__helper2_dept": "",
+            "Pole #": "P-9",
+            "CU": "ANC-M",
+            "Work Type": "Maintenance",
+        }
+        row.update(overrides)
+        return row
+
+    def test_helper2_only_real_claimer_invokes_rpc(self):
+        """Behavior 1: real Helper #2 name, blank primary/helper/
+        vac_crew -> freeze_attribution IS invoked and the payload
+        carries the Helper #2 name."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-h2")
+        )
+        row = self._base_row(__helper2_foreman="Carla Helper2")
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-h2")
+        self.assertTrue(
+            result,
+            "a Helper #2-only real claim must still be frozen",
+        )
+        client.schema.return_value.rpc.assert_called_once()
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(params["p_helper2"], "Carla Helper2")
+
+    def test_helper2_only_real_claimer_with_sentinel_others_invokes_rpc(self):
+        """Behavior 2: real Helper #2 name with sentinel strings
+        (``Unknown Foreman``, ``#NO MATCH``, ``Unknown VAC Crew``) in
+        the other three roles -> freeze_attribution IS invoked."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-h2b")
+        )
+        row = self._base_row(
+            Foreman="Unknown Foreman",
+            __helper_foreman="#NO MATCH",
+            __vac_crew_name="Unknown VAC Crew",
+            __helper2_foreman="Dana Helper2",
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-h2b")
+        self.assertTrue(result)
+        client.schema.return_value.rpc.assert_called_once()
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(params["p_helper2"], "Dana Helper2")
+        self.assertIsNone(params["p_primary"])
+        self.assertIsNone(params["p_helper"])
+        self.assertIsNone(params["p_vac_crew"])
+
+    def test_all_four_roles_sentinel_defers_freeze(self):
+        """Behavior 3: all four roles blank/sentinel, including
+        Helper #2 -> freeze_attribution is NOT invoked and the
+        deferred-sentinel counter increments, exactly as today."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        row = self._base_row(
+            Foreman="Unknown Foreman",
+            __helper_foreman="",
+            __vac_crew_name="",
+            __helper2_foreman="Unknown Helper 2",
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-h2c")
+        self.assertFalse(result)
+        client.schema.return_value.rpc.assert_not_called()
+        self.assertEqual(
+            ba_writer.get_counters()["sentinel_freezes_deferred"], 1
+        )
+
+    def test_helper2_named_sentinel_nulled_others_unaffected(self):
+        """Behavior 4: Helper #2 itself is a named sentinel
+        (``Unknown Helper 2``) and the others are real -> the
+        Helper #2 parameter is null, the other roles are unaffected."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-h2d")
+        )
+        row = self._base_row(
+            Foreman="Alice Primary",
+            __helper_foreman="Bob Helper",
+            __vac_crew_name="Vinny VAC",
+            __helper2_foreman="Unknown Helper 2",
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-h2d")
+        self.assertTrue(result)
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertIsNone(params["p_helper2"])
+        self.assertEqual(params["p_primary"], "Alice Primary")
+        self.assertEqual(params["p_helper"], "Bob Helper")
+        self.assertEqual(params["p_vac_crew"], "Vinny VAC")
+
+    def test_helper2_freeze_leaves_other_roles_unchanged(self):
+        """Behavior 5: a Helper #2 freeze leaves the primary, helper,
+        and vac_crew parameters at exactly the values today's code
+        computes for the same row."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-h2e")
+        )
+        row = self._base_row(
+            Foreman="Alice Primary",
+            __helper_foreman="Bob Helper",
+            __helper_dept="500",
+            __vac_crew_name="Vinny VAC",
+            __helper2_foreman="Carla Helper2",
+            __helper2_dept="700",
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            ba_writer.freeze_row(row, release="r", run_id="run-h2e")
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertEqual(params["p_primary"], "Alice Primary")
+        self.assertEqual(params["p_helper"], "Bob Helper")
+        self.assertEqual(params["p_helper_dept"], "500")
+        self.assertEqual(params["p_vac_crew"], "Vinny VAC")
+        self.assertEqual(params["p_helper2"], "Carla Helper2")
+        self.assertEqual(params["p_helper2_dept"], "700")
+
+    def test_sentinel_claimer_recognizes_unknown_helper_2(self):
+        """``is_sentinel_claimer`` recognizes 'Unknown Helper 2' (and
+        its underscored/casefolded spellings) via the SAME
+        normalization used for the Phase 12 sentinel family, without
+        perturbing ``_SENTINEL_CLAIMERS`` itself (kept in lockstep
+        with the OWN-03 SQL twin -- see
+        ``_HELPER2_SENTINEL_CLAIMERS``)."""
+        from billing_audit.writer import is_sentinel_claimer
+        for value in (
+            "Unknown Helper 2",
+            "unknown helper 2",
+            "UNKNOWN_HELPER_2",
+            "  Unknown  Helper  2  ",
+        ):
+            with self.subTest(value=value):
+                self.assertTrue(is_sentinel_claimer(value))
+
+
+class FreezeRowHelper2DegradeTests(unittest.TestCase):
+    """Phase 14 / D-14-07a (14-03 Task 2): degrade cleanly while the
+    plan 14-09 Supabase migration has not landed.
+
+    A deployed ``freeze_attribution`` RPC that does not yet accept the
+    Helper #2 parameters rejects the call with PostgREST's
+    ``PGRST202`` ("Could not find the function ... in the schema
+    cache") -- the same signature-mismatch code
+    ``prefetch_attribution``'s ``rpc_missing`` probe already detects
+    for ``lookup_attribution_bulk`` (D-13).
+    """
+
+    def setUp(self):
+        _reset_all()
+        for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "TEST_MODE"):
+            os.environ.pop(k, None)
+        try:
+            from postgrest import APIError
+        except Exception:
+            self.skipTest("postgrest not installed")
+        self._APIError = APIError
+
+    def tearDown(self):
+        _reset_all()
+
+    def _base_row(self, **overrides):
+        row = {
+            "__row_id": 111222333,
+            "Work Request #": "55667788",
+            "__week_ending_date": datetime.datetime(2026, 9, 6),
+            "Units Completed?": True,
+            "Foreman": "",
+            "__helper_foreman": "",
+            "__helper_dept": "",
+            "__vac_crew_name": "",
+            "__helper2_foreman": "",
+            "__helper2_dept": "",
+            "Pole #": "P-9",
+            "CU": "ANC-M",
+            "Work Type": "Maintenance",
+        }
+        row.update(overrides)
+        return row
+
+    def _api_error(self, code, message="x"):
+        return self._APIError(
+            {"code": code, "message": message, "hint": "", "details": ""}
+        )
+
+    def test_pgrst202_signature_rejection_degrades_and_succeeds(self):
+        """First freeze attempt after deploy, against an un-migrated
+        RPC that rejects the Helper #2 parameters: the writer logs
+        once at warning level, retries the same freeze without the
+        Helper #2 parameters, and the primary/helper/vac_crew
+        attribution is still written."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+
+        def _dynamic_execute():
+            _, params = client.schema.return_value.rpc.call_args.args
+            if "p_helper2" in params:
+                raise self._api_error("PGRST202", "function not found")
+            return _fake_rpc_response("run-degraded")
+
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            _dynamic_execute
+        )
+        row = self._base_row(
+            Foreman="Alice Primary",
+            __helper_foreman="Bob Helper",
+            __helper_dept="500",
+            __helper2_foreman="Carla Helper2",
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), self.assertLogs(level="WARNING") as cm:
+            result = ba_writer.freeze_row(
+                row, release="r", run_id="run-degraded"
+            )
+        self.assertTrue(result)
+        self.assertTrue(ba_writer._helper2_rpc_unsupported)
+        # Exactly one degrade warning this run.
+        degrade_logs = [
+            m for m in cm.output if "does not yet accept" in m
+        ]
+        self.assertEqual(len(degrade_logs), 1)
+        # 3 total RPC calls: (1) with_retry's own attempt -- PGRST202,
+        # no retry (permanent); (2) the bounded bare probe -- confirms
+        # PGRST202; (3) the ONE retry with_retry issues with the
+        # Helper #2 parameters removed -- succeeds.
+        self.assertEqual(
+            client.schema.return_value.rpc.call_count, 3
+        )
+        _, final_params = client.schema.return_value.rpc.call_args.args
+        self.assertNotIn("p_helper2", final_params)
+        self.assertNotIn("p_helper2_dept", final_params)
+        self.assertEqual(final_params["p_primary"], "Alice Primary")
+        self.assertEqual(final_params["p_helper"], "Bob Helper")
+        self.assertEqual(final_params["p_helper_dept"], "500")
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 1
+        )
+
+    def test_subsequent_freeze_while_unsupported_skips_helper2_without_reprobe(
+        self,
+    ):
+        """Every subsequent freeze in the same run skips the Helper #2
+        parameters without re-probing and without re-logging."""
+        from billing_audit import writer as ba_writer
+        with self.assertLogs(level="WARNING"):
+            ba_writer._mark_helper2_rpc_unsupported()
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 1
+        )
+
+        client = _make_fake_supabase_client()
+
+        def _fail_if_helper2_present():
+            _, params = client.schema.return_value.rpc.call_args.args
+            if "p_helper2" in params:
+                raise AssertionError(
+                    "must not resend p_helper2 once known unsupported"
+                )
+            return _fake_rpc_response("run-h2f")
+
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            _fail_if_helper2_present
+        )
+        row = self._base_row(
+            Foreman="Alice Primary", __helper2_foreman="Should Not Send"
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-h2f")
+        self.assertTrue(result)
+        # Exactly one RPC call -- no probe, no second attempt.
+        client.schema.return_value.rpc.assert_called_once()
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertNotIn("p_helper2", params)
+        self.assertNotIn("p_helper2_dept", params)
+        # The counter only bumps on the transition, not per degraded row.
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 1
+        )
+
+    def test_once_migrated_no_degrade_and_no_counter(self):
+        """Once the migrated RPC accepts the parameters, no degrade
+        occurs and no counter increments."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-ok")
+        )
+        row = self._base_row(__helper2_foreman="Carla Helper2")
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-ok")
+        self.assertTrue(result)
+        self.assertFalse(ba_writer._helper2_rpc_unsupported)
+        client.schema.return_value.rpc.assert_called_once()
+        _, params = client.schema.return_value.rpc.call_args.args
+        self.assertIn("p_helper2", params)
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 0
+        )
+
+    def test_generic_rpc_failure_not_swallowed_by_degrade_path(self):
+        """A generic RPC failure that is not a signature or
+        unknown-parameter error is NOT swallowed by the degrade path;
+        it keeps today's error handling."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            self._api_error("23505", "duplicate key")
+        )
+        row = self._base_row(
+            Foreman="Alice Primary", __helper2_foreman="Carla Helper2"
+        )
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(row, release="r", run_id="run-h2g")
+        self.assertFalse(result)
+        self.assertEqual(ba_writer.get_counters()["snapshots_errored"], 1)
+        self.assertFalse(ba_writer._helper2_rpc_unsupported)
+        self.assertEqual(
+            ba_writer.get_counters()["helper2_attribution_degraded"], 0
+        )
+
+
 class FreezeRowBoolReturnTests(unittest.TestCase):
     """Assert the documented bool return semantics of ``freeze_row``.
 
@@ -1292,6 +1684,9 @@ class CountersTests(unittest.TestCase):
             {
                 "snapshots_written": 0,
                 "snapshots_already_frozen": 0,
+                # Phase 14 plan 14-11 (O-14-C): per-role Helper #2
+                # late-fill counter.
+                "snapshots_helper2_filled": 0,
                 "snapshots_errored": 0,
                 "fingerprint_changes_detected": 0,
                 # Foundation A: pre-seeded for a stable counter schema.
@@ -1299,6 +1694,8 @@ class CountersTests(unittest.TestCase):
                 # Phase 12 / OWN-02 (policy A): sentinel counters.
                 "sentinel_claimers_ignored": 0,
                 "sentinel_freezes_deferred": 0,
+                # Phase 14 / D-14-07a: Helper #2 RPC-degrade counter.
+                "helper2_attribution_degraded": 0,
             },
         )
 
@@ -4932,6 +5329,142 @@ class TestResolveClaimer(unittest.TestCase):
         self.assertEqual(out.action, "use")
         self.assertEqual(out.name, "Alice")
         self.assertEqual(out.source, "frozen")
+
+
+class TestResolveClaimerHelper2(unittest.TestCase):
+    """Phase 14 / D-14-07 (14-03 Task 3): the Helper #2 role in
+    ROLE_BY_VARIANT and resolve_claimer.
+
+    resolve_claimer needs zero structural changes for Helper #2 — it
+    is already variant-generic via
+    ``ROLE_BY_VARIANT.get(variant, "primary_foreman")``. This class
+    proves the 3 new variant->role entries resolve correctly, and
+    that the pre-plan-14-09-migration RPC shape (no ``helper2`` key
+    in the row at all) lands on the no_history branch rather than a
+    KeyError or a silent primary_foreman fall-through.
+    """
+
+    def setUp(self):
+        _reset_all()
+
+    def tearDown(self):
+        _reset_all()
+
+    def _patch_all(self, row, status):
+        return mock.patch(
+            "billing_audit.writer._lookup_attribution_all",
+            return_value=(row, status),
+        )
+
+    def test_helper2_variant_reads_helper2_role_not_primary(self):
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "helper2": "FrozenCarla", "vac_crew": "Vinny",
+            "source_run_id": "r",
+        }
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "helper2", "CurrentCarla",
+                wr="1", week_ending=datetime.date(2026, 9, 6),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "FrozenCarla")
+        self.assertEqual(out.source, "frozen")
+        self.assertEqual(out.reason, "success")
+        self.assertNotEqual(
+            out.name, "Alice",
+            "helper2 variant must read the helper2 role, never "
+            "primary_foreman",
+        )
+
+    def test_reduced_sub_and_aep_billable_helper2_read_helper2_role(self):
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "helper2": "FrozenCarla", "vac_crew": "Vinny",
+            "source_run_id": "r",
+        }
+        for variant in ("reduced_sub_helper2", "aep_billable_helper2"):
+            with self.subTest(variant=variant), \
+                    self._patch_all(row, "success"):
+                out = resolve_claimer(
+                    variant, "CurrentCarla",
+                    wr="1", week_ending=datetime.date(2026, 9, 6),
+                    row_id=1, enabled=True)
+                self.assertEqual(out.name, "FrozenCarla")
+                self.assertEqual(out.source, "frozen")
+
+    def test_missing_helper2_column_is_no_history_not_keyerror_or_primary(
+        self,
+    ):
+        """Pre-migration RPC shape: the returned row has no
+        ``helper2`` key at all -- outcome must be no_history using
+        the current Smartsheet value, never a KeyError and never a
+        silent fall-through to the primary_foreman value."""
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "vac_crew": "Vinny", "source_run_id": "r",
+            # No "helper2" key -- exactly the shape the deployed RPC
+            # returns before the plan 14-09 migration lands.
+        }
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "helper2", "CurrentCarla",
+                wr="1", week_ending=datetime.date(2026, 9, 6),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentCarla")
+        self.assertEqual(out.source, "current")
+        self.assertEqual(out.reason, "no_history")
+
+    def test_frozen_helper2_named_sentinel_is_no_history(self):
+        """A frozen Helper #2 value that is a named sentinel
+        (``Unknown Helper 2``) is treated as no history, exactly as
+        Helper #1 is."""
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "helper2": "Unknown Helper 2", "vac_crew": "Vinny",
+            "source_run_id": "r",
+        }
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "helper2", "CurrentCarla",
+                wr="1", week_ending=datetime.date(2026, 9, 6),
+                row_id=1, enabled=True)
+        self.assertEqual(out.action, "use")
+        self.assertEqual(out.name, "CurrentCarla")
+        self.assertEqual(out.source, "current")
+        self.assertEqual(out.reason, "no_history")
+
+    def test_role_by_variant_helper2_entries(self):
+        from billing_audit.writer import ROLE_BY_VARIANT
+        self.assertEqual(ROLE_BY_VARIANT["helper2"], "helper2")
+        self.assertEqual(
+            ROLE_BY_VARIANT["reduced_sub_helper2"], "helper2"
+        )
+        self.assertEqual(
+            ROLE_BY_VARIANT["aep_billable_helper2"], "helper2"
+        )
+
+    def test_unknown_variant_still_defaults_to_primary_foreman(self):
+        """An unknown variant string still defaults to
+        primary_foreman, unchanged -- Helper #2's 3 new entries must
+        not disturb the fail-safe default."""
+        from billing_audit.writer import resolve_claimer
+        row = {
+            "primary_foreman": "Alice", "helper": "FrozenBob",
+            "helper2": "FrozenCarla", "vac_crew": "Vinny",
+            "source_run_id": "r",
+        }
+        with self._patch_all(row, "success"):
+            out = resolve_claimer(
+                "some_future_variant", "CURRENT",
+                wr="1", week_ending=datetime.date(2026, 9, 6),
+                row_id=1, enabled=True)
+        self.assertEqual(out.name, "Alice")
 
 
 class TestAttributionHoldSummary(unittest.TestCase):

@@ -867,6 +867,248 @@ class BulkPayloadContractTests(unittest.TestCase):
         _, params = client.schema.return_value.rpc.call_args.args
         self.assertEqual(len(params["p_rows"]), 1)
 
+    def test_changing_only_helper2_observed_changes_content_hash(self):
+        """Plan 14-04 Task 2 behavior 1: two rows differing ONLY in
+        'Foreman Helping? #2' must produce different content_hash
+        values -- HASH_FIELDS membership is what makes a Helper #2-only
+        change visible to the incremental affected-group path (D-14-08).
+        """
+        from pipeline_memory import writer as mem_writer
+
+        base_row = {
+            "__row_id": 1, "Work Request #": "90001",
+            "Foreman": "Alice", "CU": "ANC-M",
+            "Foreman Helping? #2": "Zoe Helper2",
+        }
+        payload_base = mem_writer._row_to_payload(
+            base_row, "run-1", None, None,
+        )
+
+        changed_row = dict(base_row)
+        changed_row["Foreman Helping? #2"] = "Yara Helper2"
+        payload_changed = mem_writer._row_to_payload(
+            changed_row, "run-1", None, None,
+        )
+        self.assertNotEqual(
+            payload_base["content_hash"], payload_changed["content_hash"],
+        )
+
+    def test_field_outside_hash_fields_does_not_change_hash(self):
+        """Behavior 2: a field this module never reads into the payload
+        (an untracked Helper #2 column, e.g. the email lookup) must NOT
+        move content_hash -- it is outside HASH_FIELDS by construction.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        base_row = {
+            "__row_id": 1, "Work Request #": "90001",
+            "Foreman": "Alice", "CU": "ANC-M",
+            "Foreman Helping? #2": "Zoe Helper2",
+        }
+        payload_base = mem_writer._row_to_payload(
+            base_row, "run-1", None, None,
+        )
+
+        untouched_row = dict(base_row)
+        untouched_row["Foreman Helper #2 Email"] = "zoe@example.com"
+        payload_untouched = mem_writer._row_to_payload(
+            untouched_row, "run-1", None, None,
+        )
+        self.assertEqual(
+            payload_base["content_hash"], payload_untouched["content_hash"],
+        )
+
+    def test_helper2_observed_is_raw_not_the_gated_derivative(self):
+        """Behavior 3 (10-RESEARCH.md Pitfall 2 extended to Helper #2):
+        helper2_observed reads the RAW 'Foreman Helping? #2' column,
+        never fetch.py's normalized/gated '__helper2_foreman' -- which
+        is absent whenever the row doesn't qualify as a Helper #2 claim
+        (fetch.py::_detect_helper2_row). helper2_completed uses the
+        shared checkbox helper on 'Helping Foreman #2 Completed Unit?'
+        (behavior 4), and helper2_dept/helper2_job read their own
+        canonical titles.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        row = {
+            "__row_id": 1, "Work Request #": "90001",
+            "Foreman Helping? #2": "Zoe Helper2, extra text",
+            "Helping Foreman #2 Completed Unit?": False,
+            "Helper #2 Dept #": "42",
+            "Helper #2 Job #": "J-99",
+            # fetch.py's normalized/gated key deliberately differs from
+            # the raw cell AND is deliberately absent-shaped in the
+            # negative case below -- the payload must never prefer it.
+            "__helper2_foreman": "Zoe Helper2",
+        }
+        payload = mem_writer._row_to_payload(row, "run-1", None, None)
+        self.assertEqual(
+            payload["helper2_observed"], "Zoe Helper2, extra text",
+        )
+        self.assertFalse(payload["helper2_completed"])
+        self.assertEqual(payload["helper2_dept"], "42")
+        self.assertEqual(payload["helper2_job"], "J-99")
+
+    def test_helper2_completed_true_via_checkbox_helper(self):
+        from pipeline_memory import writer as mem_writer
+
+        row = {
+            "__row_id": 1, "Work Request #": "90001",
+            "Foreman Helping? #2": "Zoe Helper2",
+            "Helping Foreman #2 Completed Unit?": "checked",
+        }
+        payload = mem_writer._row_to_payload(row, "run-1", None, None)
+        self.assertTrue(payload["helper2_completed"])
+
+    def test_row_without_helper2_columns_yields_nulls_and_still_upserts(self):
+        """Behavior 5: a row from a sheet with no Helper #2 columns
+        (D-14-01 ACCEPTED STATE -- 3/117 sheets today per the
+        2026-09-06 LIVE-COLUMN-PROBE) yields nulls in all four Helper #2
+        payload fields and still hashes and upserts successfully.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        row = {
+            "__row_id": 1, "Work Request #": "90001",
+            "Foreman": "Alice", "CU": "ANC-M",
+            # No Helper #2 columns at all.
+        }
+        payload = mem_writer._row_to_payload(row, "run-1", None, None)
+        self.assertIsNone(payload["helper2_observed"])
+        self.assertIsNone(payload["helper2_dept"])
+        self.assertIsNone(payload["helper2_job"])
+        # _is_checked(None) -> False, not None (mirrors helper_completed's
+        # / vac_completed's own not-null contract).
+        self.assertFalse(payload["helper2_completed"])
+        self.assertTrue(payload["content_hash"])
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        client = _make_fake_pipeline_memory_client()
+        with mock.patch("pipeline_memory.writer.get_client", return_value=client):
+            result = mem_writer.upsert_rows_bulk(999, "run-1", [row])
+        self.assertIsNotNone(result)
+        self.assertEqual(client.schema.return_value.rpc.call_count, 1)
+
+    def test_hash_fields_appended_only_original_sixteen_unmoved(self):
+        """Acceptance criterion: HASH_FIELDS' original sixteen members
+        keep their exact original order; the four Helper #2 fields are
+        appended after them, never interleaved or reordered.
+        """
+        from pipeline_memory import writer as mem_writer
+
+        original_sixteen = (
+            "wr", "week_ending", "snapshot_date", "cu", "pole",
+            "work_type", "quantity", "units_total_price",
+            "units_completed", "foreman_observed", "helper_observed",
+            "helper_completed", "helper_dept", "helper_job",
+            "vac_crew_observed", "vac_completed",
+        )
+        self.assertEqual(mem_writer.HASH_FIELDS[:16], original_sixteen)
+        self.assertEqual(
+            mem_writer.HASH_FIELDS[16:],
+            (
+                "helper2_observed", "helper2_completed",
+                "helper2_dept", "helper2_job",
+            ),
+        )
+
+
+@unittest.skipIf(
+    _POSTGREST_API_ERROR_CLS is None,
+    "postgrest not installed — skipping column-not-exist fail-open "
+    "test.",
+)
+class MissingHelper2ColumnFailOpenTests(unittest.TestCase):
+    """Plan 14-04 Task 1 decision record: the owner-applied DDL is NOT
+    guaranteed to land before this code deploys ('either order must be
+    safe'). This proves the SECOND half of that guarantee -- a database
+    that has not yet received the Helper #2 columns must not crash the
+    writer, and rows in an UNAFFECTED chunk must still be written --
+    by simulating the exact PostgREST 'column does not exist' response
+    shape (SQLSTATE 42703) rather than assuming the existing fail-open
+    contract covers it.
+    """
+
+    def setUp(self):
+        _reset_all()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_all()
+        _pop_env()
+
+    def _make_undefined_column_error(self):
+        return _POSTGREST_API_ERROR_CLS({
+            "code": "42703",
+            "message": (
+                'column "helper2_observed" of relation "row_state" '
+                "does not exist"
+            ),
+            "hint": 'Perhaps you meant to reference the column '
+                    '"helper_observed".',
+            "details": "",
+        })
+
+    def test_undefined_column_does_not_crash_and_other_chunk_still_writes(
+        self,
+    ):
+        from pipeline_memory import client as mem_client
+        from pipeline_memory import writer as mem_writer
+
+        os.environ["RUN_MEMORY_WRITE_ENABLED"] = "1"
+        chunk_rows = mem_writer._CHUNK_ROWS
+        rows = [
+            {
+                "__row_id": i,
+                "Work Request #": f"9{i:05d}",
+                "Foreman": "Alice",
+                "Foreman Helping? #2": "Zoe Helper2",
+            }
+            for i in range(chunk_rows + 5)  # 2 chunks: 500 fails, 5 OK
+        ]
+
+        call_count = {"n": 0}
+
+        def _side_effect(*_a, **_kw):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise self._make_undefined_column_error()
+            return mock.Mock(
+                data=[{"wr": "900500", "week_ending": "2026-08-30"}],
+            )
+
+        client = _make_fake_pipeline_memory_client()
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            _side_effect
+        )
+
+        with self.assertLogs(level="WARNING") as cm, mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            # 42703 is a PERMANENT-but-not-global-kill SQLSTATE (client.
+            # py's 42-prefix rule): it does NOT trip the run-global kill
+            # switch and does NOT open the per-op circuit breaker on a
+            # single occurrence (threshold 3) -- so unlike PGRST106, the
+            # SECOND chunk's RPC call still goes out and its rows are
+            # confirmed written.
+            result = mem_writer.upsert_rows_bulk_result(1, "run-1", rows)
+
+        self.assertEqual(call_count["n"], 2)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["rows_errored"], chunk_rows)
+        self.assertEqual(result["affected"], {("900500", "2026-08-30")})
+
+        detail_lines = [
+            line for line in cm.output
+            if "pipeline_memory[upsert_rows_bulk] RPC failed" in line
+        ]
+        self.assertEqual(len(detail_lines), 1)
+        self.assertIn("42703", detail_lines[0])
+        self.assertIn("helper2_observed", detail_lines[0])
+        self.assertIn("does not exist", detail_lines[0])
+
+        self.assertIsNone(mem_client.get_disable_reason())
+
 
 @unittest.skipIf(
     _POSTGREST_API_ERROR_CLS is None,
@@ -2309,3 +2551,68 @@ class RunLedgerSheetsChangedCallSiteTests(unittest.TestCase):
             end = src.index(")\n", idx)
             block = src[idx:end]
             self.assertIn("sheets_changed=_mem_sheets_written", block)
+
+
+_MEM04_COMPARE_PATH = _REPO_ROOT / "scripts" / "mem04_passive_compare.py"
+
+
+def _load_mem04_passive_compare():
+    """Import ``scripts/mem04_passive_compare.py`` BY FILE PATH (not as
+    a package) -- mirrors ``tests/test_mem04_formula_change.py``'s own
+    ``_load_module_by_path``/``load_mem04_passive_compare`` helpers.
+    Self-contained per this file's own convention (no shared
+    ``tests/conftest.py`` exists in this repo).
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mem04_passive_compare_driftguard", _MEM04_COMPARE_PATH,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class Mem04FieldMirrorDriftGuardTests(unittest.TestCase):
+    """Plan 14-04 Task 3: ``scripts/mem04_passive_compare.py`` keeps its
+    own copy of the HASH_FIELDS field set, split into a personnel tuple
+    and a non-personnel tuple (10-RESEARCH.md Pitfall 3 -- a family list
+    enumerated at more than one site). This is the drift guard: the
+    UNION of the script's two tuples must equal the HASH_FIELDS set
+    imported from ``pipeline_memory.writer``, so a future HASH_FIELDS
+    addition that forgets to update the mirror fails loudly here instead
+    of silently misclassifying every such field's changes.
+    """
+
+    def test_union_of_personnel_and_non_personnel_equals_hash_fields(self):
+        from pipeline_memory.writer import HASH_FIELDS
+
+        mem04 = _load_mem04_passive_compare()
+        union = set(mem04._PERSONNEL_COLUMNS) | set(
+            mem04._NON_PERSONNEL_COLUMNS
+        )
+        self.assertEqual(union, set(HASH_FIELDS))
+
+    def test_personnel_and_non_personnel_tuples_are_disjoint(self):
+        mem04 = _load_mem04_passive_compare()
+        self.assertEqual(
+            set(mem04._PERSONNEL_COLUMNS)
+            & set(mem04._NON_PERSONNEL_COLUMNS),
+            set(),
+        )
+
+    def test_helper2_fields_split_matches_helper1_split(self):
+        """Helper #2's raw/formula-derived fields join the personnel
+        tuple exactly like their Helper #1 counterparts; helper2_
+        completed joins the non-personnel tuple exactly like
+        helper_completed does.
+        """
+        mem04 = _load_mem04_passive_compare()
+        self.assertIn("helper2_observed", mem04._PERSONNEL_COLUMNS)
+        self.assertIn("helper2_dept", mem04._PERSONNEL_COLUMNS)
+        self.assertIn("helper2_job", mem04._PERSONNEL_COLUMNS)
+        self.assertIn(
+            "helper2_completed", mem04._NON_PERSONNEL_COLUMNS,
+        )
+        self.assertNotIn("helper2_completed", mem04._PERSONNEL_COLUMNS)

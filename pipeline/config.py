@@ -42,6 +42,14 @@ if RES_GROUPING_MODE not in ('primary', 'helper', 'both'):
     logging.warning(f"⚠️ Invalid RES_GROUPING_MODE '{RES_GROUPING_MODE}'; defaulting to 'both'")
     RES_GROUPING_MODE = 'both'
 
+# Phase 14 (Foreman Helper #2, D-14-12): default-OFF kill switch for the
+# second independently identifiable helping-foreman slot. RES_GROUPING_MODE
+# above stays the SHARED grouping-mode switch for both Helper #1 and
+# Helper #2 -- this flag only gates whether the Helper #2 path is inert.
+HELPER2_ENABLED = os.getenv(
+    'HELPER2_ENABLED', '0'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Activity log-based foreman assignment has been removed - we now use helper column logic only
 
 # Skip Smartsheet uploads for local testing (files still saved to OUTPUT_FOLDER)

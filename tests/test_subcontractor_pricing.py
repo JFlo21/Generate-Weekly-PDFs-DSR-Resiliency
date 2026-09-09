@@ -2989,13 +2989,19 @@ class TestSubcontractorB1PartitioningGate(unittest.TestCase):
                 inspect.getsourcefile(pipeline.grouping)
             ).read_text(encoding='utf-8')
         )
+        # Phase 14 (D-14-06) extended both gates with a Helper #2
+        # exclusion (``and not valid_helper2_row``) — the literals below
+        # were updated in the same change that extended the production
+        # gates.
         self.assertIn(
-            'if not is_subcontractor_row and not valid_helper_row:',
+            'if not is_subcontractor_row and not valid_helper_row '
+            'and not valid_helper2_row:',
             src,
             "Bug B1 partitioning gate must be present in production",
         )
         self.assertIn(
-            'elif is_subcontractor_row and not valid_helper_row:',
+            'elif is_subcontractor_row and not valid_helper_row '
+            'and not valid_helper2_row:',
             src,
             "Bug B1 diagnostic branch must be present in production",
         )

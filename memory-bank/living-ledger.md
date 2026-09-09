@@ -8972,6 +8972,42 @@ advisory. Next: `/gsd-execute-phase 12`. Every live step (owner SQL apply, `--ap
 enable, post-run observation) is a blocking human checkpoint for Juan; execution ships as PRs, never
 direct to master.
 
+## [2026-09-03 17:30] OWN-03 dry-run REJECTED at 12-06 Task 1 — source 3 parsed `public.artifacts` filenames with a hash suffix they never have, so "Unknown Foreman.xlsx" was proposed as a real name for 4,070 rows; RPC guard cannot catch a bad proposed value
+
+- **Symptom:** the first full-scope dry-run (`scripts/backfill_claim_time_attribution.py`, 207 WRs × 54 weeks,
+  exit 0, 5,829 sentinel rows considered) reported proposed 4,762 / conflict 1,066 / unresolved 1 with only 8
+  distinct proposed names. 4,070 of the proposals (69 WRs, all `backfill_artifacts`) were the literal string
+  `Unknown Foreman.xlsx`; all 1,066 conflicts were between `.xlsx`-suffixed names. Only the 692 `live`
+  (source 1, `row_event`) proposals across 7 WRs were sound.
+- **Root cause:** `_extract_claimer_from_filename` cuts the name at `_FILENAME_HASH_SUFFIX_RE`
+  (`_[0-9a-fA-F]{6}\.xlsx$`). `public.artifacts.filename` is the STABLE attachment name written by
+  `scripts/publish_artifacts_to_supabase.py::_parse_stable` — `WR_<wr>_WeekEnding_<mmddyy>_User_<name>.xlsx`,
+  no timestamp, no hash (0 of 90,323 primary artifact rows for the sentinel pairs end in six hex). The regex
+  never matches, the whole remainder survives, and `is_sentinel_claimer("Unknown_Foreman.xlsx")` is False
+  because the sentinel family is matched exactly after `_`→space (`unknown foreman.xlsx` ∉ family).
+- **Why every gate missed it:** the 12-01 fixtures all use hash-suffixed names (`Avery_Example_aabbcc.xlsx`),
+  so the parser was tested against a filename shape production never stores; the haiku rubric, plan-checker
+  and the Opus review judged the plan's shape, not the live table. The server-side guard in
+  `billing_audit.backfill_attribution` is `is_sentinel_value(s.frozen_<role>)` — it inspects the CURRENT
+  value only, never `q.value`, so `--apply` would have written `Unknown Foreman.xlsx` into 4,070 rows as a
+  real frozen name (and "a real frozen name still wins" would have made it permanent until a manual UPDATE).
+- **Second scope gap:** `lookup_attribution_bulk` returns NULL for `#…` values, so the 935 primary + 10 helper
+  `#NO MATCH` rows are invisible to the script's named-sentinel targeting (5,829 considered vs 6,764 named
+  sentinels live); `--include-blank-roles` would sweep in genuinely blank roles too. Needs its own decision.
+- **Sample WR:** the roadmap's known-good WR 19073866 has zero rows in every Supabase store (the snapshot was
+  never rebuilt — `frozen_at` from 2026-04-24); the docs carry a placeholder number as they carry the
+  placeholder name. Only WR 89829163 has sentinel primary rows on exactly 082425/083125/091425/092125, and its
+  `group_content_hash` identifiers are sentinel-only, so SC3 "via backfill_hash_history" is not satisfiable
+  from Supabase; the retired `hash_history.json` is not on disk.
+- **Rules:** (1) any filename-derived candidate must be normalised with the file extension stripped BEFORE the
+  sentinel check, and a candidate that still contains `.xlsx` (or any extension) is never a name; (2) fixtures
+  for a live table must be copied from that table's real shape, not from the generator's docstring; (3) the
+  backfill RPC (or the script's payload builder) must also refuse a PROPOSED value that `is_sentinel_value`
+  rejects or that contains an extension — the current-value guard alone is not a write guard; (4) a dry-run
+  whose proposals collapse to a handful of distinct names across dozens of WRs is a defect signal, not a
+  result. Route: `/gsd:plan-phase 12 --gaps` (fix 12-01 source 3 + guard + real-shape fixtures) before any
+  apply; the live dry-run report is git-ignored under `generated_docs/`.
+
 ## [2026-09-02 20:20] ClaudeOS bootstrap audit — `docs/ai/` implementation-truth tier, Python module-architecture rule, context map rewritten, runtime caches gitignored
 
 `/global-project-bootstrap` run after Phase 12 planning. Present already: CLAUDE.md, `.claude/context-map.md`,
@@ -9237,3 +9273,111 @@ current wherever `REQUIREMENTS.md` OWN-01 or the 2026-09-01 spec disagree. Gate:
 - Read-only checks worth repeating before any `--apply` (all cheap through the Supabase MCP): STEP 0b duplicate-key
   probe = 0, `backfill_run_id IS NOT NULL` = 0, smoke test `skipped_no_row`, EXECUTE roles, and the DML grants on
   `attribution_snapshot` (`anon`/`authenticated` hold full DML behind RLS — owner item to confirm the policies).
+
+## [2026-09-03 18:35] GSD api-coverage gate: keep COVERAGE.md inventories as lists, not tables
+
+`/gsd-verify-work 12` was blocked at `verify:pre` by the ai-integration `api-coverage` gate with four
+`row: decision "..." not in {INTEGRATE, OPT-OUT}` errors. Root cause: gsd-core 1.12.0's matrix parser treats
+ANY pipe table in a phase `COVERAGE.md` as a coverage matrix (known upstream #2366), so the Phase 12 file's
+3-column "existing-integration inventory" table was read as rows whose column 2 (file paths) was the decision —
+and the docs also say declaration + rows is contradictory. The valid `No external API integration: <reason>`
+declaration on line 3 was already the intended, passing form. Fix: inventory table → bulleted list (content
+unchanged); gate now `block: false`, `none_declared: true`. Rule: in this repo a `COVERAGE.md` that declares
+no external API must contain no markdown tables at all. UAT session `12-UAT.md` opened (21 entries: 18
+auto-passed from SUMMARY `coverage:` blocks, 3 human checkpoints).
+
+## [2026-09-04 10:05] Gap G-12-3 root cause and owner scope decisions D-12-C / D-12-D (12-08)
+
+G-12-3 root cause: the source-3 filename parser (`_extract_claimer_from_filename` in
+`scripts/backfill_claim_time_attribution.py`) kept the trailing document extension before the
+sentinel check ran, which defeated the sentinel match on both the Python
+(`billing_audit.writer.is_sentinel_claimer`) and SQL (`billing_audit.is_sentinel_value`) sides
+— fixed in 12-07 (`8dba6b6`).
+
+Two owner decisions closed the remaining scope questions before 12-10 can re-run:
+
+- **D-12-C** (2026-09-04) — the #NO MATCH scope for OWN-03 is option `defer`: the 945
+  `#NO MATCH` rows (935 primary + 10 helper) stay out of OWN-03's live remediation because
+  they already read as no-history via `resolve_claimer`; plan 12-10's re-run invocation does
+  not carry `--include-blank-roles`.
+- **D-12-D** (2026-09-04) — success criterion 3's known-good sample is option
+  `substitute-89829163`: the acceptance sample moves from the unprovable WR (zero rows in
+  every Supabase store) to WR 89829163 on WE 082425/083125/091425/092125, resolved through the
+  `backfill_artifacts` source.
+
+See `.planning/phases/12-ownership-last-known-foreman-as-of-the-week/12-08-SUMMARY.md` for
+Juan's verbatim wording on both decisions.
+
+[2026-09-08 10:20] TEST_MODE is not token-safe: a bare `TEST_MODE=true python generate_weekly_pdfs.py`
+picks up the real `SMARTSHEET_API_TOKEN` from the repo `.env` (python-dotenv) and runs a LIVE fetch of
+every source sheet instead of the synthetic dataset — observed today when a Phase 14 executor mis-invoked
+it: 121 sheets / 217,741 rows read (18.8 min), rate-sanity audit ran, then the process was killed by the
+orchestrator before Excel generation or upload (exit 1, no write, `SKIP_UPLOAD` had not been set). Rule:
+the documented synthetic dry run is `SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true PYTHONUTF8=1
+python generate_weekly_pdfs.py` (`PYTHONUTF8=1` also avoids the cp1252 `UnicodeEncodeError` at startup on
+Windows). `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/ai/safe-commands.md` now show that form;
+`scripts/run_6_gates.sh` already forced it. Executor prompts must state the full invocation verbatim.
+
+[2026-09-08 12:25] Helper #2 attribution migration applied to production (Phase 14 Plan 09 Task 2, sql-first, owner-delegated
+to the session over the Supabase MCP): `20260908165511_helper2_attribution_columns_and_rpcs`. Three facts learned at apply
+time that `billing_audit/helper2_attribution.sql` had wrong or missing, now fixed there and in `schema.sql`: (1) Postgres
+requires every parameter after a defaulted one to carry a default, so new `DEFAULT NULL` parameters go LAST; the deployed
+`freeze_attribution` positional order is pole/cu/work_type BEFORE the role parameters (PostgREST binds by name, the writer
+never cares). (2) Both lookup functions carry a pinned `search_path` from the 2026-05-19 advisor remediation that
+`pg_get_functiondef` shows but the repo CREATEs omitted — a DROP+CREATE without it regresses the advisor. (3) The deployed
+`freeze_attribution` is per-ROW first-write-wins (`ON CONFLICT DO NOTHING`), not per-role, so rows frozen before the merge
+never gain Helper #2 (O-14-C). Process rules: capture `pg_get_functiondef` + `role_routine_grants` BEFORE any DROP (grants
+are not in the definition and DROP removes them) and park the capture in the vault `raw/` as the rollback reference; apply
+DDL through `apply_migration` so `supabase_migrations.schema_migrations` records it; the workflow concurrency group queues
+rather than cancels, and run 34253845749 was created at 16:53:55Z for the 17:00Z slot — check `gh run list` immediately
+before applying, not minutes before.
+
+[2026-09-08 15:35] Helper #2 attribution is now first-write-wins PER ROLE in production (Phase 14 Plan 11 / O-14-C, owner
+decision apply-delegated): migration `20260908201205_helper2_attribution_per_role_fill` replaced `freeze_attribution` in place
+(same 14-parameter signature, CREATE OR REPLACE, grants untouched) so `ON CONFLICT` fills `frozen_helper2` /
+`frozen_helper2_dept` when the stored value is null/sentinel and the incoming one is real, stamping
+`backfill_provenance.helper2 = {source: live, run_id}`; primary / helper / vac_crew keep per-row first-write-wins. The
+pipeline half (`helper2_fill_admits`, `get_prefetched_helper2_missing_keys`, `snapshots_helper2_filled`, baseline 30 keys)
+is on `feat/phase-12-remediation`, unmerged; either order is inert alone, only both together fill. Rules learned: a fill
+inside the RPC is useless unless the freeze loop re-admits the row (the frozen-row cache skips ~221k keys per run), so gate
+admission on BOTH a valid Helper #2 on the row AND an empty prefetched helper2; classify a fill from the RPC's returned
+provenance, never from the request; a same-signature CREATE OR REPLACE needs no drop window but still gets a `gh run list`
+check at the moment of applying; park the pre-apply body in the vault raw/ before any function replace.
+
+[2026-09-08 22:20] Phase 14 (Foreman Helper #2) rollout documented; generator-side code and the Helper #2
+attribution migrations are complete and live, but the flag has not been flipped anywhere. Variant vocabulary
+locked in 14-01 and unchanged since: `helper2` (plain), `aep_billable_helper2` / `reduced_sub_helper2`
+(subcontractor shadow siblings), filename tokens `_Helper2_<name>` / `_AEPBillable_Helper2_<name>` /
+`_ReducedSub_Helper2_<name>`, row metadata `__is_helper2_row` / `__helper2_foreman` / `__helper2_dept` /
+`__helper2_job`, kill switch `HELPER2_ENABLED` (default `'0'`, truthy `1`/`true`/`yes`/`on`). The family-parity
+invariant (`tests/test_helper2_family_parity.py`) pins every file that must recognize the Helper #2 family in
+lockstep, so a future synonym or filename-shape change cannot land in one file (e.g. the publisher script) while
+silently missing another; it exists because plan 14-05's research found the ORIGINAL audit scope had already
+missed two such sites outside the initial file list — `pipeline/cleanup.py` (variant-migration-orphan detection)
+and `scripts/publish_artifacts_to_supabase.py` (variant normalization/precedence) — both now covered and pinned.
+Decisions of record (full text in `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`): O-14-A RESOLVED
+(helper2-wins precedence — Helper #2 > Helper #1 > primary foreman on a same-row conflict, Follow-up 1 on
+per-slot file duplication still accepted-pending-Juan's-explicit-confirmation); D-14-07-APPLIED/VERIFIED and
+O-14-C-APPLIED/VERIFIED (the two Helper #2 attribution migrations, `20260908165511_helper2_attribution_columns_and_rpcs`
+and `20260908201205_helper2_attribution_per_role_fill`, both live in production as of this entry); and the
+LIVE-COLUMN-PROBE finding that the Resource Analyst `Foreman Helper #2` column is blank on all 576 rows as of
+2026-09-06 — so any pilot run over real data is fixture-only until that changes. Rollout status: documented,
+rehearsed on fixtures and synthetic data only; `HELPER2_ENABLED` stays off in the repository default and the
+GitHub Actions workflow is unwired pending a separate owner-approved change (`D-14-12-ROLLOUT`).
+
+[2026-09-08 18:55] Phase 14 rollout — documented-only, PR #389. Juan's D-14-12-ROLLOUT (recorded `a3998f9`):
+ship Helper #2 dormant (`HELPER2_ENABLED` repo default `'0'`, workflow unwired), skip the live pilot steps, and
+deploy by merging `feat/phase-12-remediation` to master immediately; debugging happens on the live runs if
+needed. Mechanics and rules learned: (1) merge `origin/master` into the branch BEFORE opening the PR — the
+Notion-worker docs commits on master relocate `website/docs/runbook/whats-new.md` blocks, so the merge conflicts
+there whenever both sides touched the DSR block; resolve to ONE `runbook-repo` DSR block and drop the automated
+stub lines that duplicate an earlier changelog. (2) Validate the merged tree, not the pre-merge branch: pytest
+2284 passed / 1 skipped / 557 subtests, `scripts/run_6_gates.sh` ALL 6 PASSED (30-key run_summary), website
+typecheck + build. (3) Master has no branch protection and no required checks; `code/snyk` ("Code test limit
+reached") and the Azure DevOps mirror build (`dev.azure.com/LinetecDevelopment`) fail on every PR (same on
+merged #388) and are not reported on master — treat them as non-blocking noise, not regressions. (4) First
+post-merge scheduled run expectations: one-time ~217k `row_event` churn (HASH_FIELDS now carries the helper2
+fields; `RUN_MEMORY_WRITE_ENABLED=1`), a mapping-schema WARNING with full validation until
+`sheet_registry.mapping_schema` exists, 14-parameter `freeze_attribution` succeeding against the live RPC (no
+degrade warning), every Helper #2 counter 0. Still pending owner approval: the `pipeline_memory.row_state`
+helper2_* columns (D-14-08-APPLIED), `sheet_registry.mapping_schema` (D-14-10-APPLIED), and enabling the flag.

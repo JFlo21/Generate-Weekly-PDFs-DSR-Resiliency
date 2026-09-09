@@ -181,6 +181,40 @@ Two production caveats for source 5 as of 2026-09-03:
   [The dispatch job](#the-dispatch-job-cell-history-backfillyml) for what that
   means on a fresh GitHub Actions runner.
 
+## OWN-03 remediation scope
+
+**Component owner:** one-time / off-hours operator remediation
+(`scripts/backfill_claim_time_attribution.py`), the same script and operator
+flow described in [Running the backfill](#running-the-backfill) below.
+
+OWN-03's live remediation targets one defect, not every frozen sentinel: the
+5,829 primary rows (plus their helper counterparts) frozen as `Unknown Foreman`
+by the 2026-08-24 defect. It deliberately leaves alone the 945 `#NO MATCH`
+rows (935 primary + 10 helper) also present in `attribution_snapshot`
+(decision **D-12-C**, 2026-09-04, option `defer`). `billing_audit.lookup_attribution_bulk`
+normalizes any `#`-prefixed frozen value — including `#NO MATCH` — to NULL
+before the backfill script's default named-sentinel targeting ever sees it, so
+those rows are invisible to a default-scoped run regardless of intent;
+reaching them would require `--include-blank-roles`, rejected because that
+flag cannot tell a `#NO MATCH` row from a role that legitimately was never
+populated.
+
+A left-alone `#NO MATCH` row is safe, not merely postponed: `resolve_claimer`
+reads a frozen `#NO MATCH` value the same way it reads a not-yet-backfilled
+`Unknown Foreman` value — as **no-history** — so the current Smartsheet value
+wins as the fallback and the row is never stuck under the placeholder. What
+the OWN-03 apply changes is only that the 5,829 `Unknown Foreman` rows gain a
+real, permanently frozen historical name instead of continuing to fall
+through to that fallback; the `#NO MATCH` population keeps falling through
+until a later phase addresses it.
+
+The sample this remediation is verified against is also a decision, not the
+originally planned WR: success criterion 3 (decision **D-12-D**, 2026-09-04,
+option `substitute-89829163`) now names WR 89829163 WE
+082425/083125/091425/092125, resolved through the `backfill_artifacts`
+source, because the originally named WR 19073866 has zero rows in every
+Supabase store the ladder reads.
+
 ## Running the backfill
 
 **Component owner:** one-time / off-hours operator remediation

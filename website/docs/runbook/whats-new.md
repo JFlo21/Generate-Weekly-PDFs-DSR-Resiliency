@@ -54,6 +54,27 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 ### 📋 Changelog — September 8, 2026
 
+- ✨ **New capability, off by default: a second helping-foreman slot ("Helper #2").**
+  Some crews now record a *second* independently identifiable helping foreman on a job — a
+  second name, dept, and completion checkbox alongside the existing "Helping Foreman" fields.
+  The billing pipeline can now recognize that second slot, put its completed units in their own
+  Excel file (and the matching subcontractor copies), and keep it out of the primary foreman's
+  file, the same way it already does for the first Helping Foreman. **Why:** crews already track
+  this second helper in Smartsheet; before this change the pipeline had no way to bill it
+  correctly, so those units either went uncredited or were billed to the wrong person. **What it
+  means for an operator:** nothing changes yet — the feature ships behind a flag
+  (`HELPER2_ENABLED`) that defaults off, so no run today produces different output than
+  yesterday's. When it is eventually turned on for a run: watch for a new `_Helper2_<name>` file
+  alongside the usual primary/helper files; if the same person is a Helper #1 on some days and a
+  Helper #2 on others in the same week, that produces two separate files, which is expected, not
+  a duplicate; and if one crew member is checked as both Helper #1 and Helper #2 on the very same
+  line, Helper #2 wins the credit and the pipeline logs and counts that automatically — no action
+  needed. Full operator guide: [Foreman Helper #2
+  rollout](foreman-helper-2.md). Turning it off at any time is a single flag flip and never
+  deletes anything already generated.
+
+### 📋 Changelog — September 3, 2026
+
 - ✨ New capability: Phase 12 waves 2-3 — OWN-03 backfill SQL, source 5, runbook (#OWN-03)
 - ✨ New capability: OWN-03 claim-time attribution backfill (wave 1)
 - 📄 Help guides updated: align instruction files (run 1)

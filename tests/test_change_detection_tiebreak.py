@@ -382,6 +382,85 @@ class SortTiebreakTests(unittest.TestCase):
         self.assertNotEqual(a, b)
 
 
+class HelperTwoHashMetaTests(unittest.TestCase):
+    """Phase 14 (14-01 Task 2): the HELPER2= sibling meta block added to
+    ``calculate_data_hash`` must not move any legacy identity (D-14-09 /
+    HLP-06), and a real helper2 field edit must still flip the hash it
+    actually belongs to."""
+
+    def setUp(self):
+        self._saved_ext = generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = True
+
+    def tearDown(self):
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = self._saved_ext
+
+    def test_primary_group_hash_unchanged_by_stray_helper2_fields(self):
+        # A primary-variant row never reads __helper2_* -- their mere
+        # presence on the row dict (e.g. left over from an upstream
+        # fetch.py default) must not perturb the primary hash.
+        bare = _row()
+        with_stray = _row(**{
+            '__helper2_foreman': 'Should Not Matter',
+            '__helper2_dept': 'NA-99', '__helper2_job': 'J-99',
+        })
+        self.assertEqual(
+            generate_weekly_pdfs.calculate_data_hash([bare]),
+            generate_weekly_pdfs.calculate_data_hash([with_stray]),
+        )
+
+    def test_helper_group_hash_unchanged_by_stray_helper2_fields(self):
+        # A Helper #1 group's hash is computed from the ('helper', ...)
+        # meta block only -- a helper2 field on the same row (same-row
+        # multi-role case, D-14-06) must never leak into it.
+        bare = _row(**{
+            '__variant': 'helper', '__helper_foreman': 'Sam Sample',
+            '__helper_dept': 'NA-03', '__helper_job': 'J-1',
+        })
+        with_stray = dict(bare, **{
+            '__helper2_foreman': 'Jamie Helper2',
+            '__helper2_dept': 'NA-07', '__helper2_job': 'J-88',
+        })
+        self.assertEqual(
+            generate_weekly_pdfs.calculate_data_hash([bare]),
+            generate_weekly_pdfs.calculate_data_hash([with_stray]),
+        )
+
+    def test_helper2_group_hash_changes_with_each_helper2_field(self):
+        base = _row(**{
+            '__variant': 'helper2', '__helper2_foreman': 'Jamie Helper2',
+            '__helper2_dept': 'NA-07', '__helper2_job': 'J-88',
+        })
+        base_hash = generate_weekly_pdfs.calculate_data_hash([base])
+        for field, new_value in (
+            ('__helper2_foreman', 'Someone Else'),
+            ('__helper2_dept', 'NA-08'),
+            ('__helper2_job', 'J-89'),
+        ):
+            with self.subTest(field=field):
+                changed = dict(base, **{field: new_value})
+                self.assertNotEqual(
+                    base_hash,
+                    generate_weekly_pdfs.calculate_data_hash([changed]),
+                )
+
+    def test_helper2_group_hash_unchanged_by_stray_helper_fields(self):
+        # Symmetric check: a helper2 row carrying stray Helper #1 fields
+        # (same-row multi-role case) must not have them leak into its hash.
+        bare = _row(**{
+            '__variant': 'helper2', '__helper2_foreman': 'Jamie Helper2',
+            '__helper2_dept': 'NA-07', '__helper2_job': 'J-88',
+        })
+        with_stray = dict(bare, **{
+            '__helper_foreman': 'Should Not Matter',
+            '__helper_dept': 'NA-99', '__helper_job': 'J-99',
+        })
+        self.assertEqual(
+            generate_weekly_pdfs.calculate_data_hash([bare]),
+            generate_weekly_pdfs.calculate_data_hash([with_stray]),
+        )
+
+
 class IdentitySitesUseCanonicalRowTests(unittest.TestCase):
     """Codex / Copilot on PR #361: the orchestrate identity sites
     (Site 1 main-loop identifier / history_key, Site 2 valid_wr_weeks)

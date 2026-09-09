@@ -75,6 +75,18 @@ CREATE TABLE IF NOT EXISTS pipeline_memory.sheet_registry (
     last_sheet_version  BIGINT,
     last_read_at        TIMESTAMPTZ,
     last_full_read_at   TIMESTAMPTZ,
+    -- Phase 14 Plan 07 (D-14-10-APPLIED): mapping-schema marker. NULL
+    -- means column_mapping was written before this marker existed (or
+    -- before the current marker generation, e.g. a database predating
+    -- this migration) and is therefore NOT admissible from the
+    -- discovery skip index
+    -- (pipeline/discovery.py::_build_discovery_skip_index) -- that
+    -- sheet takes exactly one full validation, after which the upsert
+    -- writes the current marker value (pipeline/discovery.py's
+    -- MAPPING_SCHEMA_MARKER, currently 'helper2-v1') and it is admitted
+    -- from cache again. Additive, nullable, no index/constraint --
+    -- old code ignores it; rollback is dropping this one unused column.
+    mapping_schema      TEXT,
     active              BOOLEAN     NOT NULL DEFAULT TRUE,
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -97,6 +109,11 @@ CREATE TABLE IF NOT EXISTS pipeline_memory.sheet_registry (
 -- producing a row_event on every re-read (10-RESEARCH.md Pitfall 3).
 -- The exact field tuple + fixed enumeration order is the Python
 -- writer's contract (pipeline_memory/writer.py, wired in plan 10-02).
+-- helper2_observed / helper2_completed / helper2_dept / helper2_job
+-- (Phase 14 Plan 04, D-14-08-APPLIED "include-now") are business-
+-- content columns exactly like their Helper #1 counterparts and are
+-- therefore IN SCOPE for content_hash -- HASH_FIELDS appends them
+-- after the original sixteen members without reordering any of them.
 CREATE TABLE IF NOT EXISTS pipeline_memory.row_state (
     sheet_id            BIGINT      NOT NULL,
     row_id              BIGINT      NOT NULL,
@@ -116,6 +133,15 @@ CREATE TABLE IF NOT EXISTS pipeline_memory.row_state (
     helper_job          TEXT,
     vac_crew_observed   TEXT,
     vac_completed       BOOLEAN,
+    -- Helper #2 (Phase 14 Plan 04) -- additive, nullable, no PK/index/
+    -- constraint change. Old code (any RPC/reader unaware of these
+    -- names) ignores them; a database that has not yet received this
+    -- migration is tolerated by the writer's existing fail-open
+    -- contract (pipeline_memory/writer.py::with_retry).
+    helper2_observed    TEXT,
+    helper2_completed   BOOLEAN,
+    helper2_dept        TEXT,
+    helper2_job         TEXT,
     row_modified_at     TIMESTAMPTZ,
     content_hash        TEXT        NOT NULL,
     first_seen_run      TEXT        NOT NULL,

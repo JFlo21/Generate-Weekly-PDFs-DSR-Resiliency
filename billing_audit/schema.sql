@@ -185,11 +185,27 @@ ALTER TABLE billing_audit.group_content_hash
 --     p_helper           TEXT  (helper foreman, NULL on primary rows)
 --     p_helper_dept      TEXT
 --     p_vac_crew         TEXT
+--     p_helper2          TEXT DEFAULT NULL  (Phase 14 / D-14-07 -- Helper #2's own
+--                                frozen role, NULL when absent; never
+--                                falls back to p_helper)
+--     p_helper2_dept     TEXT DEFAULT NULL
+--                        (both DEFAULT NULL so the 12-parameter pre-Phase-14
+--                         writer still resolves after the migration -- see
+--                         billing_audit/helper2_attribution.sql STEP 2b)
 --     p_pole             TEXT
 --     p_cu               TEXT
 --     p_work_type        TEXT
 --     p_release          TEXT
 --     p_run_id           TEXT
+--
+--   Deployed POSITIONAL order (read back 2026-09-08 via
+--   pg_get_functiondef): p_wr, p_week_ending, p_smartsheet_row_id,
+--   p_pole, p_cu, p_work_type, p_primary, p_helper, p_helper_dept,
+--   p_vac_crew, p_release, p_run_id, p_helper2, p_helper2_dept. The
+--   two Helper #2 parameters are LAST because Postgres requires every
+--   parameter after a defaulted one to carry a default; the writer
+--   binds by name, so the listing above is a contract, not a signature.
+--   Deployed 2026-09-08 (migration 20260908165511; D-14-07-APPLIED).
 --
 --   RETURNS: a row (or scalar) with ``source_run_id`` matching
 --     ``p_run_id`` if THIS call wrote the snapshot, or a prior
@@ -198,6 +214,25 @@ ALTER TABLE billing_audit.group_content_hash
 -- The exact body lives in Supabase. Do NOT rename or change
 -- the parameter names without the corresponding update in
 -- ``billing_audit/writer.py:freeze_row``.
+--
+-- ON CONFLICT semantics (Phase 14 plan 14-11, O-14-C): the ORIGINAL
+-- four roles (``frozen_primary``, ``frozen_helper``,
+-- ``frozen_helper_dept``, ``frozen_vac_crew``) keep first-write-wins
+-- PER ROW -- ``ON CONFLICT (wr, week_ending, smartsheet_row_id) DO
+-- NOTHING``, unchanged by this plan. Helper #2
+-- (``frozen_helper2`` / ``frozen_helper2_dept``) instead has
+-- first-write-wins PER ROLE: an already-frozen row whose
+-- ``frozen_helper2`` is still a sentinel gains the two Helper #2
+-- columns the first time a call supplies a real value, gated by
+-- ``billing_audit.is_sentinel_value`` on both the current and
+-- incoming value, with a ``live``-sourced entry merged into
+-- ``backfill_provenance.helper2`` (never ``backfill_source`` /
+-- ``backfill_run_id`` -- those mean "the most recent BACKFILL write",
+-- and a live fill from the pipeline is not a backfill). Source of
+-- truth: ``billing_audit/helper2_attribution_fill.sql``, applied only
+-- after the Task 3 owner decision recorded as ``O-14-C-APPLIED`` /
+-- ``O-14-C-VERIFIED`` in
+-- ``.planning/phases/14-foreman-helper-2/14-DECISIONS.md``.
 
 -- ── attribution_snapshot (READ surface) ─────────────────────
 -- ``billing_audit.attribution_snapshot`` is the per-row personnel
@@ -245,6 +280,22 @@ ALTER TABLE billing_audit.group_content_hash
 --     (wr, week_ending, smartsheet_row_id, role, result)
 --   where ``result`` is one of ``updated``, ``skipped_real_name`` or
 --   ``skipped_no_row``.
+--
+-- The function refuses a proposed value on two grounds, not one:
+--   1. it is a sentinel by ``billing_audit.is_sentinel_value``, or
+--   2. it carries a document file extension
+--      (``xlsx|xlsm|xls|csv|pdf|json``, case-insensitive) — e.g. a
+--      filename fragment like "Unknown Foreman.xlsx" that
+--      ``is_sentinel_value`` alone cannot see, since that predicate
+--      normalizes whitespace and underscores but not a trailing
+--      extension (G-12-3). Both checks raise immediately, and each
+--      aborts the whole call rather than skipping a row, so a
+--      malformed payload fails loudly instead of partially applying.
+--
+-- ``billing_audit.is_sentinel_value`` retains its original semantics
+-- and remains the predicate the three per-role UPDATE WHERE clauses
+-- use against the CURRENT frozen value — the extension rule applies
+-- only to the proposed value, never to what is already stored.
 --
 -- Invariant enforced SERVER-SIDE, not by the Python caller: the
 -- function updates a role column only where the CURRENT value is a
@@ -301,7 +352,8 @@ ALTER TABLE billing_audit.group_content_hash
 --
 --   RETURNS: one row with
 --     primary_foreman TEXT, helper TEXT, helper_dept TEXT,
---     vac_crew TEXT, source_run_id TEXT
+--     vac_crew TEXT, source_run_id TEXT, helper2 TEXT,
+--     helper2_dept TEXT
 --   or zero rows when no snapshot exists for the tuple.
 --
 -- Each role value is normalized: Smartsheet error tokens (anything
@@ -336,17 +388,22 @@ RETURNS TABLE (
     helper          TEXT,
     helper_dept     TEXT,
     vac_crew        TEXT,
-    source_run_id   TEXT
+    source_run_id   TEXT,
+    helper2         TEXT,
+    helper2_dept    TEXT
 )
 LANGUAGE sql
 STABLE
+SET search_path TO 'billing_audit', 'public', 'extensions', 'pg_temp'
 AS $$
     SELECT
         CASE WHEN s.frozen_primary     LIKE '#%' OR btrim(s.frozen_primary)     = '' THEN NULL ELSE s.frozen_primary     END AS primary_foreman,
         CASE WHEN s.frozen_helper      LIKE '#%' OR btrim(s.frozen_helper)      = '' THEN NULL ELSE s.frozen_helper      END AS helper,
         CASE WHEN s.frozen_helper_dept LIKE '#%' OR btrim(s.frozen_helper_dept) = '' THEN NULL ELSE s.frozen_helper_dept END AS helper_dept,
         CASE WHEN s.frozen_vac_crew    LIKE '#%' OR btrim(s.frozen_vac_crew)    = '' THEN NULL ELSE s.frozen_vac_crew    END AS vac_crew,
-        s.source_run_id
+        s.source_run_id,
+        CASE WHEN s.frozen_helper2      LIKE '#%' OR btrim(s.frozen_helper2)      = '' THEN NULL ELSE s.frozen_helper2      END AS helper2,
+        CASE WHEN s.frozen_helper2_dept LIKE '#%' OR btrim(s.frozen_helper2_dept) = '' THEN NULL ELSE s.frozen_helper2_dept END AS helper2_dept
     FROM billing_audit.attribution_snapshot AS s
     WHERE s.wr                = p_wr
       AND s.week_ending       = p_week_ending
@@ -363,12 +420,24 @@ GRANT EXECUTE ON FUNCTION billing_audit.lookup_attribution(TEXT, DATE, BIGINT) T
 -- per-role #NO MATCH / blank -> NULL normalization (one source of
 -- truth, D-01). Replaces ~137k per-row lookup_attribution RPCs/run.
 --
--- OPERATOR: apply this CREATE OR REPLACE in the Supabase SQL Editor,
--- then run `NOTIFY pgrst, 'reload schema';` (or Project Settings ->
--- API -> Reload schema cache). Required before the bulk-prefetch fix
--- resolves real claimers at runtime (D-01 operator coordination,
--- mirrors the existing lookup_attribution deployment).
-CREATE OR REPLACE FUNCTION billing_audit.lookup_attribution_bulk(
+-- OPERATOR: apply this DROP + CREATE in the Supabase SQL Editor, then
+-- run `NOTIFY pgrst, 'reload schema';` (or Project Settings -> API ->
+-- Reload schema cache). Required before the bulk-prefetch fix resolves
+-- real claimers at runtime (D-01 operator coordination, mirrors the
+-- existing lookup_attribution deployment).
+--
+-- The DROP is REQUIRED: this function has the IDENTICAL RETURNS TABLE
+-- restriction as lookup_attribution above. Postgres CREATE OR REPLACE
+-- FUNCTION cannot change a function's return columns, so a bare
+-- CREATE OR REPLACE over a differently-shaped prior version silently
+-- never deploys -- the same 2026-05-27 incident class documented above
+-- (an earlier version of this comment recommended CREATE OR REPLACE,
+-- which is exactly the mistake that incident was about; corrected
+-- Phase 14 / D-14-07). DROP FUNCTION IF EXISTS first, then create the
+-- 10-column version below.
+DROP FUNCTION IF EXISTS billing_audit.lookup_attribution_bulk(jsonb);
+
+CREATE FUNCTION billing_audit.lookup_attribution_bulk(
     p_wr_weeks jsonb   -- e.g. '[{"wr":"90001","week_ending":"2026-04-19"}, ...]'
 )
 RETURNS TABLE (
@@ -379,10 +448,13 @@ RETURNS TABLE (
     helper            TEXT,
     helper_dept       TEXT,
     vac_crew          TEXT,
-    source_run_id     TEXT
+    source_run_id     TEXT,
+    helper2           TEXT,
+    helper2_dept      TEXT
 )
 LANGUAGE sql
 STABLE
+SET search_path TO 'billing_audit', 'public', 'extensions', 'pg_temp'
 AS $$
     SELECT
         s.wr,
@@ -393,7 +465,9 @@ AS $$
         CASE WHEN s.frozen_helper      LIKE '#%' OR btrim(s.frozen_helper)      = '' THEN NULL ELSE s.frozen_helper      END,
         CASE WHEN s.frozen_helper_dept LIKE '#%' OR btrim(s.frozen_helper_dept) = '' THEN NULL ELSE s.frozen_helper_dept END,
         CASE WHEN s.frozen_vac_crew    LIKE '#%' OR btrim(s.frozen_vac_crew)    = '' THEN NULL ELSE s.frozen_vac_crew    END,
-        s.source_run_id
+        s.source_run_id,
+        CASE WHEN s.frozen_helper2      LIKE '#%' OR btrim(s.frozen_helper2)      = '' THEN NULL ELSE s.frozen_helper2      END,
+        CASE WHEN s.frozen_helper2_dept LIKE '#%' OR btrim(s.frozen_helper2_dept) = '' THEN NULL ELSE s.frozen_helper2_dept END
     FROM jsonb_to_recordset(p_wr_weeks) AS q(wr TEXT, week_ending DATE)
     JOIN billing_audit.attribution_snapshot AS s
       ON s.wr = q.wr AND s.week_ending = q.week_ending;

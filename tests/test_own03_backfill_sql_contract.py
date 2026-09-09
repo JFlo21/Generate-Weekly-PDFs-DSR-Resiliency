@@ -307,5 +307,206 @@ class BackfillSourceVocabularyTests(unittest.TestCase):
         self.assertEqual(check_values, self.EXPECTED)
 
 
+def _extension_guard_match(body: str) -> "re.Match[str] | None":
+    """Find the validation-loop extension guard: an ``IF v_row.value ~*
+    '<pattern>' THEN RAISE EXCEPTION '<message>', v_row.role, v_row.wr,
+    v_row.week_ending, v_row.smartsheet_row_id`` block (G-12-3)."""
+    return re.search(
+        r"IF\s+v_row\.value\s+~\*\s+'([^']+)'\s+THEN\s*"
+        r"RAISE EXCEPTION\s*'([^']+)'\s*,\s*"
+        r"v_row\.role,\s*v_row\.wr,\s*v_row\.week_ending,\s*v_row\.smartsheet_row_id",
+        body,
+        re.IGNORECASE | re.DOTALL,
+    )
+
+
+def _step3_function_body(sql_text: str) -> str:
+    """Slice the STEP 3 ``is_sentinel_value`` function body between its
+    SELECTION markers, so a check against it can never accidentally
+    match text elsewhere in the file. The START marker's own comment
+    line names the END marker in quotes ("select down to the 'STEP 3
+    SELECTION ENDS HERE' marker"), so the END search must start AFTER
+    that line -- otherwise it matches the self-reference instead of the
+    real end marker."""
+    start = sql_text.index("STEP 3 SELECTION STARTS HERE")
+    start_line_end = sql_text.index("\n", start)
+    end = sql_text.index("STEP 3 SELECTION ENDS HERE", start_line_end)
+    assert start_line_end < end, "STEP 3 SELECTION markers out of order or missing"
+    return sql_text[start_line_end:end]
+
+
+def _sentinel_literal_list(step3_body: str) -> list[str]:
+    """Parse the sentinel string literals from STEP 3's ``IN (...)``
+    vocabulary list."""
+    match = re.search(r"IN\s*\(([^)]*)\)", step3_body, re.DOTALL)
+    assert match, "no IN (...) sentinel literal list found in STEP 3 body"
+    return re.findall(r"'([^']*)'", match.group(1))
+
+
+class ExtensionGuardTests(unittest.TestCase):
+    """G-12-3: the validation loop must ALSO reject a proposed value
+    carrying a document file extension, in addition to the pre-existing
+    sentinel check -- ``is_sentinel_value`` normalizes whitespace and
+    underscores but not a trailing extension, so a placeholder that
+    arrives as a filename fragment (e.g. "Unknown Foreman.xlsx") scores
+    as a real name and slips past the sentinel-only guard."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.raw = _read_source(_SQL_RELPATH)
+        cls.body = _strip_sql_comments(cls.raw)
+
+    def test_rpc_raises_on_extension_bearing_proposed_value(self):
+        match = _extension_guard_match(self.body)
+        self.assertIsNotNone(
+            match,
+            "expected a validation-loop IF v_row.value ~* '<pattern>' "
+            "THEN RAISE EXCEPTION '<message>', v_row.role, v_row.wr, "
+            "v_row.week_ending, v_row.smartsheet_row_id block",
+        )
+        message = match.group(2)
+        self.assertIn("carries a file extension", message)
+        for token in ("role=%", "wr=%", "week_ending=%", "smartsheet_row_id=%"):
+            with self.subTest(token=token):
+                self.assertIn(token, message)
+
+    def test_sql_extension_list_matches_python_constant(self):
+        """Model: test_every_sentinel_claimer_appears_in_sql -- both
+        directions asserted so the Python and SQL extension lists can
+        never silently drift apart."""
+        from scripts.backfill_claim_time_attribution import (
+            _FILENAME_DOC_EXTENSION_RE,
+        )
+
+        match = _extension_guard_match(self.body)
+        self.assertIsNotNone(match)
+        sql_pattern = match.group(1)
+
+        sql_paren = re.search(r"\(([a-zA-Z|]+)\)", sql_pattern)
+        self.assertIsNotNone(
+            sql_paren, f"no extension alternation group in {sql_pattern!r}"
+        )
+        sql_tokens = set(sql_paren.group(1).split("|"))
+
+        python_paren = re.search(
+            r"\(\?:([a-zA-Z|]+)\)", _FILENAME_DOC_EXTENSION_RE.pattern
+        )
+        self.assertIsNotNone(
+            python_paren,
+            f"no extension alternation group in "
+            f"{_FILENAME_DOC_EXTENSION_RE.pattern!r}",
+        )
+        python_tokens = set(python_paren.group(1).split("|"))
+
+        for token in python_tokens:
+            with self.subTest(direction="python_to_sql", token=token):
+                self.assertIn(token, sql_tokens)
+        for token in sql_tokens:
+            with self.subTest(direction="sql_to_python", token=token):
+                self.assertIn(token, python_tokens)
+
+
+class Step3UnchangedTests(unittest.TestCase):
+    """The current-value targeting semantics must not move: STEP 3's
+    body still contains exactly the five sentinel literals and no
+    extension handling, proving this plan did not widen
+    ``is_sentinel_value``."""
+
+    def test_is_sentinel_value_body_unchanged(self):
+        raw = _read_source(_SQL_RELPATH)
+        step3 = _step3_function_body(raw)
+        literals = _sentinel_literal_list(step3)
+        self.assertEqual(
+            literals,
+            [
+                "unknown foreman",
+                "unknown",
+                "unknown helper",
+                "unknown vac crew",
+                "no match",
+            ],
+        )
+        self.assertNotIn("~*", step3)
+        self.assertNotIn("xlsx", step3.lower())
+        self.assertNotIn("file extension", step3.lower())
+
+
+_SCHEMA_SQL_RELPATH = "billing_audit/schema.sql"
+
+
+def _normalize_doc(text: str) -> str:
+    """Strip backtick markup and comment markers, then collapse the
+    block to single-spaced prose so line wrapping and the file's
+    double-backtick markup can never break a phrase match."""
+    text = text.replace("`", "")
+    lines = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("--"):
+            stripped = stripped[2:]
+        lines.append(stripped)
+    return re.sub(r"\s+", " ", " ".join(lines)).strip()
+
+
+def _backfill_doc_block() -> str:
+    """Slice the normalized ``schema.sql`` text from the
+    ``backfill_attribution (RPC)`` heading up to the following
+    ``lookup_attribution (RPC)`` heading -- the contract-as-comment
+    block this task documents."""
+    normalized = _normalize_doc(_read_source(_SCHEMA_SQL_RELPATH))
+    start_marker = "backfill_attribution (RPC)"
+    end_marker = "lookup_attribution (RPC)"
+    start = normalized.find(start_marker)
+    assert start != -1, (
+        f"{start_marker!r} not found in normalized {_SCHEMA_SQL_RELPATH}"
+    )
+    end = normalized.find(end_marker, start)
+    assert end != -1, (
+        f"{end_marker!r} not found in normalized {_SCHEMA_SQL_RELPATH} "
+        f"after {start_marker!r}"
+    )
+    return normalized[start:end]
+
+
+class SchemaContractDocTests(unittest.TestCase):
+    """Task 2: gate the ``backfill_attribution`` contract prose in
+    ``billing_audit/schema.sql``. The SQL contract test file above
+    reads only ``own03_backfill_attribution.sql``, so it cannot fail on
+    a schema.sql-only documentation edit -- these tests close that
+    gap. Read the file RAW (never through ``_strip_sql_comments``): the
+    entire contract block is ``--`` comment prose."""
+
+    REQUIRED_LITERALS = (
+        "refuses a proposed value on two grounds",
+        "is_sentinel_value",
+        "carries a document file extension",
+        "xlsx|xlsm|xls|csv|pdf|json",
+        "G-12-3",
+        "aborts the whole call rather than skipping a row",
+        "is_sentinel_value retains its original semantics",
+        "the extension rule applies only to the proposed value",
+        "GRANT EXECUTE is restricted to service_role",
+    )
+
+    def test_schema_sql_documents_both_refusal_grounds(self):
+        block = _backfill_doc_block()
+        for literal in self.REQUIRED_LITERALS:
+            with self.subTest(literal=literal):
+                self.assertIn(
+                    literal,
+                    block,
+                    f"missing required contract literal: {literal!r}",
+                )
+
+    def test_schema_doc_extension_list_matches_sql_guard(self):
+        """The documented extension set cannot drift from the guard
+        Task 1 installed in own03_backfill_attribution.sql."""
+        block = _backfill_doc_block()
+        self.assertIn("xlsx|xlsm|xls|csv|pdf|json", block)
+
+        sql_body = _strip_sql_comments(_read_source(_SQL_RELPATH))
+        self.assertIn("xlsx|xlsm|xls|csv|pdf|json", sql_body)
+
+
 if __name__ == "__main__":
     unittest.main()

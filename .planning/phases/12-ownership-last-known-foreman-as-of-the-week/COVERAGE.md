@@ -17,12 +17,23 @@ job. They describe a constraint on an existing integration, not the adoption of 
 
 ## Existing-integration inventory (for the record)
 
-| Capability | Already integrated at | Used by Phase 12 |
-|---|---|---|
-| `smartsheet.Cells.get_cell_history(sheet_id, row_id, column_id, include_all=True)` | `pipeline/snapshot_drift.py:404-412` | plan 12-04 (`scripts/backfill_cell_history_attribution.py`), same call shape, same SDK 429 handling, new caps |
-| `supabase` client `.schema(...).rpc(name, params).execute()` | `billing_audit/writer.py:520-600` (`freeze_row`), `pipeline_memory/schema.sql` `upsert_rows_bulk` callers | plans 12-01 / 12-03, new RPC name `backfill_attribution` on the existing client |
-| `supabase` client `.table(...).select(...).in_(...)` | `pipeline_memory/reader.py` | plan 12-01 sources 1, 3 and 4 reads |
-| `smartsheet.Attachments` list / delete / attach | `pipeline/cleanup.py`, `pipeline/upload.py` | unchanged; plan 12-02 fixes a predicate that gates the existing delete, adds no call |
+This inventory is deliberately NOT a coverage matrix (no `capability | decision | reason`
+rows): the seal-time gate treats any such table alongside the declaration above as
+contradictory, and these are existing integrations, not new capability decisions.
+
+- `smartsheet.Cells.get_cell_history(sheet_id, row_id, column_id, include_all=True)` —
+  already integrated at `pipeline/snapshot_drift.py:404-412`; used by plan 12-04
+  (`scripts/backfill_cell_history_attribution.py`), same call shape, same SDK 429 handling,
+  new caps.
+- `supabase` client `.schema(...).rpc(name, params).execute()` — already integrated at
+  `billing_audit/writer.py:520-600` (`freeze_row`) and the `pipeline_memory/schema.sql`
+  `upsert_rows_bulk` callers; used by plans 12-01 / 12-03 with the new RPC name
+  `backfill_attribution` on the existing client.
+- `supabase` client `.table(...).select(...).in_(...)` — already integrated at
+  `pipeline_memory/reader.py`; used by plan 12-01 sources 1, 3 and 4 reads.
+- `smartsheet.Attachments` list / delete / attach — already integrated at
+  `pipeline/cleanup.py` and `pipeline/upload.py`; unchanged, plan 12-02 fixes a predicate
+  that gates the existing delete and adds no call.
 
 New third-party dependencies: **none**. `requirements.txt` is not modified by any plan in
 this phase (see `12-RESEARCH.md` § Package Legitimacy Audit — not applicable, zero new

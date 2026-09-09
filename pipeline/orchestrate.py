@@ -224,7 +224,9 @@ from pipeline.discovery import (  # noqa: E402
 )
 from pipeline.fetch import get_all_source_rows  # noqa: E402
 from pipeline.grouping import (  # noqa: E402
+    get_helper2_conflict_count,
     get_prefetched_frozen_row_keys,
+    get_prefetched_helper2_missing_keys,
     group_source_rows,
     validate_group_totals,
 )
@@ -261,6 +263,8 @@ from pipeline.attribution import (  # noqa: E402
     _run_subproject_b_hash_prune,
     _run_subproject_d_hash_prune,
     _run_vac_crew_hash_prune,
+    build_helper2_fill_keys,
+    helper2_fill_admits,
     load_billing_audit_row_cache,
     run_claimer_remediation,
     save_billing_audit_row_cache,
@@ -506,6 +510,18 @@ def derive_group_identity(
             if helper_foreman else ''
         )
         return identifier, file_identifier
+    if variant in ('helper2', 'aep_billable_helper2', 'reduced_sub_helper2'):
+        # Phase 14 (D-14-06): sibling branch of the helper-family branch
+        # above, never merged into it — same shape, Helper #2 fields.
+        helper2_foreman = first_row.get('__helper2_foreman', '')
+        helper2_dept = first_row.get('__helper2_dept', '')
+        helper2_job = first_row.get('__helper2_job', '')
+        identifier = f"{helper2_foreman}|{helper2_dept}|{helper2_job}"
+        file_identifier = (
+            _RE_SANITIZE_HELPER_NAME.sub('_', helper2_foreman)[:50]
+            if helper2_foreman else ''
+        )
+        return identifier, file_identifier
     if variant == 'vac_crew':
         _vc = first_row.get('__current_foreman', '')
         identifier = (
@@ -601,9 +617,22 @@ def _run_synthetic_test_mode(session_start):
             "attribution_rows_held": 0,
             "snapshots_written": 0,
             "snapshots_already_frozen": 0,
+            # Phase 14 plan 14-11 (O-14-C): mirrors
+            # billing_audit.writer's new per-role Helper #2 late-fill
+            # counter (see the comment on the production path below).
+            "snapshots_helper2_filled": 0,
             "snapshots_errored": 0,
             "sentinel_claimers_ignored": 0,
             "sentinel_freezes_deferred": 0,
+            "helper2_attribution_degraded": 0,
+            # Phase 14 plan 14-08 (D-14-02 / O-14-A): the synthetic path
+            # has no real source_sheets/all_rows to derive these from, so
+            # they are hardcoded 0 here, matching the sibling counters
+            # above -- the key set is what Gate 6 checks, not the value.
+            "helper2_capability_unavailable_sheets": 0,
+            "helper2_no_qualifying_completion_sheets": 0,
+            "helper2_conflict_hold": 0,
+            "helper2_groups_generated": 0,
         }
         os.makedirs(OUTPUT_FOLDER, exist_ok=True)
         with open(os.path.join(OUTPUT_FOLDER, 'run_summary.json'), 'w') as _rsf:
@@ -3188,6 +3217,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 f"prefetch: {_warm_started:,} row(s) already frozen; "
                 "freeze_attribution is skipped for them"
             )
+        # Plan 14-11 (O-14-C): the subset of already-frozen rows whose
+        # prefetched snapshot still lacks a Helper #2 -- the ONLY
+        # already-frozen rows the freeze loop below is allowed to
+        # re-send, and only when they now carry a valid Helper #2
+        # (helper2_fill_admits).
+        billing_audit_helper2_fill_keys = build_helper2_fill_keys(
+            get_prefetched_helper2_missing_keys(),
+        )
+        if billing_audit_helper2_fill_keys:
+            logging.info(
+                "🧊 "
+                f"{len(billing_audit_helper2_fill_keys):,} frozen row(s) "
+                "still lack a Helper #2 and may be filled this run"
+            )
         billing_audit_row_cache_dirty = False
         history_updates = 0
         _groups_skipped = 0
@@ -3707,7 +3750,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                     continue
                                 _cache_key = f"{wr_num}|{week_raw}|{_row_id}"
                                 if _cache_key in billing_audit_row_cache:
-                                    continue
+                                    # Plan 14-11 (O-14-C): re-admit ONLY
+                                    # when this row may fill a still-
+                                    # empty Helper #2 -- every other
+                                    # already-frozen row stays skipped.
+                                    if not helper2_fill_admits(
+                                        _row, _cache_key,
+                                        billing_audit_helper2_fill_keys,
+                                    ):
+                                        continue
                                 _rows_to_freeze.append(_row)
                                 _freeze_row_keys[id(_row)] = _cache_key
                             _bas.set_data("row_count", len(_rows_to_freeze))
@@ -5165,6 +5216,64 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     "(non-fatal); memory not written this run."
                 )
 
+        # Phase 14 plan 14-08 (D-14-02 four capability states; O-14-A row
+        # conflict, 14-DECISIONS.md "O-14-A RESOLVED"): four Helper #2
+        # run-summary counters, pre-seeded to 0 below and only recomputed
+        # when their inputs are bound, so a flag-off, error-path, or
+        # source_sheets/all_rows-absent run still emits every key (Gate 6
+        # key-set equality). Derived from source_sheets / all_rows /
+        # groups already in scope for the sibling counters below --
+        # sheet_has_helper2_columns mirrors pipeline/fetch.py's identical
+        # column-presence check (D-14-04); a "qualifying" row mirrors
+        # pipeline/fetch.py's _detect_helper2_row validity criteria
+        # (foreman + dept present) -- no new fetch.py signal needed.
+        # Wrapped in try/except: a computation error here must never take
+        # down the run summary write.
+        _helper2_capability_unavailable_sheets = 0
+        _helper2_no_qualifying_completion_sheets = 0
+        _helper2_groups_generated = 0
+        _helper2_conflict_hold_count = 0
+        try:
+            _helper2_conflict_hold_count = get_helper2_conflict_count()
+            if 'source_sheets' in dir() and 'all_rows' in dir():
+                _helper2_key_titles = (
+                    'Foreman Helping? #2',
+                    'Helping Foreman #2 Completed Unit?',
+                    'Helper #2 Dept #',
+                )
+                _helper2_qualifying_sheet_ids = {
+                    _r.get('__source_sheet_id') for _r in all_rows
+                    if (
+                        _r.get('__is_helper2_row')
+                        and _r.get('__helper2_foreman')
+                        and _r.get('__helper2_dept')
+                    )
+                }
+                for _src in source_sheets:
+                    _mapping = _src.get('column_mapping') or {}
+                    if all(t in _mapping for t in _helper2_key_titles):
+                        if _src.get('id') not in _helper2_qualifying_sheet_ids:
+                            _helper2_no_qualifying_completion_sheets += 1
+                    else:
+                        _helper2_capability_unavailable_sheets += 1
+            if 'groups' in dir():
+                _helper2_groups_generated = sum(
+                    1 for _grows in groups.values()
+                    if _grows and _grows[0].get('__variant') in (
+                        'helper2', 'reduced_sub_helper2',
+                        'aep_billable_helper2',
+                    )
+                )
+        except Exception:
+            logging.warning(
+                "⚠️ Could not compute Helper #2 run-summary counters "
+                "(non-fatal); reporting 0 for this run."
+            )
+            _helper2_capability_unavailable_sheets = 0
+            _helper2_no_qualifying_completion_sheets = 0
+            _helper2_groups_generated = 0
+            _helper2_conflict_hold_count = 0
+
         # Write run summary JSON for downstream consumers (Notion sync, dashboards)
         _run_summary = {
             "success": True,
@@ -5186,6 +5295,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "snapshots_written": 0,
             "snapshots_already_frozen": 0,
+            # Phase 14 plan 14-11 (O-14-C): a re-sent already-frozen row
+            # whose returned backfill_provenance.helper2.run_id names
+            # THIS run filled a still-empty per-role Helper #2 -- counted
+            # separately from snapshots_already_frozen (billing_audit
+            # .writer.freeze_row's result classification).
+            "snapshots_helper2_filled": 0,
             "snapshots_errored": 0,
             "fingerprint_changes_detected": 0,
             # Every billing_audit.writer counter is mirrored here so the
@@ -5196,6 +5311,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             "attribution_rows_held": 0,
             "sentinel_claimers_ignored": 0,
             "sentinel_freezes_deferred": 0,
+            # Phase 14 / D-14-07a: mirrors billing_audit.writer's new
+            # degraded-attribution counter (see the comment above).
+            "helper2_attribution_degraded": 0,
+            # Phase 14 plan 14-08 (D-14-02 / O-14-A): computed above, so
+            # the key set never varies by flag state (Gate 6 golden).
+            "helper2_capability_unavailable_sheets": _helper2_capability_unavailable_sheets,
+            "helper2_no_qualifying_completion_sheets": _helper2_no_qualifying_completion_sheets,
+            "helper2_conflict_hold": _helper2_conflict_hold_count,
+            "helper2_groups_generated": _helper2_groups_generated,
         }
         if BILLING_AUDIT_AVAILABLE:
             try:

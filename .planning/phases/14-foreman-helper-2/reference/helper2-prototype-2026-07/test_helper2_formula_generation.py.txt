@@ -1,0 +1,482 @@
+"""Tests for fail-closed Helper #2 inventory and formula planning."""
+
+from __future__ import annotations
+
+import copy
+import json
+import sys
+from types import SimpleNamespace
+
+import pytest
+
+from tools.smartsheet.helper2_inventory import (
+    HELPER2_TITLES,
+    _automation_evidence_status,
+    classify_schema,
+)
+from tools.smartsheet.helper2_migrate import (
+    assert_execution_approved,
+    clone_helper1_formula,
+    main as migration_main,
+    plan_migration,
+)
+from tools.smartsheet.helper2_validate import validate_inventory
+from tools.smartsheet.smartsheet_client import SmartsheetClient
+
+
+def _column(
+    column_id,
+    title,
+    column_type='TEXT_NUMBER',
+    formula=None,
+):
+    return {
+        'id': column_id,
+        'index': column_id,
+        'title': title,
+        'type': column_type,
+        'options': [],
+        'contact_options': [],
+        'hidden': False,
+        'locked': False,
+        'formula': formula,
+    }
+
+
+def _helper1_columns(*, job_formula=True):
+    return [
+        _column(1, 'Work Request #'),
+        _column(
+            2,
+            'Foreman Helper Email',
+            'MULTI_CONTACT_LIST',
+            '=IFERROR(INDEX({Assigned Helper 1}, '
+            'MATCH([Work Request #]@row, {RA Work Request}, 0)), "")',
+        ),
+        _column(
+            3,
+            'Foreman Helping?',
+            formula='=INDEX({RA Foreman Helping}, '
+            'MATCH([Work Request #]@row, {RA Work Request}, 0))',
+        ),
+        _column(
+            4,
+            'Foreman Helper Active?',
+            'CHECKBOX',
+            '=IF(NOT(ISBLANK([Foreman Helping?]@row)), "True", "False")',
+        ),
+        _column(5, 'Helping Foreman Completed Unit?', 'CHECKBOX'),
+        _column(
+            6,
+            'Helper Dept #',
+            formula='=IF([Helping Foreman Completed Unit?]@row = 1, '
+            'INDEX({Roster Dept}, MATCH([Foreman Helping?]@row, '
+            '{Roster Name}, 0)))',
+        ),
+        _column(
+            7,
+            'Helper Job [#]',
+            formula=(
+                '=IF([Helping Foreman Completed Unit?]@row = 1, '
+                'INDEX({Roster Job}, MATCH([Foreman Helping?]@row, '
+                '{Roster Name}, 0)))'
+                if job_formula
+                else None
+            ),
+        ),
+    ]
+
+
+def _resource(*, automation_proven=True):
+    columns = [
+        _column(100, 'Work Request #'),
+        _column(101, 'Foreman Helping?'),
+        _column(102, 'Assigned Helper 1?', 'MULTI_CONTACT_LIST'),
+        _column(103, 'Assigned Helper 2?', 'MULTI_CONTACT_LIST'),
+        _column(104, 'Foreman Helper #2', 'PICKLIST'),
+        _column(105, 'Foreman Helping #2'),
+    ]
+    return {
+        'id': 3733355007790980,
+        'columns': columns,
+        'missing_fields': [],
+        'nonblank_counts': {
+            'Foreman Helper #2': 0,
+            'Assigned Helper 2?': 0,
+            'Foreman Helping #2': 0,
+        },
+        'formula_error_counts': {},
+        'assignment_contract': {
+            'name_column_title': 'Foreman Helper #2',
+            'name_column_id': 104,
+            'assignment_column_title': 'Assigned Helper 2?',
+            'assignment_column_id': 103,
+            'assignment_aliases_present': ['Assigned Helper 2?'],
+            'assignment_column_type': 'MULTI_CONTACT_LIST',
+            'helper1_assignment_column_type': 'MULTI_CONTACT_LIST',
+            'type_matches_helper1': True,
+        },
+        'automation_inventory': {
+            'assignment_workflow_api_verifiable': False,
+            'rules': [],
+        },
+        'assignment_automation_evidence': {
+            'proven': automation_proven,
+        },
+    }
+
+
+def _references():
+    return [
+        {
+            'id': 201,
+            'name': 'Assigned Helper 1',
+            'source_sheet_id': 3733355007790980,
+            'start_column_id': 102,
+            'end_column_id': 102,
+        },
+        {
+            'id': 202,
+            'name': 'RA Work Request',
+            'source_sheet_id': 3733355007790980,
+            'start_column_id': 100,
+            'end_column_id': 100,
+        },
+        {
+            'id': 203,
+            'name': 'RA Foreman Helping',
+            'source_sheet_id': 3733355007790980,
+            'start_column_id': 101,
+            'end_column_id': 101,
+        },
+        {
+            'id': 204,
+            'name': 'Roster Email',
+            'source_sheet_id': 999,
+            'start_column_id': 10,
+            'end_column_id': 10,
+        },
+        {
+            'id': 205,
+            'name': 'Roster Name',
+            'source_sheet_id': 999,
+            'start_column_id': 11,
+            'end_column_id': 11,
+        },
+        {
+            'id': 206,
+            'name': 'Roster Dept',
+            'source_sheet_id': 999,
+            'start_column_id': 12,
+            'end_column_id': 12,
+        },
+        {
+            'id': 207,
+            'name': 'Roster Job',
+            'source_sheet_id': 999,
+            'start_column_id': 13,
+            'end_column_id': 13,
+        },
+    ]
+
+
+def _inventory(*, automation_proven=True, job_formula=True, columns=None):
+    sheet_columns = columns or _helper1_columns(job_formula=job_formula)
+    return {
+        'workspace_id': 2763941144225668,
+        'folder_ids': [7644752003786628, 8815193070299012],
+        'generated_at_utc': '2026-08-03T00:00:00+00:00',
+        'git_status_before': [' M user-owned-file'],
+        'resource_analyst': _resource(
+            automation_proven=automation_proven
+        ),
+        'sheets': [{
+            'id': 500,
+            'name': 'Fixture ProMax',
+            'permalink': 'https://app.smartsheet.com/sheets/500',
+            'version': 10,
+            'columns': sheet_columns,
+            'cross_sheet_references': _references(),
+        }],
+        'reports': [{
+            'id': 600,
+            'name': 'Fixture Report',
+            'source_sheet_ids': [500],
+            'columns': [{'title': 'Work Request #'}],
+        }],
+    }
+
+
+def test_formula_clone_changes_only_local_and_reference_names():
+    original = (
+        '=IF([Helping Foreman Completed Unit?]@row = 1, '
+        'INDEX({Roster Dept}, MATCH([Foreman Helping?]@row, '
+        '{Roster Name}, 0)))'
+    )
+    cloned = clone_helper1_formula(
+        original,
+        {
+            'Roster Dept': 'H2 Roster Dept 000500',
+            'Roster Name': 'H2 Roster Name 000500',
+        },
+    )
+    assert original == (
+        '=IF([Helping Foreman Completed Unit?]@row = 1, '
+        'INDEX({Roster Dept}, MATCH([Foreman Helping?]@row, '
+        '{Roster Name}, 0)))'
+    )
+    assert '[Helping Foreman #2 Completed Unit?]@row' in cloned
+    assert '[Foreman Helping? #2]@row' in cloned
+    assert '{H2 Roster Dept 000500}' in cloned
+
+
+def test_formula_clone_rejects_at_cell():
+    with pytest.raises(ValueError, match='prohibited'):
+        clone_helper1_formula('=IF(@cell = 1, 1, 0)')
+
+
+def test_resource_automation_evidence_requires_the_exact_columns():
+    name = _column(104, 'Foreman Helper #2', 'PICKLIST')
+    assignment = _column(
+        103,
+        'Assigned Helper 2?',
+        'MULTI_CONTACT_LIST',
+    )
+    evidence = {
+        'evidence_version': 1,
+        'evidence_type': 'manual_smartsheet_ui_review',
+        'sheet_id': 3733355007790980,
+        'trigger_column_id': 104,
+        'target_column_id': 103,
+        'helper1_pattern_reviewed': True,
+        'all_helper1_assignments_mirrored': True,
+        'writes_selected_contact_email': True,
+        'blank_helper2_clears_assignment': True,
+        'verified_at_utc': '2026-08-03T12:00:00Z',
+    }
+    assert _automation_evidence_status(
+        evidence,
+        name,
+        assignment,
+    )['proven'] is True
+    evidence['target_column_id'] = 102
+    assert _automation_evidence_status(
+        evidence,
+        name,
+        assignment,
+    )['proven'] is False
+
+
+def test_automation_inventory_excludes_recipient_details():
+    rule = SimpleNamespace(
+        id=77,
+        name='Helper assignment metadata',
+        enabled=True,
+        user_can_modify=True,
+        disabled_reason=None,
+        action=SimpleNamespace(
+            type='NOTIFICATION_ACTION',
+            recipients=['private@example.com'],
+        ),
+        created_by=SimpleNamespace(email='private@example.com'),
+    )
+    sheets = SimpleNamespace(
+        list_automation_rules=lambda sheet_id, include_all: (
+            SimpleNamespace(data=[rule])
+        )
+    )
+    client = SmartsheetClient(SimpleNamespace(Sheets=sheets))
+    result = client.list_automation_rules(3733355007790980)
+    assert result == [{
+        'id': 77,
+        'name': 'Helper assignment metadata',
+        'enabled': True,
+        'user_can_modify': True,
+        'disabled_reason': '',
+        'action_type': 'NOTIFICATION_ACTION',
+    }]
+
+
+def test_plan_appends_all_columns_and_uses_distinct_cross_references():
+    plan = plan_migration(_inventory())
+    sheet = plan['sheet_plans'][0]
+    assert sheet['status'] == 'planned'
+    assert [action['title'] for action in sheet['actions']] == list(
+        HELPER2_TITLES
+    )
+    assert all(
+        ref['name'].startswith('H2 ')
+        for ref in sheet['cross_sheet_reference_writes']
+    )
+    assigned = next(
+        ref
+        for ref in sheet['cross_sheet_reference_writes']
+        if ref['name'].startswith('H2 Assigned Helper 2')
+    )
+    assert assigned['start_column_id'] == 103
+    foreman = next(
+        ref
+        for ref in sheet['cross_sheet_reference_writes']
+        if ref['name'].startswith('H2 RA Foreman Helping')
+    )
+    assert foreman['start_column_id'] == 104
+    email_action = next(
+        action
+        for action in sheet['actions']
+        if action['title'] == 'Foreman Helper #2 Email'
+    )
+    assert '{' + assigned['name'] + '}' in email_action['formula']
+    assert '{Assigned Helper 1}' not in email_action['formula']
+    assert not plan['blockers']
+
+
+def test_helper2_email_source_must_be_resource_assignment_column():
+    columns = _helper1_columns()
+    email = next(
+        column
+        for column in columns
+        if column['title'] == 'Foreman Helper Email'
+    )
+    email['formula'] = (
+        '=INDEX({Roster Email}, MATCH([Foreman Helping?]@row, '
+        '{Roster Name}, 0))'
+    )
+    plan = plan_migration(_inventory(columns=columns))
+    assert any(
+        'UNPROVEN_HELPER2_EMAIL_SOURCE' in blocker
+        for blocker in plan['blockers']
+    )
+
+
+def test_duplicate_assignment_aliases_fail_closed():
+    inventory = _inventory()
+    resource = inventory['resource_analyst']
+    resource['columns'].append(
+        _column(106, 'Assigned Helper? 2', 'MULTI_CONTACT_LIST')
+    )
+    resource['assignment_contract']['assignment_aliases_present'] = [
+        'Assigned Helper 2?',
+        'Assigned Helper? 2',
+    ]
+    plan = plan_migration(inventory)
+    assert 'AMBIGUOUS_RESOURCE_HELPER2_ASSIGNMENT_COLUMN' in plan['blockers']
+
+
+def test_existing_helper2_columns_are_never_renamed_or_overwritten():
+    columns = _helper1_columns()
+    columns.extend(
+        _column(1000 + index, title)
+        for index, title in enumerate(HELPER2_TITLES[1:], start=1)
+    )
+    plan = plan_migration(_inventory(columns=columns))
+    actions = plan['sheet_plans'][0]['actions']
+    append_actions = [
+        action for action in actions if action['action'] == 'append_column'
+    ]
+    assert [action['title'] for action in append_actions] == [
+        'Foreman Helper #2 Email'
+    ]
+    assert all(action['action'] != 'rename_column' for action in actions)
+
+
+def test_blank_source_is_allowed_but_unproven_automation_blocks():
+    plan = plan_migration(_inventory(automation_proven=False))
+    assert 'RESOURCE_ANALYST_HELPER2_SOURCE_EMPTY' not in plan['blockers']
+    assert (
+        'RESOURCE_ANALYST_HELPER2_ASSIGNMENT_AUTOMATION_UNPROVEN'
+        in plan['blockers']
+    )
+    assert plan['resource_analyst_plan']['status'] == 'blocked'
+
+
+def test_blank_source_with_proven_automation_does_not_block():
+    plan = plan_migration(_inventory())
+    assert not plan['source_blockers']
+    assert plan['resource_analyst_plan']['status'] == 'verified'
+
+
+def test_unproven_job_producer_blocks_execution_plan():
+    plan = plan_migration(_inventory(job_formula=False))
+    assert any(
+        'UNPROVEN_HELPER2_JOB_PRODUCER' in blocker
+        for blocker in plan['blockers']
+    )
+    assert plan['sheet_plans'][0]['status'] == 'blocked'
+
+
+def test_legacy_and_current_schema_classification():
+    assert classify_schema([_column(1, 'Work Request #')]) == (
+        'legacy_or_unknown'
+    )
+    current = _helper1_columns() + [
+        _column(1000 + index, title)
+        for index, title in enumerate(HELPER2_TITLES)
+    ]
+    assert classify_schema(current) == 'helper2_complete'
+
+
+def test_missing_report_columns_produce_manual_ordered_checklist():
+    plan = plan_migration(_inventory())
+    report = plan['report_plans'][0]
+    assert report['mode'] == 'manual_checklist'
+    assert report['add_columns_in_order'] == list(HELPER2_TITLES)
+
+    validation = validate_inventory(_inventory())
+    assert validation['report_results'][0]['missing_columns'] == list(
+        HELPER2_TITLES
+    )
+
+
+def test_write_requires_all_independent_gates(monkeypatch):
+    plan = plan_migration(_inventory())
+    monkeypatch.delenv('PRODUCTION_SMARTSHEET_WRITE_APPROVED', raising=False)
+    with pytest.raises(PermissionError):
+        assert_execution_approved(
+            plan,
+            execute=True,
+            tests_passed=True,
+            approved_plan_sha256=plan['plan_sha256'],
+        )
+
+
+def test_formula_error_values_are_reported_by_validator():
+    inventory = _inventory()
+    columns = copy.deepcopy(inventory['sheets'][0]['columns'])
+    columns.extend(
+        _column(1000 + index, title)
+        for index, title in enumerate(HELPER2_TITLES)
+    )
+    columns[-1]['formula'] = '=#REF'
+    inventory['sheets'][0]['columns'] = columns
+    result = validate_inventory(inventory)
+    assert result['summary']['invalid_sheets'] == 1
+    assert result['sheet_results'][0]['formula_error_columns'] == [
+        'Helper #2 Job [#]'
+    ]
+
+
+def test_cli_dry_run_writes_reviewable_plan_without_a_client(
+    monkeypatch,
+    tmp_path,
+):
+    inventory_path = tmp_path / 'inventory.json'
+    plan_path = tmp_path / 'plan.json'
+    inventory_path.write_text(
+        json.dumps(_inventory()),
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(
+        sys,
+        'argv',
+        [
+            'helper2_migrate',
+            '--inventory',
+            str(inventory_path),
+            '--plan-output',
+            str(plan_path),
+        ],
+    )
+    assert migration_main() == 0
+    written = json.loads(plan_path.read_text(encoding='utf-8'))
+    assert written['mode'] == 'dry-run'
+    assert written['plan_sha256']

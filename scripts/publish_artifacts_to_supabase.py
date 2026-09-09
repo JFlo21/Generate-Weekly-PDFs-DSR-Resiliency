@@ -80,8 +80,11 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 _BUCKET = "excel-artifacts"
 
-# The 7 canonical variant values (no CHECK constraint on the DB; this set is
+# The 10 canonical variant values (no CHECK constraint on the DB; this set is
 # used for the application-level unknown-token guard -- Pitfall E / Anti-Pattern E).
+# Phase 14 plan 05 added the 3 Helper #2 family members (helper2,
+# aep_billable_helper2, reduced_sub_helper2) as a parallel sibling family --
+# never merged into the Helper #1 members above (D-14-11).
 _CANONICAL_VARIANTS: frozenset[str] = frozenset({
     "primary",
     "helper",
@@ -90,6 +93,9 @@ _CANONICAL_VARIANTS: frozenset[str] = frozenset({
     "reduced_sub",
     "aep_billable_helper",
     "reduced_sub_helper",
+    "helper2",
+    "aep_billable_helper2",
+    "reduced_sub_helper2",
 })
 
 
@@ -112,19 +118,28 @@ def _skip_upload() -> bool:
 # ===========================================================================
 
 def normalize_variant(filename: str) -> str:
-    """Map filename suffix tokens to one of the 7 canonical snake_case variant values.
+    """Map filename suffix tokens to one of the 10 canonical snake_case variant values.
 
-    Precedence mirrors generate_weekly_pdfs.py L2834:
-        AEPBillable -> ReducedSub -> VacCrew -> Helper -> User
-    Most-specific tokens checked first to prevent _AEPBillable_Helper_ matching
-    _Helper_ alone (the two hybrid forms must outrank their component forms).
+    Precedence mirrors generate_weekly_pdfs.py L2834, extended by Phase 14
+    plan 05 with the Helper #2 family:
+        AEPBillable_Helper2 -> ReducedSub_Helper2 -> AEPBillable_Helper ->
+        ReducedSub_Helper -> AEPBillable -> ReducedSub -> VacCrew ->
+        Helper2 -> Helper -> User
+    Most-specific tokens checked first to prevent _AEPBillable_Helper_ (or
+    its Helper #2 sibling _AEPBillable_Helper2_) matching a less-specific
+    check alone -- every hybrid form must outrank its component forms, and
+    _Helper2_ must never fall through to _Helper_ or bare primary.
 
     Args:
         filename: Excel filename (basename only or full path string).
 
     Returns:
-        One of the 7 canonical variant strings.
+        One of the 10 canonical variant strings.
     """
+    if "_AEPBillable_Helper2_" in filename:
+        return "aep_billable_helper2"
+    if "_ReducedSub_Helper2_" in filename:
+        return "reduced_sub_helper2"
     if "_AEPBillable_Helper_" in filename:
         return "aep_billable_helper"
     if "_ReducedSub_Helper_" in filename:
@@ -135,6 +150,8 @@ def normalize_variant(filename: str) -> str:
         return "reduced_sub"
     if "_VacCrew" in filename:
         return "vac_crew"
+    if "_Helper2_" in filename:
+        return "helper2"
     if "_Helper_" in filename:
         return "helper"
     # Bare primary or _User_ named primary (Subproject D)

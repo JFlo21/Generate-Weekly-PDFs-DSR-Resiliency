@@ -273,6 +273,156 @@ class SentinelSupersededCleanupTests(unittest.TestCase):
         self.assertNotIn(10, deleted)
 
 
+class VariantMigrationOrphanHelper2Tests(unittest.TestCase):
+    """Phase 14 plan 05: the orphan-supersede gate must treat a live
+    Helper #2 claim (plain, AEP-billable shadow, reduced-sub shadow) the
+    same way it already treats a Helper #1 claim -- a primary attachment
+    superseded ONLY by one of these is a variant-migration orphan."""
+
+    _STALE_PRIMARY_FOR_MIGRATION = (
+        'WR_90001_WeekEnding_041926_120000_User_Bob_aabbcc.xlsx'
+    )
+
+    def test_primary_superseded_by_helper2_is_queued_for_deletion(self) -> None:
+        deleted = _run_cleanup(
+            [_att(self._STALE_PRIMARY_FOR_MIGRATION, 10)],
+            {(_WR, _WEEK, 'helper2', 'Sam_Sample')},
+        )
+        self.assertIn(10, deleted)
+
+    def test_primary_superseded_by_aep_billable_helper2_is_queued_for_deletion(
+        self,
+    ) -> None:
+        deleted = _run_cleanup(
+            [_att(self._STALE_PRIMARY_FOR_MIGRATION, 10)],
+            {(_WR, _WEEK, 'aep_billable_helper2', 'Sam_Sample')},
+        )
+        self.assertIn(10, deleted)
+
+    def test_primary_superseded_by_reduced_sub_helper2_is_queued_for_deletion(
+        self,
+    ) -> None:
+        deleted = _run_cleanup(
+            [_att(self._STALE_PRIMARY_FOR_MIGRATION, 10)],
+            {(_WR, _WEEK, 'reduced_sub_helper2', 'Sam_Sample')},
+        )
+        self.assertIn(10, deleted)
+
+    def test_primary_with_no_helper_sibling_of_any_kind_is_untouched(
+        self,
+    ) -> None:
+        """A primary with no live helper-family sibling (Helper #1 or
+        Helper #2) for the same WR/week is left alone, exactly as
+        today."""
+        deleted = _run_cleanup(
+            [_att(self._STALE_PRIMARY_FOR_MIGRATION, 10)],
+            set(),
+        )
+        self.assertNotIn(10, deleted)
+
+    def test_helper2_attachment_never_matched_by_legacy_sub_offcontract_gate(
+        self,
+    ) -> None:
+        """The one-time legacy migration gate for subcontractor off-contract
+        variants (production value ``{'helper', 'primary'}``, per this
+        function's own docstring) must never widen to catch a Helper #2
+        identity -- Helper #2 is a brand-new identity, never a legacy
+        off-contract leftover, and this plan makes zero changes to that
+        gate's matching logic."""
+        helper2_att = _att(
+            'WR_90001_WeekEnding_041926_120000_Helper2_Sam_Sample_aabbcc.xlsx',
+            10,
+        )
+        deleted: list[int] = []
+        sheet, cache = _sheet([helper2_att])
+        gwp.cleanup_untracked_sheet_attachments(
+            client=_client(deleted),
+            target_sheet_id=_SHEET_ID,
+            valid_wr_weeks=set(),
+            test_mode=False,
+            attachment_cache=cache,
+            target_sheet=sheet,
+            sub_wr_scope={_WR},
+            sub_offcontract_variants={'helper', 'primary'},
+        )
+        self.assertNotIn(10, deleted)
+
+    def test_helper2_attachment_produced_this_run_is_never_swept(self) -> None:
+        """An older Helper #2 attachment for the same identity is pruned
+        by the ordinary newest-wins dedup (unrelated to this plan), but
+        the fresh one produced this run survives."""
+        stale = _att(
+            'WR_90001_WeekEnding_041926_120000_Helper2_Sam_Sample_aabbcc.xlsx',
+            10,
+        )
+        fresh = _att(
+            'WR_90001_WeekEnding_041926_120001_Helper2_Sam_Sample_ddeeff.xlsx',
+            20,
+        )
+        deleted = _run_cleanup(
+            [stale, fresh],
+            {(_WR, _WEEK, 'helper2', 'Sam_Sample')},
+        )
+        self.assertNotIn(20, deleted)
+
+    def test_placeholder_helper2_swept_by_existing_sentinel_gate(self) -> None:
+        """A placeholder Helper #2 identity not produced this run is swept
+        by the pre-existing, variant-agnostic sentinel-superseded gate
+        (``_is_sentinel_identifier`` -> ``billing_audit.writer.
+        is_sentinel_claimer``, which already recognizes 'unknown helper 2'
+        per plan 14-01/14-03) once a real-name Helper #2 sibling is live
+        this run -- no new detection function required."""
+        stale_placeholder = _att(
+            'WR_90001_WeekEnding_041926_120000_Helper2_Unknown_Helper_2'
+            '_aabbcc.xlsx',
+            10,
+        )
+        live_real_helper2 = _att(
+            'WR_90001_WeekEnding_041926_120001_Helper2_Sam_Sample_ddeeff.xlsx',
+            20,
+        )
+        deleted = _run_cleanup(
+            [stale_placeholder, live_real_helper2],
+            {(_WR, _WEEK, 'helper2', 'Sam_Sample')},
+        )
+        self.assertIn(10, deleted)
+        self.assertNotIn(20, deleted)
+
+
+class Helper2RollbackProtectionTests(unittest.TestCase):
+    """D-14-12 (rollback preserves Helper #2 evidence): a cleanup pass
+    must never queue an existing Helper #2 attachment for deletion just
+    because ``HELPER2_ENABLED`` is off and it was therefore not
+    regenerated this run. ``pipeline/cleanup.py`` has zero coupling to
+    the flag -- these tests prove that lack of coupling holds in
+    practice for both flag values, not merely by code inspection."""
+
+    _ROLLBACK_HELPER2 = (
+        'WR_90001_WeekEnding_041926_120000_Helper2_Sam_Sample_aabbcc.xlsx'
+    )
+
+    def test_helper2_attachment_survives_cleanup_with_flag_off(self) -> None:
+        from pipeline.config import HELPER2_ENABLED as _flag
+
+        self.assertIs(
+            _flag,
+            False,
+            'Precondition: HELPER2_ENABLED must be at its documented '
+            'default-off value for this rollback test to be meaningful.',
+        )
+        deleted = _run_cleanup([_att(self._ROLLBACK_HELPER2, 10)], set())
+        self.assertNotIn(10, deleted)
+
+    def test_helper2_attachment_survives_cleanup_with_flag_on(self) -> None:
+        """Symmetry check: survival is not an artifact of the flag's
+        current value -- a Helper #2 attachment produced under a prior
+        flag=on run that simply is not in THIS run's ``valid_wr_weeks``
+        survives identically regardless of the flag's live value."""
+        with mock.patch('pipeline.config.HELPER2_ENABLED', True):
+            deleted = _run_cleanup([_att(self._ROLLBACK_HELPER2, 10)], set())
+        self.assertNotIn(10, deleted)
+
+
 class ResetListScopeTests(unittest.TestCase):
     def test_normalize_strips_optional_wr_prefix(self) -> None:
         for token, expected in (

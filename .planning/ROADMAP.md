@@ -124,6 +124,11 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 - [ ] **Phase 13: Audit Memory** — `audit_finding` lifecycle (open → fixed / resurfaced /
   acknowledged), incremental audits over affected groups + open findings. (AUD-01..03)
 
+- [ ] **Phase 14: Foreman Helper #2** — second, independently identifiable helping-foreman
+  slot (`Foreman Helping? #2` column family) through the existing Excel-generation workflow,
+  mirroring the Helper #1 contract; Intake 8 excluded by owner decision; missing optional
+  Helper #2 columns skip only the Helper #2 path. Planning-only authorization. (HLP-01..07)
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -427,8 +432,6 @@ Plans:
 - All 6 gates green; no symbol deleted
 - A gate that cannot fail is not green — every gate needs a fail-capability test (G-09-MOD-06)
 
----
-
 ### Phase 07: Security Hardening and Express Removal
 
 **Goal:** The portal passes a full security review — RLS is verified air-tight,
@@ -662,13 +665,16 @@ confirmation + fail-closed discovery semantics from PR #373's review fixes.
 
 1. First post-merge frequent run of this phase's PR completes all groups
    (no time-budget stop) with wall clock < ~75 min.
+
 2. Discovery phase (Phase 1) drops from ~67 min to low single-digit minutes
    on a run with no sheet changes; a changed/new sheet still gets full
    validation, and registry/Supabase unavailability falls back to full
    validation of every sheet.
+
 3. Group-processing per-group cost returns to ≲0.5 s/group with the skip gate
    still confirming existence against live Smartsheet listings (never
    group_state stubs), and transport failure still resolving to regenerate.
+
 4. Full suite + 6 gates green; no change-detection-key, grouping, filename,
    or attachment-cleanup behavior changes.
 
@@ -717,13 +723,15 @@ approved as the next small PR.
 2. Dry-run backfill report lists, per affected (WR, week), the proposed owner and its
    source; Juan approves before the live remediation.
 
-3. WR 19073866 WE 082425/083125/091425/092125 regenerate as `_User_Avery_Example` from the
-   `backfill_hash_history` source; no `_User__NO_MATCH` / `_User_Unknown_Foreman` churn
-   remains in the scheduled run (today: ~154 regenerations per run).
+3. WR 89829163 WE 082425/083125/091425/092125 regenerate under a real resolved name from the
+   `backfill_artifacts` source; no `_User__NO_MATCH` / `_User_Unknown_Foreman` churn remains
+   in the scheduled run. (Amended 2026-09-04 per D-12-D; see 12-08-SUMMARY.md.)
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 5/6 plans executed (12-06 owner-run after PR #388 merges; 12-03 SQL applied live 2026-09-03)
+**Plans:** 10/10 plans executed — 5/6 of the original set executed; 12-06 HALTED at Task 1 (dry-run REJECTED
+2026-09-03 — source-3 filename parser defect; 12-03 SQL applied live 2026-09-03). Gap-closure plans
+12-07 through 12-10 planned 2026-09-04 for G-12-3; 12-06 re-enters at Task 1 after 12-10.
 
 Plans:
 **Wave 1**
@@ -742,7 +750,22 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run
+- [x] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run — HALTED at Task 1 (dry-run REJECTED 2026-09-03; see 12-06-SUMMARY.md)
+
+**Gap closure — G-12-3** *(source-3 filename parser defect; from 12-UAT.md)*
+
+*Wave 1 (parallel):*
+
+- [x] 12-07-PLAN.md — Source-3 extension strip before the sentinel check, proposed-value guard in the apply payload builder, and fixtures rebuilt on the live hash-less filename shape
+- [x] 12-08-PLAN.md — Owner scope decisions: the 945 `#NO MATCH` rows, and success criterion 3's known-good sample; recorded as D-12-C / D-12-D
+
+*Wave 2 (blocked on 12-07):*
+
+- [x] 12-09-PLAN.md — Owner-applied SQL: an extension guard in the `backfill_attribution` validation loop, the Python/SQL list pin, and Juan's STEP 4 + STEP 5 re-apply
+
+*Wave 3 (blocked on 12-07, 12-08, 12-09):*
+
+- [x] 12-10-PLAN.md — Independent production-risk review, a fresh same-UTC-day backup, a zero-defect verification dry-run, and re-entry into 12-06 at Task 1
 
 **Planning decisions (2026-09-02, supersede the stale wording above):**
 
@@ -751,13 +774,25 @@ Plans:
   `backfill_run_id` provenance columns; the table is deferred to Phase 13. The ladder as
   implemented is `observed_in_week → backfill_artifacts → backfill_hash_history → operator
   → sentinel`, with no cross-week rung (REQUIREMENTS.md OWN-01's wording is stale).
+
 - **D-12-B** — source 4 (`backfill_hash_history`) reads the Supabase hash store
   (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), NOT a JSON file. No
   `--hash-history` flag, no JSON fixture. Weeks never seen in a run since 2026-05-25 fall
   through to sources 3 and 5.
+
 - Source 5 (Smartsheet cell history) is INCLUDED (2026-09-02 00:35), as a separate capped
   off-hours job — never inside `generate_weekly_pdfs.py`. The "cell history optional,
   pending" phrase in the **Depends on** paragraph above predates that decision.
+
+- **D-12-C** (2026-09-04) — the #NO MATCH scope for OWN-03 is option `defer`: the 945
+  `#NO MATCH` rows (935 primary + 10 helper) already read as no-history via `resolve_claimer`,
+  so they stay out of OWN-03's live remediation; plan 12-10's re-run invocation must NOT carry
+  `--include-blank-roles`.
+
+- **D-12-D** (2026-09-04) — success criterion 3's known-good sample is option
+  `substitute-89829163`: WR 19073866 has zero rows in every Supabase store the ladder reads,
+  so success criterion 3 above now names WR 89829163 (live-verified sentinel rows on WE
+  082425/083125/091425/092125) resolved through the `backfill_artifacts` source.
 
 ### Phase 13: Audit Memory
 
@@ -778,3 +813,137 @@ on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
 
 2. Audit wall clock on frequent runs is proportional to affected groups + open findings.
 3. Audit Excel/portal shows open + resurfaced only; per-WR history is queryable in SQL.
+
+---
+
+### Phase 14: Foreman Helper #2
+
+**Milestone:** v1.4 (feature phase appended to the current milestone; independent of the
+run-memory theme — re-home to a later milestone if preferred).
+
+**Goal:** A second, independently identifiable helping-foreman slot (the `Foreman Helping? #2`
+column family) flows through the existing Excel-generation workflow exactly the way Helper #1
+does — discovery and field extraction → completion eligibility → attribution → grouping →
+workbook generation → incremental change detection → attachment publication — without
+disrupting primary foremen, Helper #1, VAC crews, billing attribution, historical records, or
+the production Python ingestion.
+
+**Requirements:** HLP-01, HLP-02, HLP-03, HLP-04, HLP-05, HLP-06, HLP-07
+
+**Confirmed owner decisions (2026-09-05; supersede the 2026-08 Helper #2 handoff):**
+
+- **Intake ProMax 8 (`2244739192541060`) is intentionally excluded.** No Helper #2 columns,
+  formula repair, reconnection, report inclusion, row migration, or readiness prerequisite.
+  Its missing columns are accepted, not a defect or release blocker; no schema-reconciliation
+  task. Exclusion does not authorize deleting historical records, workbooks, attachments, or
+  attribution evidence.
+
+- **Missing optional Helper #2 columns must not break generation.** On an otherwise eligible
+  source they mean the capability is unavailable there: skip only the Helper #2 path and keep
+  primary / Helper #1 / VAC behavior. Never universally required; never rejects a valid sheet;
+  which fields are required comes from the Helper #1 contract (name + completed checkbox +
+  dept; Job optional).
+
+- **Extend the existing Helping Foreman behavior.** Helper #2 is a second independent slot,
+  not a replacement for Helper #1 and not a reason to rebuild the pipeline. No new rule that
+  the same physical unit is billed to the customer twice.
+
+**Depends on:** Phase 12 (ownership ladder + sentinel-never-a-claimer rules that Helper #2
+attribution must follow — OWN-01, OWN-02, OWN-04). Independent of Phase 13.
+
+**Authorization:** planning only in this pass — no feature implementation, production change,
+workflow dispatch, migration, push, merge, or deployment until Juan approves the plan.
+
+**Success criteria:**
+
+1. An eligible Helper #2 completion produces the expected workbook with the correct foreman,
+   dept/job, units, prices, dates, filename, and destination; group key, hash, workbook header,
+   filename, and attachment routing all name the same Helper #2 claimant (HLP-01).
+
+2. With Helper #2 absent, every existing primary / Helper #1 / VAC output, group key, hash, and
+   filename is unchanged — regression fixtures compare meaningful cells, headers, totals, and
+   structure, not binary equality (HLP-02, HLP-06).
+
+3. Sources without Helper #2 columns skip only the Helper #2 path with a distinct logged reason;
+   Intake 8 remains excluded and untouched; readiness checks pass (HLP-03, HLP-04).
+
+4. Blank, `NA`, `#NO MATCH` / formula-error, unchecked-completion, and no-capability inputs
+   create no Helper #2 claim, group, workbook, attachment, or attribution row (HLP-05).
+
+5. A later Helper #2 completion on a row already frozen or cached with primary or Helper #1
+   attribution is recorded for its own role without overwriting the other roles or inheriting
+   ownership from another week; repeated runs are idempotent (HLP-06).
+
+6. Pilot scope, comparison criteria, and rollback are documented and rehearsed on fixtures;
+   rollback preserves created Helper #2 evidence and never moves claimed units back to the
+   primary foreman (HLP-07).
+
+**Plans:** 11/11 plans executed (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to
+close O-14-C, making seven waves). Phase 14 is fully executed.
+
+Plans:
+
+**Wave 1** *(parallel)*
+
+- [x] 14-01-PLAN.md — Tracer: one Helper #2 completion end-to-end (flag, synonyms, eligibility,
+  grouping, hash meta, group identity, filename, round-trip) plus the legacy byte-identity regression
+
+- [x] 14-02-PLAN.md — Close the research's pending items (group_state and attachment pre-seed keying,
+  the three unread modules, the owner-run read-only live column probe)
+
+**Wave 2** *(parallel; blocked on 14-01)*
+
+- [x] 14-03-PLAN.md — Attribution client: the Helper #2 claimant joins the freeze payload AND the
+  all-sentinel gate, the Helper #2 role, and the pre-migration degrade
+
+- [x] 14-04-PLAN.md — Run-memory Helper #2 columns, the recorded hash-inclusion decision, and the
+  mirrored field list in the passive-compare script
+
+- [x] 14-05-PLAN.md — Lifecycle consumers: cleanup orphan-supersede gate, artifact-publish variant
+  precedence, portal labels, and the family-parity invariant
+
+**Wave 3** *(parallel; blocked on Wave 2)*
+
+- [x] 14-06-PLAN.md — Subcontractor Helper #2 shadow variants: grouping legs, workbook rendering,
+  nested filename parsing, multi-foreman aggregated hashing, and the PPP dual-route
+
+- [x] 14-07-PLAN.md — One bounded revalidation for pre-Helper-#2 cached mappings, the four
+  distinguishable conditions, and the Intake-8-shaped fixture
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [x] 14-08-PLAN.md — O-14-A conflict rule (BLOCKED on Juan's decision) and the Helper #2
+  run-summary counters
+
+**Wave 5** *(blocked on Wave 4)*
+
+- [x] 14-09-PLAN.md — Owner-deployed Supabase attribution migration: the Helper #2 role columns,
+  the freeze parameters, drop-first for BOTH lookup functions, and the read-back
+
+**Wave 6** *(blocked on Wave 5; inserted 2026-09-08)*
+
+- [x] 14-11-PLAN.md — O-14-C closure: first-write-wins per ROLE for Helper #2 — the pipeline re-sends an
+  already-frozen row only when it now carries a valid Helper #2 and the snapshot's helper2 is empty,
+  the freeze function fills the two Helper #2 columns on conflict with a `live` provenance entry, the
+  fill is counted, and the owner gates the apply
+
+**Wave 7** *(blocked on Wave 6)*
+
+- [x] 14-10-PLAN.md — Rollout: runbook, environment and architecture documentation, the escalating
+  pilot rehearsal with rollback, and the owner decisions on flag default, workflow wiring, and the
+  single controlled upload
+
+**Open owner decisions the plans depend on:**
+
+- **O-14-A (OPEN)** — a source row with BOTH helper completion boxes checked, both names real, both
+  depts present. Recommended default: hold the row out of every file for the run, log a distinct
+  reason, count it, and surface it for correction. Only plan 14-08 Task 2 is blocked on it; the
+  other nine plans proceed. No rule is invented in the plans.
+
+- **D-14-07 / D-14-08 / D-14-10 Supabase changes** — three additive schema changes, each behind its
+  own owner checkpoint in plans 14-09, 14-04, and 14-07 respectively. No DDL is applied from an
+  agent session.
+
+- **D-14-12 rollout** — flag default, GitHub Actions wiring (inspect-only in this phase; the exact
+  lines are recorded, not applied), and authorization for the one controlled upload, all in
+  plan 14-10 Task 3.

@@ -8,6 +8,15 @@ export const VARIANT_LABELS: Record<string, string> = {
   vac_crew: 'VAC Crew',
   _AEPBillable: 'AEP Billable (Sub)',
   _ReducedSub: 'Reduced Sub',
+  // Phase 14 plan 05: keyed on the snake_case token normalize_variant()
+  // writes today (scripts/publish_artifacts_to_supabase.py), NOT the
+  // underscore-capitalized convention used by the two entries above.
+  // 14-RESEARCH.md Assumption A5 (which convention historical
+  // public.artifacts.variant rows actually use) is unresolved and is
+  // deliberately NOT fixed here -- only these three new keys are added.
+  helper2: 'Helper 2',
+  aep_billable_helper2: 'AEP Billable · Helper 2',
+  reduced_sub_helper2: 'Reduced Sub · Helper 2',
 };
 
 /**

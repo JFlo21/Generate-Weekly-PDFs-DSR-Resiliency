@@ -63,6 +63,87 @@ def get_prefetched_frozen_row_keys() -> frozenset[
     return _PREFETCHED_FROZEN_ROW_KEYS
 
 
+# Plan 14-11 (O-14-C fill admission): subset of the keys above whose
+# prefetched row still lacks a real Helper #2 -- null, a named
+# sentinel, or the key absent entirely from a pre-14-09 bulk-lookup
+# shape. Non-empty only when the same prefetch reported 'success'.
+# pipeline.orchestrate turns this into the freeze loop's fill-key set
+# so an already-frozen row is re-sent ONLY when it may fill one of
+# these still-empty Helper #2 slots -- never any other already-frozen
+# row.
+_PREFETCHED_HELPER2_MISSING_KEYS: frozenset[
+    tuple[str, datetime.date, int]
+] = frozenset()
+
+
+def get_prefetched_helper2_missing_keys() -> frozenset[
+    tuple[str, datetime.date, int]
+]:
+    """Return the Helper #2 fill-candidate keys published by the last
+    prefetch (see ``_PREFETCHED_HELPER2_MISSING_KEYS``)."""
+    return _PREFETCHED_HELPER2_MISSING_KEYS
+
+
+# O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/14-DECISIONS.md,
+# owner decision 2026-09-07, plan 14-08): count of source rows this
+# process has resolved via the helper2-wins conflict rule -- both
+# Helper #1 and Helper #2 valid on the same row. Reset at the top of
+# group_source_rows() below, mirroring _PREFETCHED_FROZEN_ROW_KEYS
+# above; read by pipeline/orchestrate.py (plan 14-08 Task 3) via
+# get_helper2_conflict_count() after group_source_rows() returns.
+_HELPER2_CONFLICT_COUNT: int = 0
+
+
+def get_helper2_conflict_count() -> int:
+    """Return the number of rows the last group_source_rows() call
+    resolved via the O-14-A helper2-wins conflict rule."""
+    return _HELPER2_CONFLICT_COUNT
+
+
+def _record_helper2_wins_conflict(
+    *,
+    wr_key: str,
+    week_end_for_key: str,
+    sheet_id: object,
+    leg: str,
+) -> None:
+    """Apply the O-14-A RESOLVED record for one conflicted row.
+
+    O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/14-DECISIONS.md,
+    owner decision 2026-09-07): Helper #2 > Helper #1 > primary foreman.
+    Call exactly once per conflicted row, at the single point per leg
+    (plain or shadow) where both slots would otherwise each emit a key.
+    The Helper #1 claim is dropped for this row only -- logged once with
+    the conflict reason locked in plan 14-01 (``helper2_conflict_hold``),
+    counted, and sent to Sentry with WR / week ending / sheet id / counts
+    only. Never a person's name or any other row value is passed to
+    either the log line or the Sentry call.
+    """
+    global _HELPER2_CONFLICT_COUNT
+    _HELPER2_CONFLICT_COUNT += 1
+    logging.info(
+        f"⚖️ helper2_conflict_hold: WR={wr_key}, Week={week_end_for_key}, "
+        f"leg={leg} -- both Helper #1 and Helper #2 valid on one row; "
+        f"Helper #2 wins per O-14-A (14-DECISIONS.md); the Helper #1 "
+        f"claim is dropped for this row only"
+    )
+    sentry_capture_message_with_context(
+        message=(
+            "helper2_conflict_hold: Helper #2 wins per O-14-A; Helper #1 "
+            "claim dropped for one row"
+        ),
+        level="warning",
+        context_name="helper2_conflict_hold",
+        context_data={
+            "wr": wr_key,
+            "week_ending": week_end_for_key,
+            "sheet_id": sheet_id,
+            "leg": leg,
+            "count": 1,
+        },
+    )
+
+
 def group_source_rows(rows):
     """
     VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper/vac_crew).
@@ -117,8 +198,11 @@ def group_source_rows(rows):
     # INC-05 D-12 follow-up: publish the bulk-prefetch key set for the
     # orchestrator's freeze-row cache warm start. Reset first so a call
     # whose prefetch is disabled or fails never leaks a stale set.
-    global _PREFETCHED_FROZEN_ROW_KEYS
+    global _PREFETCHED_FROZEN_ROW_KEYS, _HELPER2_CONFLICT_COUNT
+    global _PREFETCHED_HELPER2_MISSING_KEYS
     _PREFETCHED_FROZEN_ROW_KEYS = frozenset()
+    _PREFETCHED_HELPER2_MISSING_KEYS = frozenset()
+    _HELPER2_CONFLICT_COUNT = 0
     # Phase 09 W4 (behaviour-preserving relocation): bind the
     # test-mutable / facade-resident constants from the
     # generate_weekly_pdfs facade so test-time rebinds on
@@ -200,12 +284,24 @@ def group_source_rows(rows):
 
         try:
             from billing_audit.writer import (
+                _null_if_named_sentinel,
                 prefetch_attribution as _prefetch_attribution,
             )
             _prefetch_pairs_filtered = {(wr, we) for wr, we, _ in _prefetch_pairs}
             _attr_map, _attr_status = _prefetch_attribution(_prefetch_pairs_filtered)
             if _attr_status == 'success':
                 _PREFETCHED_FROZEN_ROW_KEYS = frozenset(_attr_map)
+                # Plan 14-11 (O-14-C): a prefetched row whose helper2 is
+                # still null/sentinel/absent is a fill candidate. The
+                # deployed lookup_attribution_bulk already nulls both
+                # sentinels and blanks server-side (billing_audit/writer.py
+                # prefetch_attribution), so `.get('helper2')` is either a
+                # real name or None -- a missing key (pre-14-09 shape)
+                # reads as None too, which is the safe (DO NOTHING) default.
+                _PREFETCHED_HELPER2_MISSING_KEYS = frozenset(
+                    _key for _key, _prow in _attr_map.items()
+                    if _null_if_named_sentinel(_prow.get('helper2')) is None
+                )
             if _attr_status == 'fetch_failure':
                 logging.warning(
                     "⚠️ Attribution bulk prefetch failed "
@@ -377,6 +473,14 @@ def group_source_rows(rows):
                     and _r.get('__helper_dept')
                 ):
                     continue
+                # Valid Helper #2 rows are excluded the same way (D-14-06
+                # sibling guard — never merged into the Helper #1 check).
+                if (
+                    _r.get('__is_helper2_row')
+                    and _r.get('__helper2_foreman')
+                    and _r.get('__helper2_dept')
+                ):
+                    continue
                 _sid = _r.get('__source_sheet_id')
                 if _sid is not None and _sid in _discovery._FOLDER_DISCOVERED_SUB_IDS:
                     continue  # subcontractor rows are Sub-project B's domain
@@ -472,7 +576,12 @@ def group_source_rows(rows):
         # Helper row metadata
         is_helper_row = r.get('__is_helper_row', False)
         helper_foreman = r.get('__helper_foreman', '')
-        
+
+        # Helper #2 row metadata (Phase 14, D-14-06) — sibling of the
+        # Helper #1 metadata above, never merged into it.
+        is_helper2_row = r.get('__is_helper2_row', False)
+        helper2_foreman = r.get('__helper2_foreman', '')
+
         # Check if Units Completed? is true/1
         units_completed_checked = is_checked(units_completed)
 
@@ -624,7 +733,18 @@ def group_source_rows(rows):
                     # This allows rows to sync even when Helper Job # is missing
                     if helper_dept:  # helper_job is now optional
                         valid_helper_row = True
-                
+
+                # Check if this is a valid Helper #2 row (Phase 14, D-14-06
+                # sibling of valid_helper_row above — computed identically,
+                # dept required / job optional. RES_GROUPING_MODE is the
+                # SHARED kill switch for both slots; D-14-12 deliberately
+                # does not add a second env var).
+                valid_helper2_row = False
+                if helper_mode_enabled and is_helper2_row and helper2_foreman:
+                    helper2_dept = r.get('__helper2_dept', '')
+                    if helper2_dept:  # helper2_job is optional, like Helper #1
+                        valid_helper2_row = True
+
                 # Primary variant logic
                 if RES_GROUPING_MODE == 'primary':
                     # In primary mode, ALL rows go to main (including helper rows)
@@ -642,7 +762,7 @@ def group_source_rows(rows):
                     # "additive" contract is overridden per D-22;
                     # Living Ledger entry [Phase 1.1 timestamp]
                     # documents the design-intent change.
-                    if not is_subcontractor_row and not valid_helper_row:
+                    if not is_subcontractor_row and not valid_helper_row and not valid_helper2_row:
                         # Subproject D (2026-05-25): partition the
                         # production primary file by the FROZEN primary
                         # claimer. Consume the pre-pass map. ``use`` ->
@@ -679,7 +799,7 @@ def group_source_rows(rows):
                             # Kill switch OFF -> exact legacy bare primary.
                             primary_key = f"{week_end_for_key}_{wr_key}"
                             keys_to_add.append(('primary', primary_key, None))
-                    elif is_subcontractor_row and not valid_helper_row:
+                    elif is_subcontractor_row and not valid_helper_row and not valid_helper2_row:
                         # Diagnostic log only — no group emission.
                         # Operators can confirm the partition is
                         # firing by grepping for this prefix. PII
@@ -690,14 +810,14 @@ def group_source_rows(rows):
                             f"➖ EXCLUDING from main Excel (subcontractor row): "
                             f"WR={wr_key}, Week={week_end_for_key}"
                         )
-                    elif valid_helper_row:
+                    elif valid_helper_row or valid_helper2_row:
                         # UNCHANGED legacy behaviour — helper row
                         # excluded from main Excel regardless of
                         # subcontractor/non-subcontractor.
                         logging.info(f"➖ EXCLUDING from main Excel: WR={wr_key}, Week={week_end_for_key} (Helper row with both checkboxes)")
                 
                 # Helper variant - ONLY created when mode allows it
-                if valid_helper_row and helper_mode_enabled:
+                if valid_helper_row and helper_mode_enabled and not valid_helper2_row:
                     helper_dept = r.get('__helper_dept', '')
                     helper_job = r.get('__helper_job', '')
                     # PERFORMANCE: Use pre-compiled regex for helper name sanitization
@@ -732,6 +852,33 @@ def group_source_rows(rows):
                             f"➖ EXCLUDING from main Excel (subcontractor legacy helper): "
                             f"WR={wr_key}, Week={week_end_for_key}, Helper={helper_foreman}"
                         )
+                elif valid_helper_row and helper_mode_enabled and valid_helper2_row:
+                    # O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/
+                    # 14-DECISIONS.md, owner decision 2026-09-07): both
+                    # slots are valid on this row -- Helper #2 wins, and
+                    # the Helper #1 claim is dropped for this row only.
+                    # The Helper #2 block below still fires unconditionally
+                    # on its own gate and emits the winning key -- this is
+                    # the single point where the plain leg would otherwise
+                    # emit both families' keys for one physical unit.
+                    # Subcontractor rows never emitted a plain 'helper' key
+                    # anyway (see the is_subcontractor_row dispatch above);
+                    # their conflict is recorded exactly once at the
+                    # shadow-leg site instead, so it is never double-counted.
+                    if not is_subcontractor_row:
+                        _record_helper2_wins_conflict(
+                            wr_key=wr_key,
+                            week_end_for_key=week_end_for_key,
+                            sheet_id=r.get('__source_sheet_id'),
+                            leg='plain',
+                        )
+                    else:
+                        logging.debug(
+                            f"➖ EXCLUDING from main Excel (subcontractor "
+                            f"legacy helper, O-14-A conflict recorded at "
+                            f"the shadow leg): WR={wr_key}, "
+                            f"Week={week_end_for_key}"
+                        )
                 elif is_helper_row and not helper_mode_enabled:
                     # In primary mode, helper rows go to main
                     logging.info(f"ℹ️ Helper row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - including in main Excel")
@@ -740,6 +887,44 @@ def group_source_rows(rows):
                     helper_dept = r.get('__helper_dept', '')
                     helper_job = r.get('__helper_job', '')
                     logging.warning(f"⚠️ Helper row for WR {wr_key} missing required Helper Dept # (Job: '{helper_job}') - including in main Excel")
+
+                # Helper #2 variant (Phase 14, D-14-06) — sibling block to
+                # the Helper #1 variant above, NEVER merged into it or into
+                # the ('helper', 'aep_billable_helper', 'reduced_sub_helper')
+                # tuple elsewhere in this module (D-14-11 vocabulary lock).
+                # Fires unconditionally on its own gate -- per O-14-A
+                # RESOLVED (14-DECISIONS.md), Helper #2 always wins when
+                # both slots are valid, so this block needs no conflict
+                # check of its own; the elif above suppresses Helper #1.
+                if valid_helper2_row and helper_mode_enabled:
+                    helper2_dept = r.get('__helper2_dept', '')
+                    helper2_job = r.get('__helper2_job', '')
+                    helper2_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper2_foreman)[:50]
+                    helper2_key = f"{week_end_for_key}_{wr_key}_HELPER2_{helper2_sanitized}"
+                    # Pattern B (the real [2026-05-19 22:00] duplicate-
+                    # billing incident): the subcontractor guard below is
+                    # copied VERBATIM from the Helper #1 emission site
+                    # above — never re-derive it. A subcontractor Helper #2
+                    # row takes the debug-log branch here; its shadow files
+                    # are plan 14-06's work.
+                    if not is_subcontractor_row:
+                        keys_to_add.append(('helper2', helper2_key, helper2_foreman))
+                        logging.info(f"🔧 HELPER2 GROUP CREATED: WR={wr_key}, Week={week_end_for_key}, Helper2={helper2_foreman}, Dept={helper2_dept}, Job={helper2_job}")
+                    else:
+                        logging.debug(
+                            f"➖ EXCLUDING from main Excel (subcontractor legacy helper2): "
+                            f"WR={wr_key}, Week={week_end_for_key}, Helper2={helper2_foreman}"
+                        )
+                elif is_helper2_row and not helper_mode_enabled:
+                    logging.info(f"ℹ️ Helper #2 row found but RES_GROUPING_MODE={RES_GROUPING_MODE} - including in main Excel")
+                elif is_helper2_row:
+                    # Helper #2 row missing required helper2_dept (job optional).
+                    helper2_job = r.get('__helper2_job', '')
+                    logging.warning(
+                        f"⚠️ helper2_missing_dept: Helper #2 row for WR {wr_key} "
+                        f"missing required Helper #2 Dept # (Job: '{helper2_job}') "
+                        f"- including in main Excel"
+                    )
 
             # ── Phase 01 Plan 03 (D-08/D-09/D-13/D-22): Subcontractor
             # rate variants. Per the committed Blocker 3 plumbing
@@ -819,6 +1004,21 @@ def group_source_rows(rows):
                     and bool(r.get('__helper_dept', ''))
                 )
 
+                # Phase 14 (D-14-06): Helper #2 sibling of
+                # ``_sub_is_valid_helper_row`` above, computed identically
+                # from the Helper #2 row metadata written by plan 14-01. A
+                # subcontractor row with a valid Helper #2 completion must
+                # ALSO be excluded from the primary _REDUCEDSUB_USER_ /
+                # _AEPBILLABLE_USER_ emission below -- it belongs solely to
+                # the Helper #2 shadow files added further down.
+                _sub_is_valid_helper2_row = (
+                    not is_vac_crew_row
+                    and RES_GROUPING_MODE in ('helper', 'both')
+                    and is_helper2_row
+                    and bool(helper2_foreman)
+                    and bool(r.get('__helper2_dept', ''))
+                )
+
                 # Subproject B: resolve the FROZEN primary claimer from
                 # the pre-pass map. ``use`` -> partition by the claimer;
                 # ``hold`` -> defer this row's primary variants this run
@@ -830,7 +1030,7 @@ def group_source_rows(rows):
                 # ``if _b_primary_claimer is not None`` gate below and
                 # suppresses the primary _USER_ emission.
                 _b_primary_claimer = None
-                if not _sub_is_valid_helper_row:
+                if not _sub_is_valid_helper_row and not _sub_is_valid_helper2_row:
                     _b_outcome = _sub_primary_claimer_map.get(r.get('__row_id'))
                     if _b_outcome is not None and _b_outcome.action == 'hold':
                         _b_primary_claimer = None
@@ -944,7 +1144,15 @@ def group_source_rows(rows):
                         _helper_dept_local = r.get('__helper_dept', '')
                         if _helper_dept_local:
                             _valid_helper_row = True
-                    if _valid_helper_row and _helper_mode_enabled:
+
+                    # Phase 14 (D-14-06): Helper #2 sibling of
+                    # ``_valid_helper_row`` above, computed identically.
+                    _valid_helper2_row = False
+                    if _helper_mode_enabled and is_helper2_row and helper2_foreman:
+                        _helper2_dept_local = r.get('__helper2_dept', '')
+                        if _helper2_dept_local:
+                            _valid_helper2_row = True
+                    if _valid_helper_row and _helper_mode_enabled and not _valid_helper2_row:
                         # Phase 1.1 Bug C (D-10..D-16 / SUB-11):
                         # per-row claim-history attribution. For
                         # subcontractor rows ONLY (D-15), partition
@@ -1184,6 +1392,191 @@ def group_source_rows(rows):
                                     f"💲 AEP BILLABLE HELPER GROUP CREATED: "
                                     f"WR={wr_key}, Week={week_end_for_key}, "
                                     f"Helper={_attributed_helper}"
+                                )
+                    elif _valid_helper_row and _helper_mode_enabled and _valid_helper2_row:
+                        # O-14-A RESOLVED (.planning/phases/14-foreman-helper-2/
+                        # 14-DECISIONS.md): subcontractor sibling of the
+                        # plain-leg conflict site above -- same rule, same
+                        # helper function. Every row reaching this shadow
+                        # block is already a subcontractor row (the outer
+                        # is_subcontractor_row gate further up), so this is
+                        # the SOLE place a subcontractor conflicted row's
+                        # conflict is recorded -- the plain-leg site defers
+                        # subcontractor rows here to avoid double counting.
+                        _record_helper2_wins_conflict(
+                            wr_key=wr_key,
+                            week_end_for_key=week_end_for_key,
+                            sheet_id=r.get('__source_sheet_id'),
+                            leg='shadow',
+                        )
+
+                    if _valid_helper2_row and _helper_mode_enabled:
+                        # Phase 14 (D-14-06): sibling of the Helper #1
+                        # shadow block above -- NEVER merged into it.
+                        # Mirrors the same claim-history attribution flow
+                        # (per-WR dedupe set, attribution-reason /
+                        # remediation branching, group-created logging)
+                        # but resolves through the Helper #2 role
+                        # (billing_audit.ROLE_BY_VARIANT['helper2'], plan
+                        # 14-03) so a Helper #2 shadow file partitions by
+                        # the FROZEN Helper #2 claimer, not the primary or
+                        # Helper #1 claimer.
+                        _attributed_helper2 = helper2_foreman  # D-12 default
+                        _attribution_reason2 = None  # str | None, unannotated: this
+                        # function is unchecked by mypy (Gate 4 baseline), and a
+                        # local PEP 526 annotation here would add a NEW
+                        # "annotation-unchecked" note line, tripping the strict
+                        # mypy-delta gate over a purely informational note.
+                        if (
+                            is_subcontractor_row
+                            and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                            and (
+                                _attr_status in ('fetch_failure', 'unavailable')
+                                or (
+                                    _attr_status == 'rpc_missing'
+                                    and not ATTRIBUTION_BULK_PREFETCH_FALLBACK
+                                )
+                            )
+                        ):
+                            _attribution_reason2 = (
+                                'unavailable'
+                                if _attr_status == 'unavailable'
+                                else 'fetch_failure'
+                            )
+                        elif (
+                            is_subcontractor_row
+                            and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                        ):
+                            try:
+                                from billing_audit.writer import (
+                                    resolve_claimer as _resolve_claimer_sh2,
+                                )
+                                _sh2_rid = r.get('__row_id')
+                                _sh2_out = _resolve_claimer_sh2(
+                                    'helper2', helper2_foreman,
+                                    wr=wr_key,
+                                    week_ending=week_ending_date,
+                                    row_id=_sh2_rid,
+                                    enabled=SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED,
+                                    prefetched_map=(
+                                        None if _attr_use_per_row_fallback
+                                        else _attr_map
+                                    ),
+                                )
+                                if _sh2_out.action == 'use':
+                                    _attributed_helper2 = (
+                                        _sh2_out.name or helper2_foreman
+                                    )
+                                    _attribution_reason2 = (
+                                        'no_history'
+                                        if _sh2_out.reason == 'no_history'
+                                        else None
+                                    )
+                                elif _sh2_out.action == 'hold':
+                                    _attribution_reason2 = 'fetch_failure'
+                                else:
+                                    _attribution_reason2 = (
+                                        _sh2_out.reason
+                                        if _sh2_out.reason in ('no_history', 'fetch_failure')
+                                        else None
+                                    )
+                            except Exception:
+                                logging.exception(
+                                    "⚠️ Subcontractor helper2 claim "
+                                    "attribution map-read: unexpected "
+                                    "error (treating as fetch_failure)"
+                                )
+                                _attribution_reason2 = 'fetch_failure'
+
+                        if (
+                            is_subcontractor_row
+                            and SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED
+                            and _attribution_reason2 in (
+                                'no_history', 'fetch_failure', 'unavailable'
+                            )
+                        ):
+                            _warning_helper2_key = _RE_SANITIZE_HELPER_NAME.sub(
+                                '_', helper2_foreman
+                            )[:50]
+                            _warning_key2 = (
+                                wr_key, week_end_for_key, _warning_helper2_key
+                            )
+                            if _warning_key2 not in _bug_c_warning_seen:
+                                _bug_c_warning_seen.add(_warning_key2)
+                                if _attribution_reason2 == 'fetch_failure':
+                                    _remediation2 = (
+                                        "To investigate: check Supabase Logs "
+                                        "for PGRST106/PGRST301/PGRST404 on the "
+                                        "'lookup_attribution' op."
+                                    )
+                                elif _attribution_reason2 == 'unavailable':
+                                    _remediation2 = (
+                                        "The Supabase attribution store is "
+                                        "unavailable (no client configured), so "
+                                        "no attribution can be frozen this run. "
+                                        "Verify SUPABASE_* configuration if "
+                                        "frozen attribution was expected; "
+                                        "otherwise this is expected (e.g. local "
+                                        "/ TEST_MODE)."
+                                    )
+                                else:  # no_history
+                                    _remediation2 = (
+                                        "No frozen attribution exists yet (or "
+                                        "the frozen value is a placeholder such "
+                                        "as 'Unknown Foreman', which is never "
+                                        "honored — Phase 12 / OWN-02). This run "
+                                        "freezes the current name if any role "
+                                        "holds a real person; no action needed "
+                                        "unless a prior frozen claim was "
+                                        "expected for this helper."
+                                    )
+                                logging.warning(
+                                    f"⚠️ Subcontractor helper2 claim "
+                                    f"attribution fallback for "
+                                    f"WR={wr_key} week={week_end_for_key} "
+                                    f"helper2={_warning_helper2_key} "
+                                    f"(reason={_attribution_reason2}). "
+                                    f"Helper2 file rows will fall back to "
+                                    f"the current `Foreman Helping? #2` "
+                                    f"value. {_remediation2}"
+                                )
+
+                        _helper2_sanitized = (
+                            _RE_SANITIZE_HELPER_NAME.sub('_', _attributed_helper2)[:50]
+                        )
+                        rs_helper2_key = (
+                            f"{week_end_for_key}_{wr_key}_REDUCEDSUB_HELPER2_"
+                            f"{_helper2_sanitized}"
+                        )
+                        keys_to_add.append(
+                            ('reduced_sub_helper2', rs_helper2_key, _attributed_helper2)
+                        )
+                        if rs_helper2_key not in groups:
+                            logging.info(
+                                f"🔻 REDUCED SUB HELPER2 GROUP CREATED: "
+                                f"WR={wr_key}, Week={week_end_for_key}, "
+                                f"Helper2={_attributed_helper2}"
+                            )
+                        if (
+                            _snap_for_cutoff is not None
+                            and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
+                        ):
+                            aep_helper2_key = (
+                                f"{week_end_for_key}_{wr_key}_AEPBILLABLE_HELPER2_"
+                                f"{_helper2_sanitized}"
+                            )
+                            keys_to_add.append(
+                                (
+                                    'aep_billable_helper2',
+                                    aep_helper2_key,
+                                    _attributed_helper2,
+                                )
+                            )
+                            if aep_helper2_key not in groups:
+                                logging.info(
+                                    f"💲 AEP BILLABLE HELPER2 GROUP CREATED: "
+                                    f"WR={wr_key}, Week={week_end_for_key}, "
+                                    f"Helper2={_attributed_helper2}"
                                 )
 
             # Add row to all applicable groups

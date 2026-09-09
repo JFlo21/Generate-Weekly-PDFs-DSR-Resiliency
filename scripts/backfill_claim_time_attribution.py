@@ -160,6 +160,18 @@ _VARIANT_FILENAME_TOKENS: dict[str, str] = {
 # (see tests/test_sentinel_superseded_cleanup.py's fixture filenames).
 _FILENAME_HASH_SUFFIX_RE = re.compile(r"_[0-9a-fA-F]{6}\.xlsx$")
 
+# Matches a trailing document extension from a CLOSED, deliberately
+# narrow set (G-12-3). Live filenames written by
+# scripts/publish_artifacts_to_supabase.py::_parse_stable carry no hash
+# tail, so the bare ".xlsx" extension survives past the hash-suffix
+# strip in _extract_claimer_from_filename unless removed here too. A
+# generic `\.[A-Za-z]{1,5}$` pattern would also eat the tail of an
+# initialled human name, so this is restricted to real document
+# extensions only.
+_FILENAME_DOC_EXTENSION_RE = re.compile(
+    r"\.(?:xlsx|xlsm|xls|csv|pdf|json)$", re.IGNORECASE
+)
+
 # The pre-defect cutoff (living-ledger [2026-08-24 14:35]): source 4
 # prefers a candidate observed BEFORE this instant, since the defect
 # that froze sentinels in the first place started around this date.
@@ -978,18 +990,30 @@ def resolve_source_2(
 # classify a row -- only to recover the sanitized name segment.
 
 def _extract_claimer_from_filename(filename: str, token: str) -> str | None:
-    """Recover the sanitized name segment between *token* and the
-    trailing ``_<hash>.xlsx`` suffix. Returns ``None`` when *token* is
-    absent or the segment is empty (e.g. a bare ``_VacCrew`` filename
-    with no name, per pipeline/excel.py's disabled-mode suffix)."""
+    """Recover the sanitized name segment between *token* and either the
+    trailing ``_<hash>.xlsx`` suffix (legacy pipeline output) or a
+    trailing document extension (the live shape, which carries no hash
+    tail -- G-12-3). Returns ``None`` when *token* is absent, the
+    segment is empty (e.g. a bare ``_VacCrew`` filename with no name,
+    per pipeline/excel.py's disabled-mode suffix), or the recovered
+    segment still ends in a document extension after one strip -- such
+    a candidate is not a person and must never reach
+    ``_resolve_single_name``."""
     idx = filename.find(token)
     if idx == -1:
         return None
     remainder = filename[idx + len(token):]
     match = _FILENAME_HASH_SUFFIX_RE.search(remainder)
-    name_part = remainder[: match.start()] if match else remainder
+    if match:
+        name_part = remainder[: match.start()]
+    else:
+        name_part = _FILENAME_DOC_EXTENSION_RE.sub("", remainder, count=1)
     name_part = name_part.strip("_")
-    return name_part or None
+    if not name_part:
+        return None
+    if _FILENAME_DOC_EXTENSION_RE.search(name_part):
+        return None
+    return name_part
 
 
 def _fetch_artifacts_rows(
@@ -1252,10 +1276,20 @@ def _build_apply_payload(
     matching ``_discover_sentinel_targets``'s targeting rule so the
     apply path never writes a proposal derived from a role that was
     never populated in the first place.
+
+    G-12-3: the guard now ALSO covers ``proposed_value``, not just
+    ``current_value``. A row is additionally skipped when its
+    ``proposed_value`` is itself a sentinel (``is_sentinel_claimer``)
+    or still carries a document extension (``_FILENAME_DOC_EXTENSION_RE``
+    -- belt and braces against any future source that leaks a filename
+    fragment). Skipped rows are never logged individually: report
+    values are claimer PII, so only an aggregate count is emitted via
+    one WARNING before this function returns.
     """
     from billing_audit.writer import is_sentinel_claimer
 
     payload: list[dict[str, Any]] = []
+    skipped_proposed_value_guard = 0
     for row in report_rows:
         if row.get("status") != "proposed":
             continue
@@ -1265,6 +1299,12 @@ def _build_apply_payload(
         else:
             is_target = _is_named_sentinel(current_value)
         if not is_target:
+            continue
+        proposed = row.get("proposed_value")
+        if is_sentinel_claimer(proposed) or _FILENAME_DOC_EXTENSION_RE.search(
+            str(proposed)
+        ):
+            skipped_proposed_value_guard += 1
             continue
         payload.append(
             {
@@ -1276,6 +1316,13 @@ def _build_apply_payload(
                 "backfill_source": row["source"],
                 "backfill_run_id": run_id,
             }
+        )
+    if skipped_proposed_value_guard:
+        logging.warning(
+            "⚠️ _build_apply_payload (G-12-3 guard) skipped "
+            f"{skipped_proposed_value_guard} proposed row(s) whose "
+            "proposed_value was a sentinel or carried a document "
+            "extension -- values are never logged."
         )
     return payload
 

@@ -1,0 +1,987 @@
+diff --git a/billing_audit/writer.py b/billing_audit/writer.py
+index 9d85b10..6b6bedf 100644
+--- a/billing_audit/writer.py
++++ b/billing_audit/writer.py
+@@ -981,6 +981,9 @@ ROLE_BY_VARIANT: dict[str, str] = {
+     "helper": "helper",
+     "reduced_sub_helper": "helper",
+     "aep_billable_helper": "helper",
++    "helper2": "helper",
++    "reduced_sub_helper2": "helper",
++    "aep_billable_helper2": "helper",
+     "vac_crew": "vac_crew",
+ }
+ 
+diff --git a/generate_weekly_pdfs.py b/generate_weekly_pdfs.py
+index 8f1e1c4..291c5f3 100644
+--- a/generate_weekly_pdfs.py
++++ b/generate_weekly_pdfs.py
+@@ -117,6 +117,9 @@ from pipeline.config import (  # noqa: E402
+     GITHUB_ACTIONS_MODE,
+     HASH_HISTORY_PATH,
+     HISTORY_SKIP_ENABLED,
++    HELPER2_ENABLED,
++    HELPER2_JOB_PRODUCER_PROVEN,
++    HELPER2_SOURCE_PROVEN,
+     KEEP_HISTORICAL_WEEKS,
+     LEGACY_PRIMARY_PARTITION_CLEANUP_ENABLED,
+     LOGO_PATH,
+diff --git a/pipeline/attribution.py b/pipeline/attribution.py
+index dbf364c..1601c10 100644
+--- a/pipeline/attribution.py
++++ b/pipeline/attribution.py
+@@ -105,6 +105,7 @@ BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES = 200000
+ _SUBCONTRACTOR_SCOPE_VARIANTS = frozenset({
+     'reduced_sub', 'aep_billable',
+     'reduced_sub_helper', 'aep_billable_helper',
++    'reduced_sub_helper2', 'aep_billable_helper2',
+ })
+ 
+ 
+diff --git a/pipeline/change_detection.py b/pipeline/change_detection.py
+index 14572bb..84b0ebd 100644
+--- a/pipeline/change_detection.py
++++ b/pipeline/change_detection.py
+@@ -36,6 +36,7 @@ from typing import Any
+ 
+ from pipeline.config import RESET_HASH_HISTORY
+ from pipeline.pricing import parse_price
++from pipeline.types import HELPER2_VARIANTS, HELPER_VARIANTS
+ from pipeline.utils import is_checked
+ 
+ logger = logging.getLogger(__name__)
+@@ -218,7 +219,7 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
+     variant = group_variant
+     meta_parts.append(f"VARIANT={variant}")
+ 
+-    if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
++    if variant in HELPER_VARIANTS:
+         # Helper-style variants: include helper-specific metadata
+         # (helper_job is OPTIONAL). The plain helper group key is
+         # `_HELPER_{helper}` and the new Phase 01 subcontractor
+@@ -239,6 +240,11 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
+         meta_parts.append(f"HELPER={helper_foreman}")
+         meta_parts.append(f"HELPER_DEPT={helper_dept}")
+         meta_parts.append(f"HELPER_JOB={helper_job}")  # Include even if empty for hash consistency
++        if variant in HELPER2_VARIANTS:
++            meta_parts.append("HELPER_ROLE=2")
++            meta_parts.append(
++                f"HELPER_EMAIL={_first.get('__helper_email', '')}"
++            )
+     # vac_crew variant intentionally has no meta_parts block: VAC crew
+     # name/dept/job are already captured per-row in the row_str loop above,
+     # which is strictly more sensitive than meta_parts aggregation and is not
+@@ -270,6 +276,8 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
+         'reduced_sub',
+         'aep_billable_helper',
+         'reduced_sub_helper',
++        'aep_billable_helper2',
++        'reduced_sub_helper2',
+     ):
+         if _SUBCONTRACTOR_RATES_FINGERPRINT:
+             meta_parts.append(
+@@ -321,7 +329,7 @@ def _compute_aggregated_content_hash(rows: list[dict]) -> str:
+     parts: list[str] = []
+     for v in sorted(by_variant.keys()):
+         variant_rows = by_variant[v]
+-        if v == 'helper':
++        if v == 'helper' or v in HELPER2_VARIANTS:
+             # Sub-bucket by helper identity to match the per-
+             # foreman group structure assumed by
+             # calculate_data_hash's helper branch.
+@@ -554,7 +562,14 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
+     # TestBuildGroupIdentityWithUnderscoresInWr.
+     _reserved_positions = {
+         _tok: tail.index(_tok)
+-        for _tok in ('AEPBillable', 'ReducedSub', 'VacCrew', 'Helper', 'User')
++        for _tok in (
++            'AEPBillable',
++            'ReducedSub',
++            'VacCrew',
++            'Helper2',
++            'Helper',
++            'User',
++        )
+         if _tok in tail
+     }
+     _first_marker = (
+@@ -572,7 +587,12 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
+             # the identifier is everything after the marker.
+             variant = 'aep_billable'
+             identifier = '_'.join(post_aep[1:])
+-        elif 'Helper' in post_aep:
++        elif post_aep and post_aep[0] == 'Helper2':
++            variant = 'aep_billable_helper2'
++            helper_idx_rel = post_aep.index('Helper2')
++            if helper_idx_rel + 1 < len(post_aep):
++                identifier = '_'.join(post_aep[helper_idx_rel + 1:])
++        elif post_aep and post_aep[0] == 'Helper':
+             variant = 'aep_billable_helper'
+             helper_idx_rel = post_aep.index('Helper')
+             if helper_idx_rel + 1 < len(post_aep):
+@@ -587,7 +607,12 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
+         if post_rs and post_rs[0] == 'User':
+             variant = 'reduced_sub'
+             identifier = '_'.join(post_rs[1:])
+-        elif 'Helper' in post_rs:
++        elif post_rs and post_rs[0] == 'Helper2':
++            variant = 'reduced_sub_helper2'
++            helper_idx_rel = post_rs.index('Helper2')
++            if helper_idx_rel + 1 < len(post_rs):
++                identifier = '_'.join(post_rs[helper_idx_rel + 1:])
++        elif post_rs and post_rs[0] == 'Helper':
+             variant = 'reduced_sub_helper'
+             helper_idx_rel = post_rs.index('Helper')
+             if helper_idx_rel + 1 < len(post_rs):
+@@ -604,6 +629,11 @@ def build_group_identity(filename: str) -> tuple[str, str, str, str | None] | No
+         identifier = ''  # legacy _VacCrew (no name) -> '' per identity contract
+         if vac_idx_rel + 1 < len(tail):
+             identifier = '_'.join(tail[vac_idx_rel + 1:])
++    elif _first_marker == 'Helper2':
++        variant = 'helper2'
++        helper_idx_rel = tail.index('Helper2')
++        if helper_idx_rel + 1 < len(tail):
++            identifier = '_'.join(tail[helper_idx_rel + 1:])
+     elif _first_marker == 'Helper':
+         variant = 'helper'
+         helper_idx_rel = tail.index('Helper')
+diff --git a/pipeline/cleanup.py b/pipeline/cleanup.py
+index 72041b7..3e6b934 100644
+--- a/pipeline/cleanup.py
++++ b/pipeline/cleanup.py
+@@ -371,7 +371,9 @@ def cleanup_untracked_sheet_attachments(
+                     # would risk deleting a primary that is still valid but just
+                     # not regenerated in this run.
+                     _HELPER_VARIANTS_FOR_ORPHAN_GATE = frozenset({
+-                        'helper', 'aep_billable_helper', 'reduced_sub_helper'
++                        'helper', 'aep_billable_helper', 'reduced_sub_helper',
++                        'helper2', 'aep_billable_helper2',
++                        'reduced_sub_helper2',
+                     })
+                     if (
+                         variant == 'primary'
+diff --git a/pipeline/config.py b/pipeline/config.py
+index 081fac9..13ada5e 100644
+--- a/pipeline/config.py
++++ b/pipeline/config.py
+@@ -42,6 +42,23 @@ if RES_GROUPING_MODE not in ('primary', 'helper', 'both'):
+     logging.warning(f"⚠️ Invalid RES_GROUPING_MODE '{RES_GROUPING_MODE}'; defaulting to 'both'")
+     RES_GROUPING_MODE = 'both'
+ 
++# Helper #2 is additive and remains dormant until its Smartsheet source,
++# job-number producer, and dual-completion rules are approved in production.
++HELPER2_ENABLED = os.getenv('HELPER2_ENABLED', 'false').lower() == 'true'
++HELPER2_SOURCE_PROVEN = (
++    os.getenv('HELPER2_SOURCE_PROVEN', 'false').lower() == 'true'
++)
++HELPER2_JOB_PRODUCER_PROVEN = (
++    os.getenv('HELPER2_JOB_PRODUCER_PROVEN', 'false').lower() == 'true'
++)
++if HELPER2_ENABLED and not (
++    HELPER2_SOURCE_PROVEN and HELPER2_JOB_PRODUCER_PROVEN
++):
++    raise RuntimeError(
++        'HELPER2_ENABLED requires HELPER2_SOURCE_PROVEN=true and '
++        'HELPER2_JOB_PRODUCER_PROVEN=true'
++    )
++
+ # Activity log-based foreman assignment has been removed - we now use helper column logic only
+ 
+ # Skip Smartsheet uploads for local testing (files still saved to OUTPUT_FOLDER)
+@@ -196,7 +213,9 @@ DISCOVERY_CACHE_PATH = os.path.join(OUTPUT_FOLDER, 'discovery_cache.json')
+ # Also bump when a known bug would leave existing caches with incorrect mappings —
+ # invalidating the cache is cheaper than waiting up to DISCOVERY_CACHE_TTL_MIN
+ # (7 days by default) for those mappings to refresh on their own.
+-DISCOVERY_CACHE_VERSION = 4  # v4: fuzzy VAC Crew column fallback — invalidate caches whose column_mapping missed title variants like trailing whitespace or case drift
++# Keep the legacy cache byte-compatible while Helper #2 is dormant. Enabling
++# the role advances the schema and forces one fresh column discovery.
++DISCOVERY_CACHE_VERSION = 5 if HELPER2_ENABLED else 4
+ 
+ # Verbose debug tunables
+ DEBUG_SAMPLE_ROWS = int(os.getenv('DEBUG_SAMPLE_ROWS','3') or 3)  # How many initial rows (across all sheets) to show full per-cell mapping
+diff --git a/pipeline/discovery.py b/pipeline/discovery.py
+index 80c9c72..8d0c99e 100644
+--- a/pipeline/discovery.py
++++ b/pipeline/discovery.py
+@@ -40,6 +40,7 @@ from pipeline.config import (
+     DISCOVERY_CACHE_PATH,
+     DISCOVERY_CACHE_TTL_MIN,
+     DISCOVERY_CACHE_VERSION,
++    HELPER2_ENABLED,
+     PARALLEL_WORKERS_DISCOVERY,
+     _parse_sheet_ids,
+ )
+@@ -514,6 +515,21 @@ def discover_source_sheets(client):
+                 'Vac Crew Email Address':'Vac Crew Email Address',
+                 'VAC Crew Email Address':'Vac Crew Email Address', # Case variant
+             }
++            if HELPER2_ENABLED:
++                # Keep Helper #2 completely out of the legacy read payload.
++                synonyms.update({
++                    'Foreman Helper #2 Email': 'Foreman Helper #2 Email',
++                    'Foreman Helping? #2': 'Foreman Helping? #2',
++                    'Foreman Helper #2 Active?': (
++                        'Foreman Helper #2 Active?'
++                    ),
++                    'Helping Foreman #2 Completed Unit?': (
++                        'Helping Foreman #2 Completed Unit?'
++                    ),
++                    'Helper #2 Dept #': 'Helper #2 Dept #',
++                    'Helper #2 Job [#]': 'Helper #2 Job #',
++                    'Helper #2 Job #': 'Helper #2 Job #',
++                })
+             # COLUMN MAPPING DEBUG: Log all column titles to verify helper and VAC Crew columns
+             helper_columns_found = []
+             vac_crew_columns_found = []
+diff --git a/pipeline/excel.py b/pipeline/excel.py
+index 305920a..eab7a6d 100644
+--- a/pipeline/excel.py
++++ b/pipeline/excel.py
+@@ -277,7 +277,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
+             wr_num,
+             week_end_raw,
+         )
+-    elif variant == 'aep_billable_helper':
++    elif variant in ('aep_billable_helper', 'aep_billable_helper2'):
+         helper_foreman = first_row.get('__helper_foreman', '')
+         if not helper_foreman:
+             # Phase 01 gap closure (REVIEW-WR-03): the upstream
+@@ -304,8 +304,13 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
+                 f"for WR={wr_num} week={week_end_raw}"
+             )
+         helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+-        variant_suffix = f"_AEPBillable_Helper_{helper_sanitized}"
+-    elif variant == 'reduced_sub_helper':
++        helper_token = (
++            'Helper2' if variant == 'aep_billable_helper2' else 'Helper'
++        )
++        variant_suffix = (
++            f"_AEPBillable_{helper_token}_{helper_sanitized}"
++        )
++    elif variant in ('reduced_sub_helper', 'reduced_sub_helper2'):
+         helper_foreman = first_row.get('__helper_foreman', '')
+         if not helper_foreman:
+             # WR-03 mirror of the aep_billable_helper defensive raise.
+@@ -320,7 +325,10 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
+                 f"for WR={wr_num} week={week_end_raw}"
+             )
+         helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+-        variant_suffix = f"_ReducedSub_Helper_{helper_sanitized}"
++        helper_token = (
++            'Helper2' if variant == 'reduced_sub_helper2' else 'Helper'
++        )
++        variant_suffix = f"_ReducedSub_{helper_token}_{helper_sanitized}"
+     # WR-03 follow-up tech-debt: the legacy ``helper`` branch below has
+     # the same shape (silent fallthrough if __helper_foreman is empty)
+     # but is out of scope for this gap-closure plan per 01-REVIEW.md
+@@ -340,6 +348,17 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
+             # PERFORMANCE: Use pre-compiled regex for filename sanitization
+             helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', helper_foreman)[:50]
+             variant_suffix = f"_Helper_{helper_sanitized}"
++    elif variant == 'helper2':
++        helper_foreman = first_row.get('__helper_foreman', '')
++        if not helper_foreman:
++            raise ValueError(
++                'helper2 requires __helper_foreman; got empty for '
++                f'WR={wr_num} week={week_end_raw}'
++            )
++        helper_sanitized = _RE_SANITIZE_HELPER_NAME.sub(
++            '_', helper_foreman
++        )[:50]
++        variant_suffix = f"_Helper2_{helper_sanitized}"
+     elif variant == 'vac_crew':
+         # Subproject C: suffix is GATED on the kill switch.
+         # Enabled mode: per-claimer _VacCrew_<name> so each foreman's file is
+@@ -540,12 +559,17 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
+     # Determine display values based on variant
+     variant = first_row.get('__variant', 'primary')
+     
+-    if variant == 'helper':
++    if variant in ('helper', 'helper2'):
+         # Helper variant: show helper foreman and helper-specific dept/job (REQUIRED)
+         display_foreman = first_row.get('__helper_foreman', 'Unknown Helper')
+         display_dept = first_row.get('__helper_dept', '')
+         display_job = first_row.get('__helper_job', '')
+-    elif variant in ('reduced_sub_helper', 'aep_billable_helper'):
++    elif variant in (
++        'reduced_sub_helper',
++        'aep_billable_helper',
++        'reduced_sub_helper2',
++        'aep_billable_helper2',
++    ):
+         # Subcontractor helper-shadow variants: the line items belong to the
+         # helper, so Dept # / Job # MUST come from the helper fields
+         # (operator requirement 2026-05-21 — helper files show Helper Dept #,
+diff --git a/pipeline/fetch.py b/pipeline/fetch.py
+index bffa168..336475f 100644
+--- a/pipeline/fetch.py
++++ b/pipeline/fetch.py
+@@ -53,6 +53,7 @@ from pipeline.utils import (
+     excel_serial_to_date,
+     is_checked,
+ )
++from pipeline.types import extract_contact_emails, normalize_helper_value
+ from pipeline.observability import (
+     _redact_exception_message,
+     sentry_add_breadcrumb,
+@@ -99,6 +100,7 @@ def get_all_source_rows(client, source_sheets):
+     # SUBCONTRACTOR_SHEET_IDS / _FOLDER_DISCOVERED_ORIG_IDS bindings are seen.
+     # _RATES_FINGERPRINT stays this module's own global (rebound below).
+     import generate_weekly_pdfs as _gwp  # noqa: PLC0415
++    HELPER2_ENABLED = _gwp.HELPER2_ENABLED
+     RATE_CUTOFF_DATE = _gwp.RATE_CUTOFF_DATE
+     RATE_RECALC_SKIP_ORIGINAL_CONTRACT = _gwp.RATE_RECALC_SKIP_ORIGINAL_CONTRACT
+     SUBCONTRACTOR_RATE_RECALC_PREACCEPTANCE_ENABLED = (
+@@ -191,11 +193,19 @@ def get_all_source_rows(client, source_sheets):
+                     # timeouts, network drops) before the existing per-sheet
+                     # handler drops the sheet. Bounded total backoff respects
+                     # PARALLEL_WORKERS / TIME_BUDGET (see pipeline.retry).
++                    _sheet_fetch_kwargs = {
++                        'column_ids': required_column_ids,
++                    }
++                    if (
++                        HELPER2_ENABLED
++                        and 'Foreman Helper #2 Email' in column_mapping
++                    ):
++                        _sheet_fetch_kwargs['include'] = 'objectValue'
+                     sheet = smartsheet_call_with_retry(
+                         client.Sheets.get_sheet,
+                         source['id'],
+-                        column_ids=required_column_ids,
+                         label=f"fetch sheet {source['name']}",
++                        **_sheet_fetch_kwargs,
+                     )
+                     api_span.set_data("sheet_id", source['id'])
+                     api_span.set_data("sheet_name", source['name'])
+@@ -227,6 +237,24 @@ def get_all_source_rows(client, source_sheets):
+                 else:
+                     logging.info(f"ℹ️ No helper columns found in {source['name']} - helper detection disabled for this sheet")
+ 
++                helper2_columns = [
++                    'Foreman Helper #2 Email',
++                    'Foreman Helping? #2',
++                    'Foreman Helper #2 Active?',
++                    'Helping Foreman #2 Completed Unit?',
++                    'Helper #2 Dept #',
++                    'Helper #2 Job #',
++                ]
++                found_helper2_cols = [
++                    col for col in helper2_columns if col in column_mapping
++                ]
++                if HELPER2_ENABLED and found_helper2_cols:
++                    logging.info(
++                        "Helper #2 columns found in %s: %s",
++                        source['name'],
++                        found_helper2_cols,
++                    )
++
+                 # VAC CREW DETECTION: Check if VAC Crew columns are present (row-level detection)
+                 vac_crew_columns = ['VAC Crew Helping?', 'Vac Crew Completed Unit?', 'VAC Crew Dept #', 'Vac Crew Job #']
+                 found_vac_crew_cols = [col for col in vac_crew_columns if col in column_mapping]
+@@ -281,6 +309,14 @@ def get_all_source_rows(client, source_sheets):
+                             raw_val = getattr(cell, 'value', None)
+                             if raw_val is None:
+                                 raw_val = getattr(cell, 'display_value', None)
++                            if (
++                                HELPER2_ENABLED
++                                and mapped_name == 'Foreman Helper #2 Email'
++                            ):
++                                raw_val = extract_contact_emails(
++                                    getattr(cell, 'object_value', None),
++                                    raw_val,
++                                )
+                             row_data[mapped_name] = raw_val
+ 
+                     # Attach provenance metadata for audit (used to fetch selective cell history later)
+@@ -534,6 +570,51 @@ def get_all_source_rows(client, source_sheets):
+                                     logging.info(f"🔧 HELPER ROW DETECTED [Row {sheet_row_counter+1}]: WR={wr_key_for_diag}, Helper={helper_name}, Dept={row_data['__helper_dept']}, Job={row_data['__helper_job']}")
+                             else:
+                                 row_data['__is_helper_row'] = False
++
++                            if HELPER2_ENABLED:
++                                row_data['__is_helper2_row'] = False
++                                row_data['__helper2_foreman'] = ''
++                                row_data['__helper2_email'] = ''
++                                row_data['__helper2_dept'] = ''
++                                row_data['__helper2_job'] = ''
++                                helper2_name = normalize_helper_value(
++                                    row_data.get('Foreman Helping? #2')
++                                )
++                                helper2_completed = is_checked(
++                                    row_data.get(
++                                        'Helping Foreman #2 Completed Unit?'
++                                    )
++                                )
++                                is_helper2_row = bool(
++                                    helper2_name
++                                    and helper2_completed
++                                    and units_completed_checked
++                                )
++                                row_data['__is_helper2_row'] = is_helper2_row
++                                if is_helper2_row:
++                                    row_data['__helper2_foreman'] = helper2_name
++                                    row_data['__helper2_email'] = (
++                                        normalize_helper_value(
++                                            row_data.get(
++                                                'Foreman Helper #2 Email'
++                                            )
++                                        )
++                                    )
++                                    row_data['__helper2_dept'] = (
++                                        normalize_helper_value(
++                                            row_data.get('Helper #2 Dept #')
++                                        )
++                                    )
++                                    row_data['__helper2_job'] = (
++                                        normalize_helper_value(
++                                            row_data.get('Helper #2 Job #')
++                                        )
++                                    )
++
++                                row_data['__helper_completion_conflict'] = bool(
++                                    row_data.get('__is_helper_row')
++                                    and row_data.get('__is_helper2_row')
++                                )
+                             
+                             # Direct column-based foreman assignment
+                             effective_user = None
+diff --git a/pipeline/grouping.py b/pipeline/grouping.py
+index 772ff66..39f2aee 100644
+--- a/pipeline/grouping.py
++++ b/pipeline/grouping.py
+@@ -37,6 +37,7 @@ from pipeline.config import (
+ )
+ from pipeline.observability import sentry_capture_message_with_context
+ from pipeline.pricing import parse_price
++from pipeline.types import HELPER2_VARIANTS, HelperAssignmentConflictError
+ from pipeline.utils import (
+     excel_serial_to_date,
+     is_checked,
+@@ -107,6 +108,7 @@ def group_source_rows(rows):
+     ATTRIBUTION_BULK_PREFETCH_FALLBACK = _gwp.ATTRIBUTION_BULK_PREFETCH_FALLBACK
+     BILLING_AUDIT_AVAILABLE = _gwp.BILLING_AUDIT_AVAILABLE
+     EXCLUDE_WRS = _gwp.EXCLUDE_WRS
++    HELPER2_ENABLED = _gwp.HELPER2_ENABLED
+     PRIMARY_CLAIM_ATTRIBUTION_ENABLED = _gwp.PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+     RES_GROUPING_MODE = _gwp.RES_GROUPING_MODE
+     SUBCONTRACTOR_HELPER_CLAIM_ATTRIBUTION_ENABLED = (
+@@ -448,6 +450,10 @@ def group_source_rows(rows):
+         # Helper row metadata
+         is_helper_row = r.get('__is_helper_row', False)
+         helper_foreman = r.get('__helper_foreman', '')
++        is_helper2_row = HELPER2_ENABLED and r.get(
++            '__is_helper2_row', False
++        )
++        helper2_foreman = r.get('__helper2_foreman', '')
+         
+         # Check if Units Completed? is true/1
+         units_completed_checked = is_checked(units_completed)
+@@ -456,6 +462,15 @@ def group_source_rows(rows):
+         if not wr or not log_date_str or not units_completed_checked or total_price is None:
+             continue # Skip if any essential grouping information is missing
+ 
++        if HELPER2_ENABLED and (
++            r.get('__helper_completion_conflict')
++            or (is_helper_row and is_helper2_row)
++        ):
++            raise HelperAssignmentConflictError(
++                'A completed unit cannot be assigned to Helper #1 and '
++                'Helper #2 on the same source row'
++            )
++
+         wr_key = str(wr).split('.')[0]
+         
+         try:
+@@ -600,6 +615,15 @@ def group_source_rows(rows):
+                     # This allows rows to sync even when Helper Job # is missing
+                     if helper_dept:  # helper_job is now optional
+                         valid_helper_row = True
++
++                valid_helper2_row = False
++                if helper_mode_enabled and is_helper2_row and helper2_foreman:
++                    helper2_dept = r.get('__helper2_dept', '')
++                    if helper2_dept:
++                        valid_helper2_row = True
++                any_valid_helper_row = (
++                    valid_helper_row or valid_helper2_row
++                )
+                 
+                 # Primary variant logic
+                 if RES_GROUPING_MODE == 'primary':
+@@ -618,7 +642,10 @@ def group_source_rows(rows):
+                     # "additive" contract is overridden per D-22;
+                     # Living Ledger entry [Phase 1.1 timestamp]
+                     # documents the design-intent change.
++                    _emit_non_sub_primary = False
+                     if not is_subcontractor_row and not valid_helper_row:
++                        _emit_non_sub_primary = not valid_helper2_row
++                    if _emit_non_sub_primary:
+                         # Subproject D (2026-05-25): partition the
+                         # production primary file by the FROZEN primary
+                         # claimer. Consume the pre-pass map. ``use`` ->
+@@ -662,11 +689,18 @@ def group_source_rows(rows):
+                         # marker "EXCLUDING from main Excel" already
+                         # covers this body via existing
+                         # _PII_LOG_MARKERS entry.
+-                        logging.debug(
+-                            f"➖ EXCLUDING from main Excel (subcontractor row): "
+-                            f"WR={wr_key}, Week={week_end_for_key}"
+-                        )
+-                    elif valid_helper_row:
++                        if valid_helper2_row:
++                            logging.info(
++                                "EXCLUDING from main Excel: Helper #2 "
++                                "completed the subcontractor unit"
++                            )
++                        else:
++                            logging.debug(
++                                f"➖ EXCLUDING from main Excel (subcontractor row): "
++                                f"WR={wr_key}, "
++                                f"Week={week_end_for_key}"
++                            )
++                    elif any_valid_helper_row:
+                         # UNCHANGED legacy behaviour — helper row
+                         # excluded from main Excel regardless of
+                         # subcontractor/non-subcontractor.
+@@ -717,6 +751,27 @@ def group_source_rows(rows):
+                     helper_job = r.get('__helper_job', '')
+                     logging.warning(f"⚠️ Helper row for WR {wr_key} missing required Helper Dept # (Job: '{helper_job}') - including in main Excel")
+ 
++                if valid_helper2_row and helper_mode_enabled:
++                    helper2_dept = r.get('__helper2_dept', '')
++                    helper2_job = r.get('__helper2_job', '')
++                    helper2_sanitized = _RE_SANITIZE_HELPER_NAME.sub(
++                        '_', helper2_foreman
++                    )[:50]
++                    helper2_key = (
++                        f"{week_end_for_key}_{wr_key}_HELPER2_"
++                        f"{helper2_sanitized}"
++                    )
++                    if not is_subcontractor_row:
++                        keys_to_add.append(
++                            ('helper2', helper2_key, helper2_foreman)
++                        )
++                        logging.info("Helper #2 group created")
++                elif is_helper2_row:
++                    logging.warning(
++                        "Helper #2 completed row is missing Helper #2 "
++                        "Dept #; retaining it in the primary file"
++                    )
++
+             # ── Phase 01 Plan 03 (D-08/D-09/D-13/D-22): Subcontractor
+             # rate variants. Per the committed Blocker 3 plumbing
+             # decision the gate is PER-ROW, evaluated against the
+@@ -794,6 +849,16 @@ def group_source_rows(rows):
+                     and bool(helper_foreman)
+                     and bool(r.get('__helper_dept', ''))
+                 )
++                _sub_is_valid_helper2_row = (
++                    HELPER2_ENABLED
++                    and RES_GROUPING_MODE in ('helper', 'both')
++                    and is_helper2_row
++                    and bool(helper2_foreman)
++                    and bool(r.get('__helper2_dept', ''))
++                )
++                _sub_is_valid_helper_row = (
++                    _sub_is_valid_helper_row or _sub_is_valid_helper2_row
++                )
+ 
+                 # Subproject B: resolve the FROZEN primary claimer from
+                 # the pre-pass map. ``use`` -> partition by the claimer;
+@@ -1158,10 +1223,49 @@ def group_source_rows(rows):
+                                     f"Helper={_attributed_helper}"
+                                 )
+ 
++                if _sub_is_valid_helper2_row:
++                    _helper2_sanitized = _RE_SANITIZE_HELPER_NAME.sub(
++                        '_', helper2_foreman
++                    )[:50]
++                    rs_helper2_key = (
++                        f"{week_end_for_key}_{wr_key}_"
++                        f"REDUCEDSUB_HELPER2_{_helper2_sanitized}"
++                    )
++                    keys_to_add.append(
++                        (
++                            'reduced_sub_helper2',
++                            rs_helper2_key,
++                            helper2_foreman,
++                        )
++                    )
++                    if (
++                        _snap_for_cutoff is not None
++                        and _snap_for_cutoff.date() >= _AEP_BILLABLE_CUTOFF
++                    ):
++                        aep_helper2_key = (
++                            f"{week_end_for_key}_{wr_key}_"
++                            f"AEPBILLABLE_HELPER2_{_helper2_sanitized}"
++                        )
++                        keys_to_add.append(
++                            (
++                                'aep_billable_helper2',
++                                aep_helper2_key,
++                                helper2_foreman,
++                            )
++                        )
++
+             # Add row to all applicable groups
+             for variant, key, current_foreman in keys_to_add:
+                 # Add calculated values to row data
+                 r_copy = r.copy()
++                if variant in HELPER2_VARIANTS:
++                    r_copy['__helper_foreman'] = r.get(
++                        '__helper2_foreman', ''
++                    )
++                    r_copy['__helper_email'] = r.get('__helper2_email', '')
++                    r_copy['__helper_dept'] = r.get('__helper2_dept', '')
++                    r_copy['__helper_job'] = r.get('__helper2_job', '')
++                    r_copy['__helper_role'] = 2
+                 r_copy['__variant'] = variant
+                 r_copy['__current_foreman'] = current_foreman or effective_user
+                 r_copy['__week_ending_date'] = week_ending_date
+@@ -1200,9 +1304,17 @@ def group_source_rows(rows):
+         logging.info(f"✅ Grouping validation passed: {len(groups)} groups, each with exactly 1 work request")
+     
+     # HELPER GROUP SUMMARY LOGGING
+-    helper_groups = [k for k in groups.keys() if '_HELPER_' in k]
++    helper_groups = [
++        k for k in groups.keys()
++        if '_HELPER_' in k or '_HELPER2_' in k
++    ]
+     vac_crew_groups = [k for k in groups.keys() if '_VACCREW' in k]
+-    primary_groups = [k for k in groups.keys() if '_HELPER_' not in k and '_VACCREW' not in k]
++    primary_groups = [
++        k for k in groups.keys()
++        if '_HELPER_' not in k
++        and '_HELPER2_' not in k
++        and '_VACCREW' not in k
++    ]
+     if helper_groups:
+         logging.info(f"🔧 HELPER GROUP SUMMARY: Created {len(helper_groups)} helper groups out of {len(groups)} total groups")
+         logging.info(f"   Primary groups: {len(primary_groups)}")
+@@ -1256,6 +1368,7 @@ def group_source_rows(rows):
+                 # clause below — the two matchers MUST stay in sync.
+                 or suffix.startswith(f"{wr}_USER_")
+                 or suffix.startswith(f"{wr}_HELPER_")
++                or suffix.startswith(f"{wr}_HELPER2_")
+                 or suffix == f"{wr}_VACCREW"
+                 # Subproject C: per-claimer vac key {wr}_VACCREW_<claimer>
+                 # (attribution on). Prefix-match so EXCLUDE_WRS / WR_FILTER
+@@ -1266,6 +1379,8 @@ def group_source_rows(rows):
+                 or suffix == f"{wr}_AEPBILLABLE"
+                 or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
+                 or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
++                or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER2_")
++                or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER2_")
+                 # Subproject B: per-claimer subcontractor primary keys
+                 # {wr}_REDUCEDSUB_USER_<claimer> / {wr}_AEPBILLABLE_USER_<claimer>
+                 # (attribution on — the production default). Prefix-match so
+@@ -1316,6 +1431,7 @@ def group_source_rows(rows):
+             return (
+                 suffix == wr
+                 or suffix.startswith(f"{wr}_HELPER_")
++                or suffix.startswith(f"{wr}_HELPER2_")
+                 or suffix.startswith(f"{wr}_USER_")
+                 or suffix == f"{wr}_VACCREW"
+                 # Subproject C: per-claimer vac key {wr}_VACCREW_<claimer>
+@@ -1327,6 +1443,8 @@ def group_source_rows(rows):
+                 or suffix == f"{wr}_AEPBILLABLE"
+                 or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER_")
+                 or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER_")
++                or suffix.startswith(f"{wr}_REDUCEDSUB_HELPER2_")
++                or suffix.startswith(f"{wr}_AEPBILLABLE_HELPER2_")
+                 # Subproject B: per-claimer subcontractor primary keys
+                 # {wr}_REDUCEDSUB_USER_<claimer> / {wr}_AEPBILLABLE_USER_<claimer>
+                 # (attribution on — the production default). EXCLUDE_WRS is
+diff --git a/pipeline/observability.py b/pipeline/observability.py
+index a5b412a..8671903 100644
+--- a/pipeline/observability.py
++++ b/pipeline/observability.py
+@@ -410,6 +410,7 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
+     # always-on totals validation block at the end of a run, which
+     # logs ``{group_key}: rows=N total=$X.YY`` per group.
+     "_HELPER_",
++    "_HELPER2_",
+     "_VACCREW",
+     "Totals Validation",
+     "total=$",
+diff --git a/pipeline/orchestrate.py b/pipeline/orchestrate.py
+index f20c16a..5510f82 100644
+--- a/pipeline/orchestrate.py
++++ b/pipeline/orchestrate.py
+@@ -59,6 +59,7 @@ from pipeline import cleanup as _cleanup
+ from pipeline import upload as _upload
+ from pipeline import attribution as _attr
+ from pipeline.retry import smartsheet_call_with_retry
++from pipeline.types import HELPER2_VARIANTS
+ 
+ # Named re-export imports (byte-exact from the facade) so every bare sibling
+ # reference inside main()/testmode resolves identically (W1-W5 pattern). The
+@@ -1360,7 +1361,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
+                     )
+                     _groups_skipped += 1
+                     continue
+-                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
++                if (
++                    variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')
++                    or variant in HELPER2_VARIANTS
++                ):
+                     # CRITICAL FIX: Include helper dept and job in identifier for unique hash keys
+                     # This ensures helper files regenerate when new helper rows are added.
+                     #
+@@ -1851,6 +1855,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
+                                 can_skip
+                                 and variant in (
+                                     'reduced_sub', 'reduced_sub_helper',
++                                    'reduced_sub_helper2',
+                                 )
+                                 and target_map_ppp
+                             ):
+@@ -2352,7 +2357,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
+                 # when KEEP_HISTORICAL_WEEKS is enabled.
+                 wr = _RE_SANITIZE_HELPER_NAME.sub('_', wr)[:50]
+                 variant = group_rows[0].get('__variant', 'primary')
+-                if variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
++                if (
++                    variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')
++                    or variant in HELPER2_VARIANTS
++                ):
+                     # CR-01 gap closure (Site 2 — mirror of Site 1).
+                     # build_group_identity returns the sanitized helper
+                     # foreman as the parsed identifier for all three
+@@ -2552,7 +2560,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
+                         TEST_MODE,
+                         attachment_cache=_cleanup_cache,
+                         target_sheet=_target_sheet_ppp_obj,
+-                        variant_whitelist={'reduced_sub', 'reduced_sub_helper'},
++                        variant_whitelist={'reduced_sub', 'reduced_sub_helper'} | {
++                            'reduced_sub_helper2'
++                        },
+                         sub_wr_scope=_sub_scope,
+                         sub_legacy_primary_variants=(
+                             {'reduced_sub'}
+@@ -2601,7 +2611,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
+                         _wr = _RE_SANITIZE_HELPER_NAME.sub('_', _wr)[:50]
+                         _week = key.split('_',1)[0]
+                         _variant = group_rows[0].get('__variant', 'primary')
+-                        if _variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper'):
++                        if (
++                            _variant in ('helper', 'aep_billable_helper', 'reduced_sub_helper')
++                            or _variant in HELPER2_VARIANTS
++                        ):
+                             # CR-01 gap closure (Site 3 — mirror of Site 1).
+                             # Site 1 writes the helper-shadow history_key as
+                             # f"{wr}|{week}|{variant}|{foreman}|{dept}|{job}" —
+diff --git a/pipeline/pricing.py b/pipeline/pricing.py
+index 93447c5..f75cba9 100644
+--- a/pipeline/pricing.py
++++ b/pipeline/pricing.py
+@@ -592,6 +592,7 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
+     if variant not in (
+         'aep_billable', 'reduced_sub',
+         'aep_billable_helper', 'reduced_sub_helper',
++        'aep_billable_helper2', 'reduced_sub_helper2',
+     ):
+         return parse_price(row.get('Units Total Price'))
+ 
+@@ -631,7 +632,11 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
+         # Unknown work type: keep SmartSheet pricing (safety floor).
+         return parse_price(row.get('Units Total Price'))
+ 
+-    if variant in ('aep_billable', 'aep_billable_helper'):
++    if variant in (
++        'aep_billable',
++        'aep_billable_helper',
++        'aep_billable_helper2',
++    ):
+         rate = rate_row.get(f'new_{wt}_price', 0.0)
+     else:  # reduced_sub / reduced_sub_helper
+         rate = rate_row.get(f'reduced_{wt}_price', 0.0)
+diff --git a/pipeline/types.py b/pipeline/types.py
+index 41688ed..82fdfab 100644
+--- a/pipeline/types.py
++++ b/pipeline/types.py
+@@ -5,19 +5,98 @@ modules to break the grouping <-> pricing <-> discovery <->
+ change_detection circular-import risk: the data modules import shared
+ shapes from here rather than from each other.
+ 
+-Phase-09 Wave 0 ships this as a STUB. No shared dataclasses/TypedDicts
+-exist in the current engine to relocate (RESEARCH Assumption A4), so this
+-module is intentionally empty of definitions. Future shapes —
+-``SheetRow``, ``GroupKey``, ``RateTable`` — land here in a follow-on PR if
+-and when real types are extracted; this phase is relocation-only and adds
+-no new types.
++Helper assignment types live here so ingestion, grouping, Excel identity,
++and migration validation share one error-value and role contract without
++creating package import cycles.
+ """
+ from __future__ import annotations
+ 
+-from typing import TYPE_CHECKING
++from dataclasses import dataclass
++from typing import TYPE_CHECKING, Literal
+ 
+-# Stub: no shared dataclasses/TypedDicts yet (RESEARCH Assumption A4).
+-# Future shapes: SheetRow, GroupKey, RateTable.
++FORMULA_ERROR_VALUES = frozenset({
++    '#BLOCKED',
++    '#CALCULATING',
++    '#CIRCULAR REFERENCE',
++    '#INVALID COLUMN VALUE',
++    '#INVALID DATA TYPE',
++    '#INVALID OPERATION',
++    '#INVALID REF',
++    '#INVALID VALUE',
++    '#NO MATCH',
++    '#REF',
++    '#UNPARSEABLE',
++})
++
++HELPER_VARIANTS = frozenset({
++    'helper',
++    'helper2',
++    'aep_billable_helper',
++    'aep_billable_helper2',
++    'reduced_sub_helper',
++    'reduced_sub_helper2',
++})
++
++HELPER2_VARIANTS = frozenset({
++    'helper2',
++    'aep_billable_helper2',
++    'reduced_sub_helper2',
++})
++
++
++def normalize_helper_value(value: object) -> str:
++    """Return a safe helper value, treating Smartsheet errors as blank."""
++    if value is None:
++        return ''
++    normalized = str(value).strip()
++    if normalized.upper() in FORMULA_ERROR_VALUES:
++        return ''
++    return normalized
++
++
++def extract_contact_emails(
++    object_value: object,
++    fallback: object = None,
++) -> str:
++    """Extract email addresses from a Smartsheet contact object value."""
++    if object_value is None:
++        return normalize_helper_value(fallback)
++    if isinstance(object_value, dict):
++        contacts = object_value.get('values') or [object_value]
++    else:
++        contacts = getattr(object_value, 'values', None) or [object_value]
++    emails: list[str] = []
++    for contact in contacts:
++        email = (
++            contact.get('email')
++            if isinstance(contact, dict)
++            else getattr(contact, 'email', None)
++        )
++        normalized = normalize_helper_value(email)
++        if normalized and normalized not in emails:
++            emails.append(normalized)
++    return '; '.join(emails) or normalize_helper_value(fallback)
++
++
++@dataclass(frozen=True)
++class HelperAssignment:
++    """Normalized metadata for one helper role on a source row."""
++
++    role: Literal[1, 2]
++    foreman: str
++    email: str
++    department: str
++    job: str
++    completed: bool
++
++    @property
++    def is_valid(self) -> bool:
++        """Match production Helper #1 validity: foreman and dept required."""
++        return bool(self.completed and self.foreman and self.department)
++
++
++class HelperAssignmentConflictError(RuntimeError):
++    """Raised when one unit is completed by both helper roles."""
+ 
+ if TYPE_CHECKING:  # pragma: no cover - reserved for future shared shapes
+     pass
+diff --git a/pipeline/upload.py b/pipeline/upload.py
+index db2122e..31abb3b 100644
+--- a/pipeline/upload.py
++++ b/pipeline/upload.py
+@@ -318,7 +318,11 @@ def _build_upload_tasks_for_group(
+         )
+ 
+     # Second leg — only for reduced_sub variants per D-12 / SUB-03.
+-    if variant in ('reduced_sub', 'reduced_sub_helper'):
++    if variant in (
++        'reduced_sub',
++        'reduced_sub_helper',
++        'reduced_sub_helper2',
++    ):
+         if primary_present and wr_num in target_map_ppp:
+             upload_tasks.append({
+                 'excel_path': excel_path,
+diff --git a/scripts/publish_artifacts_to_supabase.py b/scripts/publish_artifacts_to_supabase.py
+index 87fc5a1..7132cc2 100644
+--- a/scripts/publish_artifacts_to_supabase.py
++++ b/scripts/publish_artifacts_to_supabase.py
+@@ -80,7 +80,7 @@ logging.basicConfig(
+ # ---------------------------------------------------------------------------
+ _BUCKET = "excel-artifacts"
+ 
+-# The 7 canonical variant values (no CHECK constraint on the DB; this set is
++# The canonical variant values (no CHECK constraint on the DB; this set is
+ # used for the application-level unknown-token guard -- Pitfall E / Anti-Pattern E).
+ _CANONICAL_VARIANTS: frozenset[str] = frozenset({
+     "primary",
+@@ -90,6 +90,9 @@ _CANONICAL_VARIANTS: frozenset[str] = frozenset({
+     "reduced_sub",
+     "aep_billable_helper",
+     "reduced_sub_helper",
++    "helper2",
++    "aep_billable_helper2",
++    "reduced_sub_helper2",
+ })
+ 
+ 
+@@ -108,11 +111,11 @@ def _skip_upload() -> bool:
+ 
+ 
+ # ===========================================================================
+-# Variant normalizer (7-way precedence chain)
++# Variant normalizer (role-aware precedence chain)
+ # ===========================================================================
+ 
+ def normalize_variant(filename: str) -> str:
+-    """Map filename suffix tokens to one of the 7 canonical snake_case variant values.
++    """Map filename suffix tokens to a canonical snake_case variant value.
+ 
+     Precedence mirrors generate_weekly_pdfs.py L2834:
+         AEPBillable -> ReducedSub -> VacCrew -> Helper -> User
+@@ -123,8 +126,12 @@ def normalize_variant(filename: str) -> str:
+         filename: Excel filename (basename only or full path string).
+ 
+     Returns:
+-        One of the 7 canonical variant strings.
++        A canonical variant string.
+     """
++    if "_AEPBillable_Helper2_" in filename:
++        return "aep_billable_helper2"
++    if "_ReducedSub_Helper2_" in filename:
++        return "reduced_sub_helper2"
+     if "_AEPBillable_Helper_" in filename:
+         return "aep_billable_helper"
+     if "_ReducedSub_Helper_" in filename:
+@@ -135,6 +142,8 @@ def normalize_variant(filename: str) -> str:
+         return "reduced_sub"
+     if "_VacCrew" in filename:
+         return "vac_crew"
++    if "_Helper2_" in filename:
++        return "helper2"
+     if "_Helper_" in filename:
+         return "helper"
+     # Bare primary or _User_ named primary (Subproject D)

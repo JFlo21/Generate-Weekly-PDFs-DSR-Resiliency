@@ -508,15 +508,23 @@ def cleanup_untracked_sheet_attachments(
                     # Safety: the ``ident not in valid_wr_weeks`` guard ensures
                     # a legitimately live primary (one that IS still produced
                     # this run) is never touched. The helper-family presence
-                    # check (any helper/aep_billable_helper/reduced_sub_helper
-                    # for same wr+week) is the confirming signal that prevents
-                    # over-eager deletion when a primary is simply not in scope
-                    # today for other reasons (WR_FILTER, time-budget cutoff,
+                    # check (any helper/aep_billable_helper/reduced_sub_helper,
+                    # or their Phase 14 Helper #2 siblings, for same wr+week)
+                    # is the confirming signal that prevents over-eager
+                    # deletion when a primary is simply not in scope today for
+                    # other reasons (WR_FILTER, time-budget cutoff,
                     # KEEP_HISTORICAL_WEEKS). Without this confirming signal we
                     # would risk deleting a primary that is still valid but just
                     # not regenerated in this run.
+                    #
+                    # Phase 14 plan 05: 'helper2' / 'aep_billable_helper2' /
+                    # 'reduced_sub_helper2' added as a parallel sibling family
+                    # (D-14-11 -- never widen the Helper #1 tuple itself) so a
+                    # primary superseded only by a Helper #2 claim is
+                    # recognized exactly as it is for a Helper #1 claim.
                     _HELPER_VARIANTS_FOR_ORPHAN_GATE = frozenset({
-                        'helper', 'aep_billable_helper', 'reduced_sub_helper'
+                        'helper', 'aep_billable_helper', 'reduced_sub_helper',
+                        'helper2', 'aep_billable_helper2', 'reduced_sub_helper2',
                     })
                     if (
                         variant == 'primary'

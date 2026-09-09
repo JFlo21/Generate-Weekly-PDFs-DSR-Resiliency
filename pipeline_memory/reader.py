@@ -80,15 +80,82 @@ _PARITY_STREAK_EXECUTION_TYPES = frozenset({
 })
 
 
+# Watermark column lists (Phase 14 Plan 07, D-14-10-APPLIED). The marker
+# column may not exist yet on a database predating this migration --
+# see ``_is_mapping_schema_missing_error`` / ``get_sheet_watermarks``.
+_WATERMARK_COLUMNS_LEGACY = (
+    "sheet_id,last_sheet_version,last_read_at,"
+    "last_full_read_at,column_mapping,name"
+)
+_WATERMARK_COLUMNS_WITH_MARKER = _WATERMARK_COLUMNS_LEGACY + ",mapping_schema"
+
+# Module-level "for the rest of the run" degrade state: once a genuine
+# unknown-column error confirms ``mapping_schema`` is not yet migrated,
+# every subsequent ``get_sheet_watermarks`` call in this process skips
+# straight to the legacy column list instead of re-probing (and
+# re-failing) the marker column every time. The operator-facing warning
+# fires at most once per process ("the run logs once", D-14-10). Reset
+# only by ``reset_mapping_schema_degrade_for_tests()``.
+_mapping_schema_column_missing = False
+_mapping_schema_degrade_warned = False
+
+
+def reset_mapping_schema_degrade_for_tests() -> None:
+    """Clear the module-level mapping-schema degrade state. Test-only."""
+    global _mapping_schema_column_missing, _mapping_schema_degrade_warned
+    _mapping_schema_column_missing = False
+    _mapping_schema_degrade_warned = False
+
+
+def _is_mapping_schema_missing_error(exc: Exception) -> bool:
+    """True only for the specific "mapping_schema column does not exist"
+    signature -- Postgres SQLSTATE ``42703`` (undefined_column) whose
+    message names this exact column.
+
+    Matched precisely, never widened into a catch-all: a genuine
+    transport or permanent failure on this same query must still reach
+    ``with_retry``'s existing classification/backoff/circuit-breaker
+    completely unchanged, not be silently reinterpreted as an expected
+    not-yet-migrated database (Phase 14 Plan 07, D-14-10).
+    """
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        code = str(code)
+    if code != "42703":
+        return False
+    message = getattr(exc, "message", None)
+    if not isinstance(message, str) or not message:
+        message = str(exc)
+    return "mapping_schema" in message
+
+
 def get_sheet_watermarks(sheet_ids: list) -> dict:
     """Return ``sheet_registry`` rows for *sheet_ids*, keyed by sheet id.
 
     Selects ``sheet_id, last_sheet_version, last_read_at,
-    last_full_read_at, column_mapping, name`` filtered with the client's
-    ``.in_()`` builder over the sheet-id list -- NEVER a string-
-    interpolated ``IN`` clause. Uses its own ``op="sheet_registry_
-    watermarks"`` string so a dead endpoint here cannot mask (or be
-    masked by) ``sheet_registry_upsert``'s breaker.
+    last_full_read_at, column_mapping, name, mapping_schema`` filtered
+    with the client's ``.in_()`` builder over the sheet-id list -- NEVER
+    a string-interpolated ``IN`` clause. Uses its own ``op="sheet_
+    registry_watermarks"`` string so a dead endpoint here cannot mask
+    (or be masked by) ``sheet_registry_upsert``'s breaker.
+
+    Phase 14 Plan 07 (D-14-10-APPLIED): ``mapping_schema`` is a nullable
+    marker column that may not exist yet on a database predating this
+    migration. When the select fails with the SPECIFIC "column
+    mapping_schema does not exist" signature
+    (``_is_mapping_schema_missing_error``), this function logs ONE
+    warning naming the Phase 14 Plan 07 migration as the fix, falls back
+    to the pre-marker column list for the REST OF THIS PROCESS
+    (module-level state, never re-probed on a later call), and returns
+    every row with ``mapping_schema: None`` explicitly set -- so the
+    caller's marker check (the sixth ``_build_discovery_skip_index``
+    admission condition) treats every mapping as unmarked and every
+    sheet takes full validation. This degrade NEVER raises and NEVER
+    admits from cache -- "slower but correct" is the confirmed direction
+    (14-DECISIONS.md D-14-10-APPLIED). Any OTHER exception (a genuine
+    transport or permanent failure) is re-raised from inside the retry
+    callback and handled by ``with_retry``'s existing classification /
+    backoff / circuit-breaker exactly as before this plan.
 
     Empty input performs ZERO calls (not even a client-construction
     attempt), checked before the client guard, mirroring
@@ -108,19 +175,43 @@ def get_sheet_watermarks(sheet_ids: list) -> dict:
     if client is None:
         return {}
 
-    def _invoke():
+    global _mapping_schema_column_missing, _mapping_schema_degrade_warned
+
+    def _invoke(columns):
         return (
             client.schema("pipeline_memory")
             .table("sheet_registry")
-            .select(
-                "sheet_id,last_sheet_version,last_read_at,"
-                "last_full_read_at,column_mapping,name"
-            )
+            .select(columns)
             .in_("sheet_id", list(sheet_ids))
             .execute()
         )
 
-    result = with_retry(_invoke, op="sheet_registry_watermarks")
+    def _invoke_with_marker_degrade():
+        global _mapping_schema_column_missing, _mapping_schema_degrade_warned
+        if _mapping_schema_column_missing:
+            return _invoke(_WATERMARK_COLUMNS_LEGACY)
+        try:
+            return _invoke(_WATERMARK_COLUMNS_WITH_MARKER)
+        except Exception as exc:
+            if not _is_mapping_schema_missing_error(exc):
+                raise
+            _mapping_schema_column_missing = True
+            if not _mapping_schema_degrade_warned:
+                _mapping_schema_degrade_warned = True
+                logging.warning(
+                    "⚠️ pipeline_memory.sheet_registry.mapping_schema "
+                    "column not found -- apply the plan 14-07 migration "
+                    "(pipeline_memory/schema.sql) to enable the Helper #2 "
+                    "cache-revalidation marker. Treating every cached "
+                    "mapping as unmarked; every sheet takes full "
+                    "validation this run (D-14-10: slower but correct, "
+                    "never a silent cache admission)."
+                )
+            return _invoke(_WATERMARK_COLUMNS_LEGACY)
+
+    result = with_retry(
+        _invoke_with_marker_degrade, op="sheet_registry_watermarks"
+    )
     if result is None:
         return {}
 
@@ -135,6 +226,9 @@ def get_sheet_watermarks(sheet_ids: list) -> dict:
         sheet_id = row.get("sheet_id")
         if sheet_id is None:
             continue
+        if "mapping_schema" not in row:
+            row = dict(row)
+            row["mapping_schema"] = None
         watermarks[sheet_id] = row
     return watermarks
 

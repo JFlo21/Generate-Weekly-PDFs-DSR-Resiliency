@@ -50,6 +50,7 @@ from typing import Iterable
 
 from pipeline.change_detection import build_group_identity
 from pipeline.config import (
+    HELPER2_ENABLED,
     OUTPUT_FOLDER,
     _RE_SANITIZE_HELPER_NAME,
 )
@@ -803,6 +804,19 @@ def load_billing_audit_row_cache(path: str) -> set[str]:
         return set()
 
 
+def billing_audit_cache_key(
+    wr: str, week_ending: datetime.date, row_id: int,
+) -> str:
+    """Build the freeze loop's row-cache key string.
+
+    Factored out of ``warm_billing_audit_row_cache`` (Plan 14-11) so
+    ``build_helper2_fill_keys`` uses the exact same format. MUST stay
+    identical to the freeze loop's own
+    ``f"{wr_num}|{week_raw}|{_row_id}"`` (``pipeline.orchestrate``).
+    """
+    return f"{wr}|{week_ending.strftime('%m%d%y')}|{row_id}"
+
+
 def warm_billing_audit_row_cache(
     cache: set[str],
     frozen_keys: "Iterable[tuple[str, datetime.date, int]]",
@@ -818,17 +832,63 @@ def warm_billing_audit_row_cache(
     MUST stay identical to the loop's ``f"{wr_num}|{week_raw}|{_row_id}"``
     (``week_raw`` is the group key's ``%m%d%y`` week, ``wr_num`` the
     sanitized WR -- the same sanitizer ``freeze_row`` wrote and the RPC
-    echoes back). Returns the number of keys added. An empty iterable
-    (prefetch disabled / failed) seeds nothing, which is the pre-warm
-    behaviour.
+    echoes back) -- see ``billing_audit_cache_key``. Returns the number
+    of keys added. An empty iterable (prefetch disabled / failed) seeds
+    nothing, which is the pre-warm behaviour.
     """
     added = 0
     for wr, week_ending, row_id in frozen_keys:
-        key = f"{wr}|{week_ending.strftime('%m%d%y')}|{row_id}"
+        key = billing_audit_cache_key(wr, week_ending, row_id)
         if key not in cache:
             cache.add(key)
             added += 1
     return added
+
+
+def build_helper2_fill_keys(
+    missing_keys: "Iterable[tuple[str, datetime.date, int]]",
+) -> set[str]:
+    """Turn ``pipeline.grouping.get_prefetched_helper2_missing_keys()``
+    into the freeze loop's cache-key string set (Plan 14-11 / O-14-C).
+
+    Uses the SAME ``billing_audit_cache_key`` format as
+    ``warm_billing_audit_row_cache`` so a key here and a key in
+    ``billing_audit_row_cache`` always compare equal for the same row.
+    """
+    return {
+        billing_audit_cache_key(wr, week_ending, row_id)
+        for wr, week_ending, row_id in missing_keys
+    }
+
+
+def helper2_fill_admits(
+    row: dict, cache_key: str, fill_keys: "Iterable[str]",
+) -> bool:
+    """True when an already-frozen row should be re-sent to the freeze
+    RPC because it may fill a still-empty per-role Helper #2 (Plan
+    14-11 / O-14-C).
+
+    Requires ALL of:
+    - ``HELPER2_ENABLED`` is on -- flag off means no fills, ever, the
+      same kill switch that gates the whole Helper #2 path;
+    - ``cache_key`` is one of the keys the last prefetch published as
+      still missing a Helper #2 (``fill_keys``);
+    - the row carries a valid Helper #2 claim -- the SAME two
+      conditions ``pipeline.grouping``'s ``valid_helper2_row``
+      predicate requires: a real, non-sentinel Helper #2 foreman AND a
+      Helper #2 dept (job stays optional).
+    """
+    if not HELPER2_ENABLED:
+        return False
+    if cache_key not in fill_keys:
+        return False
+    from billing_audit.writer import _null_if_named_sentinel  # noqa: PLC0415
+    foreman = _null_if_named_sentinel(row.get('__helper2_foreman'))
+    if not foreman:
+        return False
+    if not row.get('__helper2_dept'):
+        return False
+    return True
 
 
 def save_billing_audit_row_cache(path: str, rows: set[str]) -> None:

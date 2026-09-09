@@ -10,7 +10,7 @@
 > frozen Codex-side pointer, not maintained by ClaudeOS.) This file is the *status / resume*
 > layer, not the rulebook.
 
-_Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot)._
+_Last updated: 2026-09-05 (pointer + dated snapshots; body below the snapshots is the 2026-06-30 state)._
 
 > **Live status moved.** Since Phase 10 the current picture is kept in
 > `.claude/project-state.md` (repo status, watch lists, owner decisions) and
@@ -18,14 +18,82 @@ _Last updated: 2026-09-02 (pointer only; body below is the 2026-06-30 snapshot).
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
 >
-> **Snapshot 2026-09-03 (afternoon → evening) — Phase 12 waves 2–3 DONE, PR #388 open:** 12-02 ✓, 12-04 ✓
+> **Snapshot 2026-09-05 (00:45 CDT) — 12-06 Tasks 1–3 DONE: OWN-03 live backfill APPLIED; Task 4 waits on the first
+> post-apply scheduled run (Sat 2026-09-05 15:00 UTC).** Task 1 full-population dry-run re-run clean (5,829 sentinel
+> rows → 1,758 proposed = artifacts 1,066 + live 692 across 30 WRs / 76 pairs; 0 conflicts; 4,071 unresolved; 0
+> extension-bearing / 0 hash-tailed) → Juan `I approve`. D-12-D's sample WR 89829163 is unsatisfiable (placeholder-only
+> artifacts in all four weeks) → SC3 needs a replacement (candidates 89746993 / 89841789 / 89848991). Read-only probe of
+> `public.smartsheet_unified_history`: pre-remap foreman for 3,987 of the 4,071, every flip ≥ 30 days post-week →
+> inadmissible under D-12-A; no Supabase store holds in-week Jul–Nov 2025 evidence → the 4,071 route to source 5
+> (`scripts/backfill_cell_history_attribution.py`, dispatch-only). Task 2 `apply-full`; Task 3 `Run it`: fresh
+> `attribution_snapshot_backup_20260905` (221,276 rows = live) via Supabase MCP, then
+> `--apply --i-approved-this` 03:43–03:45Z exit 0 → **updated 1,758 / skipped 0 / errors 0**; read-back 219,518
+> untouched rows 0 diffs vs backup, provenance live 692 + backfill_artifacts 1,066, `backfill_run_id` = `''` on local
+> runs (follow-up). Task 4: 0 runs since the apply (last 2026-09-04 23:13Z, 6 files / ~33 min); weekend cron
+> `0 15,19,23 * * 0,6` makes Sat 15:00 UTC the first post-apply run — Juan's early `Verified` was not accepted; he chose
+> to wait. Commits `9fab1ab` `29c3859` `9f20da4` on `feat/phase-12-remediation`, nothing pushed. Keep the `_20260903` /
+> `_20260904` / `_20260905` backup tables until Task 4 is verified. Next: `check the run` (≈ 76 files / 30 WRs vs 6,
+> placeholders gone, no PPP deletions, < 165 min, 3 spot-checks) → `sc3: <WR>` → 12-06 `status: complete` →
+> `/gsd-verify-work 12` (CR-01, WR-01, D-12-D replacement, empty run id, source-5 plan). Evidence: scratchpad
+> `own03_dryrun/` + `own03_apply/` (counts only).
+>
+> **Snapshot 2026-09-04 (early) — `/gsd-execute-phase 12 --gaps-only` CLOSED: 12-07..12-10 done, 12-06 re-entrant.**
+> Three sequential waves on `feat/phase-12-remediation`, every gate green (pytest 2,117 / 1 skipped / 441 subtests,
+> `py_compile`, drift + UI gates no block, 6-gate harness ALL PASSED), nothing pushed. 12-07 strips exactly one
+> document extension from hash-less `public.artifacts` filenames and rejects any residual one; `_build_apply_payload`
+> guards `proposed_value`. 12-08 recorded Juan's D-12-C `defer` and D-12-D `substitute-89829163`. 12-09 added the
+> RPC extension-refusal guard (`is_sentinel_value` byte-identical); at Juan's instruction the main session applied
+> STEP 4 + 5 via the Supabase MCP (05:37 UTC, EXECUTE = `service_role` only). 12-10: orchestrator-run Opus
+> production-risk verdict `pass`; `attribution_snapshot_backup_20260904` = 220,621 rows (06:07 UTC, probe-valid
+> only before 2026-09-05 00:00 UTC); scoped dry-run WR 89732091 × 7 weeks → 0 proposed / 235 unresolved, 0
+> extension-bearing (was 235/235). Close-out: `5121c30` reverted the executor's premature OWN-02/OWN-03 Complete
+> marks; `7ce962a` flipped `12-06-SUMMARY.md` to `status: blocked` (the only re-entrant state); `634d93b` committed
+> the advisory code-quality report (1 blocker, 9 warnings, 2 info). **CR-01 (verified):** `_FILENAME_HASH_SUFFIX_RE`
+> matches a 6-hex tail while `pipeline/excel.py:412` emits `hexdigest()[:16]`, so a hash-tailed placeholder would
+> pass every guard; a read-only count shows 0 of 116,906 live artifact filenames carry any hash tail, so latent
+> while `SUPABASE_HASH_STORE_AUTHORITATIVE=1`. **WR-01 (verified):** `tests/test_own04_documentation.py` pins
+> D-12-C/D-12-D to the NEWEST living-ledger entry — do not append the ledger until it is fixed. Next: `/clear` →
+> `/gsd-execute-phase 12` runs 12-06 from Task 1 (dry-run must show 0 extension-bearing AND 0 hash-tailed proposals;
+> same-UTC-day apply) → `/gsd-verify-work 12` reconciles G-12-3 and files CR-01/WR-01 as gaps. Ledgers:
+> project-state `ff3efb1`, CHANGELOG_CONTEXT; vault project page + gsd-ops-lessons §11.
+>
+> **Snapshot 2026-09-03 (late) — Phase 12 UAT closed, gap G-12-3 diagnosed, gap-closure plans 12-07..12-10 READY.**
+> `/gsd-verify-work 12` on `feat/phase-12-remediation`: the `verify:pre` api-coverage gate blocked on the phase
+> `COVERAGE.md` inventory table (parsed as a matrix next to the valid no-external-API declaration) — table → list,
+> gate passes. `12-UAT.md`: 21 coverage entries, 18 auto-passed; checkpoint 1 (12-03 live SQL objects) PASSED via a
+> read-only Supabase MCP catalog check; checkpoint 2 (12-04 dispatch-only workflow) PASSED via static checks + 48
+> unit tests + GitHub registry (active, 0 runs); checkpoint 3 (12-06 dry-run) = BLOCKER, re-reproduced live with a
+> scoped read-only dry-run (WR 89732091 × 7 weeks: 235/235 rows propose `Unknown Foreman.xlsx`). Corrected root
+> cause: the RPC already rejects a sentinel proposed value (STEP 4 line 320); `is_sentinel_value` is extension-blind
+> in both layers. Opus gsd-planner wrote 12-07 (parser fix + `_build_apply_payload` guard + hash-less fixtures),
+> 12-08 (owner decisions D-12-C `#NO MATCH` scope / D-12-D SC3 sample), 12-09 (owner-applied RPC extension check,
+> `is_sentinel_value` byte-identical), 12-10 (Opus production-risk review, fresh same-UTC-day STEP 1 backup,
+> zero-defect dry-run, re-entry into 12-06 Task 1); plan-checker PASSED on iteration 3 after two verify-gate
+> revision rounds. Commits `1e7fc1d` `67bda0e` `7df9cbc` `6684355` `7c47d45`. Next: `/clear` →
+> `/gsd-execute-phase 12 --gaps-only` (12-08 and 12-09 pause for Juan; no live write anywhere) → re-run 12-06 →
+> `/gsd-verify-work 12` (reconciles G-12-3 as resolved). Ledger `[2026-09-03 18:35]`.
+>
+> **Snapshot 2026-09-03 (night) — 12-06 HALTED at Task 1: dry-run REJECTED (`reject: source-3 filename parser
+> defect`), no apply.** `/gsd-execute-phase 12` on `feat/phase-12-remediation` reached the owner-run plan; Juan ran
+> the scoped full dry-run (207 WRs × 54 weeks, exit 0, 5,829 rows): 4,070 of 4,762 proposals were the literal
+> `Unknown Foreman.xlsx` because `public.artifacts.filename` is the stable hash-less attachment name and source 3
+> strips only a `_<6hex>.xlsx` tail; fixtures were all hash-suffixed; the RPC guard checks the current value only.
+> Only 692 `live` (source 1) proposals across 7 WRs are sound. Live scope by SQL: 6,764 named-sentinel rows / 207
+> WRs / 391 pairs (`#NO MATCH` 945 rows invisible to targeting via the lookup RPC). Sample WR 19073866 is a
+> placeholder absent from Supabase; WR 89829163 matches the four-week fingerprint but has sentinel-only hash
+> identifiers (SC3 re-decision). `12-06-SUMMARY.md` is `status: halted` (`090c5dc`, `417a085`); ROADMAP shows the
+> plan halted and unchecked. Next: `/gsd-verify-work 12` → `/gsd-plan-phase 12 --gaps` → `/gsd-execute-phase 12
+> --gaps-only` (Opus production-risk review before any PR) → re-run 12-06 on a fresh same-UTC-day backup. Ledger
+> `[2026-09-03 17:30]`; vault: PostgREST patterns §4.
+>
+> **Snapshot 2026-09-03 (evening) — Phase 12 waves 2–3 MERGED (PR #388 → `1f159bc`, master green):** 12-02 ✓, 12-04 ✓
 > (`cell-history-backfill.yml` is dispatch-only by owner re-decision; cron returns in 12-06 with a candidate
 > source), 12-05 ✓ (runbook `ownership-attribution.md`), 12-03 ✓ (Task 4 APPROVED: Juan hand-applied the SQL, then
 > the Greptile per-role provenance + a STEP 5 REVOKE were re-applied and verified live through the Supabase MCP —
 > smoke test `skipped_no_row`, 0 backfilled rows, EXECUTE = `service_role` only; live drifted 226 rows past the
 > backup, so 12-06 re-creates it on apply day). Gates: Opus integration SHIP, code review 0 critical, verifier human_needed 49/62 · 0
 > failed, suite 2,093. `phase.complete 12` refuses until 12-06 (owner-run: dry-run review → apply decision →
-> same-UTC-day apply → post-run check) has a summary. Next: merge #388 → fresh session
+> same-UTC-day apply → post-run check) has a summary. Next: fresh session on `feat/phase-12-remediation` →
 > `/gsd-execute-phase 12` for 12-06 → `/gsd-verify-work 12`. Ledgers: project-state, CHANGELOG_CONTEXT, Living
 > Ledger `[2026-09-03 13:55]`.
 >
@@ -174,6 +242,8 @@ Sequencing — **A → B → C → D → E**:
 - **PR #215 (Subproject B)** + **PR #216 (helper-exclusion hotfix)** merged.
 
 ## Current open tasks / next recommended steps
+
+> **2026-09-06 pointer (live status lives in `.claude/project-state.md`):** Phase 14 "Foreman Helper #2" is PLANNED (GSD) — 10 plans in `.planning/phases/14-foreman-helper-2/`, checker-verified, committed `af1221e`, **stopped at the planning-approval checkpoint**. Juan must review the plans, decide O-14-A (row with both helper completions checked) and confirm the per-slot two-files consequence before `/gsd-execute-phase 14`. Phase 12 (12-06 Task 4) still waits on the first post-apply scheduled run; its pointer is in `.planning/HANDOFF.json`. Sections below this line predate Phases 11–14.
 
 1. **Phase 09 Wave 5** (cleanup/upload/attribution) — NEXT, on human go. Same
    model: Opus executor, sequential / no-worktree, independent `run_6_gates.sh` +

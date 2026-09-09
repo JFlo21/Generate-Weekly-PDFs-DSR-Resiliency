@@ -101,6 +101,20 @@ _SENTINEL_CLAIMERS: frozenset[str] = frozenset({
     "no match",
 })
 
+# Phase 14 (Foreman Helper #2) — kept as a SEPARATE frozenset rather than
+# folded into ``_SENTINEL_CLAIMERS`` above. ``_SENTINEL_CLAIMERS`` is
+# pinned byte-for-byte as a superset check by
+# ``tests/test_own03_backfill_sql_contract.py::SentinelVocabularyParityTests``
+# against ``billing_audit/own03_backfill_attribution.sql`` (the OWN-03
+# SQL twin), and this plan's own prohibitions forbid touching that SQL
+# file or ``billing_audit.backfill_attribution`` in Phase 14. Mirrors the
+# 14-01 precedent (a separate ``_NON_CLAIM_LITERALS``-style check next to
+# ``FORMULA_ERROR_VALUES``) for satisfying a new behavioral requirement
+# without perturbing an existing pinned literal set.
+_HELPER2_SENTINEL_CLAIMERS: frozenset[str] = frozenset({
+    "unknown helper 2",
+})
+
 
 def is_sentinel_claimer(value: Any) -> bool:
     """True when *value* is blank, a Smartsheet ``#`` error token, or one
@@ -112,7 +126,10 @@ def is_sentinel_claimer(value: Any) -> bool:
     if not text or text.startswith("#"):
         return True
     normalized = " ".join(text.replace("_", " ").split()).casefold()
-    return normalized in _SENTINEL_CLAIMERS
+    return (
+        normalized in _SENTINEL_CLAIMERS
+        or normalized in _HELPER2_SENTINEL_CLAIMERS
+    )
 
 
 def _null_if_named_sentinel(value: Any) -> Any:
@@ -168,6 +185,12 @@ _counters_lock = threading.Lock()
 _counters: dict[str, int] = {
     "snapshots_written": 0,
     "snapshots_already_frozen": 0,
+    # Plan 14-11 (O-14-C): bumped instead of snapshots_already_frozen
+    # when an already-frozen row's freeze_attribution call FILLED a
+    # still-empty per-role Helper #2 column pair -- read from the RPC's
+    # returned backfill_provenance.helper2.run_id, never inferred from
+    # the request. See freeze_row's result classification below.
+    "snapshots_helper2_filled": 0,
     "snapshots_errored": 0,
     "fingerprint_changes_detected": 0,
     # Foundation A: rows held this run pending attribution (dormant
@@ -181,6 +204,13 @@ _counters: dict[str, int] = {
     # (Gate 6 golden + the orchestrate pre-seeds mirror these keys).
     "sentinel_claimers_ignored": 0,
     "sentinel_freezes_deferred": 0,
+    # Phase 14 / D-14-07a: bumped exactly once, the first time this
+    # process observes the deployed freeze_attribution RPC reject the
+    # Helper #2 parameters (pre-plan-14-09-migration schema). Lets a
+    # run_summary.json reader distinguish "no Helper #2 data this run"
+    # (stays 0) from "Helper #2 attribution could not be persisted this
+    # run" (1). Pre-seeded for a stable counter schema.
+    "helper2_attribution_degraded": 0,
 }
 
 
@@ -193,6 +223,60 @@ def _bump_counter(key: str) -> None:
     """
     with _counters_lock:
         _counters[key] = _counters.get(key, 0) + 1
+
+
+# ── Helper #2 RPC capability flag (Phase 14 / D-14-07a) ─────────────
+# Per-process, starts "unknown" (assumed supported — ``False`` means
+# "not yet proven unsupported", not "known supported"). freeze_row is
+# parallelized across up to ``PARALLEL_WORKERS`` ThreadPoolExecutor
+# workers, so both the flag flip and the one-time WARNING/counter bump
+# are guarded by ``_helper2_capability_lock`` — several rows can hit
+# the not-yet-migrated RPC concurrently on the very first freeze
+# attempts of a run.
+_helper2_capability_lock = threading.Lock()
+_helper2_rpc_unsupported: bool = False
+_helper2_degrade_logged: bool = False
+
+
+def _mark_helper2_rpc_unsupported() -> None:
+    """Trip the per-process Helper #2 RPC capability flag.
+
+    Idempotent across concurrent callers: only the FIRST caller to
+    observe the deployed ``freeze_attribution`` RPC reject the
+    Helper #2 parameters (pre-plan-14-09-migration schema) logs the
+    WARNING and bumps ``helper2_attribution_degraded``. Every later
+    ``freeze_row`` call — this row's own retry included — simply reads
+    ``_helper2_rpc_unsupported`` (already ``True``) and omits the
+    Helper #2 parameters up front, without re-probing or re-logging.
+    """
+    global _helper2_rpc_unsupported, _helper2_degrade_logged
+    with _helper2_capability_lock:
+        _helper2_rpc_unsupported = True
+        if _helper2_degrade_logged:
+            return
+        _helper2_degrade_logged = True
+    logging.warning(
+        "⚠️ billing_audit.freeze_row: deployed freeze_attribution RPC "
+        "does not yet accept the Helper #2 parameters (plan 14-09 "
+        "Supabase migration not applied) — degrading to the "
+        "pre-Helper-#2 parameter set for the remainder of this run. "
+        "Primary/Helper #1/VAC-crew attribution is unaffected."
+    )
+    _bump_counter("helper2_attribution_degraded")
+
+
+def _reset_helper2_capability_for_tests() -> None:
+    """Reset the Helper #2 RPC capability flag between tests.
+
+    Test-only helper (mirrors ``_reset_executor_for_tests``) — the
+    flag is per-process module state, so a test that trips it would
+    otherwise leak the degraded state into every later test in the
+    same process.
+    """
+    global _helper2_rpc_unsupported, _helper2_degrade_logged
+    with _helper2_capability_lock:
+        _helper2_rpc_unsupported = False
+        _helper2_degrade_logged = False
 
 
 # ── Shared ThreadPoolExecutor for parallel freeze_row dispatch ─────
@@ -300,6 +384,7 @@ def _reset_counters_for_tests() -> None:
     _reset_executor_for_tests()
     with _attribution_holds_lock:
         _attribution_holds.clear()
+    _reset_helper2_capability_for_tests()
 
 
 def get_counters() -> dict[str, int]:
@@ -526,10 +611,14 @@ def freeze_row(row: dict, release: str | None,
 
     Returns:
         ``True`` if an RPC was attempted and completed without error
-        (whether the row was newly written or was already frozen from
-        a prior run).  ``False`` in all other cases — client
-        unavailable, ``write_attribution_snapshot`` flag is
-        definitively off, row is ineligible (missing/non-integer
+        (whether the row was newly written, was already frozen from a
+        prior run, or FILLED an already-frozen row's still-empty
+        per-role Helper #2 columns -- Plan 14-11 / O-14-C's
+        ``snapshots_helper2_filled`` counter, distinguished from
+        ``snapshots_already_frozen`` by the RPC's returned
+        ``backfill_provenance.helper2.run_id``).  ``False`` in all
+        other cases — client unavailable, ``write_attribution_snapshot``
+        flag is definitively off, row is ineligible (missing/non-integer
         ``__row_id``, ``Units Completed?`` not checked, missing WR or
         week-ending), or the RPC call itself failed after retries.
 
@@ -543,10 +632,12 @@ def freeze_row(row: dict, release: str | None,
     variant : str | None, default None
         Per D-18 / SUB-07 (Phase 1 Blocker 1 Path B): accepted for
         signature symmetry with ``emit_run_fingerprint`` and
-        forward-compat instrumentation. Valid values are the 7
+        forward-compat instrumentation. Valid values are the 10
         variant strings ``primary | helper | vac_crew |
         aep_billable | reduced_sub | aep_billable_helper |
-        reduced_sub_helper``.
+        reduced_sub_helper | helper2 | aep_billable_helper2 |
+        reduced_sub_helper2`` (the last 3 added Phase 14 / Foreman
+        Helper #2).
 
         **This kwarg is NOT injected into the ``freeze_attribution``
         RPC params dict.** Reason: the RPC writes to
@@ -629,8 +720,18 @@ def freeze_row(row: dict, release: str | None,
     )
     p_helper = _null_if_named_sentinel(row.get("__helper_foreman"))
     p_vac_crew = _null_if_named_sentinel(row.get("__vac_crew_name"))
+    # Phase 14 / D-14-07: Helper #2 gets its own frozen role, first-write
+    # -wins independently of primary/helper/vac_crew (named per-role RPC
+    # columns — a Helper #2 freeze can never overwrite frozen_helper /
+    # frozen_primary / frozen_vac_crew). ``p_helper2`` MUST join the
+    # all-sentinel tuple below in the SAME edit that adds it to ``params``
+    # — otherwise a row whose ONLY real claimer is the Helper #2 person
+    # is misclassified as fully sentinel and freeze_attribution is never
+    # invoked, silently and with no distinguishable log (D-14-03-02).
+    p_helper2 = _null_if_named_sentinel(row.get("__helper2_foreman"))
     if all(
-        is_sentinel_claimer(v) for v in (p_primary, p_helper, p_vac_crew)
+        is_sentinel_claimer(v)
+        for v in (p_primary, p_helper, p_vac_crew, p_helper2)
     ):
         _bump_counter("sentinel_freezes_deferred")
         return False
@@ -643,6 +744,8 @@ def freeze_row(row: dict, release: str | None,
         "p_helper": p_helper,
         "p_helper_dept": row.get("__helper_dept"),
         "p_vac_crew": p_vac_crew,
+        "p_helper2": p_helper2,
+        "p_helper2_dept": row.get("__helper2_dept"),
         "p_pole": (
             row.get("Pole #")
             or row.get("Point #")
@@ -653,35 +756,129 @@ def freeze_row(row: dict, release: str | None,
         "p_release": release,
         "p_run_id": run_id,
     }
+    # D-14-07a: while the deployed freeze_attribution RPC is known NOT to
+    # accept the Helper #2 parameters (pre-plan-14-09-migration schema —
+    # detected below on first rejection), never send them again this run.
+    if _helper2_rpc_unsupported:
+        params.pop("p_helper2", None)
+        params.pop("p_helper2_dept", None)
 
-    def _invoke():
+    def _invoke(_params=params):
         return (
             client.schema("billing_audit")
-            .rpc("freeze_attribution", params)
+            .rpc("freeze_attribution", _params)
             .execute()
         )
 
     result = with_retry(_invoke, op="freeze_attribution")
+
+    if (
+        result is None
+        and not _helper2_rpc_unsupported
+        and "p_helper2" in params
+    ):
+        # D-14-07a one-time capability probe. ``with_retry`` swallows the
+        # raised ``postgrest.APIError`` and returns only ``None``,
+        # discarding the reason code — re-invoke ONCE more, directly
+        # (bypassing retries; the call already failed), to determine
+        # whether the deployed RPC rejected the Helper #2 parameter
+        # names specifically. PostgREST returns ``PGRST202`` ("Could not
+        # find the function ... in the schema cache") when a call's
+        # named-parameter set does not match any registered function
+        # signature — the same detection idiom already used by
+        # ``prefetch_attribution``'s ``rpc_missing`` probe for
+        # ``lookup_attribution_bulk`` (D-13). Bounded: at most one extra
+        # RPC call, on the already-failed path only, so this can never
+        # become a per-row error storm (T-14-03-04).
+        #
+        # Reuses ``billing_audit.client``'s existing ``_PGAPIError`` /
+        # ``_classify_postgrest_error`` rather than re-declaring a local
+        # ``try: from postgrest import APIError ... except: _APIError = ()``
+        # fallback here — that idiom's ``type[APIError]`` reassignment
+        # trips an extra mypy Gate 4 finding at every additional call
+        # site; importing the already-typed module-level name adds none.
+        from billing_audit.client import _classify_postgrest_error
+        from billing_audit.client import _PGAPIError as _client_pgapi_error
+        try:
+            _invoke()
+            # Bare re-invoke succeeded: the original failure was some
+            # transient blip, not a Helper #2 signature rejection. Do
+            # NOT reuse this second write's response as the row's
+            # result — fall through to today's failure handling below,
+            # keeping a "one failed freeze == one counted error"
+            # contract exactly as before this plan.
+        except Exception as _probe_exc:
+            if _client_pgapi_error is not None and isinstance(
+                _probe_exc, _client_pgapi_error
+            ) and (
+                _classify_postgrest_error(_probe_exc)[2] == "PGRST202"
+            ):
+                _mark_helper2_rpc_unsupported()
+                degraded_params = {
+                    k: v for k, v in params.items()
+                    if k not in ("p_helper2", "p_helper2_dept")
+                }
+
+                def _invoke_degraded(_params=degraded_params):
+                    return (
+                        client.schema("billing_audit")
+                        .rpc("freeze_attribution", _params)
+                        .execute()
+                    )
+
+                result = with_retry(
+                    _invoke_degraded, op="freeze_attribution"
+                )
+            # Any other exception (including no code, or a code other
+            # than PGRST202) is NOT a Helper #2 signature rejection —
+            # keep today's error handling exactly; do not widen this
+            # except to swallow an unrelated RPC failure.
+
     if result is None:
         _bump_counter("snapshots_errored")
         return False
 
     data = getattr(result, "data", None)
-    source_run_id: Any = None
+    row_data: dict | None = None
     if isinstance(data, dict):
-        source_run_id = data.get("source_run_id")
+        row_data = data
     elif isinstance(data, list) and data:
         first = data[0]
         if isinstance(first, dict):
-            source_run_id = first.get("source_run_id")
-    else:
-        source_run_id = data  # Some clients return scalar.
+            row_data = first
+    source_run_id: Any = row_data.get("source_run_id") if row_data else data
 
     if source_run_id is not None and str(source_run_id) == str(run_id or ""):
         _bump_counter("snapshots_written")
+    elif _helper2_fill_provenance_matches_run(row_data, run_id):
+        # Plan 14-11 (O-14-C): the row was already frozen (source_run_id
+        # differs), but the RPC's ON CONFLICT DO UPDATE filled the
+        # still-empty per-role Helper #2 columns THIS run -- distinct
+        # from an ordinary already-frozen no-op. Never inferred from the
+        # outgoing request: only the RPC's returned provenance counts.
+        _bump_counter("snapshots_helper2_filled")
     else:
         _bump_counter("snapshots_already_frozen")
     return True
+
+
+def _helper2_fill_provenance_matches_run(
+    row_data: dict | None, run_id: str | None,
+) -> bool:
+    """True when ``row_data['backfill_provenance']['helper2']['run_id']``
+    names THIS run (Plan 14-11 / O-14-C). Any other shape -- no
+    ``backfill_provenance``, not a dict, no ``helper2`` entry, or a
+    different run id -- is NOT a fill; the caller keeps today's
+    already-frozen classification for it exactly."""
+    if not row_data:
+        return False
+    provenance = row_data.get("backfill_provenance")
+    if not isinstance(provenance, dict):
+        return False
+    helper2_entry = provenance.get("helper2")
+    if not isinstance(helper2_entry, dict):
+        return False
+    return str(helper2_entry.get("run_id")) == str(run_id or "")
 
 
 def emit_run_fingerprint(wr: str, week_ending: datetime.date,
@@ -1052,6 +1249,16 @@ ROLE_BY_VARIANT: dict[str, str] = {
     "reduced_sub_helper": "helper",
     "aep_billable_helper": "helper",
     "vac_crew": "vac_crew",
+    # Phase 14 (Foreman Helper #2): own frozen role, resolved
+    # independently of "helper" — never falls back to primary_foreman.
+    # The "helper2" RPC-result column only carries a real value once
+    # the plan 14-09 Supabase migration lands; until then the RPC
+    # result simply lacks the key and ``resolve_claimer`` below reads
+    # that via ``row.get(role)`` -> ``None`` -> the no_history branch,
+    # not a KeyError and not a silent primary_foreman fall-through.
+    "helper2": "helper2",
+    "reduced_sub_helper2": "helper2",
+    "aep_billable_helper2": "helper2",
 }
 
 

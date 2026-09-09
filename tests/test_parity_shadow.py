@@ -205,7 +205,10 @@ class GoldenContractTests(unittest.TestCase):
         with open(baseline_path, encoding="utf-8") as fh:
             baseline = json.load(fh)
         # 21 + PR #365's counter + 2 Phase 12 / OWN-02 sentinel counters
-        self.assertEqual(len(baseline), 24)
+        # + Phase 14 / D-14-07a's helper2_attribution_degraded counter
+        # + Phase 14 / 14-08's four Helper #2 run-summary counters
+        # + Phase 14 / 14-11's snapshots_helper2_filled counter
+        self.assertEqual(len(baseline), 30)
 
 
 # ── Task 3 (D-08): shadow delta reads + the read-side assertion ───────────
