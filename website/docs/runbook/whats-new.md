@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 9, 2026
 
+- 📄 Help guides updated: resolve O-14-D, record first enabled run, open O-14-E ( follow-up)
 - 📄 Help guides updated: record HELPER2&#95;ENABLED=1 after merge
 - ✨ New capability: close O-14-B, wire HELPER2&#95;ENABLED; Phase 14 post-merge docs (#HLP-06)
 - ✨ New capability: Phase 14 Foreman Helper + Phase 12 G-12-3 closure (#HLP-01..07)
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✨ New capability: OWN-03 claim-time attribution backfill (wave 1)
 - 📄 Help guides updated: align instruction files (run 1)
 - ⚡ The system now runs faster (bound validation read to 3 rows (G-11.1-4))
-- ✅ Problem fixed: detach abandoned shadow-parity probe workers at interpreter exit
 
 <!-- /runbook-repo -->
 
@@ -487,4 +487,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
