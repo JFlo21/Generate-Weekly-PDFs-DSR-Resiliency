@@ -27,6 +27,7 @@ import inspect
 import os
 import sys
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
@@ -63,7 +64,7 @@ class ComputeRegistryMarkerSheetsTests(unittest.TestCase):
     """Pure helper: marker set = (not skip-admitted) AND (column_mapping
     written this call)."""
 
-    def _helper(self):
+    def _helper(self) -> Callable[..., dict[int, str]]:
         from pipeline.orchestrate import _compute_registry_marker_sheets
         return _compute_registry_marker_sheets
 

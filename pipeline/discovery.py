@@ -31,6 +31,7 @@ import logging
 import os
 import re
 import time
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -78,15 +79,15 @@ MAPPING_SCHEMA_MARKER = "helper2-v1"
 # (a marker is written only for a sheet that was fully validated). Written
 # once, on the main thread, after the discovery executor has joined, so no
 # lock is needed; reset at the top of every ``discover_source_sheets`` call.
-_LAST_DISCOVERY_SKIP_SIDS: set = set()
+_LAST_DISCOVERY_SKIP_SIDS: set[int] = set()
 
 
-def _set_last_discovery_skip_sids(sids) -> None:
+def _set_last_discovery_skip_sids(sids: Iterable[int]) -> None:
     global _LAST_DISCOVERY_SKIP_SIDS
     _LAST_DISCOVERY_SKIP_SIDS = set(sids)
 
 
-def get_last_discovery_skip_sids() -> set:
+def get_last_discovery_skip_sids() -> set[int]:
     """Return a defensive copy of the sheet ids admitted from the
     registry skip index during the most recent ``discover_source_sheets``
     call. Empty before the first call this run."""
@@ -494,7 +495,7 @@ def discover_source_sheets(client):
     # capture pattern the closure already uses for `client` and
     # `_failed_validation_sids`.
     _discovery_skip_index = _build_discovery_skip_index(client, base_sheet_ids)
-    _discovery_skip_sids: list = []
+    _discovery_skip_sids: list[int] = []
     _set_last_discovery_skip_sids([])
 
     discovered = []

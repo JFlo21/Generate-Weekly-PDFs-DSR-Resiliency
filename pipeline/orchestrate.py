@@ -2156,9 +2156,9 @@ def _compute_registry_mapping_sheets(
 
 def _compute_registry_marker_sheets(
     registry_sheets: list[dict[str, Any]],
-    skip_sids: set,
-    column_mapping_sheets: set | None,
-) -> dict[Any, str]:
+    skip_sids: set[int],
+    column_mapping_sheets: set[int] | None,
+) -> dict[int, str]:
     """Phase 14 Plan 13 (O-14-E): compute ``upsert_sheet_registry``'s
     ``mapping_schema_by_sheet`` kwarg -- the sheets whose stored mapping
     this call certifies as generated under ``MAPPING_SCHEMA_MARKER``.
@@ -2182,7 +2182,7 @@ def _compute_registry_marker_sheets(
 
     PURE (no I/O, never raises) -- directly unit-testable.
     """
-    marker_sheets: dict[Any, str] = {}
+    marker_sheets: dict[int, str] = {}
     for sheet in registry_sheets:
         sid = sheet.get("id")
         if sid in skip_sids:
