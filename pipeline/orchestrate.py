@@ -2127,9 +2127,23 @@ def _compute_registry_mapping_sheets(
     is_deep_run: bool,
     source_sheets: list[dict[str, Any]],
     watermarks: dict[Any, dict[str, Any]],
+    fully_validated_sids: set[int] | None = None,
 ) -> set | None:
     """Phase 11 Plan 06 (D-03): compute the value passed as
     ``upsert_sheet_registry``'s new ``column_mapping_sheets`` kwarg.
+
+    Phase 14 Plan 14 (O-14-E): ``fully_validated_sids`` -- the sheet
+    ids that took a FULL column validation this run (every candidate
+    NOT admitted from the discovery skip index). On a frequent run those
+    sheets' freshly validated mapping is written too, not only brand-new
+    sheets': the mapping was just validated against the live columns and
+    is the one this run processed with, so echoing an older stored copy
+    would keep the registry staler than reality (2026-09-09 evidence: 0
+    of 121 stored mappings carried a Helper #2 key while every run
+    processed with mappings that did). Adoption is never silent -- the
+    caller logs drift for each adopted sheet (``_log_column_mapping_drift``
+    with the frequent-run label). ``None`` (the default) keeps the Phase
+    11 shape: new sheets only.
 
     ``is_deep_run`` True (``EXECUTION_TYPE == 'weekly_comprehensive'``,
     the Monday deep run by cron identity) -> ``None`` (every sheet's
@@ -2149,8 +2163,11 @@ def _compute_registry_mapping_sheets(
     """
     if is_deep_run:
         return None
+    validated = fully_validated_sids or set()
     return {
-        s.get("id") for s in source_sheets if s.get("id") not in watermarks
+        s.get("id")
+        for s in source_sheets
+        if s.get("id") not in watermarks or s.get("id") in validated
     }
 
 
@@ -2185,7 +2202,7 @@ def _compute_registry_marker_sheets(
     marker_sheets: dict[int, str] = {}
     for sheet in registry_sheets:
         sid = sheet.get("id")
-        if sid in skip_sids:
+        if sid is None or sid in skip_sids:
             continue
         if (
             column_mapping_sheets is not None
@@ -2199,6 +2216,7 @@ def _compute_registry_marker_sheets(
 def _log_column_mapping_drift(
     sheets: list[dict[str, Any]],
     watermarks: dict[Any, dict[str, Any]],
+    label: str = "Deep-run",
 ) -> list[Any]:
     """Phase 11 Plan 06 (INC-03/D-03): log + Sentry-breadcrumb the sheet
     ids whose freshly-discovered ``column_mapping`` differs from the
@@ -2235,7 +2253,7 @@ def _log_column_mapping_drift(
         if fresh != stored:
             changed.append(sheet_id)
             logging.warning(
-                f"🗂️ Deep-run column_mapping refresh: sheet {sheet_id} "
+                f"🗂️ {label} column_mapping refresh: sheet {sheet_id} "
                 f"mapping changed. Before keys: {sorted(stored.keys())}. "
                 f"After keys: {sorted(fresh.keys())}."
             )
@@ -2596,19 +2614,27 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             )
         )
         # Phase 11 Plan 06 (INC-03/D-03): column_mapping is refreshed on
-        # BOTH sheet_registry passes ONLY on the weekly deep run
-        # ('weekly_comprehensive' by cron identity, per CLAUDE.md's
-        # cron-identity-not-wall-clock rule) -- a frequent run must
-        # NEVER silently adopt a drifted mapping; D-02 trigger 2 already
-        # escalates that sheet to a full read instead. NOT NULL safety
-        # (see _compute_registry_mapping_sheets docstring): a sheet with
-        # NO existing registry row still gets its first-ever mapping
-        # written regardless of execution type.
+        # BOTH sheet_registry passes for every sheet on the weekly deep
+        # run ('weekly_comprehensive' by cron identity, per CLAUDE.md's
+        # cron-identity-not-wall-clock rule). Phase 14 Plan 14 (O-14-E):
+        # a frequent run writes it for brand-new sheets AND for sheets it
+        # fully validated this run (not admitted from the discovery skip
+        # index) -- never silently: pass 2 below logs drift for each
+        # adopted sheet. A skip-admitted sheet keeps echoing its stored
+        # mapping. NOT NULL safety (see _compute_registry_mapping_sheets
+        # docstring): a sheet with NO existing registry row still gets
+        # its first-ever mapping written regardless of execution type.
         _is_deep_run = (
             os.getenv('EXECUTION_TYPE', 'manual') == 'weekly_comprehensive'
         )
+        _registry_skip_sids = _discovery.get_last_discovery_skip_sids()
+        _registry_fully_validated_sids = {
+            s.get("id") for s in _registry_sheets
+            if s.get("id") not in _registry_skip_sids
+        }
         _registry_mapping_sheets = _compute_registry_mapping_sheets(
             _is_deep_run, source_sheets, _watermarks,
+            fully_validated_sids=_registry_fully_validated_sids,
         )
         # Phase 14 Plan 13 (O-14-E): the mapping-schema marker goes only
         # to sheets that were fully validated this run AND whose mapping
@@ -2616,7 +2642,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # by both registry passes, like _registry_mapping_sheets.
         _registry_marker_sheets = _compute_registry_marker_sheets(
             _registry_sheets,
-            _discovery.get_last_discovery_skip_sids(),
+            _registry_skip_sids,
             _registry_mapping_sheets,
         )
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
@@ -2773,6 +2799,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             try:
                 if _is_deep_run:
                     _log_column_mapping_drift(_registry_sheets, _watermarks)
+                else:
+                    # Phase 14 Plan 14 (O-14-E): a frequent run adopts the
+                    # freshly validated mapping for the sheets it fully
+                    # validated -- log each changed one so adoption is
+                    # never silent (same shape as the deep-run refresh).
+                    _adopted = [
+                        s for s in _registry_sheets
+                        if s.get("id") in _registry_fully_validated_sids
+                    ]
+                    _log_column_mapping_drift(
+                        _adopted, _watermarks,
+                        label="Frequent-run full-validation",
+                    )
                 _mem_writer.upsert_sheet_registry(
                     _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
                     _fetch.get_last_sheet_versions(),

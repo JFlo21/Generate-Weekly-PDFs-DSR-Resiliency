@@ -69,10 +69,12 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Open items / owner decisions
 
-- **O-14-E** (`mapping_schema` marker never written): FIXED 2026-09-09 by plan 14-13 (Juan approved) —
-  `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed as
-  `mapping_schema_by_sheet` at both call sites; marker = fully validated AND mapping written this call.
-  Existing 121 sheets earn `helper2-v1` on the next Monday 05:00Z deep run; close once observed.
+- **O-14-E** (`mapping_schema` marker never written): plan 14-13 merged `d079e81` (marker = fully validated
+  AND mapping written this call; first run `34393726548` clean). Juan could not wait for Monday's deep run;
+  SQL backfill REJECTED (0/121 stored mappings carry Helper #2 keys → would silently disable detection).
+  **Plan 14-14** (branch `fix/14-14-frequent-run-mapping-adoption`): frequent runs adopt the freshly
+  validated mapping + marker for fully-validated sheets, drift logged. Close after the first run on its
+  merge shows `mapping_schema='helper2-v1'` on 121 rows and the next run skips ≈ 121.
 - **O-14-D** (flag-off routing): RESOLVED 2026-09-09 — option (a) accepted; Helper #2 is permanent, the
   flag is an emergency kill switch only, persisted-claim routing declined (`14-DECISIONS.md`).
 - **O-14-B** (`upsert_rows_bulk` RPC gap): RESOLVED 2026-09-09 (`D-14-13-VERIFIED`).
@@ -82,9 +84,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Next actions
 
-1. Merge PR #394 (docs) and the plan 14-13 PR (O-14-E fix); after the Mon 2026-09-14 05:00Z deep run confirm
-   `mapping_schema = 'helper2-v1'` on all 121 `sheet_registry` rows and `skipped via sheet_registry` ≈ 121
-   on the following frequent run; then close O-14-E.
+1. Merge the plan 14-14 PR; after the first scheduled run on it confirm `mapping_schema = 'helper2-v1'` on all
+   121 `sheet_registry` rows with Helper #2 keys in every `column_mapping`, then `skipped via sheet_registry`
+   ≈ 121 and counters 114/7 on the following run; then close O-14-E (PRs #394 `7ded60c`, #395 `d079e81` merged).
 2. `/gsd-code-review 14` on master.
 3. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
 4. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.

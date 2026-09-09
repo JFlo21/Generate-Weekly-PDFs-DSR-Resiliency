@@ -597,6 +597,20 @@ over synthetic data**. Neither **controlled upload verified** nor
 - **Close when observed:** after the first Monday deep run, `select count(*) filter (where
   mapping_schema = 'helper2-v1') from pipeline_memory.sheet_registry` = 121 and the next frequent run
   logs `skipped via sheet_registry` ≈ 121.
+- **Owner instruction 2026-09-09 (Juan): cannot wait for the Monday deep run — clear it another way.**
+  SQL backfill of the marker was evaluated and REJECTED with evidence: 0 of 121
+  `sheet_registry.column_mapping` values carry any Helper #2 key (the last deep run `34086148733`
+  ran `6696a46`, pre-Helper-#2 code), so stamping `helper2-v1` on those rows would admit every sheet
+  from cache WITHOUT Helper #2 columns and silently disable Helper #2 detection on the 114 capable
+  sheets. Juan chose the code change: **plan 14-14** — a frequent run also writes the freshly
+  validated mapping (and, through 14-13's marker helper, the marker) for every sheet it fully
+  validated this run, with the deep run's drift log + breadcrumb fired per adopted sheet (label
+  `Frequent-run full-validation`). Phase 11 D-03's "never silently adopt a drifted mapping" is kept
+  in spirit: adoption requires a full validation this run and is logged. Skip-admitted sheets still
+  echo their stored mapping unmarked. Expected: the first scheduled run after the 14-14 merge stamps
+  all 121 sheets and writes Helper #2-aware mappings; the run after that skips ≈ 121 via the registry.
+  First run on the 14-13 merge (`34393726548`, `cbff797`) was clean: both registry upserts 200, 0
+  skipped as expected, counters unchanged (114 capable / 7 unavailable), no tracebacks.
 - Original record (kept for traceability):
 
 - Expected on the first enabled run: one full validation per sheet, then the `helper2-v1` marker
