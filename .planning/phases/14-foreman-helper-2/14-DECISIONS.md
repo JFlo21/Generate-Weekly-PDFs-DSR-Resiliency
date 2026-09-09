@@ -558,3 +558,10 @@ over synthetic data**. Neither **controlled upload verified** nor
 - Expected on the first enabled scheduled run: the four Helper #2 counters present in run_summary,
   `helper2_capability_unavailable` on sheets without the column family, no degrade warning, zero
   `_Helper2_` workbooks until real data appears.
+- **Addendum 2026-09-09 — APPLIED.** PR #390 squash-merged to master `661d6d3` at 02:49:30Z; the repo
+  variable `HELPER2_ENABLED` was set to `1` at 02:49:58Z (`gh variable set HELPER2_ENABLED --body 1`,
+  confirmed with `gh variable list`). First scheduled run with the flag on: the Wed 2026-09-09 13:00Z
+  slot. Rollback is unchanged: `gh variable set HELPER2_ENABLED --body 0` (no code change, next run
+  picks it up). Owner instruction fully executed (DDLs applied, O-14-B closed, Follow-up 1 confirmed,
+  flag enabled). Next records: the 13:00Z run check against the expectations above, then
+  `/gsd-code-review 14`.

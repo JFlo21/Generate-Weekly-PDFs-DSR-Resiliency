@@ -9405,3 +9405,11 @@ fires. Enable: the workflow env gains `HELPER2_ENABLED: ${{ vars.HELPER2_ENABLED
 repo variable is the switch, set to `1` after PR #390 merges; rollback = set it to `0`. Also:
 `.claude/project-state.md` condensed from 565 lines to 94 (CRLF) per its own ≤120-line rule after Greptile flagged
 the growth on PR #390 — nothing lost: the last full version is commit `bc37103` and the dated specifics live here.
+
+[2026-09-08 21:58] Helper #2 ENABLED in production. PR #390 squash-merged to master `661d6d3` at 2026-09-09 02:49:30Z
+(14-12: O-14-B closure, `HELPER2_ENABLED` workflow wiring, post-merge docs; CI on head `d320861`: codecov/patch,
+tests+coverage, semgrep, Cursor Security all pass; only the known `code/snyk` limit and the Azure mirror failed).
+Repo variable `HELPER2_ENABLED` set to `1` at 02:49:58Z (`gh variable set … --body 1`, confirmed by `gh variable
+list`) — recorded as the `D-14-14-ENABLE` addendum. First enabled scheduled run = Wed 2026-09-09 13:00Z slot;
+rollback = set the variable to `0`. Codex bot review comments on #390 were listed for Juan and deliberately not
+acted on (ClaudeOS harness boundary). Vault write-back applied (project page, current-state, log `[2026-09-08h]`).
