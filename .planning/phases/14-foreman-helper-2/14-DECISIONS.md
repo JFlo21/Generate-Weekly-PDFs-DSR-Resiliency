@@ -565,8 +565,59 @@ over synthetic data**. Neither **controlled upload verified** nor
   billing-safe rollback once real Helper #2 claims exist — see O-14-D below. Owner instruction fully executed (DDLs applied, O-14-B closed, Follow-up 1 confirmed,
   flag enabled). Next records: the 13:00Z run check against the expectations above, then
   `/gsd-code-review 14`.
+- **Addendum 2026-09-09 — FIRST ENABLED RUN OBSERVED.** Scheduled run `34356004448` (head `be60755`,
+  13:16:08Z → 14:26:35Z, 70 min, conclusion success; `run_ledger` mode `full`, status `success`,
+  release `@be60755`). Helper #2 expectations all met: `helper2_capability_unavailable` on the two
+  Arrowhead sheets (no Helper #2 columns), `helper2_no_qualifying_completion` on every other
+  capable sheet, `HELPER2 GROUP CREATED` 0, `_Helper2_` workbooks 0, no degrade warning, 130
+  `freeze_attribution` RPC calls all HTTP 200, `row_state.helper2_observed` truthy rows 0. One-time
+  memory churn confirmed: 115 sheets written, 218,338 rows sent, 5,451 changed, 2,929 groups
+  affected, `row_event` rows for the run 218,338 (previous run: 36). Files generated 7; the 154
+  no-target-row skips are identical to the previous run (source-sheet data entry, pre-existing).
+  Two observations outside Helper #2: (1) the run's `Shadow parity FAIL` is the flag-off shadow
+  incremental READ probe (`RUN_MEMORY_INCREMENTAL_ENABLED` unset), read verdict
+  `changed_row_absent_from_delta_read` with 18 sheets abandoned after the 25-minute
+  `RUN_MEMORY_SHADOW_MAX_MINUTES` budget; group verdict pass; it also fired on 2 of the 9 pre-merge
+  `bc2de79` runs, so it is intermittent and pre-existing, and the 25-minute probe is what makes long
+  runs long. (2) **`sheet_registry.mapping_schema` was NOT written** — see O-14-E.
 
-## O-14-D — OPEN 2026-09-09: flag-off re-routes rows that carried a Helper #2 claim
+## O-14-E — OPEN 2026-09-09: mapping_schema marker never written, registry skip defeated
+
+- Expected on the first enabled run: one full validation per sheet, then the `helper2-v1` marker
+  written so later runs are admitted from cache again (D-14-10-APPLIED). Observed: all 121 sheets
+  fully validated (`Discovery validation split: 121 candidates, 0 skipped`), `sheet_registry` rows
+  updated (`last_full_read_at` = run time on all 121, `column_mapping` present on all 121), but
+  `mapping_schema` is NULL on all 121 rows after the run.
+- Root cause (verified in code 2026-09-09): plan 14-07 added the `mapping_schema_by_sheet` kwarg to
+  `pipeline_memory/writer.py::upsert_sheet_registry` and pinned it with `MappingSchemaMarkerWriterTests`,
+  but neither call site in `pipeline/orchestrate.py` (pass 1 and pass 2) passes it, so the writer's
+  default omits the marker for every sheet. `pipeline/discovery.py`'s sixth admission condition then
+  rejects every sheet (NULL ≠ `helper2-v1`) on every run. The 14-VERIFICATION gate tested the writer,
+  not the caller.
+- Impact: the D-11.1-01 registry-version skip is permanently defeated on every scheduled run — all
+  121 sheets take a full column validation every run (about 38 s and 121 column-metadata API calls
+  in run `34356004448`, 13:16:45Z → 13:17:23Z). Slower but correct, exactly the D-14-10 degrade
+  direction. No billing, grouping, attribution, or Helper #2 detection impact.
+- Proposed fix (plan 14-13, needs owner approval — production Python in `pipeline/`): at both
+  `upsert_sheet_registry` call sites pass `mapping_schema_by_sheet={sid: MAPPING_SCHEMA_MARKER for sid
+  in <sheets that completed full validation this run>}`, with a caller-level test that asserts the
+  marker reaches the payload for a fully-validated sheet and is omitted for a cache-admitted one, then
+  confirm on the next scheduled run that `skipped via sheet_registry` returns to ~121 and
+  `mapping_schema = 'helper2-v1'` on all rows.
+
+## O-14-D — RESOLVED 2026-09-09: flag-off re-routes rows that carried a Helper #2 claim
+
+- **Resolution (Juan, 2026-09-09, option (a) — accept).** Helper #2 is a permanent production
+  capability, not a one-time backfill: a crew can record a second helper in any week, so
+  `HELPER2_ENABLED` stays at `1` indefinitely. The flag exists only as an emergency kill switch
+  (stop the Helper #2 path in one command without a code rollback); there is no planned or scheduled
+  flag-off. Option (b) persisted-claim routing would change protected grouping behaviour for a
+  scenario the owner never intends to trigger, and option (c) would reverse D-14-12's
+  evidence-retention choice — both declined. Accepted rollback behaviour: if an emergency disable
+  ever happens with real Helper #2 claims present, rows regroup into the primary / Helper #1
+  workbook while the retained `_Helper2_` attachment stays, and the operator reconciles by hand per
+  the runbook Rollback section. No code change; docs updated to reflect the closure.
+- Original record (kept for traceability):
 
 - Raised by Greptile (P1) and Copilot on PR #391 against the "rollback = set the variable to `0`"
   wording; verified in code 2026-09-09: with `HELPER2_ENABLED` off, `pipeline/fetch.py` sets

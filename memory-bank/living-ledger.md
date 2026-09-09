@@ -9415,3 +9415,25 @@ flag-off (`0`) is an emergency disable, not a billing-safe rollback once real He
 by Greptile/Copilot on PR #391, verified in code, docs corrected, no code change). Codex bot review comments on #390
 were listed for Juan and deliberately not
 acted on (ClaudeOS harness boundary). Vault write-back applied (project page, current-state, log `[2026-09-08h]`).
+
+[2026-09-09 08:45] O-14-D RESOLVED — Helper #2 is permanent; flag-off is an emergency kill switch only. Juan: "it
+should be enabled to catch the helper #2 forever because it could happen and this is not a one time thing." So
+`HELPER2_ENABLED` stays `1` indefinitely with no planned flag-off; the flag exists solely to stop the Helper #2 path in
+one command if it ever breaks a billing run. Option (a) accepted: on an emergency disable with real Helper #2 claims
+present, rows regroup into the primary / Helper #1 workbook while the retained `_Helper2_` attachment stays, and the
+operator reconciles by hand (runbook Rollback section). Persisted-claim routing (b) declined — a protected grouping
+change for a scenario never intended to run; attachment retirement (c) declined — reverses D-14-12. No code change.
+Rule: do not propose grouping-behaviour work to make flag-off billing-safe; the answer is "leave the flag on."
+
+[2026-09-09 09:40] First enabled Helper #2 scheduled run verified; O-14-E opened (mapping_schema marker never written).
+Run `34356004448` (head `be60755`, 13:16Z → 14:26Z, success): Helper #2 path clean — `helper2_capability_unavailable`
+on the 2 Arrowhead sheets, `helper2_no_qualifying_completion` on every other capable sheet, 0 `HELPER2 GROUP CREATED`,
+0 `_Helper2_` files, 0 degrade warnings, 130 `freeze_attribution` calls all 200, `row_state.helper2_observed` 0.
+One-time memory churn confirmed (218,338 `row_event` rows, 5,451 changed, 115 sheets). GAP: all 121 `sheet_registry`
+rows still have `mapping_schema` NULL after the run. Plan 14-07 added the `mapping_schema_by_sheet` kwarg to
+`upsert_sheet_registry` and tested the writer, but neither `pipeline/orchestrate.py` call site passes it, so the
+marker is never written and `discovery.py`'s sixth admission condition rejects every sheet every run: the D-11.1-01
+registry skip is defeated (121 full validations, ~38 s, no billing impact). Lesson: when a plan adds an opt-in
+kwarg, the verification gate must assert the production CALLER passes it, not only that the callee honors it.
+Also noted: `Shadow parity FAIL` (flag-off shadow READ probe, 25-min budget, 18 sheets abandoned) is intermittent
+and pre-existing — it fired on 2 of 9 pre-merge `bc2de79` runs too; group verdict passes. Not a Phase 14 regression.

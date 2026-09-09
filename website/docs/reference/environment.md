@@ -876,8 +876,10 @@ never sweeps a live Helper #2 identity, flag on or off) and frozen attribution
 is not reversed, but Excel routing follows the live flag: a row with a Helper #2
 claim plus "Units Completed?" or a Helper #1 claim regroups into the primary /
 Helper #1 workbook while the old `_Helper2_` workbook stays — the same unit in
-two files until reconciled by hand. Details and the open owner decision
-(`O-14-D`): [Foreman Helper #2 → Rollback](../runbook/foreman-helper-2.md#rollback).
+two files until reconciled by hand. This limitation is accepted (owner decision
+`O-14-D`, resolved 2026-09-09: the flag stays `1` indefinitely and is an
+emergency kill switch only). Details:
+[Foreman Helper #2 → Rollback](../runbook/foreman-helper-2.md#rollback).
 
 **Startup banner:** not yet added; grep the sheet-level capability log line
 (`helper2_capability_unavailable` / Helper #2 columns present) to confirm the

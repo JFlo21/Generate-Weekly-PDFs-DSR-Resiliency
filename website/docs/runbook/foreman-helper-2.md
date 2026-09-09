@@ -191,9 +191,12 @@ Helper #2 claims exist — the third bullet says why.
   re-routes the row on the next run, and the primary-variant orphan gate in
   `pipeline/cleanup.py` retires a superseded primary workbook, but a Helper #1
   fallback workbook whose only row was this claim is never swept
-  automatically — delete that attachment manually. Open owner decision `O-14-D` in
-  `.planning/phases/14-foreman-helper-2/14-DECISIONS.md` tracks whether to add
-  persisted-claim routing.
+  automatically — delete that attachment manually. This limitation is accepted
+  by owner decision `O-14-D` (resolved 2026-09-09, recorded in
+  `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`): Helper #2 is a
+  permanent capability, the flag stays on indefinitely, and flag-off is an
+  emergency kill switch only — persisted-claim routing was declined, so
+  hand reconciliation is the documented recovery if a disable ever happens.
 
 **What flag-off does not do**, because this is the part an operator needs at two
 in the morning: it does not delete anything and it does not un-freeze an

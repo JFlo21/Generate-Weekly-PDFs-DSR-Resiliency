@@ -35,7 +35,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   --body 0`): with the flag off, detection clears the Helper #2 marker, so a row that also carries
   "Units Completed?" or a Helper #1 claim regroups into the primary / Helper #1 workbook while cleanup
   keeps the old `_Helper2_` attachment (D-14-12) — the same unit in two files until reconciled by hand.
-  Harmless today (no live row carries a Helper #2 claim). Open owner decision **O-14-D**.
+  Harmless today (no live row carries a Helper #2 claim). Owner decision **O-14-D RESOLVED 2026-09-09**:
+  Helper #2 is permanent (flag stays `1` indefinitely, flag-off is an emergency kill switch only), the
+  regroup-on-disable limitation is accepted, reconcile by hand if it ever happens — no code change.
 - **Plan 14-12 (gap closure) — COMPLETE**: Task 1 `1563199` lockstep test (`upsert_rows_bulk` lists ⊇
   `HASH_FIELDS`) + `cf556d8` RPC text and `pipeline_memory/helper2_columns_migration.sql`; Task 2 applied
   2026-09-09 02:21:29Z as Supabase migration `20260909022129_helper2_row_state_columns_marker_and_rpc` and
@@ -43,12 +45,14 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   environment docs + records (`O-14-B RESOLVED`, `O-14-A-FOLLOWUP-1 CONFIRMED`, `D-14-14-ENABLE`).
 - **Owner instruction** (Juan, 2026-09-08): apply both DDLs, close O-14-B, confirm Follow-up 1, "then enable
   the helper 2 once these issues are fixed" — executed in full 2026-09-09.
-- **First scheduled run on merged + enabled code** is the Wed 2026-09-09 13:00Z slot (the 01:00Z run
-  `34299267004` ran pre-merge on `bc2de79`, success). Expect a one-time ~217k `row_event` churn from the
-  `HASH_FIELDS` change, one full validation per sheet then `mapping_schema` markers written (no degrade
-  warning — the column now exists), 14-param `freeze_attribution` OK, the four Helper #2 counters present
-  in run_summary at 0, and no `_Helper2_` workbook (Resource Analyst Helper #2 column is blank on all
-  576 rows). Not yet observed — check `gh run list --workflow weekly-excel-generation.yml`.
+- **First scheduled run on merged + enabled code OBSERVED** — run `34356004448` (head `be60755`, 13:16Z →
+  14:26Z, success). Helper #2 clean: capability-unavailable on the 2 Arrowhead sheets, no qualifying
+  completion elsewhere, 0 groups, 0 `_Helper2_` files, no degrade warning, 130 `freeze_attribution` calls
+  all 200. One-time churn confirmed: 218,338 `row_event` rows (5,451 changed). Files generated 7. The
+  `Shadow parity FAIL` is the flag-off shadow READ probe, intermittent and pre-existing (also on 2 of 9
+  pre-merge runs). **Gap found: `sheet_registry.mapping_schema` is still NULL on all 121 rows** — the
+  orchestrate call sites never pass `mapping_schema_by_sheet`, so every run fully validates all 121
+  sheets (~38 s, no billing impact). Recorded as **O-14-E** with a proposed plan 14-13 (`14-DECISIONS.md`).
 - **Review bots**: Greptile/Copilot's P1 on PR #391 (flag-off re-routes Helper #2 rows) was verified in
   code and recorded as O-14-D with docs corrected, no code change. Codex bot comments on PR #390 are
   outside the ClaudeOS harness boundary — listed for Juan, never applied.
@@ -65,8 +69,11 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Open items / owner decisions
 
-- **O-14-D** (NEW 2026-09-09): flag-off routing — accept and reconcile by hand, add persisted-claim
-  routing (grouping behaviour change, own plan + fixtures), or retire `_Helper2_` attachments on disable.
+- **O-14-E** (NEW 2026-09-09): `mapping_schema` marker never written by the orchestrate call sites, so the
+  D-11.1-01 registry skip is defeated every run (slower but correct). Fix = plan 14-13, one kwarg at two
+  call sites + caller test; production Python, needs Juan's go-ahead.
+- **O-14-D** (flag-off routing): RESOLVED 2026-09-09 — option (a) accepted; Helper #2 is permanent, the
+  flag is an emergency kill switch only, persisted-claim routing declined (`14-DECISIONS.md`).
 - **O-14-B** (`upsert_rows_bulk` RPC gap): RESOLVED 2026-09-09 (`D-14-13-VERIFIED`).
 - **O-14-A Follow-up 1** (per-slot Helper #2 duplication): CONFIRMED by Juan 2026-09-08 (`O-14-A-FOLLOWUP-1`).
 - **12-06 Task 4**: first post-apply scheduled-run check still owed — pointer `.planning/HANDOFF.json`.
@@ -74,13 +81,11 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Next actions
 
-1. Watch the Wed 2026-09-09 13:00Z scheduled run (first enabled run): one-time `row_event` churn, Helper #2
-   counters present, no degrade warning, no `_Helper2_` workbook (RA column blank). Record the outcome as
-   an addendum under `D-14-14-ENABLE`; if anything degrades, disable with the variable (O-14-D caveat).
-2. Juan decides O-14-D before any real Helper #2 claim is expected on the Resource Analyst sheet.
-3. `/gsd-code-review 14` on master.
-4. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
-5. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
+1. Juan approves plan 14-13 (O-14-E: pass `mapping_schema_by_sheet` at both `upsert_sheet_registry` call
+   sites + caller test); then verify on the next scheduled run that `skipped via sheet_registry` ≈ 121.
+2. `/gsd-code-review 14` on master.
+3. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
+4. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
 
 ## Risks and guardrails
 
