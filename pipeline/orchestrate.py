@@ -2189,14 +2189,17 @@ def _compute_registry_marker_sheets(
     - its ``column_mapping`` is actually WRITTEN by this call
       (``column_mapping_sheets`` is ``None`` on the weekly deep run, or
       contains the id -- see ``_compute_registry_mapping_sheets``). On a
-      frequent run an already-registered sheet's stored mapping is echoed,
-      not refreshed, so stamping it would certify a mapping this run never
-      validated (possibly a pre-Helper-#2 one), which would let a later
-      run admit that sheet from cache with Helper #2 columns missing.
+      frequent run that set is brand-new sheets plus every registered
+      sheet that took a full validation this run (Plan 14-14); only a
+      skip-admitted sheet's stored mapping is echoed, not refreshed, and
+      stamping THAT would certify a mapping this run never validated
+      (possibly a pre-Helper-#2 one), which would let a later run admit
+      the sheet from cache with Helper #2 columns missing.
 
-    Consequence: existing sheets earn the marker on the next
-    ``weekly_comprehensive`` run; brand-new sheets earn it immediately.
-    A skip-admitted sheet is never promoted (14-07 writer contract).
+    Consequence: a sheet earns the marker on the first run that fully
+    validates it (brand-new, registered-but-not-skip-admitted, or any
+    sheet on the ``weekly_comprehensive`` run). A skip-admitted sheet
+    is never promoted (14-07 writer contract).
 
     PURE (no I/O, never raises) -- directly unit-testable.
     """
@@ -2620,8 +2623,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # cron-identity-not-wall-clock rule). Phase 14 Plan 14 (O-14-E):
         # a frequent run writes it for brand-new sheets AND for sheets it
         # fully validated this run (not admitted from the discovery skip
-        # index) -- never silently: pass 2 below logs drift for each
-        # adopted sheet. A skip-admitted sheet keeps echoing its stored
+        # index) -- never silently: pass 1 logs drift for each adopted
+        # sheet BEFORE the first registry write (pass 2 keeps only the
+        # deep-run log). A skip-admitted sheet keeps echoing its stored
         # mapping. NOT NULL safety (see _compute_registry_mapping_sheets
         # docstring): a sheet with NO existing registry row still gets
         # its first-ever mapping written regardless of execution type.

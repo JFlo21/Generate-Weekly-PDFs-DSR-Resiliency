@@ -129,6 +129,27 @@ class OrchestrateFrequentRunWiringTests(unittest.TestCase):
         self.assertEqual(src.count("_log_column_mapping_drift("), 2)
         self.assertIn('label="Frequent-run full-validation"', src)
 
+    def test_frequent_drift_log_precedes_first_registry_write(self):
+        """Ordering pin (Copilot, PR #396): the frequent-run drift log
+        must run BEFORE the first ``upsert_sheet_registry`` call so an
+        early no-data exit after pass 1 can never adopt silently, and
+        the deep-run log must sit before the second call."""
+        from pipeline import orchestrate as orch
+
+        src = inspect.getsource(orch.main)
+        writes = [
+            i for i in range(len(src))
+            if src.startswith("upsert_sheet_registry(", i)
+        ]
+        self.assertEqual(len(writes), 2, writes)
+        frequent = src.index('label="Frequent-run full-validation"')
+        self.assertLess(frequent, writes[0])
+        deep = src.index(
+            "_log_column_mapping_drift(_registry_sheets, _watermarks)"
+        )
+        self.assertGreater(deep, writes[0])
+        self.assertLess(deep, writes[1])
+
 
 class AdoptedMappingReachesWriterTests(unittest.TestCase):
     """End to end through the real writer: on a frequent run a registered

@@ -86,7 +86,8 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 ## Next actions
 
 1. Merge the plan 14-14 PR; after the first scheduled run on it confirm `mapping_schema = 'helper2-v1'` on all
-   121 `sheet_registry` rows with Helper #2 keys in every `column_mapping`, then `skipped via sheet_registry`
+   121 `sheet_registry` rows, Helper #2 keys in `column_mapping` on the 114 capable sheets (the 7
+   capability-unavailable sheets may lack them), then `skipped via sheet_registry`
    ≈ 121 and counters 114/7 on the following run; then close O-14-E (PRs #394 `7ded60c`, #395 `d079e81` merged).
 2. `/gsd-code-review 14` on master.
 3. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
