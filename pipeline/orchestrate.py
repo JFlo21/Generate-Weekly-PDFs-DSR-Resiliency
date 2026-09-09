@@ -2648,6 +2648,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         )
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
+                if not _is_deep_run:
+                    # Phase 14 Plan 14 (O-14-E): a frequent run adopts the
+                    # freshly validated mapping for the sheets it fully
+                    # validated -- log each changed one BEFORE the first
+                    # registry write so adoption is never silent, even if
+                    # the run stops before pass 2 (Copilot, PR #396). The
+                    # deep run keeps its pass-2 log (unchanged).
+                    _adopted = [
+                        s for s in _registry_sheets
+                        if s.get("id") in _registry_fully_validated_sids
+                    ]
+                    _log_column_mapping_drift(
+                        _adopted, _watermarks,
+                        label="Frequent-run full-validation",
+                    )
                 _mem_writer.upsert_sheet_registry(
                     _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
                     _fetch.get_last_sheet_versions(),
@@ -2800,19 +2815,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             try:
                 if _is_deep_run:
                     _log_column_mapping_drift(_registry_sheets, _watermarks)
-                else:
-                    # Phase 14 Plan 14 (O-14-E): a frequent run adopts the
-                    # freshly validated mapping for the sheets it fully
-                    # validated -- log each changed one so adoption is
-                    # never silent (same shape as the deep-run refresh).
-                    _adopted = [
-                        s for s in _registry_sheets
-                        if s.get("id") in _registry_fully_validated_sids
-                    ]
-                    _log_column_mapping_drift(
-                        _adopted, _watermarks,
-                        label="Frequent-run full-validation",
-                    )
                 _mem_writer.upsert_sheet_registry(
                     _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
                     _fetch.get_last_sheet_versions(),
