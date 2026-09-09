@@ -303,6 +303,15 @@ CREATE TABLE IF NOT EXISTS pipeline_memory.run_ledger (
 -- pair when the row's week_ending moved -- Phase 11 INC-02 depends on
 -- the previous week being present so the old file can be regenerated
 -- too.
+-- Helper #2 (Phase 14 Plan 12, O-14-B closure): helper2_observed /
+-- helper2_completed / helper2_dept / helper2_job appear in EVERY column
+-- list below (typed recordset, after_image, row_state INSERT + ON
+-- CONFLICT set). tests/test_upsert_rows_bulk_helper2_contract.py pins
+-- each list to writer.py's HASH_FIELDS so the RPC can never silently
+-- drop a hashed field again. Re-apply this block (CREATE OR REPLACE on
+-- the unchanged signature keeps the live grants and search_path pin)
+-- AFTER pipeline_memory/helper2_columns_migration.sql has added the
+-- columns -- the INSERT list references them.
 CREATE OR REPLACE FUNCTION pipeline_memory.upsert_rows_bulk(
     p_sheet_id BIGINT,
     p_run_id   TEXT,
@@ -321,6 +330,7 @@ BEGIN
             q.work_type, q.quantity, q.units_total_price, q.units_completed,
             q.foreman_observed, q.helper_observed, q.helper_completed,
             q.helper_dept, q.helper_job, q.vac_crew_observed,
+            q.helper2_observed, q.helper2_completed, q.helper2_dept, q.helper2_job,
             q.vac_completed, q.row_modified_at, q.content_hash
         FROM jsonb_to_recordset(p_rows) AS q(
             row_id             BIGINT,
@@ -340,6 +350,10 @@ BEGIN
             helper_job         TEXT,
             vac_crew_observed  TEXT,
             vac_completed      BOOLEAN,
+            helper2_observed   TEXT,
+            helper2_completed  BOOLEAN,
+            helper2_dept       TEXT,
+            helper2_job        TEXT,
             row_modified_at    TIMESTAMPTZ,
             content_hash       TEXT
         )
@@ -391,6 +405,10 @@ BEGIN
                 'helper_job', c.helper_job,
                 'vac_crew_observed', c.vac_crew_observed,
                 'vac_completed', c.vac_completed,
+                'helper2_observed', c.helper2_observed,
+                'helper2_completed', c.helper2_completed,
+                'helper2_dept', c.helper2_dept,
+                'helper2_job', c.helper2_job,
                 'row_modified_at', c.row_modified_at,
                 'content_hash', c.content_hash
             ),
@@ -406,6 +424,9 @@ BEGIN
             helper_dept, helper_job, vac_crew_observed, vac_completed,
             row_modified_at, content_hash, first_seen_run, last_seen_run,
             last_changed_run
+            -- Helper #2 (14-12) appended last, leading commas: the diff
+            -- stays purely additive (test_schema_changes_are_additive_only)
+            , helper2_observed, helper2_completed, helper2_dept, helper2_job
         )
         SELECT
             p_sheet_id, i.row_id, i.wr, i.week_ending, i.snapshot_date,
@@ -414,6 +435,7 @@ BEGIN
             i.helper_completed, i.helper_dept, i.helper_job,
             i.vac_crew_observed, i.vac_completed, i.row_modified_at,
             i.content_hash, p_run_id, p_run_id, p_run_id
+            , i.helper2_observed, i.helper2_completed, i.helper2_dept, i.helper2_job
         FROM incoming AS i
         ON CONFLICT (sheet_id, row_id) DO UPDATE SET
             last_seen_run = p_run_id,
@@ -478,6 +500,22 @@ BEGIN
                                        IS DISTINCT FROM EXCLUDED.content_hash
                                   THEN EXCLUDED.vac_completed
                                   ELSE pipeline_memory.row_state.vac_completed END,
+            helper2_observed = CASE WHEN pipeline_memory.row_state.content_hash
+                                          IS DISTINCT FROM EXCLUDED.content_hash
+                                     THEN EXCLUDED.helper2_observed
+                                     ELSE pipeline_memory.row_state.helper2_observed END,
+            helper2_completed = CASE WHEN pipeline_memory.row_state.content_hash
+                                           IS DISTINCT FROM EXCLUDED.content_hash
+                                      THEN EXCLUDED.helper2_completed
+                                      ELSE pipeline_memory.row_state.helper2_completed END,
+            helper2_dept = CASE WHEN pipeline_memory.row_state.content_hash
+                                      IS DISTINCT FROM EXCLUDED.content_hash
+                                 THEN EXCLUDED.helper2_dept
+                                 ELSE pipeline_memory.row_state.helper2_dept END,
+            helper2_job = CASE WHEN pipeline_memory.row_state.content_hash
+                                     IS DISTINCT FROM EXCLUDED.content_hash
+                                THEN EXCLUDED.helper2_job
+                                ELSE pipeline_memory.row_state.helper2_job END,
             row_modified_at = CASE WHEN pipeline_memory.row_state.content_hash
                                          IS DISTINCT FROM EXCLUDED.content_hash
                                     THEN EXCLUDED.row_modified_at
