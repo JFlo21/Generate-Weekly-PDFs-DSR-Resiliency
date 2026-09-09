@@ -995,7 +995,7 @@ DDLs, the O-14-B closure, O-14-A Follow-up 1, and enabling the flag once those l
 after PR #390 merges; `0` to roll back, no code change). The first scheduled run after the merge writes the
 `mapping_schema` marker after one full validation per sheet and logs the Helper #2 counters; no `_Helper2_` workbook
 appears until a crew records a second helper. See `memory-bank/living-ledger.md` `[2026-09-08 21:30]`.
-
+
 **Enabled.** PR #390 squash-merged to master `661d6d3` at 2026-09-09 02:49:30Z; repo variable `HELPER2_ENABLED=1`
 set at 02:49:58Z (`D-14-14-ENABLE` addendum). First enabled scheduled run = Wed 2026-09-09 13:00Z. Flag-off is an
 emergency disable, not a billing-safe rollback once real Helper #2 claims exist (open owner decision `O-14-D`).
