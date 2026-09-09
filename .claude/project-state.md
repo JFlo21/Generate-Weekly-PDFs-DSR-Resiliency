@@ -15,9 +15,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   the live attribution backfill is applied (1,758 rows updated, read-back clean). **12-06 Task 4** (first
   post-apply scheduled-run check) is still owed — pointer `.planning/HANDOFF.json`. Phase 13 (the deferred
   `wr_week_ownership` table, D-12-A) has not started.
-- **Phase 14 (Foreman Helper #2)**: COMPLETE, 12/12 plans. PR #389 → master `ba6eeaf` (documented-only
-  rollout) and gap-closure PR #390 → master `661d6d3` (2026-09-09 02:49Z) are merged. **Helper #2 is
-  ENABLED** for scheduled runs via the repo variable `HELPER2_ENABLED=1` (set 02:49:58Z) — section below.
+- **Phase 14 (Foreman Helper #2)**: 14 plans, 13 executed; 14-14 Task 2 (production observation) pending.
+  PR #389 → `ba6eeaf`, #390 → `661d6d3`, #394 → `7ded60c`, #395 → `d079e81` merged; #396 (plan 14-14) open.
+  **Helper #2 is ENABLED** for scheduled runs via the repo variable `HELPER2_ENABLED=1` — section below.
 - **GSD tooling**: HEALTHY as of 2026-09-06 (gsd-core 1.13.0 via the marketplace plugin); a forbidden npm
   reinstall that session was fully rolled back — never accept the npm install prompt on this machine.
 - **CI noise**: `code/snyk` ("Code test limit reached") and the Azure DevOps mirror build fail on every PR
@@ -25,7 +25,8 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Phase 14 — Foreman Helper #2
 
-- **Status**: 12/12 plans executed; `14-VERIFICATION.md` = `passed` 7/7 (HLP-01..07 Complete). PR #389
+- **Status**: 14 plans, 13 executed + 14-14 Task 2 pending (O-14-E observation); `14-VERIFICATION.md` =
+  `passed` 7/7 (HLP-01..07 Complete). PR #389
   (`ba6eeaf`, 2026-09-09 01:37Z, `D-14-12-ROLLOUT` documented-only) and PR #390 (`661d6d3`, 02:49:30Z,
   plan 14-12: O-14-B closure, `HELPER2_ENABLED` wiring, post-merge docs) are both on master.
 - **Enabled**: repo variable `HELPER2_ENABLED=1` set 2026-09-09 02:49:58Z (`D-14-14-ENABLE` addendum). The
@@ -69,10 +70,12 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Open items / owner decisions
 
-- **O-14-E** (`mapping_schema` marker never written): FIXED 2026-09-09 by plan 14-13 (Juan approved) —
-  `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed as
-  `mapping_schema_by_sheet` at both call sites; marker = fully validated AND mapping written this call.
-  Existing 121 sheets earn `helper2-v1` on the next Monday 05:00Z deep run; close once observed.
+- **O-14-E** (`mapping_schema` marker never written): plan 14-13 merged `d079e81` (marker = fully validated
+  AND mapping written this call; first run `34393726548` clean). Juan could not wait for Monday's deep run;
+  SQL backfill REJECTED (0/121 stored mappings carry Helper #2 keys → would silently disable detection).
+  **Plan 14-14** (branch `fix/14-14-frequent-run-mapping-adoption`): frequent runs adopt the freshly
+  validated mapping + marker for fully-validated sheets, drift logged. Close after the first run on its
+  merge shows `mapping_schema='helper2-v1'` on 121 rows and the next run skips ≈ 121.
 - **O-14-D** (flag-off routing): RESOLVED 2026-09-09 — option (a) accepted; Helper #2 is permanent, the
   flag is an emergency kill switch only, persisted-claim routing declined (`14-DECISIONS.md`).
 - **O-14-B** (`upsert_rows_bulk` RPC gap): RESOLVED 2026-09-09 (`D-14-13-VERIFIED`).
@@ -82,9 +85,10 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Next actions
 
-1. Merge PR #394 (docs) and the plan 14-13 PR (O-14-E fix); after the Mon 2026-09-14 05:00Z deep run confirm
-   `mapping_schema = 'helper2-v1'` on all 121 `sheet_registry` rows and `skipped via sheet_registry` ≈ 121
-   on the following frequent run; then close O-14-E.
+1. Merge the plan 14-14 PR; after the first scheduled run on it confirm `mapping_schema = 'helper2-v1'` on all
+   121 `sheet_registry` rows, Helper #2 keys in `column_mapping` on the 114 capable sheets (the 7
+   capability-unavailable sheets may lack them), then `skipped via sheet_registry`
+   ≈ 121 and counters 114/7 on the following run; then close O-14-E (PRs #394 `7ded60c`, #395 `d079e81` merged).
 2. `/gsd-code-review 14` on master.
 3. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
 4. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.

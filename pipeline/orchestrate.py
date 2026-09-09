@@ -2127,30 +2127,48 @@ def _compute_registry_mapping_sheets(
     is_deep_run: bool,
     source_sheets: list[dict[str, Any]],
     watermarks: dict[Any, dict[str, Any]],
+    fully_validated_sids: set[int] | None = None,
 ) -> set | None:
     """Phase 11 Plan 06 (D-03): compute the value passed as
     ``upsert_sheet_registry``'s new ``column_mapping_sheets`` kwarg.
+
+    Phase 14 Plan 14 (O-14-E): ``fully_validated_sids`` -- the sheet
+    ids that took a FULL column validation this run (every candidate
+    NOT admitted from the discovery skip index). On a frequent run those
+    sheets' freshly validated mapping is written too, not only brand-new
+    sheets': the mapping was just validated against the live columns and
+    is the one this run processed with, so echoing an older stored copy
+    would keep the registry staler than reality (2026-09-09 evidence: 0
+    of 121 stored mappings carried a Helper #2 key while every run
+    processed with mappings that did). Adoption is never silent -- the
+    caller logs drift for each adopted sheet (``_log_column_mapping_drift``
+    with the frequent-run label). ``None`` (the default) keeps the Phase
+    11 shape: new sheets only.
 
     ``is_deep_run`` True (``EXECUTION_TYPE == 'weekly_comprehensive'``,
     the Monday deep run by cron identity) -> ``None`` (every sheet's
     mapping is refreshed -- the deep run reads every sheet in full
     anyway, so there is no per-sheet "was it actually read" distinction
     left to make). ``is_deep_run`` False (a frequent run, or any other
-    execution type) -> exactly the sheet ids ABSENT from *watermarks*
-    (no existing ``sheet_registry`` row yet) -- those sheets get their
-    FIRST-EVER ``column_mapping`` written on this run's INSERT (the
+    execution type) -> the sheet ids ABSENT from *watermarks* (no
+    existing ``sheet_registry`` row yet -- those sheets get their
+    FIRST-EVER ``column_mapping`` written on this run's INSERT; the
     column is ``NOT NULL`` with no default, so omitting it there would
-    fail the whole upsert); every ALREADY-REGISTERED sheet's stored
-    mapping is left untouched, so a frequent run can never silently
-    adopt a drifted mapping (D-02 trigger 2 is what escalates that
-    sheet to a full read instead).
+    fail the whole upsert) UNIONED with ``fully_validated_sids`` (see
+    above). An already-registered sheet that was admitted from the
+    discovery skip index is left untouched, so a frequent run never
+    adopts a mapping it did not validate this run (D-02 trigger 2 is
+    what escalates a drifted sheet to a full read instead).
 
     PURE (no I/O, never raises) -- directly unit-testable.
     """
     if is_deep_run:
         return None
+    validated = fully_validated_sids or set()
     return {
-        s.get("id") for s in source_sheets if s.get("id") not in watermarks
+        s.get("id")
+        for s in source_sheets
+        if s.get("id") not in watermarks or s.get("id") in validated
     }
 
 
@@ -2171,21 +2189,24 @@ def _compute_registry_marker_sheets(
     - its ``column_mapping`` is actually WRITTEN by this call
       (``column_mapping_sheets`` is ``None`` on the weekly deep run, or
       contains the id -- see ``_compute_registry_mapping_sheets``). On a
-      frequent run an already-registered sheet's stored mapping is echoed,
-      not refreshed, so stamping it would certify a mapping this run never
-      validated (possibly a pre-Helper-#2 one), which would let a later
-      run admit that sheet from cache with Helper #2 columns missing.
+      frequent run that set is brand-new sheets plus every registered
+      sheet that took a full validation this run (Plan 14-14); only a
+      skip-admitted sheet's stored mapping is echoed, not refreshed, and
+      stamping THAT would certify a mapping this run never validated
+      (possibly a pre-Helper-#2 one), which would let a later run admit
+      the sheet from cache with Helper #2 columns missing.
 
-    Consequence: existing sheets earn the marker on the next
-    ``weekly_comprehensive`` run; brand-new sheets earn it immediately.
-    A skip-admitted sheet is never promoted (14-07 writer contract).
+    Consequence: a sheet earns the marker on the first run that fully
+    validates it (brand-new, registered-but-not-skip-admitted, or any
+    sheet on the ``weekly_comprehensive`` run). A skip-admitted sheet
+    is never promoted (14-07 writer contract).
 
     PURE (no I/O, never raises) -- directly unit-testable.
     """
     marker_sheets: dict[int, str] = {}
     for sheet in registry_sheets:
         sid = sheet.get("id")
-        if sid in skip_sids:
+        if sid is None or sid in skip_sids:
             continue
         if (
             column_mapping_sheets is not None
@@ -2199,6 +2220,7 @@ def _compute_registry_marker_sheets(
 def _log_column_mapping_drift(
     sheets: list[dict[str, Any]],
     watermarks: dict[Any, dict[str, Any]],
+    label: str = "Deep-run",
 ) -> list[Any]:
     """Phase 11 Plan 06 (INC-03/D-03): log + Sentry-breadcrumb the sheet
     ids whose freshly-discovered ``column_mapping`` differs from the
@@ -2235,7 +2257,7 @@ def _log_column_mapping_drift(
         if fresh != stored:
             changed.append(sheet_id)
             logging.warning(
-                f"🗂️ Deep-run column_mapping refresh: sheet {sheet_id} "
+                f"🗂️ {label} column_mapping refresh: sheet {sheet_id} "
                 f"mapping changed. Before keys: {sorted(stored.keys())}. "
                 f"After keys: {sorted(fresh.keys())}."
             )
@@ -2596,19 +2618,28 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             )
         )
         # Phase 11 Plan 06 (INC-03/D-03): column_mapping is refreshed on
-        # BOTH sheet_registry passes ONLY on the weekly deep run
-        # ('weekly_comprehensive' by cron identity, per CLAUDE.md's
-        # cron-identity-not-wall-clock rule) -- a frequent run must
-        # NEVER silently adopt a drifted mapping; D-02 trigger 2 already
-        # escalates that sheet to a full read instead. NOT NULL safety
-        # (see _compute_registry_mapping_sheets docstring): a sheet with
-        # NO existing registry row still gets its first-ever mapping
-        # written regardless of execution type.
+        # BOTH sheet_registry passes for every sheet on the weekly deep
+        # run ('weekly_comprehensive' by cron identity, per CLAUDE.md's
+        # cron-identity-not-wall-clock rule). Phase 14 Plan 14 (O-14-E):
+        # a frequent run writes it for brand-new sheets AND for sheets it
+        # fully validated this run (not admitted from the discovery skip
+        # index) -- never silently: pass 1 logs drift for each adopted
+        # sheet BEFORE the first registry write (pass 2 keeps only the
+        # deep-run log). A skip-admitted sheet keeps echoing its stored
+        # mapping. NOT NULL safety (see _compute_registry_mapping_sheets
+        # docstring): a sheet with NO existing registry row still gets
+        # its first-ever mapping written regardless of execution type.
         _is_deep_run = (
             os.getenv('EXECUTION_TYPE', 'manual') == 'weekly_comprehensive'
         )
+        _registry_skip_sids = _discovery.get_last_discovery_skip_sids()
+        _registry_fully_validated_sids = {
+            s.get("id") for s in _registry_sheets
+            if s.get("id") not in _registry_skip_sids
+        }
         _registry_mapping_sheets = _compute_registry_mapping_sheets(
             _is_deep_run, source_sheets, _watermarks,
+            fully_validated_sids=_registry_fully_validated_sids,
         )
         # Phase 14 Plan 13 (O-14-E): the mapping-schema marker goes only
         # to sheets that were fully validated this run AND whose mapping
@@ -2616,11 +2647,26 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # by both registry passes, like _registry_mapping_sheets.
         _registry_marker_sheets = _compute_registry_marker_sheets(
             _registry_sheets,
-            _discovery.get_last_discovery_skip_sids(),
+            _registry_skip_sids,
             _registry_mapping_sheets,
         )
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
+                if not _is_deep_run:
+                    # Phase 14 Plan 14 (O-14-E): a frequent run adopts the
+                    # freshly validated mapping for the sheets it fully
+                    # validated -- log each changed one BEFORE the first
+                    # registry write so adoption is never silent, even if
+                    # the run stops before pass 2 (Copilot, PR #396). The
+                    # deep run keeps its pass-2 log (unchanged).
+                    _adopted = [
+                        s for s in _registry_sheets
+                        if s.get("id") in _registry_fully_validated_sids
+                    ]
+                    _log_column_mapping_drift(
+                        _adopted, _watermarks,
+                        label="Frequent-run full-validation",
+                    )
                 _mem_writer.upsert_sheet_registry(
                     _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
                     _fetch.get_last_sheet_versions(),

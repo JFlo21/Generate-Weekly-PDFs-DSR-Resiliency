@@ -9449,3 +9449,19 @@ certifying it could later admit a pre-Helper-#2 mapping from cache and silently 
 Consequence: the 121 existing sheets earn `helper2-v1` on the next `weekly_comprehensive` Monday run; until then the
 ~38 s full validation per run continues (slower but correct). Evidence: `tests/test_mapping_schema_marker_caller.py`
 8 tests RED→GREEN; full suite 2304 passed / 1 skipped / 557 subtests; `scripts/run_6_gates.sh` ALL 6 GATES PASSED.
+
+[2026-09-09 16:50] Plan 14-14 — frequent runs adopt the freshly validated mapping (+ marker); SQL marker backfill REJECTED.
+Juan could not wait for the Monday deep run to stamp `sheet_registry.mapping_schema`. Evidence before choosing: 0 of 121
+stored `column_mapping` values carry any Helper #2 key (last deep run `34086148733` ran `6696a46`, pre-Helper-#2), so a
+SQL `UPDATE ... SET mapping_schema='helper2-v1'` would have admitted every sheet from cache WITHOUT Helper #2 columns
+and silently disabled Helper #2 detection on the 114 capable sheets — exactly the trap 14-13's marker rule guards.
+RULE: never backfill a cache-admission marker by SQL unless the data it certifies is proven current; check the keys first.
+Fix (Juan approved, TDD): `_compute_registry_mapping_sheets(..., fully_validated_sids=None)` — on a frequent run the
+written set is new sheets ∪ sheets fully validated this run (not skip-admitted); `_log_column_mapping_drift(..., label=)`
+fires for each adopted sheet with `Frequent-run full-validation` so adoption is never silent (Phase 11 D-03 kept in
+spirit: adoption requires a full validation this run and is logged);
+the log fires in pass 1 before the first registry write (PR #396 review round 2); skip-admitted sheets still echo unmarked. 14-13's
+marker helper then stamps `helper2-v1` on the same call. Expected: first scheduled run after merge writes Helper #2-aware
+mappings + marker on all 121; the next run skips ≈ 121 via the registry. Evidence: 9 new tests RED→GREEN
+(`tests/test_frequent_run_mapping_adoption.py`), full suite 2313 passed / 1 skipped, ALL 6 GATES PASSED (mypy delta
+71→71), independent verifier PASS after one line-length fix round. First run on the 14-13 merge (`34393726548`) was clean.
