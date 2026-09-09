@@ -15,9 +15,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   the live attribution backfill is applied (1,758 rows updated, read-back clean). **12-06 Task 4** (first
   post-apply scheduled-run check) is still owed — pointer `.planning/HANDOFF.json`. Phase 13 (the deferred
   `wr_week_ownership` table, D-12-A) has not started.
-- **Phase 14 (Foreman Helper #2)**: COMPLETE, 12/12 plans. PR #389 → master `ba6eeaf` (documented-only
-  rollout) and gap-closure PR #390 → master `661d6d3` (2026-09-09 02:49Z) are merged. **Helper #2 is
-  ENABLED** for scheduled runs via the repo variable `HELPER2_ENABLED=1` (set 02:49:58Z) — section below.
+- **Phase 14 (Foreman Helper #2)**: 14 plans, 13 executed; 14-14 Task 2 (production observation) pending.
+  PR #389 → `ba6eeaf`, #390 → `661d6d3`, #394 → `7ded60c`, #395 → `d079e81` merged; #396 (plan 14-14) open.
+  **Helper #2 is ENABLED** for scheduled runs via the repo variable `HELPER2_ENABLED=1` — section below.
 - **GSD tooling**: HEALTHY as of 2026-09-06 (gsd-core 1.13.0 via the marketplace plugin); a forbidden npm
   reinstall that session was fully rolled back — never accept the npm install prompt on this machine.
 - **CI noise**: `code/snyk` ("Code test limit reached") and the Azure DevOps mirror build fail on every PR
@@ -25,7 +25,8 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Phase 14 — Foreman Helper #2
 
-- **Status**: 12/12 plans executed; `14-VERIFICATION.md` = `passed` 7/7 (HLP-01..07 Complete). PR #389
+- **Status**: 14 plans, 13 executed + 14-14 Task 2 pending (O-14-E observation); `14-VERIFICATION.md` =
+  `passed` 7/7 (HLP-01..07 Complete). PR #389
   (`ba6eeaf`, 2026-09-09 01:37Z, `D-14-12-ROLLOUT` documented-only) and PR #390 (`661d6d3`, 02:49:30Z,
   plan 14-12: O-14-B closure, `HELPER2_ENABLED` wiring, post-merge docs) are both on master.
 - **Enabled**: repo variable `HELPER2_ENABLED=1` set 2026-09-09 02:49:58Z (`D-14-14-ENABLE` addendum). The

@@ -878,9 +878,12 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 12/12 plans executed (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to
-close O-14-C, making seven waves; 14-12 inserted 2026-09-08/09 to close O-14-B, making eight waves).
-Phase 14 is fully executed.
+**Plans:** 14 plans — 13 executed, 14-14 Task 1 executed with Task 2 (production observation) pending
+(planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to close O-14-C, making seven
+waves; 14-12 inserted 2026-09-08/09 to close O-14-B, making eight waves; 14-13 and 14-14 inserted
+2026-09-09 to close O-14-E — the mapping_schema marker was never written by the caller, then the owner
+chose frequent-run mapping adoption over waiting for the Monday deep run — making wave nine).
+Phase 14 closes when 14-14 Task 2 observes the marker on all registry rows and O-14-E is marked RESOLVED.
 
 Plans:
 

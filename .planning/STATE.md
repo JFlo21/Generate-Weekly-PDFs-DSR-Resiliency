@@ -5,10 +5,10 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: executing
-stopped_at: "Phase 14 Plan 12 complete (gap closure: O-14-B RPC fix, DDL applied and read back 2026-09-09, HELPER2_ENABLED wired) PR #390 squash-merged to master 661d6d3 at 2026-09-09 02:49Z, repo variable HELPER2_ENABLED=1 set 02:49:58Z; Phase 14 is fully executed (12/12 plans); only observation of the first enabled scheduled run (Wed 2026-09-09 13:00Z) remains pending"
-last_updated: "2026-09-09T03:30:00.000Z"
+stopped_at: "Phase 14 Plan 14 Task 1 complete (frequent-run mapping adoption, PR #396 open); plans 14-13 (merged d079e81) and 14-14 inserted 2026-09-09 as gap closure for O-14-E; Phase 14 has 14 plans, 13 executed + 14-14 Task 2 (production observation: marker on all 121 sheet_registry rows, then ~121 registry skips) pending; O-14-D resolved; first enabled run 34356004448 observed clean"
+last_updated: "2026-09-09T22:20:00.000Z"
 last_activity: 2026-09-09
-last_activity_desc: Phase 14 Plan 12 closed out (O-14-B closure, D-14-13-DDL-APPLIED/VERIFIED, D-14-14-ENABLE; HLP-06 Complete 7/7)
+last_activity_desc: Plans 14-13 + 14-14 (O-14-E gap closure); O-14-D resolved; first enabled run verified
 progress:
   total_phases: 14
   completed_phases: 12

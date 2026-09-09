@@ -2150,14 +2150,15 @@ def _compute_registry_mapping_sheets(
     mapping is refreshed -- the deep run reads every sheet in full
     anyway, so there is no per-sheet "was it actually read" distinction
     left to make). ``is_deep_run`` False (a frequent run, or any other
-    execution type) -> exactly the sheet ids ABSENT from *watermarks*
-    (no existing ``sheet_registry`` row yet) -- those sheets get their
-    FIRST-EVER ``column_mapping`` written on this run's INSERT (the
+    execution type) -> the sheet ids ABSENT from *watermarks* (no
+    existing ``sheet_registry`` row yet -- those sheets get their
+    FIRST-EVER ``column_mapping`` written on this run's INSERT; the
     column is ``NOT NULL`` with no default, so omitting it there would
-    fail the whole upsert); every ALREADY-REGISTERED sheet's stored
-    mapping is left untouched, so a frequent run can never silently
-    adopt a drifted mapping (D-02 trigger 2 is what escalates that
-    sheet to a full read instead).
+    fail the whole upsert) UNIONED with ``fully_validated_sids`` (see
+    above). An already-registered sheet that was admitted from the
+    discovery skip index is left untouched, so a frequent run never
+    adopts a mapping it did not validate this run (D-02 trigger 2 is
+    what escalates a drifted sheet to a full read instead).
 
     PURE (no I/O, never raises) -- directly unit-testable.
     """
