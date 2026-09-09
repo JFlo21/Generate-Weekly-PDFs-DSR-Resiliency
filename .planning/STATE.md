@@ -5,7 +5,7 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: executing
-stopped_at: "Phase 14 Plan 14 Task 1 merged 736141a (PR #396, frequent-run mapping adoption); Task 2 observation pending; plans 14-13 (merged d079e81) and 14-14 inserted 2026-09-09 as gap closure for O-14-E; Phase 14 has 14 plans, 13 executed + 14-14 Task 2 (production observation: marker on all 121 sheet_registry rows, then ~121 registry skips) pending; O-14-D resolved; first enabled run 34356004448 observed clean"
+stopped_at: "Phase 14 Plan 14 Task 1 merged 736141a (PR #396, frequent-run mapping adoption); Task 2 observation pending; plans 14-13 (merged d079e81) and 14-14 inserted 2026-09-09 as gap closure for O-14-E; Phase 14 has 14 plans, all executed; 14-14 Task 2 (production observation: marker on all 121 sheet_registry rows, then ~121 registry skips) pending; O-14-D resolved; first enabled run 34356004448 observed clean"
 last_updated: "2026-09-09T22:20:00.000Z"
 last_activity: 2026-09-09
 last_activity_desc: Plans 14-13 + 14-14 (O-14-E gap closure); O-14-D resolved; first enabled run verified
