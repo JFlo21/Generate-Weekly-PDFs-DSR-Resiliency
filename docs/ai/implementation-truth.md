@@ -100,8 +100,13 @@ instruct Claude. Never store secrets in any tier.
   the local discovery-cache JSON and `USE_DISCOVERY_CACHE` / `DISCOVERY_CACHE_TTL_MIN` are gone. A
   sheet skips full validation only when ALL hold: a `pipeline_memory.sheet_registry` watermark exists,
   the live Smartsheet version (one bulk probe) equals `last_sheet_version`, the stored `column_mapping`
-  is non-empty and contains `Weekly Reference Logged Date`, and the stored name is non-empty — then the
-  registry's name + mapping are reused without a validation read. Any other case (missing watermark,
+  is non-empty and contains `Weekly Reference Logged Date`, the stored name is non-empty, and (Phase 14,
+  plans 14-07/14-13) `mapping_schema` equals the `helper2-v1` marker — then the registry's name + mapping
+  are reused without a validation read. The marker is written only for a sheet that took a full
+  validation this run AND whose mapping is written on that call: every sheet on the weekly deep run,
+  and on a frequent run brand-new sheets plus registered sheets fully validated this run (plan 14-14,
+  drift logged with the `Frequent-run full-validation` label before the first registry write);
+  skip-admitted sheets echo their stored mapping unmarked. Any other case (missing watermark,
   version mismatch, registry or probe failure) falls through to `_validate_single_sheet`, whose read is
   bounded to `row_numbers=[1, 2, 3]` (Plan 11.1-04). `pipeline/discovery.py:196-300`, `:464-475`.
 - **Time-budget family:** `TIME_BUDGET_MINUTES` (`pipeline/config.py:106`, default `0`/disabled locally)

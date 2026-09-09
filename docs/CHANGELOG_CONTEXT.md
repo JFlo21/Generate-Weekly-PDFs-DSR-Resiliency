@@ -1032,4 +1032,4 @@ whose mapping actually changed, logged before the first registry write (Copilot 
 Operators: the first run after merge still shows `0 skipped ... 121 fully validated`
 plus one `column_mapping refresh` warning per sheet whose stored mapping gained keys (up to 121; the seven
 capability-unavailable sheets may not change), then `skipped via sheet_registry` ≈ 121 from the run after.
-Full suite 2313 passed / 1 skipped; six gates pass. Ledger `[2026-09-09 16:50]`. Fix: PR #396.
+Full suite 2313 passed / 1 skipped; six gates pass. Ledger `[2026-09-09 16:50]`. Fix: PR #396 → `736141a`.
