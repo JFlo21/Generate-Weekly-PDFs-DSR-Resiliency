@@ -42,10 +42,9 @@ row that does not carry a valid Helper #2 completion when the flag is on.
 default) stays the shared grouping-mode control for both Helper #1 and Helper #2 —
 setting `HELPER2_ENABLED` does not change what `RES_GROUPING_MODE` does.
 
-Set it the same way you would set any other pipeline flag: in `.env` for a local
-run, or in the workflow `env:` block for a scheduled run — see [Workflow wiring
-(not yet applied)](#workflow-wiring-not-yet-applied) below for why it is not
-already there.
+Set it in `.env` for a local run. Scheduled runs read it from the repository
+variable `HELPER2_ENABLED` through the workflow `env:` block — see
+[Workflow wiring](#workflow-wiring) below.
 
 When off: the Helper #2 detection block is a no-op. No Helper #2 group, file,
 attribution row, or log line is produced, even on a sheet that has all six
@@ -190,27 +189,38 @@ corrected, that is a data-team / Smartsheet-side correction, the same as any
 other frozen attribution — see [Ownership and claim-time
 attribution](ownership-attribution.md).
 
-## Workflow wiring (not yet applied)
+## Workflow wiring
 
-`HELPER2_ENABLED` is **not yet wired** into
-`.github/workflows/weekly-excel-generation.yml`. GitHub Actions is inspect-only
-for this phase; the proposed lines below are recorded here and in
-`14-DECISIONS.md` (`D-14-12-ROLLOUT`) so the wiring is ready to apply the moment
-Juan authorizes it as a separate change — they are **not applied** by this
-phase:
+`HELPER2_ENABLED` is wired into `.github/workflows/weekly-excel-generation.yml`
+(`D-14-14-ENABLE`, owner-approved 2026-09-08 after the O-14-B closure) in the
+`env:` block of the "Generate reports" step, alongside the other phase-gated
+flags:
 
 ```yaml
-# Proposed addition to the `env:` block of the "Generate reports" step,
-# alongside the other Phase-gated flags (RES_GROUPING_MODE, etc.):
 HELPER2_ENABLED: ${{ vars.HELPER2_ENABLED || '0' }}
+```
+
+The value comes from the repository variable `HELPER2_ENABLED` (GitHub →
+Settings → Secrets and variables → Actions → Variables). Unset or `0` keeps
+every scheduled run byte-identical to pre-Phase-14 output; `1` turns Helper #2
+generation on for every scheduled run. Switching either way is a variable flip,
+never a code change:
+
+```bash
+gh variable set HELPER2_ENABLED --body 1 --repo JFlo21/Generate-Weekly-PDFs-DSR-Resiliency   # on
+gh variable set HELPER2_ENABLED --body 0 --repo JFlo21/Generate-Weekly-PDFs-DSR-Resiliency   # off
 ```
 
 This preserves the existing key-value `advanced_options` parser format the
 operational runbooks depend on, and does not change `TIME_BUDGET_MINUTES`
 (`165`) or the runner's `timeout-minutes` (`180`) — Helper #2 adds output
 volume, not a new I/O phase, so the existing time-budget headroom is expected
-to absorb it. Confirm the budget still holds after the first real Helper #2
-pilot run, before flipping this on for every scheduled run.
+to absorb it. The owner approved enabling on 2026-09-08 (`D-14-14-ENABLE`); the
+repository variable is set to `1` right after the change that adds this line
+merges, before any real-data pilot exists (the Resource Analyst Helper #2 column
+was blank on every live row, so nothing changes in any workbook until a crew
+records a second helper). Watch the run duration on the first run that produces
+a `_Helper2_` workbook.
 
 ## The pilot: rehearsed in escalating order
 

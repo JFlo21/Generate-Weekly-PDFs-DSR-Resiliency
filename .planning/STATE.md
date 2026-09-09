@@ -5,17 +5,17 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: executing
-stopped_at: "Phase 14 Plan 10 complete (rollout: runbook, pilot rehearsal, D-14-12-ROLLOUT documented-only, deploy-now merge to master 6d8942c); Phase 14 is fully executed (11/11 plans)"
-last_updated: "2026-09-08T23:00:00.000Z"
-last_activity: 2026-09-08
-last_activity_desc: Phase 14 Plan 10 closed out (rollout runbook/pilot/owner decisions; phase complete)
+stopped_at: "Phase 14 Plan 12 complete (gap closure: O-14-B RPC fix, DDL applied and read back 2026-09-09, HELPER2_ENABLED wired) on branch chore/phase-14-post-merge (PR #390, unmerged); Phase 14 is fully executed (12/12 plans); post-merge variable flip `gh variable set HELPER2_ENABLED --body 1` remains owner-delegated and pending merge"
+last_updated: "2026-09-09T02:35:00.000Z"
+last_activity: 2026-09-09
+last_activity_desc: Phase 14 Plan 12 closed out (O-14-B closure, D-14-13-DDL-APPLIED/VERIFIED, D-14-14-ENABLE; HLP-06 Complete 7/7)
 progress:
   total_phases: 14
   completed_phases: 12
-  total_plans: 71
-  completed_plans: 71
+  total_plans: 72
+  completed_plans: 72
   percent: 100
-state_head: 6d8942c80033bb73da308c927c50945adadbd927
+state_head: 365e76dd99d4cd1d64324656e42f02663d1939d7
 ---
 
 # Project State
@@ -163,6 +163,7 @@ Progress: [████████████████████] 50/50 p
 | Phase 14 P09 | ~2h10m (3 checkpoint-gated stretches) | 3 tasks | 4 files |
 | Phase 14 P11 | ~40min (2 checkpoint-gated stretches) | 3 tasks | 12 files |
 | Phase 14 P10 | ~12min active (2 stretches, 1 gate wait) | 3 tasks | 9 files |
+| Phase 14 P12 | executed by prior session (gap closure); closeout ~10min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -319,6 +320,9 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: D-14-07-VERIFIED (2026-09-08): 4 owner-delegated, owner-co-signed production read-back checks confirm both lookups return the new columns, the table has both columns, a Helper #2 freeze leaves the other 3 role columns byte-identical, and the first post-apply run shows zero PGRST errors. Assumption A4 CLOSED by observation. HLP-06 marked complete.
 - [Phase 14]: O-14-C RESOLVED (plan 14-11, 2026-09-08): Juan chose apply-delegated; the per-role Helper #2 fill migration (`billing_audit/helper2_attribution_fill.sql`) applied 20:12:05Z as migration `20260908201205_helper2_attribution_per_role_fill` (ON CONFLICT ... DO UPDATE gated by `is_sentinel_value`, Helper #2 only); synthetic-row read-back confirms the fill writes only the two Helper #2 columns plus provenance, every other column byte-identical, a second differing Helper #2 refused, fresh inserts carry no provenance. Post-merge, real-row confirmation of `snapshots_helper2_filled` and the no-degrade-warning check remain PENDING (Helper #2 is blank across production today).
 - [Phase 14]: D-14-12-ROLLOUT (plan 14-10, 2026-09-08 ~22:45Z): Juan chose documented-only -- `HELPER2_ENABLED` stays off in the repository default, no workflow wiring, no controlled upload authorized this phase; Juan separately instructed an immediate deploy ("i want this to roll out in production like right now"), and the orchestrating session merged `feat/phase-12-remediation` into `master` (`6d8942c`) on that instruction, skipping the pilot's live steps and relying on the already-passing automated gates as evidence. Phase 14 (Foreman Helper #2) is fully executed: 11/11 plans; HLP-04 and HLP-07 marked Complete.
+- [Phase 14]: D-14-13-DDL-APPLIED (plan 14-12, Task 2, 2026-09-08 evening CDT -> applied 2026-09-09T02:21:29Z): Juan approved applying both pending additive DDLs (row_state helper2_* x4, sheet_registry.mapping_schema) and closing O-14-B in one message ("do this and then enable the helper 2 once these issues are fixed"), apply delegated to the session -- the third apply-delegated occurrence in Phase 14 (after D-14-07-APPLIED/14-09 and O-14-C-APPLIED/14-11). Applied as Supabase migration `20260909022129_helper2_row_state_columns_marker_and_rpc`; pre-state parked in the owner's vault raw folder.
+- [Phase 14]: D-14-13-VERIFIED (plan 14-12, Task 2, production read-back 2026-09-09 02:22-02:27Z): four helper2 columns + mapping_schema confirmed present; `upsert_rows_bulk` def md5 changed 5987e5ed...->378b3353... with 36 helper2_ mentions, search_path pin and grants unchanged; synthetic round-trip on sheet_id -14012 proved insert-then-identical-resend adds 0 events and a changed Helper #2 value produces exactly 1 update event; synthetic rows deleted, 0 remain. **O-14-B RESOLVED.**
+- [Phase 14]: D-14-14-ENABLE (plan 14-12, Task 3, 2026-09-08): enable `HELPER2_ENABLED` for the scheduled workflow once the DDLs and O-14-B are fixed, overriding 14-10's pilot-wait caution -- the Resource Analyst Helper #2 column is blank on every live row today, so flipping the variable changes zero workbooks until a crew records a second helper. Workflow wired (`${{ vars.HELPER2_ENABLED || '0' }}`); the `gh variable set HELPER2_ENABLED --body 1` post-merge step is PENDING until PR #390 merges. HLP-06 flipped to Complete (7/7) in REQUIREMENTS.md and the 14-VERIFICATION.md addendum. Phase 14 (Foreman Helper #2) is fully executed: 12/12 plans.
 
 ### Roadmap Evolution
 
@@ -414,7 +418,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   isolation before Phase 04 ships.
 
 - Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED). scripts/backfill_claim_time_attribution.py source 3 must strip file extensions before the sentinel check + add a proposed-value guard + rebuild fixtures from the real hash-less filename shape before 12-06 can re-run. See 12-06-SUMMARY.md.
-- ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: ~~O-14-C~~ RESOLVED 2026-09-08 (plan 14-11) -- Juan chose apply-delegated; the per-role fill was applied and verified on synthetic rows (see the O-14-C decision entry above). Real-row post-merge confirmation of the fill counter and degrade-warning check stays PENDING until a live Helper #2 row exists.
+- ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: ~~O-14-C~~ RESOLVED 2026-09-08 (plan 14-11) -- Juan chose apply-delegated; the per-role fill was applied and verified on synthetic rows (see the O-14-C decision entry above). Real-row post-merge confirmation of the fill counter and degrade-warning check stays PENDING until a live Helper #2 row exists. Second successor: ~~O-14-B~~ RESOLVED 2026-09-09 (plan 14-12) -- `pipeline_memory.upsert_rows_bulk` now carries all four Helper #2 fields; D-14-13-DDL-APPLIED/D-14-13-VERIFIED recorded; HLP-06 now Complete 7/7 in both REQUIREMENTS.md and the 14-VERIFICATION.md addendum. Phase 14 fully executed (12/12 plans). Remaining owner-delegated post-merge step: `gh variable set HELPER2_ENABLED --body 1` after PR #390 merges, plus observation of the first enabled scheduled run (counters present, no degrade warning) -- both PENDING, tracked in 14-12-SUMMARY.md, not phase-blocking.
 
 ### Quick Tasks Completed
 
@@ -491,8 +495,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-08T23:00:00.000Z
-**Stopped at:** Phase 14 Plan 10 complete -- Task 1 shipped the operator runbook + environment/architecture docs (`fe70b28`); Task 2 rehearsed the pilot in escalating order, fixture pass and dry-run pass over synthetic data, step 3 recorded not-run (`b080d59`); Task 3's `checkpoint:decision gate="blocking-human"` resolved as `documented-only` -- `HELPER2_ENABLED` stays off in the repository default, no workflow wiring, no controlled upload (`D-14-12-ROLLOUT`, `a3998f9`) -- and Juan separately instructed an immediate deploy, so the orchestrating session merged `feat/phase-12-remediation` into `master` (`6d8942c`), validated by the full suite (2284 passed / 1 skipped / 557 subtests), `scripts/run_6_gates.sh` (ALL 6 GATES PASSED), and the website typecheck+build. Phase 14 (Foreman Helper #2) is now fully executed: 11/11 plans. Post-merge production observation (the fill counter and no-degrade-warning checks) and the two Smartsheet-side operator preconditions remain open, owner-tracked items -- not phase-blocking.
+**Last session:** 2026-09-09T02:35:00.000Z
+**Stopped at:** Phase 14 Plan 12 complete (gap closure for O-14-B, on branch `chore/phase-14-post-merge`, PR #390, not yet merged) -- Task 1 (RED `1563199`, GREEN `cf556d8`) made `pipeline_memory.upsert_rows_bulk` carry all four Helper #2 fields through every one of its five column lists, pinned by a 12-assertion lockstep contract test; Task 2's `checkpoint:decision gate="blocking-human"` was resolved by Juan 2026-09-08 evening CDT ("do this and then enable the helper 2 once these issues are fixed"), applied 2026-09-09T02:21:29Z as Supabase migration `20260909022129_helper2_row_state_columns_marker_and_rpc`, and read back clean (`D-14-13-DDL-APPLIED`, `D-14-13-VERIFIED`); Task 3 wired `HELPER2_ENABLED: ${{ vars.HELPER2_ENABLED || '0' }}` into the scheduled workflow, flipped HLP-06 to Complete (7/7) in REQUIREMENTS.md and the 14-VERIFICATION.md addendum, and recorded `D-14-14-ENABLE` (`3b60127`, `b6cdd41`, `8f94b50`, `365e76d`). Full suite 2296 passed / 1 skipped / 557 subtests; `scripts/run_6_gates.sh` ALL 6 GATES PASSED; website typecheck+build green. Phase 14 (Foreman Helper #2) is now fully executed: 12/12 plans. The owner-delegated post-merge step `gh variable set HELPER2_ENABLED --body 1` and observation of the first enabled scheduled run remain PENDING until PR #390 merges -- not phase-blocking.
 **Resume file:** None
 
 ## Session Continuity

@@ -879,11 +879,13 @@ back to the primary foreman by turning the flag off.
 (`helper2_capability_unavailable` / Helper #2 columns present) to confirm the
 resolved state per sheet until a dedicated startup banner line ships.
 
-**Workflow pin:** not yet wired into
-`.github/workflows/weekly-excel-generation.yml` — GitHub Actions is
-inspect-only for Phase 14; the proposed wiring is recorded in the runbook page
-above and in `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`
-(`D-14-12-ROLLOUT`) as a separate approval item.
+**Workflow pin:** wired since 2026-09-09 (`D-14-14-ENABLE`):
+`.github/workflows/weekly-excel-generation.yml` sets
+`HELPER2_ENABLED: ${{ vars.HELPER2_ENABLED || '0' }}` in the "Generate reports"
+step, so the repository variable `HELPER2_ENABLED` is the on/off switch for
+every scheduled run (`gh variable set HELPER2_ENABLED --body 0|1`). The
+proposal history lives in `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`
+(`D-14-12-ROLLOUT`, `D-14-14-ENABLE`).
 
 ## Ownership attribution backfill (source 5)
 
