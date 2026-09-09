@@ -187,8 +187,11 @@ Helper #2 claims exist — the third bullet says why.
   claim is grouped into the primary (or Helper #1) workbook on the next run —
   `pipeline/grouping.py` keeps no persisted-claim memory. Because the old
   `_Helper2_` workbook is retained (first bullet), the same unit can then sit
-  in two workbooks until the Helper #2 attachment is removed by hand or the
-  flag returns to `1`. Open owner decision `O-14-D` in
+  in two workbooks until reconciled by hand. Returning the flag to `1`
+  re-routes the row on the next run, and the primary-variant orphan gate in
+  `pipeline/cleanup.py` retires a superseded primary workbook, but a Helper #1
+  fallback workbook whose only row was this claim is never swept
+  automatically — delete that attachment manually. Open owner decision `O-14-D` in
   `.planning/phases/14-foreman-helper-2/14-DECISIONS.md` tracks whether to add
   persisted-claim routing.
 
