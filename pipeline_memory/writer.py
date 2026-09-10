@@ -402,10 +402,12 @@ def upsert_sheet_registry(
     already taught this codebase to guard against -- plus, since Phase
     14 Plan 14 (O-14-E), (b) every registered sheet that took a FULL
     column validation this run (not admitted from the discovery skip
-    index), with the caller logging drift for each adopted sheet before
-    this call. Before Plan 14 the deep run was the only caller that
-    could refresh a registered sheet; now a frequent run whose
-    candidates all fully validate refreshes all of them too. Only a
+    index), with the caller logging drift, before this call, for each
+    adopted sheet whose fresh mapping differs from the stored one (an
+    unchanged mapping adopts silently by design). Before Plan 14 the
+    deep run was the only caller that could refresh a registered
+    sheet; now a frequent run whose candidates all fully validate
+    refreshes all of them too. Only a
     skip-admitted sheet keeps its stored mapping untouched -- a drifted
     mapping there is D-02 trigger 2's job to ESCALATE (force a full
     read of that sheet), never to silently adopt.

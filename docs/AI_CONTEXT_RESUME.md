@@ -10,13 +10,22 @@
 > frozen Codex-side pointer, not maintained by ClaudeOS.) This file is the *status / resume*
 > layer, not the rulebook.
 
-_Last updated: 2026-09-05 (pointer + dated snapshots; body below the snapshots is the 2026-06-30 state)._
+_Last updated: 2026-09-10 (pointer + dated snapshots, newest first; body below the snapshots is the 2026-06-30 state)._
 
 > **Live status moved.** Since Phase 10 the current picture is kept in
 > `.claude/project-state.md` (repo status, watch lists, owner decisions) and
 > `.planning/STATE.md` (GSD position, session continuity), with dated evidence in
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
+>
+> **Snapshot 2026-09-10 (00:30Z) — Phase 14 "Foreman Helper #2" COMPLETE; O-14-E RESOLVED.** 14/14 plans merged
+> (last: plan 14-14, PR #396 → `736141a`; docs #397 → `92c9ed6`; closure PR #398). `HELPER2_ENABLED=1` on the
+> scheduled workflow (O-14-D: permanent feature, flag-off = emergency kill switch only). Registry skip restored:
+> dispatch run `34411958861` stamped `helper2-v1` on 121/121 `sheet_registry` rows (114 with Helper #2 keys, 7
+> capability-unavailable without); scheduled run `34415980363` skipped 112/121 via the registry (0 refresh
+> warnings, counters 7/114). **Next:** `/gsd-code-review 14`; Phase 12 12-06 Task 4 (first post-apply
+> scheduled-run check, then drop the `_20260903/04/05` snapshot backups); Phase 13 only when Juan asks.
+> Details: `.claude/project-state.md`, `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`.
 >
 > **Snapshot 2026-09-05 (00:45 CDT) — 12-06 Tasks 1–3 DONE: OWN-03 live backfill APPLIED; Task 4 waits on the first
 > post-apply scheduled run (Sat 2026-09-05 15:00 UTC).** Task 1 full-population dry-run re-run clean (5,829 sentinel

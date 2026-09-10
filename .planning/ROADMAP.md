@@ -148,7 +148,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | ✅ Complete | 2026-08-31 |
 | 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 4/4 | ✅ Complete | 2026-09-02 |
-| 12. Ownership — last known foreman as of the week | v1.4 | 10/10 executed | In Progress (12-06 Task 4 observation owed) |  |
+| 12. Ownership — last known foreman as of the week | v1.4 | 9/10 (12-06 blocked at Task 4) | In Progress |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
 | 14. Foreman Helper #2 | v1.4 | 14/14 | ✅ Complete | 2026-09-10 |
 
