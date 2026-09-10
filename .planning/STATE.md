@@ -51,14 +51,20 @@ Status: Closed — Helper #2 ENABLED (`HELPER2_ENABLED=1`, O-14-D: permanent
   (6 `fix(14):` commits `0e10891`..`7e9c56e` + `14-REVIEW-FIX.md`; TDD,
   Helper #1 parity as the known-good sample; independent suite 2326 passed /
   1 skipped; six gates pass; rubric verifier PASS; production-risk pass PASS
-  after one fix round). **PR #402 open, awaiting merge** (CI green apart from
-  the known `code/snyk` + Azure-mirror noise; Copilot / Greptile / Cursor
-  threads addressed on the branch through `c7544b4`, the last widening the
-  `SUB_RATES_FP` hash gate to the Helper #2 shadows; suite 2333 passed /
-  1 skipped). Next, in order: (1) merge PR #402; (2) Phase 12 12-06
-  Task 4; (3) Phase 13 only when Juan asks.
+  after one fix round). **PR #402 MERGED 2026-09-10 20:25Z → `6e6e1e8`**
+  (Copilot / Greptile / Codex / Cursor rounds addressed on the branch through
+  `dc484f2`, incl. the `SUB_RATES_FP` hash gate widened to the Helper #2
+  shadows in `c7544b4`; suite 2333 passed / 1 skipped; operator changelog
+  `website/blog/2026-09-10-pr402-phase-14-review-fixes.md`). Owner follow-ups
+  parked in `.planning/todos/pending/2026-09-10-pr402-review-followups.md`.
+  Next, in order: (1) Phase 12 12-06 Task 4 (resume at Task 4 only);
+  (2) observe the first scheduled run after `6e6e1e8` (Helper #2 shadow
+  workbooks regenerate once via the `SUB_RATES_FP` mix-in, expected empty; no
+  other variant hash moves); (3) PR #402 owner follow-ups (breaker half-open,
+  `keep_historical` in the SUB-09 off-contract gate); (4) Phase 13 only when
+  Juan asks.
 Last activity: 2026-09-10 — Phase 14 closed; O-14-E RESOLVED; code review
-  report merged (PR #399)
+  report merged (PR #399); code-review fixes merged (PR #402 → `6e6e1e8`)
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
   fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
@@ -345,7 +351,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ### Blockers/Concerns
 
-**From the Phase 14 code review (`14-REVIEW.md`, PR #399 → `94f2636`) — FIXED 2026-09-10 on branch `fix/phase-14-cr01-cr02-wr03`, PR #402 open, awaiting merge:**
+**From the Phase 14 code review (`14-REVIEW.md`, PR #399 → `94f2636`) — FIXED 2026-09-10, PR #402 MERGED → `6e6e1e8`:**
 
 - ✅ CR-01 (pricing gate, both literal sites) `0e10891`; CR-02 (both WR matchers,
   three `_HELPER2_` shapes) `f08d63e`; WR-01 (scope set) `4cc2cd0`; WR-02 (parity
@@ -516,8 +522,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-10T17:00:00.000Z
-**Stopped at:** Session resumed 2026-09-10 via /gsd-resume-work; Juan chose `/gsd-code-review 14 --fix` (owner decision for CR-01 / CR-02). Fix lane DONE on branch `fix/phase-14-cr01-cr02-wr03` (off master `d08420f`): six `fix(14):` commits `0e10891`, `f08d63e`, `4cc2cd0`, `a7aef8a`, `7c0fdec`, `7e9c56e` + docs commit with `14-REVIEW-FIX.md` (iteration 2, all_fixed 5/5). Verified independently: `pytest tests/` 2326 passed / 1 skipped / 567 subtests; six gates pass; haiku rubric verifier PASS; production-risk pass NEEDS-FIX → one round → PASS. Branch pushed; **PR #402 open** (Objective · Changes Made · Production Safety Check), babysat via `/claude-mem:babysit`: Cursor approver approved, CodeQL/tests/codecov/Semgrep green, Copilot "changes recommended" threads (post-degrade rows still on the primary breaker op; three stale comment/docstring contracts; stale planning status) fixed on the branch. Next: merge PR #402; then Phase 12 12-06 Task 4. Stale `.planning/HANDOFF.json` (2026-09-04, pre-Phase-14) superseded by this file. Previous stop: Phase 14 COMPLETE 2026-09-10 -- O-14-E RESOLVED on runs `34411958861` + `34415980363`, closure PR #398; the closed-state PR list is at the end of this paragraph. Earlier that day: first enabled scheduled run `34356004448` (head `be60755`) observed clean -- Helper #2 counters as expected, 0 groups / 0 `_Helper2_` workbooks, no degrade warning, 130 `freeze_attribution` calls 200, one-time 218,338 `row_event` churn landed. O-14-D RESOLVED by Juan (Helper #2 permanent; flag-off = emergency kill switch only; option a). O-14-E found (`sheet_registry.mapping_schema` NULL on all 121 rows: no caller passed `mapping_schema_by_sheet`) and FIXED by plan 14-13 -- `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed at both `upsert_sheet_registry` call sites; marker only for fully-validated sheets whose mapping is written this call. TDD 8 tests RED->GREEN; full suite 2304 passed / 1 skipped / 557 subtests; six gates pass; independent verifier PASS. PRs #394 (`7ded60c`), #395 (`d079e81`), #396 (`736141a`, plan 14-14: frequent runs adopt the freshly validated mapping + marker so the Monday deep run was not needed), #397 (`92c9ed6`, docs alignment) merged. O-14-E RESOLVED 2026-09-10 on observed runs (dispatch `34411958861`: 121/121 marked; scheduled `34415980363`: 112/121 registry skips); Phase 14 COMPLETE, closure PR #398. Code review done 2026-09-10: `14-REVIEW.md` via PR #399 (`94f2636`) — CR-01 (pricing gate) and CR-02 (WR hold matchers) are protected areas awaiting Juan's fix decision. Remaining: that decision; Phase 12 12-06 Task 4; Phase 13 not started. Post-review follow-ups landed through `c7544b4` (last: `SUB_RATES_FP` hash gate widened to the Helper #2 shadows, suite 2333 / 1 skipped); the three Codex threads remain Juan's.
+**Last session:** 2026-09-10T21:10:00.000Z
+**Stopped at:** PR #402 MERGED 2026-09-10 20:25Z → `6e6e1e8` (bot-review rounds Copilot ×3 / Greptile ×4 / Codex / Cursor answered on the branch through `dc484f2`: degraded op label for post-degrade rows `5720ce4`, pricing docstring `1f2218c`, parity per owning function/block `be6fccf` + `6129cc4`, `SUB_RATES_FP` gate widened to the Helper #2 shadows `c7544b4`, operator changelog `a2a7933`/`27b47a8`; suite 2333 passed / 1 skipped; Greptile P1 on the SUB-09 cleanup scope and Copilot's breaker half-open ask declined as by-design / follow-ups — `.planning/todos/pending/2026-09-10-pr402-review-followups.md`). PR #401 (pause handoff) also merged with the Phase 12 `.continue-here.md` corrected to resume 12-06 at Task 4 (`fa33df5`). Next: Phase 12 12-06 Task 4 — resume at Task 4 ONLY (the 12-06 SUMMARY's `status: blocked` would re-enter at Task 1); then observe the first scheduled run after `6e6e1e8` (Helper #2 subcontractor shadows regenerate once via the `SUB_RATES_FP` mix-in, expected empty; no other variant hash moves); then the PR #402 owner follow-ups (`.planning/todos/pending/2026-09-10-pr402-review-followups.md`); then Phase 13 when Juan asks. Previous stop: Session resumed 2026-09-10 via /gsd-resume-work; Juan chose `/gsd-code-review 14 --fix` (owner decision for CR-01 / CR-02). Fix lane DONE on branch `fix/phase-14-cr01-cr02-wr03` (off master `d08420f`): six `fix(14):` commits `0e10891`, `f08d63e`, `4cc2cd0`, `a7aef8a`, `7c0fdec`, `7e9c56e` + docs commit with `14-REVIEW-FIX.md` (iteration 2, all_fixed 5/5). Verified independently: `pytest tests/` 2326 passed / 1 skipped / 567 subtests; six gates pass; haiku rubric verifier PASS; production-risk pass NEEDS-FIX → one round → PASS. Branch pushed; **PR #402 open** (Objective · Changes Made · Production Safety Check), babysat via `/claude-mem:babysit`: Cursor approver approved, CodeQL/tests/codecov/Semgrep green, Copilot "changes recommended" threads (post-degrade rows still on the primary breaker op; three stale comment/docstring contracts; stale planning status) fixed on the branch. Next: merge PR #402; then Phase 12 12-06 Task 4. Stale `.planning/HANDOFF.json` (2026-09-04, pre-Phase-14) superseded by this file. Previous stop: Phase 14 COMPLETE 2026-09-10 -- O-14-E RESOLVED on runs `34411958861` + `34415980363`, closure PR #398; the closed-state PR list is at the end of this paragraph. Earlier that day: first enabled scheduled run `34356004448` (head `be60755`) observed clean -- Helper #2 counters as expected, 0 groups / 0 `_Helper2_` workbooks, no degrade warning, 130 `freeze_attribution` calls 200, one-time 218,338 `row_event` churn landed. O-14-D RESOLVED by Juan (Helper #2 permanent; flag-off = emergency kill switch only; option a). O-14-E found (`sheet_registry.mapping_schema` NULL on all 121 rows: no caller passed `mapping_schema_by_sheet`) and FIXED by plan 14-13 -- `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed at both `upsert_sheet_registry` call sites; marker only for fully-validated sheets whose mapping is written this call. TDD 8 tests RED->GREEN; full suite 2304 passed / 1 skipped / 557 subtests; six gates pass; independent verifier PASS. PRs #394 (`7ded60c`), #395 (`d079e81`), #396 (`736141a`, plan 14-14: frequent runs adopt the freshly validated mapping + marker so the Monday deep run was not needed), #397 (`92c9ed6`, docs alignment) merged. O-14-E RESOLVED 2026-09-10 on observed runs (dispatch `34411958861`: 121/121 marked; scheduled `34415980363`: 112/121 registry skips); Phase 14 COMPLETE, closure PR #398. Code review done 2026-09-10: `14-REVIEW.md` via PR #399 (`94f2636`) — CR-01 (pricing gate) and CR-02 (WR hold matchers) are protected areas awaiting Juan's fix decision. Remaining: that decision; Phase 12 12-06 Task 4; Phase 13 not started. Post-review follow-ups landed through `c7544b4` (last: `SUB_RATES_FP` hash gate widened to the Helper #2 shadows, suite 2333 / 1 skipped); the three Codex threads remain Juan's.
 **Resume file:** None
 
 ## Session Continuity

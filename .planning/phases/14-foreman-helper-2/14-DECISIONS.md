@@ -685,3 +685,25 @@ over synthetic data**. Neither **controlled upload verified** nor
   `billing_audit.attribution_snapshot` show a prior Helper #2 claim (a grouping behaviour change that
   needs its own plan and fixtures); or (c) on disable, also retire the retained `_Helper2_`
   attachments (reverses D-14-12's evidence-retention choice).
+
+## D-14-CR-FIX — owner decision 2026-09-10: fix the code-review Criticals (PR #402 → `6e6e1e8`)
+
+- Decision: Juan chose `/gsd-code-review 14 --fix` for `14-REVIEW.md` CR-01 (Helper #2 subcontractor
+  shadow files priced from raw `Units Total Price`, not the rate matrix — a billing formula) and CR-02
+  (`EXCLUDE_WRS` / `WR_FILTER` did not recognise `_HELPER2_` group keys — WR hold controls), with the
+  Warnings WR-01..03 and IN-01 in the same change. Both areas are protected under
+  `production-guardrails.md`; the decision was taken in-session on 2026-09-10 before any edit to
+  `pipeline/pricing.py` or `pipeline/grouping.py`.
+- Validation the decision required: TDD (parity test RED first, both pricing sites in one change),
+  Helper #1 parity as the known-good subcontractor sample, Opus-tier production-risk pass (two HIGH
+  items in WR-03 round 1 fixed in round 2), six gates, full suite (2333 passed / 1 skipped).
+- Outcome: `14-REVIEW-FIX.md` `status: all_fixed`; branch `fix/phase-14-cr01-cr02-wr03`; PR #402
+  MERGED 2026-09-10 20:25Z (squash `6e6e1e8`) after Copilot / Greptile / Cursor rounds, incl. the
+  `SUB_RATES_FP` hash gate widened to both Helper #2 shadows. Operator changelog:
+  `website/blog/2026-09-10-pr402-phase-14-review-fixes.md`.
+- Declined by design, parked as owner follow-ups (`.planning/todos/pending/2026-09-10-pr402-review-followups.md`):
+  a half-open state for the per-run billing-audit circuit breaker after a successful probe; honouring
+  `keep_historical` inside the SUB-09 off-contract cleanup gate (only reachable with
+  `RUN_MEMORY_INCREMENTAL_ENABLED`, unset in production). Both remain owner decisions.
+- Expected on the first scheduled run after `6e6e1e8`: one empty regeneration wave of the
+  `_AEPBillable_Helper2_` / `_ReducedSub_Helper2_` shadows; no other variant's hash moves.

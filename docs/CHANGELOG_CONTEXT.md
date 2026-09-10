@@ -1061,3 +1061,22 @@ sit in protected areas (billing formula, WR hold controls), so **no code changed
 `/gsd-code-review 14 --fix` and a hand-written TDD PR, or accepting as-is. Operators: until fixed, treat
 any `*_Helper2_*` subcontractor workbook's totals as unverified and expect `EXCLUDE_WRS` not to hold
 Helper #2 files. Ledger `[2026-09-09 23:40]`. Records: PR #399 → `94f2636`.
+
+## 2026-09-10 — Phase 14 code-review fixes merged (PR #402 → `6e6e1e8`); the PR #399 operator warning is lifted
+Juan decided `/gsd-code-review 14 --fix` (`14-DECISIONS.md` D-14-CR-FIX). PR #402 (branch
+`fix/phase-14-cr01-cr02-wr03`, squash-merged 20:25Z) closes every Critical/Warning finding of `14-REVIEW.md`
+(`14-REVIEW-FIX.md` all_fixed): **CR-01** both `_resolve_row_price` literal sites in `pipeline/pricing.py` now
+price `aep_billable_helper2` / `reduced_sub_helper2` from the subcontractor rate matrix like their Helper #1
+twins; **CR-02** the `EXCLUDE_WRS` / `WR_FILTER` matchers in `pipeline/grouping.py` recognise the three
+`_HELPER2_` key shapes, so a held WR also holds its Helper #2 files; **WR-01** a Helper #2-only WR enters the
+SUB-09 subcontractor cleanup scope; **WR-02** the parity test covers `pricing.py` + `attribution.py` per owning
+function/block; **WR-03** the `freeze_attribution` capability probe is coordinated across workers (no concurrent
+duplicates, bounded re-probes, `freeze_attribution_degraded` breaker label for already-degraded rows). Bot-review
+follow-up: `SUB_RATES_FP` is mixed into both Helper #2 shadow hashes (`c7544b4`), so a rates-CSV edit regenerates
+them too. Operators: the PR #399 caveat no longer applies — `*_Helper2_*` subcontractor totals come from the rate
+matrix and `EXCLUDE_WRS` holds Helper #2 files; expect one empty regeneration wave of the two Helper #2 shadow
+variants on the first scheduled run after the merge, no other hash moves. Synthesized changelog:
+`website/blog/2026-09-10-pr402-phase-14-review-fixes.md`. Open owner follow-ups (breaker half-open;
+`keep_historical` in the SUB-09 off-contract gate): `.planning/todos/pending/2026-09-10-pr402-review-followups.md`.
+Ledger `[2026-09-10 17:00]`, `[2026-09-10 20:15]`, `[2026-09-10 20:45]`. Records: PR #402 → `6e6e1e8`; write-back
+PR #403.
