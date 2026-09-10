@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-10 15:40 CDT (2026-09-10 20:40Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-10 15:17 CDT (2026-09-10 20:17Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
