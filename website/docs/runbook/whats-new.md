@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 10, 2026
 
+- 📄 Help guides updated: record code review outcome (#HLP-06)
 - 📄 Help guides updated: Phase 14 code review report (#HLP-06)
 - 📄 Help guides updated: close O-14-E and Phase 14 on observed runs (#HLP-06)
 - 📄 Help guides updated: align status files with plan 14-14 merge (#HLP-06)
@@ -23,7 +24,24 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: write mapping&#95;schema marker from caller (O-14-E)
 - 📄 Help guides updated: resolve O-14-D, record first enabled run, open O-14-E ( follow-up)
 - 📄 Help guides updated: record HELPER2&#95;ENABLED=1 after merge
-- ✨ New capability: close O-14-B, wire HELPER2&#95;ENABLED; Phase 14 post-merge docs (#HLP-06)
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
+
+### 📋 Changelog — September 10, 2026
+
+- 📄 Help guides updated: post-merge ledger pass -- PR merged, migration 0019 amended and still unapplied, next steps
+- ✅ Problem fixed: BUG-033 round 4 -- stamps-only verdict post-0019, by-id fallback read, both contact forms (follow-up to )
+- • ops(claudeos): context-continuity hardening -- policy enforce, lane admin-env fence, phase close-out checklist, dated Render table
+- ✅ Problem fixed: BUG-033 -- settled No-Revisions approval-lock repair no longer re-locks an admin-authorized unlock
+- ✅ Problem fixed: BUG-032 -- gf-edit-watcher.yml maps APP&#95;SUPABASE&#95;URL / APP&#95;SUPABASE&#95;SECRET&#95;KEY for the 33-03 approval-lock check
+- 📄 Help guides updated: ledgers -- PR merged + Render deploy verified; version-authority arming held on evidence
+- ✨ New capability: approval lock + post-approval change alerts (LOCK-01/02/03) -- gated dark
+- 📄 Help guides updated: BUG-030 closed / live-proven -- first green decision-sync run after PR
 
 <!-- /runbook-repo -->
 
@@ -36,30 +54,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — September 9, 2026
-
-- 📄 Help guides updated: BUG-030 closed / live-proven -- first green decision-sync run after PR
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 📄 Help guides updated: renumber the Phase 32 sidebar entry BUG-026 -&gt; BUG-029 (PR merge collision)
-- • Phase 32 GF Workbook v2 branch + BUG-027/028 RCAs + Phase 33 context
-- ✅ Problem fixed: BUG-028 -- No-Revisions D-07 confirmation, Billers churn guards, dropped-refusal accounting, claims-pending visibility
-- ✨ New capability: service heartbeat, /api/health deploy proof, deploy-smoke, CODEOWNERS + CI/CD contract (CICD-02..04)
-- ✅ Problem fixed: ingest GF revisions on 'Approved with Modifications' rows; approval tail matches the Requests row's Manifest ID token (BUG-026, WR 91783278)
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 9, 2026
+### 📋 Changelog — September 10, 2026
 
 - • 📊 Audit: 2026-09-07T07:04:39Z
 
@@ -448,7 +448,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 9, 2026
+### 📋 Changelog — September 10, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -459,14 +459,10 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — September 9, 2026
+### 📋 Changelog — September 10, 2026
 
 - • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits
-- • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts
-- • Make standby rehearsal green: implement Todoist list API surface, tighten failure diagnostics, and fix workflow concurrency syntax
 - • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits ()
-- • Eliminate TOCTOU file-system race patterns in CodeQL-alerted scripts ()
-- • Make standby rehearsal green: implement Todoist list API surface, tighten failure diagnostics, and fix workflow concurrency syntax ()
 
 <!-- /runbook-repo -->
 
@@ -487,3 +483,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
