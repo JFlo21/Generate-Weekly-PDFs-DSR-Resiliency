@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 10, 2026
 
+- 📄 Help guides updated: post-merge write-back for PR
 - ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
 - • wip(14): pause handoff, decision-first (#HLP-06)
 - 📄 Help guides updated: record code review outcome (#HLP-06)
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: close O-14-E and Phase 14 on observed runs (#HLP-06)
 - 📄 Help guides updated: align status files with plan 14-14 merge (#HLP-06)
 - ✅ Problem fixed: frequent runs adopt validated mapping, clear O-14-E now
-- ✅ Problem fixed: write mapping&#95;schema marker from caller (O-14-E)
 
 <!-- /runbook-repo -->
 
