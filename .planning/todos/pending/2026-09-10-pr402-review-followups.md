@@ -1,6 +1,6 @@
 ---
 created: 2026-09-10T13:15:00-05:00
-title: PR #402 review follow-ups — breaker half-open, off-contract keep_historical (per-site parity DONE 6129cc4)
+title: "PR #402 review follow-ups — breaker half-open, off-contract keep_historical (per-site parity DONE 6129cc4)"
 area: billing_audit / pipeline / tests
 severity: minor
 files:

@@ -9548,3 +9548,21 @@ HELPER2 meta block share one owning function (same shape as the two `pricing.py`
 that prices from a rate table must be added to that table's fingerprint gate in the same change — pricing site
 and hash site are one unit; (2) test one positive case per tuple MEMBER, not per family — a missing member is
 invisible to its siblings' tests.
+
+[2026-09-10 20:45] Phase 14 code-review fixes MERGED — PR #402 squash `6e6e1e8` (2026-09-10 20:25Z; branch
+`fix/phase-14-cr01-cr02-wr03`, head `dc484f2`). Ships CR-01 (Helper #2 shadows price from the rate matrix),
+CR-02 (`EXCLUDE_WRS` / `WR_FILTER` recognise the three `_HELPER2_` key shapes), WR-01 (Helper #2-only WRs enter
+the SUB-09 subcontractor cleanup scope), WR-02 (parity table covers `pricing.py` + `attribution.py`, checked per
+owning function/block with a scoped `KNOWN_DEFERRED`), WR-03 (coordinated `freeze_attribution` capability probe:
+no concurrent duplicates, bounded re-probes, `freeze_attribution_degraded` breaker label for already-degraded
+rows), plus the `SUB_RATES_FP` gate widened to both Helper #2 shadows ([2026-09-10 20:15]). Operator changelog:
+`website/blog/2026-09-10-pr402-phase-14-review-fixes.md` (the bot-maintained `whats-new.md` is not the place).
+Bot rounds answered on the branch: Copilot x3, Greptile x4, Cursor; three Codex threads left for Juan (harness
+boundary). Declined by design, parked as owner follow-ups in
+`.planning/todos/pending/2026-09-10-pr402-review-followups.md`: a half-open breaker after a successful probe
+(the breaker is per-run, no half-open) and `keep_historical` inside the SUB-09 off-contract gate (only reachable
+with `RUN_MEMORY_INCREMENTAL_ENABLED`, unset in production; attachment deletion = owner decision). RULES: (1) a
+post-merge squash makes ancestry checks meaningless — verify by content which branch commits landed; (2) a todo
+front-matter `title:` containing `#` must be quoted or YAML truncates it at the comment; (3) expect one empty
+regeneration wave of the `_Helper2_` subcontractor shadows on the first run after `6e6e1e8` (fingerprint
+mix-in), no other variant's hash moves. Next: Phase 12 12-06 Task 4, resumed at Task 4 ONLY.
