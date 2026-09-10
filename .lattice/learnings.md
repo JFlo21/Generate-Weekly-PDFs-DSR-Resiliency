@@ -48,3 +48,7 @@ or remove entries that stop being true. Repo-local; no secrets, no status.
   the fallback.
 - **Process:** on protected billing code, an independent read-only production-risk pass
   after the fixer (not just the rubric verifier) is what caught both items — keep it.
+
+- Same-function siblings defeat per-block parity: the `SUB_RATES_FP` gate and the HELPER2 meta block both live
+  in `calculate_data_hash()`, so the parity net certified the function while one site lacked the Helper #2
+  shadows (PR #402 Copilot round). Pricing site + hash-gate site are one unit; test each tuple member.

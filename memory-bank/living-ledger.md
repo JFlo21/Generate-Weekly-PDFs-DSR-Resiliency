@@ -9535,3 +9535,16 @@ Codex and Greptile rounds answered on the PR — follow-ups `5720ce4` post-degra
 `1f2218c` pricing docstring, `be6fccf` parity deferral scoped to `_run_phase_1_1_hash_prune`; Greptile P1 on the
 SUB-09 scope left open as an owner decision; Copilot's "auto-close the open breaker after a successful probe"
 declined as a new client feature — todo, not this PR).
+
+[2026-09-10 20:15] Phase 14 CR-01 follow-up (PR #402, Copilot post-review round): `calculate_data_hash()` mixed
+`SUB_RATES_FP` (subcontractor rates fingerprint, D-20) into the hash only for the four Phase 01 subcontractor
+variants. After CR-01 the Helper #2 shadows (`aep_billable_helper2` / `reduced_sub_helper2`) price from the rate
+matrix, but a rates-CSV edit never moved their hash — the `_Helper2_` shadow attachments would be skipped as
+unchanged and stay stale (`TOTAL=` in the hash is the raw `Units Total Price`, not the matrix price, so nothing
+else covered it). Fix: both shadows added to the gate in `pipeline/change_detection.py`; RED/GREEN
+`test_helper2_shadow_hashes_change_on_sub_fingerprint_mutation` plus a plain-`helper2` byte-identical guard in
+`tests/test_subcontractor_pricing.py`. The per-block parity net did not catch it because the D-20 gate and the
+HELPER2 meta block share one owning function (same shape as the two `pricing.py` sites). RULES: (1) a variant
+that prices from a rate table must be added to that table's fingerprint gate in the same change — pricing site
+and hash site are one unit; (2) test one positive case per tuple MEMBER, not per family — a missing member is
+invisible to its siblings' tests.
