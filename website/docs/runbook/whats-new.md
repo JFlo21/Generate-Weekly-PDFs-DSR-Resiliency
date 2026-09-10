@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 10, 2026
 
+- 📄 Help guides updated: Phase 14 code review report (#HLP-06)
 - 📄 Help guides updated: close O-14-E and Phase 14 on observed runs (#HLP-06)
 - 📄 Help guides updated: align status files with plan 14-14 merge (#HLP-06)
 - ✅ Problem fixed: frequent runs adopt validated mapping, clear O-14-E now
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: resolve O-14-D, record first enabled run, open O-14-E ( follow-up)
 - 📄 Help guides updated: record HELPER2&#95;ENABLED=1 after merge
 - ✨ New capability: close O-14-B, wire HELPER2&#95;ENABLED; Phase 14 post-merge docs (#HLP-06)
-- ✨ New capability: Phase 14 Foreman Helper + Phase 12 G-12-3 closure (#HLP-01..07)
 
 <!-- /runbook-repo -->
 
