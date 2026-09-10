@@ -334,14 +334,22 @@ shared-state under the parallel executor.
 `False` under the lock, release it, and both send the probe before either marks
 the capability unsupported, so the documented "at most one extra RPC call" would
 still not hold. Choose one of:
-1. **Atomic check-and-reserve (enforces the invariant).** Replace the boolean with a
-   three-state `_helper2_probe_state: Literal['unknown', 'probing', 'unsupported']`
-   guarded by `_helper2_capability_lock`. In `freeze_row`, under the lock: if
-   `unsupported` → take the degraded path; if `probing` → treat as unsupported for
-   this row (do not send a second probe); if `unknown` → set `probing` and release.
-   Only the thread that won the `unknown → probing` transition sends the RPC and
-   then transitions to `unsupported` (PGRST202) or back to a terminal `supported`
-   state. `_mark_helper2_rpc_unsupported` keeps its lock and its one-time log.
+1. **Atomic check-and-reserve with waiters (enforces the invariant without losing
+   attribution).** Replace the boolean with a four-state
+   `_helper2_probe_state: Literal['unknown', 'probing', 'supported', 'unsupported']`
+   guarded by `_helper2_capability_lock` plus a `threading.Condition` on that lock.
+   In `freeze_row`, under the lock: `supported` → normal path; `unsupported` →
+   degraded path; `unknown` → set `probing`, release, and this thread alone sends
+   the probe, then sets `supported` or `unsupported` (PGRST202) and
+   `notify_all()`; `probing` → **wait on the condition** until the state leaves
+   `probing`, then follow the resolved state. Rows that arrive during the probe
+   must NOT take the degraded path: a degraded freeze is persisted without Helper
+   #2 attribution and is not retried in the same run, so if the probe then
+   confirms support those rows would lose attribution until a repair run. The wait
+   is bounded by the probe's own RPC timeout; if the waiter times out, raise /
+   return a retryable failure for that row (the existing per-row failure path, so
+   the row is not recorded as frozen) rather than persisting a degraded result.
+   `_mark_helper2_rpc_unsupported` keeps its lock and its one-time log.
 2. **Document the accepted race.** Keep the boolean and state in the docstring that
    concurrent in-flight `freeze_row` calls may each probe once (bounded by the
    executor's worker count, each probe idempotent and safe), replacing the
