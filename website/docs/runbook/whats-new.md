@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 10, 2026
 
+- • wip(14): pause handoff, decision-first (#HLP-06)
 - 📄 Help guides updated: record code review outcome (#HLP-06)
 - 📄 Help guides updated: Phase 14 code review report (#HLP-06)
 - 📄 Help guides updated: close O-14-E and Phase 14 on observed runs (#HLP-06)
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: frequent runs adopt validated mapping, clear O-14-E now
 - ✅ Problem fixed: write mapping&#95;schema marker from caller (O-14-E)
 - 📄 Help guides updated: resolve O-14-D, record first enabled run, open O-14-E ( follow-up)
-- 📄 Help guides updated: record HELPER2&#95;ENABLED=1 after merge
 
 <!-- /runbook-repo -->
 
@@ -483,4 +483,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
