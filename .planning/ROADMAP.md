@@ -965,7 +965,8 @@ Plans:
   observed 2026-09-10: 121/121 marked (dispatch `34411958861`), 112/121 registry skips (`34415980363`)
 
 **Owner decisions the plans depended on (planning-time record — ALL resolved by 2026-09-10, see
-`14-DECISIONS.md`: O-14-A → hold-out rule + O-14-A-FOLLOWUP-1 CONFIRMED; the three Supabase changes →
+`14-DECISIONS.md`: O-14-A → **helper2-wins** (Helper #2 > Helper #1 > primary; owner-defined 2026-09-07, plan 14-08 — the
+hold-out below was only the planning-time recommendation) + O-14-A-FOLLOWUP-1 CONFIRMED; the three Supabase changes →
 D-14-07-APPLIED / O-14-C-APPLIED / D-14-13-DDL-APPLIED; D-14-12 rollout → D-14-14-ENABLE and O-14-D):**
 
 - **O-14-A (OPEN at planning time)** — a source row with BOTH helper completion boxes checked, both names real, both
