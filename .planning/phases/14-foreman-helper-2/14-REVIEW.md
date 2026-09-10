@@ -176,21 +176,38 @@ will reflect AEP's/production price, not the subcontractor's contracted rate —
 exactly the class of dollar-amount billing defect this repo's guardrails exist to
 prevent.
 
-**Fix:**
+**Fix:** `_resolve_row_price` has TWO variant-literal sites and both must gain the
+Helper #2 siblings. Adding them only to the early gate is itself a defect: an
+`aep_billable_helper2` row would then pass the gate and fall into the `else`
+(reduced-rate) branch of the later rate selection, billing AEP-billable Helper #2
+work at the reduced subcontractor rate.
 ```python
+# 1. early gate (pipeline/pricing.py:636)
 if variant not in (
     'aep_billable', 'reduced_sub',
     'aep_billable_helper', 'reduced_sub_helper',
     'aep_billable_helper2', 'reduced_sub_helper2',
 ):
     return parse_price(row.get('Units Total Price'))
+
+# 2. rate selection (pipeline/pricing.py:678)
+if variant in (
+    'aep_billable', 'aep_billable_helper', 'aep_billable_helper2',
+):
+    rate = rate_row.get(f'new_{wt}_price', 0.0)
+else:  # reduced_sub / reduced_sub_helper / reduced_sub_helper2
+    rate = rate_row.get(f'reduced_{wt}_price', 0.0)
 ```
-Add a regression test in `tests/test_subcontractor_pricing.py` asserting
-`_resolve_row_price(row, 'aep_billable_helper2', missing)` and
-`..., 'reduced_sub_helper2', missing)` return the rate-matrix price (mirroring the
-existing `aep_billable_helper` test at line 1921), and add `pipeline/pricing.py` to
-`tests/test_helper2_family_parity.py`'s `PARITY_TABLE` so this class of gap cannot
-recur silently.
+Regression coverage in `tests/test_subcontractor_pricing.py` must assert the RATE
+CLASS, not only "a rate-matrix price": `_resolve_row_price(row,
+'aep_billable_helper2', missing)` returns `new_{wt}_price × qty` and
+`..., 'reduced_sub_helper2', missing)` returns `reduced_{wt}_price × qty`, with the
+fixture's new and reduced rates set to different values so a fall-through to the
+wrong branch fails (mirror the existing `aep_billable_helper` /
+`reduced_sub_helper` pair at line 1921). Add `pipeline/pricing.py` to
+`tests/test_helper2_family_parity.py`'s `PARITY_TABLE` with BOTH literal sites so
+this class of gap cannot recur silently. Validate against a known-good Helper #1
+subcontractor sample before merging (billing guardrail).
 
 ### CR-02: `EXCLUDE_WRS` / `WR_FILTER` do not recognize Helper #2 group keys
 
@@ -313,11 +330,24 @@ idempotent, and `_mark_helper2_rpc_unsupported` is itself lock-protected), but i
 weakens a documented invariant ("at most one extra RPC call") and is inconsistent
 with this same module's careful `_counters_lock` discipline elsewhere for
 shared-state under the parallel executor.
-**Fix:** Read `_helper2_rpc_unsupported` under `_helper2_capability_lock` at both
-call sites (a short `with _helper2_capability_lock: local = _helper2_rpc_unsupported`
-before each use), or document explicitly why the read-side race is accepted (as the
-write-side race in `_mark_helper2_rpc_unsupported` already is, via
-`_helper2_degrade_logged`).
+**Fix:** A short lock around each READ is not enough: two workers can each read
+`False` under the lock, release it, and both send the probe before either marks
+the capability unsupported, so the documented "at most one extra RPC call" would
+still not hold. Choose one of:
+1. **Atomic check-and-reserve (enforces the invariant).** Replace the boolean with a
+   three-state `_helper2_probe_state: Literal['unknown', 'probing', 'unsupported']`
+   guarded by `_helper2_capability_lock`. In `freeze_row`, under the lock: if
+   `unsupported` → take the degraded path; if `probing` → treat as unsupported for
+   this row (do not send a second probe); if `unknown` → set `probing` and release.
+   Only the thread that won the `unknown → probing` transition sends the RPC and
+   then transitions to `unsupported` (PGRST202) or back to a terminal `supported`
+   state. `_mark_helper2_rpc_unsupported` keeps its lock and its one-time log.
+2. **Document the accepted race.** Keep the boolean and state in the docstring that
+   concurrent in-flight `freeze_row` calls may each probe once (bounded by the
+   executor's worker count, each probe idempotent and safe), replacing the
+   "at most one extra RPC call" claim with "at most one extra RPC call per
+   in-flight worker".
+Option 1 is preferred because it also makes the degrade counter deterministic.
 
 ## Info
 
