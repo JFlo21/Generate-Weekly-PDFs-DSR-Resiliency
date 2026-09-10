@@ -245,6 +245,9 @@ Sequencing — **A → B → C → D → E**:
 
 > **2026-09-10 pointer (live status lives in `.claude/project-state.md`):** Phase 14 "Foreman Helper #2" is COMPLETE — 14/14 plans merged and observed (last: plan 14-14, PR #396 → `736141a`; docs #397 → `92c9ed6`), `HELPER2_ENABLED=1` on the scheduled workflow (O-14-D: permanent feature, flag-off = emergency kill switch), O-14-E RESOLVED (registry marker on 121/121 rows, 112/121 registry skips on the next run). Next: `/gsd-code-review 14`, Phase 12 12-06 Task 4. Details: `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`.
 
+> _The numbered list below is the 2026-08 planning snapshot, kept for history; it is superseded by
+> the pointer above and by `.claude/project-state.md` → Next actions._
+
 1. **Phase 09 Wave 5** (cleanup/upload/attribution) — NEXT, on human go. Same
    model: Opus executor, sequential / no-worktree, independent `run_6_gates.sh` +
    stop. Then Wave 6 (orchestrate + facade finalize).

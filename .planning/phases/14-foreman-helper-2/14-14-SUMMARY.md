@@ -143,7 +143,18 @@ See `key-decisions`: owner instruction, SQL-backfill rejection, D-03 kept in spi
 - **Committed in:** `5ce3efc`, `c04dc5b` (branch, in squash `736141a`); `bed436c` (writer docstring)
   missed the merge and landed as `607f5db` in PR #398
 
-**Total deviations:** 1 auto-fixed (review-driven ordering fix, no change to which sheets are written)
+**2. [Observation] Trigger substitution on Task 2 — first run was a manual dispatch, not a schedule**
+- **Planned:** "the first scheduled run after merge" stamps the registry; "the following run" confirms
+  the skips.
+- **What happened:** Juan dispatched run `34411958861` (`workflow_dispatch`, `EXECUTION_TYPE=manual`) six
+  minutes after the merge; the 23:00Z schedule `34415980363` queued behind it (workflow concurrency group)
+  and became the confirming run.
+- **Why it does not change the outcome:** both trigger types take the non-deep (frequent) path this plan
+  changed — `_is_deep_run` is true only for the `weekly_comprehensive` cron — so the dispatch exercised
+  exactly the adoption code and the schedule exercised exactly the registry-admitted path.
+
+**Total deviations:** 2 (1 review-driven ordering fix, no change to which sheets are written; 1 trigger
+substitution on the observation, same code path)
 **Impact on plan:** None on scope; the plan text was updated to say "before the first registry write".
 
 ## Issues Encountered

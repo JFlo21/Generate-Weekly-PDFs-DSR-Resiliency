@@ -127,7 +127,9 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 - [x] **Phase 14: Foreman Helper #2** (COMPLETE 2026-09-10) — second, independently identifiable helping-foreman
   slot (`Foreman Helping? #2` column family) through the existing Excel-generation workflow,
   mirroring the Helper #1 contract; Intake 8 excluded by owner decision; missing optional
-  Helper #2 columns skip only the Helper #2 path. Planning-only authorization. (HLP-01..07)
+  Helper #2 columns skip only the Helper #2 path. Planning-only authorization at roadmap time,
+  superseded by the recorded owner approvals (D-14-07-APPLIED, O-14-C-APPLIED, D-14-13-DDL-APPLIED,
+  D-14-14-ENABLE) that implemented, migrated, enabled, and observed it. (HLP-01..07)
 
 ## Progress
 
@@ -145,7 +147,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | ✅ Complete | 2026-08-31 |
-| 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 2/2 | ✅ Complete | 2026-09-02 |
+| 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 4/4 | ✅ Complete | 2026-09-02 |
 | 12. Ownership — last known foreman as of the week | v1.4 | 10/10 executed | In Progress (12-06 Task 4 observation owed) |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
 | 14. Foreman Helper #2 | v1.4 | 14/14 | ✅ Complete | 2026-09-10 |
@@ -855,6 +857,10 @@ attribution must follow — OWN-01, OWN-02, OWN-04). Independent of Phase 13.
 
 **Authorization:** planning only in this pass — no feature implementation, production change,
 workflow dispatch, migration, push, merge, or deployment until Juan approves the plan.
+*Superseded 2026-09-06 → 10:* Juan approved the plans and then, per recorded decision, each
+production step — migrations (D-14-07-APPLIED, O-14-C-APPLIED, D-14-13-DDL-APPLIED), the workflow
+flag and enablement (D-14-14-ENABLE, `HELPER2_ENABLED=1`), and the merges (#389, #390, #394–#398).
+The restriction above is the planning-time record, not the current state.
 
 **Success criteria:**
 
@@ -958,9 +964,11 @@ Plans:
   still echo unmarked; SQL marker backfill rejected on evidence (PR #396 → `736141a`). Task 2
   observed 2026-09-10: 121/121 marked (dispatch `34411958861`), 112/121 registry skips (`34415980363`)
 
-**Open owner decisions the plans depend on:**
+**Owner decisions the plans depended on (planning-time record — ALL resolved by 2026-09-10, see
+`14-DECISIONS.md`: O-14-A → hold-out rule + O-14-A-FOLLOWUP-1 CONFIRMED; the three Supabase changes →
+D-14-07-APPLIED / O-14-C-APPLIED / D-14-13-DDL-APPLIED; D-14-12 rollout → D-14-14-ENABLE and O-14-D):**
 
-- **O-14-A (OPEN)** — a source row with BOTH helper completion boxes checked, both names real, both
+- **O-14-A (OPEN at planning time)** — a source row with BOTH helper completion boxes checked, both names real, both
   depts present. Recommended default: hold the row out of every file for the run, log a distinct
   reason, count it, and surface it for correction. Only plan 14-08 Task 2 is blocked on it; the
   other nine plans proceed. No rule is invented in the plans.

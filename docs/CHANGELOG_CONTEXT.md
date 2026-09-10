@@ -1041,6 +1041,7 @@ column_mapping refresh` warnings all logged before the first registry write, bot
 keys on the 114 capable sheets and none on the 7 capability-unavailable ones (Arrowhead ×4, Intake Promax, Intake
 Promax 8, Resiliency Promax Database Backup 2). The next scheduled run `34415980363` skipped 112 of 121 sheets via
 the registry (9 re-validated on version bumps, 0 refresh warnings, counters 7/114, no tracebacks). Operators: Phase 1
-is back to registry-admitted discovery; a full 121-sheet validation now only appears on the Monday deep run or when
-a sheet's version, name, mapping, or marker changes. Records: `14-DECISIONS.md` O-14-E, new `14-13-SUMMARY.md` /
+is back to registry-admitted discovery. A full 121-sheet validation now appears only on the Monday deep run (or
+after a code change that resets the marker); a change to one sheet's version, name, mapping, or marker
+re-validates that sheet alone, as the 9 re-validations on the confirming run show. Records: `14-DECISIONS.md` O-14-E, new `14-13-SUMMARY.md` /
 `14-14-SUMMARY.md`, `14-VERIFICATION.md` addendum, ROADMAP 14/14 ✅. Ledger `[2026-09-09 19:35]`. Records: PR #398.
