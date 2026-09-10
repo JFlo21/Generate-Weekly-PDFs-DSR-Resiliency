@@ -1017,10 +1017,16 @@ class FreezeRowHelper2DegradeTests(unittest.TestCase):
             result = ba_writer.freeze_row(row, release="r", run_id="run-h2g")
         self.assertFalse(result)
         self.assertEqual(ba_writer.get_counters()["snapshots_errored"], 1)
-        # A generic (non-PGRST202) failure resolves the probe to
-        # 'supported' (not a Helper #2 signature rejection) -- never
-        # 'unsupported'.
-        self.assertEqual(ba_writer._helper2_probe_state, 'supported')
+        # Round 2: a generic (non-PGRST202) failure is NOT a confirmed
+        # Helper #2 signature rejection, but it is also not PROOF the
+        # RPC supports the parameters -- the probe resolves
+        # 'inconclusive' and the PERSISTED state reverts to 'unknown'
+        # (never a false 'unsupported', and never permanently pinned
+        # to 'supported' -- that pin was the round-1 regression: it
+        # would have made every later row skip re-probing forever and
+        # never degrade against a genuinely un-migrated RPC).
+        self.assertEqual(ba_writer._helper2_probe_state, 'unknown')
+        self.assertEqual(ba_writer._helper2_probe_attempts, 1)
         self.assertEqual(
             ba_writer.get_counters()["helper2_attribution_degraded"], 0
         )
@@ -1315,6 +1321,227 @@ class FreezeRowHelper2ProbeConcurrencyTests(unittest.TestCase):
         # resolving a genuinely stuck probe is a separate concern this
         # test does not simulate.
         self.assertEqual(ba_writer._helper2_probe_state, 'probing')
+
+    # ── Round 2 (production-risk pass): tri-valued probe outcome ──
+
+    def test_inconclusive_then_pgrst202_resolves_unsupported_in_two_probes(
+        self,
+    ):
+        """Row 1 hits a transient (non-PGRST202) failure -> the probe
+        returns 'inconclusive' and the persisted state reverts to
+        'unknown'. Row 2 then hits PGRST202 -> its OWN probe returns
+        'unsupported'. Exactly 2 probe attempts total (the attempts
+        counter) -- a bounded re-probe, never a runaway retry storm,
+        and never a permanent 'supported' pin (the round-1
+        regression: pinning to 'supported' off one non-definitive
+        failure would have made every later row skip re-probing
+        forever and never degrade against a genuinely un-migrated
+        RPC)."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+
+        # Row 1: the initial attempt AND the bare probe re-invoke both
+        # raise a generic, permanent, non-PGRST202 error.
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            self._api_error("23505", "duplicate key")
+        )
+        row1 = self._row(0)
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result1 = ba_writer.freeze_row(
+                row1, release="r", run_id="run-i1",
+            )
+        self.assertFalse(result1)
+        self.assertEqual(ba_writer._helper2_probe_state, 'unknown')
+        self.assertEqual(ba_writer._helper2_probe_attempts, 1)
+
+        # Row 2: switch the mock to the genuinely un-migrated-RPC
+        # signature -- PGRST202 whenever p_helper2 is present.
+        def _dynamic_execute():
+            _, params = client.schema.return_value.rpc.call_args.args
+            if "p_helper2" in params:
+                raise self._api_error("PGRST202", "function not found")
+            return _fake_rpc_response("run-i2")
+
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            _dynamic_execute
+        )
+        row2 = self._row(1)
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result2 = ba_writer.freeze_row(
+                row2, release="r", run_id="run-i2",
+            )
+        self.assertTrue(result2)
+        self.assertEqual(ba_writer._helper2_probe_state, 'unsupported')
+        self.assertEqual(ba_writer._helper2_probe_attempts, 2)
+
+    def test_attempts_cap_reached_stops_probing_state_stays_unknown(self):
+        """Once ``_HELPER2_PROBE_MAX_ATTEMPTS`` is reached, a row
+        whose initial attempt fails no longer triggers a probe at all
+        -- it falls straight through to the existing per-row failure
+        handling, and the persisted state stays 'unknown' (never a
+        false 'unsupported')."""
+        from billing_audit import writer as ba_writer
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            self._api_error("23505", "duplicate key")
+        )
+        with ba_writer._helper2_capability_lock:
+            ba_writer._helper2_probe_attempts = (
+                ba_writer._HELPER2_PROBE_MAX_ATTEMPTS
+            )
+        row = self._row(0)
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ):
+            result = ba_writer.freeze_row(
+                row, release="r", run_id="run-cap",
+            )
+        self.assertFalse(result)
+        self.assertEqual(ba_writer.get_counters()["snapshots_errored"], 1)
+        self.assertEqual(ba_writer._helper2_probe_state, 'unknown')
+        self.assertEqual(
+            ba_writer._helper2_probe_attempts,
+            ba_writer._HELPER2_PROBE_MAX_ATTEMPTS,
+            "attempts counter must not increment past the cap",
+        )
+        # Exactly one RPC call -- the row's own initial attempt. No
+        # probe was sent (attempts exhausted).
+        client.schema.return_value.rpc.assert_called_once()
+
+    def test_probe_fn_raising_releases_waiters_to_unknown(self):
+        """A ``probe_fn`` that raises is treated as 'inconclusive'
+        (never propagates, never crashes ``freeze_row``) and the
+        persisted state reverts to 'unknown', notifying any waiter
+        rather than stranding it in 'probing' forever."""
+        from billing_audit import writer as ba_writer
+        from concurrent.futures import ThreadPoolExecutor
+
+        release_prober = threading.Event()
+        prober_claimed = threading.Event()
+
+        def _raising_probe():
+            prober_claimed.set()
+            release_prober.wait(timeout=5)
+            raise RuntimeError("simulated probe crash")
+
+        def _prober_worker():
+            return ba_writer._resolve_helper2_capability(_raising_probe)
+
+        def _waiter_worker():
+            prober_claimed.wait(timeout=5)
+            # The prober has entered probe_fn -- 'probing' is already
+            # claimed. A short sleep lets this thread's own call
+            # reliably observe 'probing' (and block in wait_for)
+            # rather than racing to claim it first.
+            time.sleep(0.02)
+            return ba_writer._resolve_helper2_capability(
+                lambda: 'supported'
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            prober_future = ex.submit(_prober_worker)
+            waiter_future = ex.submit(_waiter_worker)
+            # Let the waiter settle into its wait_for call before
+            # releasing the prober to raise.
+            time.sleep(0.05)
+            release_prober.set()
+            prober_result = prober_future.result(timeout=5)
+            waiter_result = waiter_future.result(timeout=5)
+
+        self.assertEqual(prober_result, 'inconclusive')
+        # The waiter is released once the state reverts to 'unknown',
+        # and since attempts remain, it becomes the NEXT prober with
+        # its own probe_fn.
+        self.assertEqual(waiter_result, 'supported')
+        self.assertEqual(ba_writer._helper2_probe_state, 'supported')
+        self.assertEqual(ba_writer._helper2_probe_attempts, 2)
+
+    # ── Round 2 (adjacent latent defect): degraded-retry op isolation
+
+    def test_degraded_retry_survives_freeze_attribution_breaker_trip(self):
+        """Adjacent latent defect (round 2 item 2): ``_invoke_degraded``
+        used to share ``op='freeze_attribution'`` with the failing
+        full-params attempts, so 3+ concurrent PGRST202 failures on a
+        fresh un-migrated deployment could trip THAT op's circuit
+        breaker before any degraded retry ran -- ``with_retry`` then
+        fast-failed every subsequent ``'freeze_attribution'`` call,
+        including every degraded retry, for the rest of the process.
+        The degraded retry now uses its own
+        ``op='freeze_attribution_degraded'`` label, isolated from the
+        full-params attempts' breaker (mirrors the established
+        ``test_breaker_is_per_operation`` pattern)."""
+        from billing_audit import writer as ba_writer
+        from billing_audit import client as ba_client
+
+        def _always_fails():
+            raise self._api_error("23505", "duplicate key")
+
+        # Trip the 'freeze_attribution' breaker directly with 3
+        # consecutive permanent failures -- BEFORE any freeze_row call.
+        with mock.patch("billing_audit.client.time.sleep"):
+            for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
+                self.assertIsNone(
+                    ba_client.with_retry(
+                        _always_fails, op="freeze_attribution",
+                    )
+                )
+        self.assertIn("freeze_attribution", ba_client._open_circuits)
+
+        # A Helper #2 freeze against an un-migrated RPC. Its initial
+        # full-params attempt is fast-failed by the ALREADY-OPEN
+        # breaker (no RPC call at all -- with_retry short-circuits
+        # before calling fn()); the capability probe itself bypasses
+        # with_retry entirely (a direct call), so it is unaffected by
+        # the open breaker, and the degraded retry's own
+        # 'freeze_attribution_degraded' op has never been tripped.
+        client = _make_fake_supabase_client()
+
+        def _dynamic_execute():
+            _, params = client.schema.return_value.rpc.call_args.args
+            if "p_helper2" in params:
+                raise self._api_error("PGRST202", "function not found")
+            return _fake_rpc_response("run-breaker-iso")
+
+        client.schema.return_value.rpc.return_value.execute.side_effect = (
+            _dynamic_execute
+        )
+        row = self._row(0)
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch("billing_audit.client.time.sleep"):
+            result = ba_writer.freeze_row(
+                row, release="r", run_id="run-bi",
+            )
+
+        self.assertTrue(
+            result,
+            "the degraded retry must still execute and succeed even "
+            "though the 'freeze_attribution' breaker is already open",
+        )
+        self.assertEqual(ba_writer._helper2_probe_state, 'unsupported')
+        self.assertEqual(
+            ba_client._consecutive_failures.get(
+                "freeze_attribution_degraded", 0,
+            ),
+            0,
+            "the degraded op's own breaker must be untouched -- its "
+            "call succeeded",
+        )
+        self.assertNotIn(
+            "freeze_attribution_degraded", ba_client._open_circuits,
+        )
 
 
 class FreezeRowBoolReturnTests(unittest.TestCase):
