@@ -9488,3 +9488,25 @@ file certifies nothing about it (WR-02 is exactly how CR-01 slipped through 14 p
 (billing formula + WR controls): TDD, both pricing sites together, validated against a known-good Helper #1
 subcontractor sample. Report review rounds: Greptile ×3 + Copilot ×1 fixed (920d340, 970c124, 7dc207e); 12 Codex
 threads listed for Juan only (harness boundary).
+
+[2026-09-10 15:30] Phase 14 code review fix (`14-REVIEW-FIX.md`): CR-01/CR-02/WR-01/WR-02 closed.
+CR-01: `pipeline/pricing.py` `_resolve_row_price` gained `aep_billable_helper2` / `reduced_sub_helper2`
+at BOTH literal sites (early gate + rate-class selection) — a Helper #2 subcontractor shadow file was
+billing at the raw Smartsheet price (or, if only the first site had been fixed, at the wrong rate
+class). CR-02: `pipeline/grouping.py` `_key_matches_wr` / `_key_matches_excluded_wr` gained the three
+`_HELPER2_` / `_REDUCEDSUB_HELPER2_` / `_AEPBILLABLE_HELPER2_` clauses (docstrings now "fourteen
+shapes") — `EXCLUDE_WRS` (production-active) was silently failing to hold back Helper #2 files, and
+`WR_FILTER` was silently dropping them from a scoped dry run. WR-01: `pipeline/attribution.py`
+`_SUBCONTRACTOR_SCOPE_VARIANTS` gained both Helper #2 shadow variants — a WR whose only completed
+subcontractor rows were Helper #2 claims was not entering the legacy off-contract / legacy-primary
+cleanup scope. WR-02: `tests/test_helper2_family_parity.py` `PARITY_TABLE` now includes
+`pipeline/pricing.py` and `pipeline/attribution.py` (both were missing from the enforcement net,
+which is exactly how CR-01/WR-01 slipped through 14 plans); `pipeline/attribution.py` needed one
+`KNOWN_DEFERRED` entry for a bare `'helper'` literal that belongs to the unrelated, pre-Helper-2
+`_run_phase_1_1_hash_prune` one-time migration, not a variant-dispatch site.
+RULE (extends the [2026-05-25 18:35] WR-matcher rule): any new variant emitted by `group_source_rows`
+must extend ALL FOUR of — (1) both WR matchers (`_key_matches_wr` / `_key_matches_excluded_wr`,
+`pipeline/grouping.py`), (2) `_resolve_row_price`'s two literal sites (`pipeline/pricing.py`),
+(3) `_SUBCONTRACTOR_SCOPE_VARIANTS` (`pipeline/attribution.py`), and (4) `PARITY_TABLE`
+(`tests/test_helper2_family_parity.py`) — in the SAME PR. A parity table that omits a file
+certifies nothing about it.

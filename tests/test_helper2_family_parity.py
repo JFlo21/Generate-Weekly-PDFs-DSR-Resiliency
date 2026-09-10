@@ -73,6 +73,14 @@ PARITY_TABLE = (
     # variant strings that 14-RESEARCH.md's Pitfall 3 identified.
     'pipeline/upload.py',
     'pipeline/grouping.py',
+    # Code review CR-01/WR-01 gap closure: pricing.py's _resolve_row_price
+    # (both the early-gate and rate-class-selection literal sites) and
+    # attribution.py's _SUBCONTRACTOR_SCOPE_VARIANTS enumerate the Helper
+    # #1 family literals the same way every other pinned site does, but
+    # were absent from this table, so the parity net never covered them
+    # -- exactly the class of gap this table exists to catch.
+    'pipeline/pricing.py',
+    'pipeline/attribution.py',
 )
 
 # Per-file (Helper #2 literal) pairs that are KNOWN, NAMED, TEMPORARY
@@ -85,7 +93,19 @@ PARITY_TABLE = (
 # Any entry added here MUST cite the plan that closes it. Values are
 # bare literals (matching SIBLING_PAIRS' bare form above), not quoted
 # strings.
-KNOWN_DEFERRED: dict[str, set[str]] = {}
+#
+# pipeline/attribution.py's bare ``'helper'`` literal is NOT a Helper
+# #1/#2 variant-dispatch site -- it is ``_run_phase_1_1_hash_prune``'s
+# Phase 1.1 (SUB-12) one-time, VERSIONED orphan-key cleanup for the
+# legacy 6-part hash-history key shape (``wr|week|helper|foreman|dept
+# |job``) that predates Helper #2 entirely. The real parity gap in this
+# file was ``_SUBCONTRACTOR_SCOPE_VARIANTS`` (code review WR-01, now
+# fixed). There is no Helper #2 equivalent legacy key to prune, so this
+# is a permanent, structural exception (not a later-plan-closes-it
+# gap) -- do not add a ``'helper2'`` clause to the hash-prune matcher.
+KNOWN_DEFERRED: dict[str, set[str]] = {
+    'pipeline/attribution.py': {'helper2'},
+}
 
 
 def _quoted_forms(literal: str) -> tuple[str, str]:
