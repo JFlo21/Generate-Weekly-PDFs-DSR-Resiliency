@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: September 9, 2026 (updated automatically)_
+_Last updated: September 10, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,8 +14,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 9, 2026
+### 📋 Changelog — September 10, 2026
 
+- 📄 Help guides updated: close O-14-E and Phase 14 on observed runs (#HLP-06)
 - 📄 Help guides updated: align status files with plan 14-14 merge (#HLP-06)
 - ✅ Problem fixed: frequent runs adopt validated mapping, clear O-14-E now
 - ✅ Problem fixed: write mapping&#95;schema marker from caller (O-14-E)
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: record HELPER2&#95;ENABLED=1 after merge
 - ✨ New capability: close O-14-B, wire HELPER2&#95;ENABLED; Phase 14 post-merge docs (#HLP-06)
 - ✨ New capability: Phase 14 Foreman Helper + Phase 12 G-12-3 closure (#HLP-01..07)
-- ✨ New capability: Phase 12 waves 2-3 — OWN-03 backfill SQL, source 5, runbook (#OWN-03)
 
 <!-- /runbook-repo -->
 
