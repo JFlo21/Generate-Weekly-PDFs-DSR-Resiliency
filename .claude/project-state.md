@@ -86,7 +86,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 ## Next actions
 
 1. `/gsd-code-review 14` on master (Phase 14 closed 2026-09-10; records #394 `7ded60c`, #395 `d079e81`,
-   #396 `736141a`, #397 `92c9ed6`, closure PR below).
+   #396 `736141a`, #397 `92c9ed6`, closure PR #398).
 2. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
 3. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
 

@@ -603,10 +603,11 @@ over synthetic data**. Neither **controlled upload verified** nor
   validated this run AND column_mapping written this call — an echoed stored mapping is never
   certified, so a frequent run cannot stamp a possibly pre-Helper-#2 mapping. Consequence: the 121
   existing sheets earn `helper2-v1` on the next `weekly_comprehensive` (Monday 05:00Z) deep run and
-  are cache-admitted from then on; a brand-new sheet earns it on its first run.
+  are cache-admitted from then on; a brand-new sheet earns it on its first run. **That deep-run-only path
+  was SUPERSEDED the same day by plan 14-14 (see the RESOLVED block above).**
   `tests/test_mapping_schema_marker_caller.py` (8 tests) pins the getter, the pure helper, both call
   sites (source pin on `orch.main`), and the marker reaching the real writer's payload.
-- **Close when observed:** after the first Monday deep run, `select count(*) filter (where
+- **Close when observed (14-13 original condition -- SUPERSEDED by plan 14-14; the observed closure is the RESOLVED block above):** after the first Monday deep run, `select count(*) filter (where
   mapping_schema = 'helper2-v1') from pipeline_memory.sheet_registry` = 121 and the next frequent run
   logs `skipped via sheet_registry` ≈ 121.
 - **Owner instruction 2026-09-09 (Juan): cannot wait for the Monday deep run — clear it another way.**
