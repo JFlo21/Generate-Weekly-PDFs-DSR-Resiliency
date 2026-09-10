@@ -9510,3 +9510,24 @@ must extend ALL FOUR of — (1) both WR matchers (`_key_matches_wr` / `_key_matc
 (3) `_SUBCONTRACTOR_SCOPE_VARIANTS` (`pipeline/attribution.py`), and (4) `PARITY_TABLE`
 (`tests/test_helper2_family_parity.py`) — in the SAME PR. A parity table that omits a file
 certifies nothing about it.
+
+[2026-09-10 17:00] Phase 14 code review fix, WR-03 round 2 (`7e9c56e`, after a read-only production-risk pass
+rejected round 1 `7c0fdec`). Round 1's four-state probe (`billing_audit/writer.py`) returned `supported` for ANY
+non-PGRST202 outcome and published it as a terminal state — on an un-migrated `freeze_attribution` RPC a single
+transient 503/timeout/PGRST203 on the prober's re-invoke would have pinned the process to "supported" forever:
+every later row sends full params, hits the real PGRST202, never re-probes, never degrades (100%
+`snapshots_errored`). The old boolean never had that terminal state. Fix: tri-valued probe
+(`supported` / `unsupported` / `inconclusive`); `inconclusive` (any other exception, incl. `BaseException`)
+reverts the persisted state to `unknown` and still `notify_all()`s; re-probes bounded by
+`_HELPER2_PROBE_MAX_ATTEMPTS = 5` (exhausted → `inconclusive` without an RPC, state stays `unknown`, never a
+false `unsupported`); waiters share ONE `time.monotonic()` deadline across probe cycles. Adjacent latent defect
+fixed in the same commit: the degraded retry reused `op="freeze_attribution"`, so 3 concurrent PGRST202
+failures tripped `billing_audit/client.py`'s per-op circuit breaker before the prober resolved and the degraded
+path short-circuited to `None` for the rest of the process — now `op="freeze_attribution_degraded"`.
+RULES: (1) a terminal capability state may only come from a definitive signal (an explicit success or the
+exact rejection code); anything else is inconclusive and must leave the state re-probeable, bounded. (2) A
+fallback/degraded call must never share a circuit-breaker op label with the call whose failures it is the
+fallback for. Accepted residuals: `except BaseException` also swallows `SystemExit`/`KeyboardInterrupt`
+inside the worker thread; `client.py` ~566 prose op list does not name the new label. Verification: suite
+2326 passed / 1 skipped / 567 subtests (independent run), six gates pass, rubric verifier PASS,
+production-risk re-check PASS. Branch `fix/phase-14-cr01-cr02-wr03`, not yet a PR.

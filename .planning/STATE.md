@@ -46,9 +46,14 @@ Status: Closed — Helper #2 ENABLED (`HELPER2_ENABLED=1`, O-14-D: permanent
   (`94f2636`) — 2 Critical (CR-01 Helper #2 shadow files outside the
   `pipeline/pricing.py` rate-matrix gate; CR-02 `EXCLUDE_WRS`/`WR_FILTER`
   matchers miss `_HELPER2_` keys), 3 Warning, 1 Info; both Criticals are
-  protected areas. Next, in order: (1) Juan's CR-01/CR-02 fix decision
-  (`--fix`, hand-written TDD PR, or accept as-is) — do not skip to (2);
-  (2) Phase 12 12-06 Task 4; (3) Phase 13 only when Juan asks.
+  protected areas. Owner decision 2026-09-10: Juan chose `--fix`. All five
+  Critical/Warning findings are fixed on branch `fix/phase-14-cr01-cr02-wr03`
+  (6 `fix(14):` commits `0e10891`..`7e9c56e` + `14-REVIEW-FIX.md`; TDD,
+  Helper #1 parity as the known-good sample; independent suite 2326 passed /
+  1 skipped; six gates pass; rubric verifier PASS; production-risk pass PASS
+  after one fix round). NOT pushed, no PR yet. Next, in order: (1) open the
+  PR for that branch and merge; (2) Phase 12 12-06 Task 4; (3) Phase 13 only
+  when Juan asks.
 Last activity: 2026-09-10 — Phase 14 closed; O-14-E RESOLVED; code review
   report merged (PR #399)
 
@@ -312,6 +317,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: O-14-E — plan 14-13 merged `d079e81`; plan 14-14 (2026-09-09, Juan: "cannot wait for that deep run") makes frequent runs adopt the freshly validated mapping + marker for fully-validated sheets (merged `736141a`, PR #396; RESOLVED 2026-09-10 on runs 34411958861 + 34415980363: 121/121 marked, then 112/121 registry skips) after a SQL backfill was rejected on evidence (0/121 stored mappings carry Helper #2 keys). Earlier record: Helper #2 path verified clean (counters, 0 groups, 0 files, no degrade, freeze_attribution 200s, one-time 218k `row_event` churn) but `sheet_registry.mapping_schema` stays NULL on all 121 rows -- `pipeline/orchestrate.py` never passes `mapping_schema_by_sheet` to `upsert_sheet_registry`, so the D-11.1-01 registry skip is defeated every run (slower but correct). Plan 14-13 implemented (marker = fully validated AND column_mapping written this call); its deep-run-only path for existing sheets was superseded by 14-14 the same day, and the closure above is the observed result.
 - [Phase 14]: O-14-D RESOLVED (2026-09-09, Juan): Helper #2 is a permanent capability, not a one-time backfill -- `HELPER2_ENABLED` stays `1` indefinitely and flag-off is an emergency kill switch only. Option (a) accepted (regroup-on-disable limitation stands, reconcile by hand if it ever happens); persisted-claim routing (b) and attachment retirement (c) declined. No code change; runbook, environment reference, project-state, changelog, ledger `[2026-09-09 08:45]` updated.
 
+- [Phase 14]: D-14-CR-FIX (2026-09-10, Juan): fix the `14-REVIEW.md` Critical/Warning findings via `/gsd-code-review 14 --fix` rather than accept-as-is or a hand-written PR — protected areas (`pipeline/pricing.py` rate-matrix gate, `pipeline/grouping.py` WR hold matchers, `billing_audit/writer.py`) touched only with TDD, Helper #1 parity as the known-good sample, and a read-only production-risk pass before the PR. Round 1 of WR-03 was rejected by that pass (terminal `supported` on an inconclusive probe); the accepted design is tri-valued probe outcome, `inconclusive` → state `unknown`, bounded re-probes, isolated degraded op label.
+
 ### Roadmap Evolution
 
 - Phase 10 completed (2026-08-25): Run-Memory Foundation (shadow writes). 6/6 plans;
@@ -335,22 +342,21 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ### Blockers/Concerns
 
-**From the Phase 14 code review (`14-REVIEW.md`, PR #399 → `94f2636`, 2026-09-10 — owner decision pending):**
+**From the Phase 14 code review (`14-REVIEW.md`, PR #399 → `94f2636`) — FIXED 2026-09-10 on branch `fix/phase-14-cr01-cr02-wr03`, awaiting PR/merge:**
 
-- 🔴 [Phase 14] CR-01 `pipeline/pricing.py` `_resolve_row_price`: the rate-matrix
-  variant tuple (early gate ~636 and AEP/reduced rate selection ~678) lists the
-  Helper #1 siblings but not `aep_billable_helper2` / `reduced_sub_helper2`, so a
-  Helper #2 subcontractor shadow file prices from `Units Total Price` instead of
-  the rate matrix. Billing formula — protected; fix only on Juan's decision, TDD
-  with a known-good Helper #1 subcontractor sample. Both literal sites must change.
-- 🔴 [Phase 14] CR-02 `pipeline/grouping.py` `EXCLUDE_WRS` / `WR_FILTER` matchers
-  (~1645–1762) have 0 `HELPER2` shapes, so a held WR's Helper #2 workbooks are
-  neither excluded nor selected. WR hold controls — protected; owner decision.
-- ⚠️ [Phase 14] WR-01 subcontractor WR-scope tuple omits the Helper #2 shadow
-  variants; WR-02 `test_helper2_family_parity` PARITY_TABLE lacks `pricing.py` /
-  `attribution.py` (why CR-01 slipped); WR-03 `_helper2_rpc_unsupported` read
-  outside its lock (remediation: four-state probe + Condition, waiters wait);
-  IN-01 runbook operator-note wording. Detail and remediations: `14-REVIEW.md`.
+- ✅ CR-01 (pricing gate, both literal sites) `0e10891`; CR-02 (both WR matchers,
+  three `_HELPER2_` shapes) `f08d63e`; WR-01 (scope set) `4cc2cd0`; WR-02 (parity
+  table + ledger rule) `a7aef8a`; WR-03 (four-state probe + Condition) `7c0fdec`
+  then `7e9c56e` after the production-risk pass found two HIGH items in round 1:
+  an inconclusive probe pinned the state to `supported` forever (now reverts to
+  `unknown`, ≤ 5 re-probes, one monotonic waiter deadline) and the degraded call
+  shared the tripped circuit-breaker op (now `freeze_attribution_degraded`).
+  IN-01 self-resolves with CR-02 (runbook untouched). Report: `14-REVIEW-FIX.md`.
+- ⚠️ Residuals (accepted, no change): `except BaseException` in the probe also
+  swallows `SystemExit`/`KeyboardInterrupt` inside a worker thread; the prose op
+  list in `billing_audit/client.py` ~566 does not name the new degraded op; WR-01
+  now lets a helper2-only WR enter the pre-existing historical-week prune scope
+  (`KEEP_HISTORICAL_WEEKS`) — `valid_wr_weeks` still protects current-run files.
 
 **From the PR #374 merge (2026-09-01, Phase 11.1 — tracked; verify before relying on the skip path):**
 
@@ -500,8 +506,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-10T04:40:00.000Z
-**Stopped at:** Phase 14 COMPLETE 2026-09-10 -- O-14-E RESOLVED on runs `34411958861` + `34415980363`, closure PR #398; the closed-state PR list is at the end of this paragraph. Earlier that day: first enabled scheduled run `34356004448` (head `be60755`) observed clean -- Helper #2 counters as expected, 0 groups / 0 `_Helper2_` workbooks, no degrade warning, 130 `freeze_attribution` calls 200, one-time 218,338 `row_event` churn landed. O-14-D RESOLVED by Juan (Helper #2 permanent; flag-off = emergency kill switch only; option a). O-14-E found (`sheet_registry.mapping_schema` NULL on all 121 rows: no caller passed `mapping_schema_by_sheet`) and FIXED by plan 14-13 -- `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed at both `upsert_sheet_registry` call sites; marker only for fully-validated sheets whose mapping is written this call. TDD 8 tests RED->GREEN; full suite 2304 passed / 1 skipped / 557 subtests; six gates pass; independent verifier PASS. PRs #394 (`7ded60c`), #395 (`d079e81`), #396 (`736141a`, plan 14-14: frequent runs adopt the freshly validated mapping + marker so the Monday deep run was not needed), #397 (`92c9ed6`, docs alignment) merged. O-14-E RESOLVED 2026-09-10 on observed runs (dispatch `34411958861`: 121/121 marked; scheduled `34415980363`: 112/121 registry skips); Phase 14 COMPLETE, closure PR #398. Code review done 2026-09-10: `14-REVIEW.md` via PR #399 (`94f2636`) — CR-01 (pricing gate) and CR-02 (WR hold matchers) are protected areas awaiting Juan's fix decision. Remaining: that decision; Phase 12 12-06 Task 4; Phase 13 not started.
+**Last session:** 2026-09-10T17:00:00.000Z
+**Stopped at:** Session resumed 2026-09-10 via /gsd-resume-work; Juan chose `/gsd-code-review 14 --fix` (owner decision for CR-01 / CR-02). Fix lane DONE on branch `fix/phase-14-cr01-cr02-wr03` (off master `d08420f`): six `fix(14):` commits `0e10891`, `f08d63e`, `4cc2cd0`, `a7aef8a`, `7c0fdec`, `7e9c56e` + docs commit with `14-REVIEW-FIX.md` (iteration 2, all_fixed 5/5). Verified independently: `pytest tests/` 2326 passed / 1 skipped / 567 subtests; six gates pass; haiku rubric verifier PASS; production-risk pass NEEDS-FIX → one round → PASS. Branch is local only — next step is push + PR (Objective · Changes Made · Production Safety Check) and merge; then Phase 12 12-06 Task 4. Stale `.planning/HANDOFF.json` (2026-09-04, pre-Phase-14) superseded by this file. Previous stop: Phase 14 COMPLETE 2026-09-10 -- O-14-E RESOLVED on runs `34411958861` + `34415980363`, closure PR #398; the closed-state PR list is at the end of this paragraph. Earlier that day: first enabled scheduled run `34356004448` (head `be60755`) observed clean -- Helper #2 counters as expected, 0 groups / 0 `_Helper2_` workbooks, no degrade warning, 130 `freeze_attribution` calls 200, one-time 218,338 `row_event` churn landed. O-14-D RESOLVED by Juan (Helper #2 permanent; flag-off = emergency kill switch only; option a). O-14-E found (`sheet_registry.mapping_schema` NULL on all 121 rows: no caller passed `mapping_schema_by_sheet`) and FIXED by plan 14-13 -- `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed at both `upsert_sheet_registry` call sites; marker only for fully-validated sheets whose mapping is written this call. TDD 8 tests RED->GREEN; full suite 2304 passed / 1 skipped / 557 subtests; six gates pass; independent verifier PASS. PRs #394 (`7ded60c`), #395 (`d079e81`), #396 (`736141a`, plan 14-14: frequent runs adopt the freshly validated mapping + marker so the Monday deep run was not needed), #397 (`92c9ed6`, docs alignment) merged. O-14-E RESOLVED 2026-09-10 on observed runs (dispatch `34411958861`: 121/121 marked; scheduled `34415980363`: 112/121 registry skips); Phase 14 COMPLETE, closure PR #398. Code review done 2026-09-10: `14-REVIEW.md` via PR #399 (`94f2636`) — CR-01 (pricing gate) and CR-02 (WR hold matchers) are protected areas awaiting Juan's fix decision. Remaining: that decision; Phase 12 12-06 Task 4; Phase 13 not started.
 **Resume file:** None
 
 ## Session Continuity
