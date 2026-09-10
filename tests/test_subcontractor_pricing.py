@@ -4501,6 +4501,31 @@ class TestResolveRowPriceAbbreviatedWorkType(unittest.TestCase):
         self.assertEqual(red_h, 50.00)
         self.assertNotEqual(aep_h, red_h)
 
+    def test_helper2_shadow_variants_also_diverge(self):
+        """Phase 14 CR-01: the Helper #2 shadow variants
+        (``aep_billable_helper2`` / ``reduced_sub_helper2``) MUST hit
+        the rate matrix (not the raw-SmartSheet safety floor 999.99)
+        AND pick the correct rate column, exactly like the Helper #1
+        pair above. Pre-fix, both variants were absent from the early
+        gate tuple in ``_resolve_row_price`` and returned the
+        ``Units Total Price`` canary (999.99) unchanged.
+        """
+        aep_h2 = self._resolve('Inst', 'aep_billable_helper2')
+        red_h2 = self._resolve('Inst', 'reduced_sub_helper2')
+        self.assertEqual(aep_h2, 100.00)
+        self.assertEqual(red_h2, 50.00)
+        self.assertNotEqual(aep_h2, red_h2)
+        self.assertNotEqual(
+            aep_h2, 999.99,
+            'aep_billable_helper2 must not fall through to the '
+            'SmartSheet safety-floor canary',
+        )
+        self.assertNotEqual(
+            red_h2, 999.99,
+            'reduced_sub_helper2 must not fall through to the '
+            'SmartSheet safety-floor canary',
+        )
+
 
 class TestCleanupVariantWhitelist(unittest.TestCase):
     """Phase 1.1 Bug B2 (D-07 / D-08 / SUB-10): per-sheet variant
