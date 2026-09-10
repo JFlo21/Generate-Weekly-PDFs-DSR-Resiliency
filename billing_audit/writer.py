@@ -59,7 +59,7 @@ import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, NamedTuple
+from typing import Any, Callable, Literal, NamedTuple
 
 from billing_audit.client import (
     get_client,
@@ -225,33 +225,57 @@ def _bump_counter(key: str) -> None:
         _counters[key] = _counters.get(key, 0) + 1
 
 
-# ── Helper #2 RPC capability flag (Phase 14 / D-14-07a) ─────────────
-# Per-process, starts "unknown" (assumed supported — ``False`` means
-# "not yet proven unsupported", not "known supported"). freeze_row is
-# parallelized across up to ``PARALLEL_WORKERS`` ThreadPoolExecutor
-# workers, so both the flag flip and the one-time WARNING/counter bump
-# are guarded by ``_helper2_capability_lock`` — several rows can hit
-# the not-yet-migrated RPC concurrently on the very first freeze
-# attempts of a run.
+# ── Helper #2 RPC capability probe (Phase 14 / D-14-07a; WR-03 code
+# review round) ──────────────────────────────────────────────────────
+# Per-process four-state machine: 'unknown' (never probed) ->
+# 'probing' (exactly one thread is in flight determining capability)
+# -> 'supported' | 'unsupported' (terminal for the rest of this
+# process). freeze_row is parallelized across up to
+# ``PARALLEL_WORKERS`` ThreadPoolExecutor workers, so a bare boolean
+# flag let several concurrently in-flight rows each independently
+# observe "not yet known unsupported" and each send their own extra
+# PGRST202 capability-probe RPC call — violating this module's own
+# documented "at most one extra RPC call" invariant. The Condition
+# below makes the 'unknown' -> 'probing' transition atomic and gives
+# every other concurrent caller a wait/notify handoff instead of a
+# redundant probe: the FIRST caller to observe 'unknown' claims
+# 'probing' and sends the probe alone; every other caller (whether it
+# arrived before or during that probe) waits on the condition until
+# the state leaves 'probing', then follows the resolved state.
 _helper2_capability_lock = threading.Lock()
-_helper2_rpc_unsupported: bool = False
+_helper2_capability_cond = threading.Condition(_helper2_capability_lock)
+_helper2_probe_state: Literal[
+    'unknown', 'probing', 'supported', 'unsupported'
+] = 'unknown'
 _helper2_degrade_logged: bool = False
+
+# Bound on how long a waiter blocks for an in-flight probe to resolve.
+# The probe itself is a single direct RPC call (bypasses ``with_retry``
+# — see ``_probe_helper2_capability``'s docstring), so this is a
+# generous ceiling on that one network round trip, not a retry budget.
+# A waiter that times out treats this row as the existing per-row
+# retryable failure (``snapshots_errored``) — it NEVER falls through to
+# a degraded persist, because the capability is still genuinely unknown
+# at that point.
+_HELPER2_PROBE_WAIT_TIMEOUT_SECONDS = 30.0
+
+
+class _Helper2ProbeTimeout(Exception):
+    """A waiter timed out before the in-flight Helper #2 capability
+    probe resolved. Callers must treat this as a retryable per-row
+    failure, never as proof of 'unsupported'."""
 
 
 def _mark_helper2_rpc_unsupported() -> None:
-    """Trip the per-process Helper #2 RPC capability flag.
-
-    Idempotent across concurrent callers: only the FIRST caller to
-    observe the deployed ``freeze_attribution`` RPC reject the
-    Helper #2 parameters (pre-plan-14-09-migration schema) logs the
-    WARNING and bumps ``helper2_attribution_degraded``. Every later
-    ``freeze_row`` call — this row's own retry included — simply reads
-    ``_helper2_rpc_unsupported`` (already ``True``) and omits the
-    Helper #2 parameters up front, without re-probing or re-logging.
+    """One-time WARNING + counter bump for the Helper #2 RPC capability
+    degrade. Idempotent across concurrent callers via
+    ``_helper2_degrade_logged`` (kept separate from
+    ``_helper2_probe_state`` — the probe-state transition itself is
+    already race-free via ``_resolve_helper2_capability``, but the log
+    line must still fire exactly once).
     """
-    global _helper2_rpc_unsupported, _helper2_degrade_logged
+    global _helper2_degrade_logged
     with _helper2_capability_lock:
-        _helper2_rpc_unsupported = True
         if _helper2_degrade_logged:
             return
         _helper2_degrade_logged = True
@@ -265,18 +289,79 @@ def _mark_helper2_rpc_unsupported() -> None:
     _bump_counter("helper2_attribution_degraded")
 
 
+def _resolve_helper2_capability(
+    probe_fn: Callable[[], Literal['supported', 'unsupported']],
+) -> Literal['supported', 'unsupported']:
+    """Coordinate the one-time Helper #2 RPC capability probe across
+    concurrent ``freeze_row`` callers (WR-03 code review).
+
+    - ``supported`` / ``unsupported`` already resolved: returns
+      immediately, no lock hold beyond the read.
+    - ``unknown``: THIS caller claims ``probing`` and is the only
+      thread that goes on to invoke ``probe_fn()`` (outside the lock —
+      it performs network I/O). The outcome is always published via
+      ``try/finally`` — a ``probe_fn`` exception can never strand
+      waiters in ``probing`` forever.
+    - ``probing``: waits on ``_helper2_capability_cond`` until the
+      state leaves ``probing``, bounded by
+      ``_HELPER2_PROBE_WAIT_TIMEOUT_SECONDS``. Raises
+      ``_Helper2ProbeTimeout`` on a wait timeout — the caller must NOT
+      treat this as ``unsupported``.
+    """
+    global _helper2_probe_state
+    am_prober = False
+    with _helper2_capability_lock:
+        while True:
+            if _helper2_probe_state == 'supported':
+                return 'supported'
+            if _helper2_probe_state == 'unsupported':
+                return 'unsupported'
+            if _helper2_probe_state == 'unknown':
+                _helper2_probe_state = 'probing'
+                am_prober = True
+                break
+            # 'probing' — another thread is already in flight. Wait for
+            # it to resolve (or time out). ``wait_for`` re-checks the
+            # predicate on every wakeup (handles spurious wakeups and
+            # multiple concurrent waiters correctly).
+            resolved = _helper2_capability_cond.wait_for(
+                lambda: _helper2_probe_state != 'probing',
+                timeout=_HELPER2_PROBE_WAIT_TIMEOUT_SECONDS,
+            )
+            if not resolved:
+                raise _Helper2ProbeTimeout(
+                    "timed out waiting for the in-flight Helper #2 "
+                    "capability probe to resolve"
+                )
+            # Loop condition already re-checked the state via wait_for's
+            # predicate; fall through and re-read it on the next
+            # iteration for clarity/symmetry with the other branches.
+
+    # Only the single claiming thread reaches here — lock released, the
+    # probe RPC (network I/O) must never run while holding the lock.
+    outcome: Literal['supported', 'unsupported'] = 'supported'
+    try:
+        outcome = probe_fn()
+    finally:
+        with _helper2_capability_lock:
+            _helper2_probe_state = outcome
+            _helper2_capability_cond.notify_all()
+    return outcome
+
+
 def _reset_helper2_capability_for_tests() -> None:
-    """Reset the Helper #2 RPC capability flag between tests.
+    """Reset the Helper #2 RPC capability probe state between tests.
 
     Test-only helper (mirrors ``_reset_executor_for_tests``) — the
-    flag is per-process module state, so a test that trips it would
-    otherwise leak the degraded state into every later test in the
-    same process.
+    state is per-process module state, so a test that trips it would
+    otherwise leak the resolved/degraded state into every later test
+    in the same process.
     """
-    global _helper2_rpc_unsupported, _helper2_degrade_logged
+    global _helper2_probe_state, _helper2_degrade_logged
     with _helper2_capability_lock:
-        _helper2_rpc_unsupported = False
+        _helper2_probe_state = 'unknown'
         _helper2_degrade_logged = False
+        _helper2_capability_cond.notify_all()
 
 
 # ── Shared ThreadPoolExecutor for parallel freeze_row dispatch ─────
@@ -759,7 +844,13 @@ def freeze_row(row: dict, release: str | None,
     # D-14-07a: while the deployed freeze_attribution RPC is known NOT to
     # accept the Helper #2 parameters (pre-plan-14-09-migration schema —
     # detected below on first rejection), never send them again this run.
-    if _helper2_rpc_unsupported:
+    # A snapshot read under the lock is sufficient here — no waiting: a
+    # row whose capability is still 'unknown' or 'probing' still gets
+    # the optimistic full-params attempt below, exactly like 'supported'
+    # (WR-03: only the reactive post-failure path needs coordination).
+    with _helper2_capability_lock:
+        _probe_state_snapshot = _helper2_probe_state
+    if _probe_state_snapshot == 'unsupported':
         params.pop("p_helper2", None)
         params.pop("p_helper2_dept", None)
 
@@ -774,65 +865,91 @@ def freeze_row(row: dict, release: str | None,
 
     if (
         result is None
-        and not _helper2_rpc_unsupported
+        and _probe_state_snapshot != 'unsupported'
         and "p_helper2" in params
     ):
-        # D-14-07a one-time capability probe. ``with_retry`` swallows the
-        # raised ``postgrest.APIError`` and returns only ``None``,
-        # discarding the reason code — re-invoke ONCE more, directly
-        # (bypassing retries; the call already failed), to determine
-        # whether the deployed RPC rejected the Helper #2 parameter
-        # names specifically. PostgREST returns ``PGRST202`` ("Could not
-        # find the function ... in the schema cache") when a call's
-        # named-parameter set does not match any registered function
-        # signature — the same detection idiom already used by
+        # D-14-07a capability probe, WR-03 coordinated: ``with_retry``
+        # swallows the raised ``postgrest.APIError`` and returns only
+        # ``None``, discarding the reason code, so a probe is needed to
+        # determine whether the deployed RPC rejected the Helper #2
+        # parameter names specifically. PostgREST returns ``PGRST202``
+        # ("Could not find the function ... in the schema cache") when a
+        # call's named-parameter set does not match any registered
+        # function signature — the same detection idiom already used by
         # ``prefetch_attribution``'s ``rpc_missing`` probe for
-        # ``lookup_attribution_bulk`` (D-13). Bounded: at most one extra
-        # RPC call, on the already-failed path only, so this can never
-        # become a per-row error storm (T-14-03-04).
+        # ``lookup_attribution_bulk`` (D-13).
         #
-        # Reuses ``billing_audit.client``'s existing ``_PGAPIError`` /
-        # ``_classify_postgrest_error`` rather than re-declaring a local
-        # ``try: from postgrest import APIError ... except: _APIError = ()``
-        # fallback here — that idiom's ``type[APIError]`` reassignment
-        # trips an extra mypy Gate 4 finding at every additional call
-        # site; importing the already-typed module-level name adds none.
-        from billing_audit.client import _classify_postgrest_error
-        from billing_audit.client import _PGAPIError as _client_pgapi_error
+        # ``_resolve_helper2_capability`` (WR-03) guarantees AT MOST ONE
+        # extra RPC call is ever sent for this process, even when many
+        # rows hit this branch concurrently: the first caller claims the
+        # probe and every other caller waits for its result instead of
+        # sending its own probe (the bare boolean flag this replaced let
+        # concurrent in-flight rows each independently probe, violating
+        # this module's own "at most one extra RPC call" invariant).
+        def _probe_capability() -> Literal['supported', 'unsupported']:
+            # Reuses ``billing_audit.client``'s existing ``_PGAPIError`` /
+            # ``_classify_postgrest_error`` rather than re-declaring a
+            # local ``try: from postgrest import APIError ... except:
+            # _APIError = ()`` fallback here — that idiom's
+            # ``type[APIError]`` reassignment trips an extra mypy Gate 4
+            # finding at every additional call site; importing the
+            # already-typed module-level name adds none.
+            from billing_audit.client import _classify_postgrest_error
+            from billing_audit.client import (
+                _PGAPIError as _client_pgapi_error,
+            )
+            try:
+                _invoke()
+                # Bare re-invoke succeeded: the original failure was some
+                # transient blip, not a Helper #2 signature rejection. Do
+                # NOT reuse this second write's response as the row's
+                # result — the caller falls through to today's failure
+                # handling below, keeping a "one failed freeze == one
+                # counted error" contract exactly as before this plan.
+            except Exception as _probe_exc:
+                if _client_pgapi_error is not None and isinstance(
+                    _probe_exc, _client_pgapi_error
+                ) and (
+                    _classify_postgrest_error(_probe_exc)[2] == "PGRST202"
+                ):
+                    return 'unsupported'
+                # Any other exception (including no code, or a code
+                # other than PGRST202) is NOT a Helper #2 signature
+                # rejection — keep today's error handling exactly; do
+                # not widen this to swallow an unrelated RPC failure.
+            return 'supported'
+
         try:
-            _invoke()
-            # Bare re-invoke succeeded: the original failure was some
-            # transient blip, not a Helper #2 signature rejection. Do
-            # NOT reuse this second write's response as the row's
-            # result — fall through to today's failure handling below,
-            # keeping a "one failed freeze == one counted error"
-            # contract exactly as before this plan.
-        except Exception as _probe_exc:
-            if _client_pgapi_error is not None and isinstance(
-                _probe_exc, _client_pgapi_error
-            ) and (
-                _classify_postgrest_error(_probe_exc)[2] == "PGRST202"
-            ):
-                _mark_helper2_rpc_unsupported()
-                degraded_params = {
-                    k: v for k, v in params.items()
-                    if k not in ("p_helper2", "p_helper2_dept")
-                }
+            _capability = _resolve_helper2_capability(_probe_capability)
+        except _Helper2ProbeTimeout:
+            # Bounded wait for an in-flight probe expired. The
+            # capability is still genuinely unknown -- this row is the
+            # EXISTING per-row retryable failure, never a degraded
+            # persist (a degraded persist without Helper #2 attribution
+            # would silently lose attribution for a row that might
+            # actually be on a supported deployment).
+            _bump_counter("snapshots_errored")
+            return False
 
-                def _invoke_degraded(_params=degraded_params):
-                    return (
-                        client.schema("billing_audit")
-                        .rpc("freeze_attribution", _params)
-                        .execute()
-                    )
+        if _capability == 'unsupported':
+            _mark_helper2_rpc_unsupported()
+            degraded_params = {
+                k: v for k, v in params.items()
+                if k not in ("p_helper2", "p_helper2_dept")
+            }
 
-                result = with_retry(
-                    _invoke_degraded, op="freeze_attribution"
+            def _invoke_degraded(_params=degraded_params):
+                return (
+                    client.schema("billing_audit")
+                    .rpc("freeze_attribution", _params)
+                    .execute()
                 )
-            # Any other exception (including no code, or a code other
-            # than PGRST202) is NOT a Helper #2 signature rejection —
-            # keep today's error handling exactly; do not widen this
-            # except to swallow an unrelated RPC failure.
+
+            result = with_retry(_invoke_degraded, op="freeze_attribution")
+        # 'supported': the original failure was unrelated to the Helper
+        # #2 parameter signature (transient blip or a different error).
+        # ``result`` stays ``None`` — falls through to today's failure
+        # handling below, exactly as before this plan.
 
     if result is None:
         _bump_counter("snapshots_errored")
