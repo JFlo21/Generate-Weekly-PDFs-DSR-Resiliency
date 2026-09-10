@@ -39,6 +39,7 @@ point 14-06 must clear" this comment refers to).
 
 from __future__ import annotations
 
+import ast
 import sys
 import unittest
 from pathlib import Path
@@ -73,6 +74,14 @@ PARITY_TABLE = (
     # variant strings that 14-RESEARCH.md's Pitfall 3 identified.
     'pipeline/upload.py',
     'pipeline/grouping.py',
+    # Code review CR-01/WR-01 gap closure: pricing.py's _resolve_row_price
+    # (both the early-gate and rate-class-selection literal sites) and
+    # attribution.py's _SUBCONTRACTOR_SCOPE_VARIANTS enumerate the Helper
+    # #1 family literals the same way every other pinned site does, but
+    # were absent from this table, so the parity net never covered them
+    # -- exactly the class of gap this table exists to catch.
+    'pipeline/pricing.py',
+    'pipeline/attribution.py',
 )
 
 # Per-file (Helper #2 literal) pairs that are KNOWN, NAMED, TEMPORARY
@@ -85,7 +94,121 @@ PARITY_TABLE = (
 # Any entry added here MUST cite the plan that closes it. Values are
 # bare literals (matching SIBLING_PAIRS' bare form above), not quoted
 # strings.
-KNOWN_DEFERRED: dict[str, set[str]] = {}
+#
+# pipeline/attribution.py's bare ``'helper'`` literal is NOT a Helper
+# #1/#2 variant-dispatch site -- it is ``_run_phase_1_1_hash_prune``'s
+# Phase 1.1 (SUB-12) one-time, VERSIONED orphan-key cleanup for the
+# legacy 6-part hash-history key shape (``wr|week|helper|foreman|dept
+# |job``) that predates Helper #2 entirely. The real parity gap in this
+# file was ``_SUBCONTRACTOR_SCOPE_VARIANTS`` (code review WR-01, now
+# fixed). There is no Helper #2 equivalent legacy key to prune, so this
+# is a permanent, structural exception (not a later-plan-closes-it
+# gap) -- do not add a ``'helper2'`` clause to the hash-prune matcher.
+#
+# Greptile (PR #402): the exception is scoped to the OWNING FUNCTION,
+# not the whole file. Value shape is ``{helper2_literal: owner_fn}`` --
+# every occurrence of the Helper #1 literal in that file must sit
+# inside ``owner_fn``'s ``ast`` span (def line .. end line, docstring
+# and comments included). A later, unrelated bare ``'helper'`` dispatch
+# added anywhere else in the file is NOT covered and fails the parity
+# check like any other pinned site would.
+KNOWN_DEFERRED: dict[str, dict[str, str]] = {
+    'pipeline/attribution.py': {'helper2': '_run_phase_1_1_hash_prune'},
+}
+
+
+def _function_span(src: str, fn_name: str) -> tuple[int, int] | None:
+    """1-based inclusive ``(first_line, last_line)`` of top-level or
+    nested ``def fn_name`` in ``src``; ``None`` when it does not exist."""
+    for node in ast.walk(ast.parse(src)):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == fn_name
+        ):
+            return node.lineno, node.end_lineno or node.lineno
+    return None
+
+
+def _literal_lines_outside_owner(
+    src: str, literal: str, owner_fn: str,
+) -> list[int]:
+    """Line numbers where the quoted ``literal`` appears OUTSIDE the
+    ``owner_fn`` span. Every line is reported when ``owner_fn`` is
+    missing, so a renamed/removed owner can never silently widen the
+    exception back to file scope."""
+    span = _function_span(src, owner_fn)
+    forms = _quoted_forms(literal)
+    return [
+        lineno
+        for lineno, line in enumerate(src.splitlines(), start=1)
+        if any(form in line for form in forms)
+        and (span is None or not (span[0] <= lineno <= span[1]))
+    ]
+
+
+def _docstring_line_ranges(tree: ast.AST) -> list[tuple[int, int]]:
+    """Inclusive line ranges of every string-constant expression
+    statement (module / class / function docstrings and bare string
+    statements) -- prose, not dispatch sites."""
+    return [
+        (node.lineno, node.end_lineno or node.lineno)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    ]
+
+
+def _blocks_missing_sibling(
+    src: str, helper1_lit: str, helper2_lit: str,
+) -> list[tuple[str, int, int]]:
+    """Copilot (PR #402): parity is tracked PER OWNING TOP-LEVEL BLOCK
+    (a ``def`` / ``class`` / module-level assignment ...), not per
+    file. For every CODE occurrence of the quoted Helper #1 literal
+    (comment-only lines and docstring statements are prose and are
+    skipped), the enclosing top-level block must also carry the
+    Helper #2 sibling somewhere in its span. Returns the offending
+    blocks as ``(name, first_line, last_line)``, de-duplicated, in
+    source order -- empty when the file is at parity.
+
+    Granularity note: Helper #2 is a PARALLEL sibling family by design
+    (D-14-11 -- never merged into the Helper #1 tuple), so its literal
+    legitimately lives in the ADJACENT statement (``elif`` / second
+    tuple), never inside the same one. The enclosing top-level block is
+    therefore the finest unit that is both site-specific and free of
+    false positives; statement-level would flag every intentional
+    sibling branch in the pinned table.
+    """
+    tree = ast.parse(src)
+    lines = src.splitlines()
+    doc_ranges = _docstring_line_ranges(tree)
+    blocks = [
+        (
+            f"{type(node).__name__}:{getattr(node, 'name', '')}",
+            node.lineno,
+            node.end_lineno or node.lineno,
+        )
+        for node in tree.body
+    ]
+    forms1 = _quoted_forms(helper1_lit)
+    forms2 = _quoted_forms(helper2_lit)
+    missing: list[tuple[str, int, int]] = []
+    for lineno, line in enumerate(lines, start=1):
+        if not any(form in line for form in forms1):
+            continue
+        if line.lstrip().startswith('#'):
+            continue
+        if any(a <= lineno <= b for a, b in doc_ranges):
+            continue
+        for block in blocks:
+            _name, first, last = block
+            if first <= lineno <= last:
+                text = '\n'.join(lines[first - 1:last])
+                if not any(form in text for form in forms2):
+                    if block not in missing:
+                        missing.append(block)
+                break
+    return missing
 
 
 def _quoted_forms(literal: str) -> tuple[str, str]:
@@ -134,7 +257,7 @@ class HelperFamilyParityTests(unittest.TestCase):
         """Direction 2: a Helper #1 literal's Helper #2 sibling must be
         present, unless the gap is explicitly named in KNOWN_DEFERRED."""
         for rel, src in self._sources.items():
-            deferred = KNOWN_DEFERRED.get(rel, frozenset())
+            deferred = KNOWN_DEFERRED.get(rel, {})
             for helper1_lit, helper2_lit in SIBLING_PAIRS:
                 if not _literal_present(helper1_lit, src):
                     continue  # this file never carries this family member
@@ -147,6 +270,20 @@ class HelperFamilyParityTests(unittest.TestCase):
                             f"source -- remove it from KNOWN_DEFERRED "
                             f"for this file (the deferring plan landed)",
                         )
+                        owner = deferred[helper2_lit]
+                        stray = _literal_lines_outside_owner(
+                            src, helper1_lit, owner,
+                        )
+                        self.assertEqual(
+                            stray, [],
+                            f"{rel}: the KNOWN_DEFERRED exception for "
+                            f"{helper2_lit!r} covers ONLY {owner}(); "
+                            f"bare {helper1_lit!r} also appears outside "
+                            f"it at line(s) {stray} with no "
+                            f"{helper2_lit!r} sibling (Pitfall 3 -- a "
+                            f"new Helper #1 site the file-wide "
+                            f"deferral used to hide)",
+                        )
                     else:
                         self.assertTrue(
                             _literal_present(helper2_lit, src),
@@ -155,6 +292,99 @@ class HelperFamilyParityTests(unittest.TestCase):
                             f"sibling {helper2_lit!r} (Pitfall 3 -- a "
                             f"Helper #1 site with no Helper #2 sibling)",
                         )
+
+    def test_deferred_exception_is_scoped_to_owner_function(self):
+        """Greptile (PR #402): the attribution.py deferral must NOT be
+        file-wide. Reproduces the reviewer's scenario -- the real file
+        plus one unrelated bare ``'helper'`` dispatch appended outside
+        ``_run_phase_1_1_hash_prune`` -- and requires the scoped check
+        to flag exactly that new line, while the unmodified file has
+        zero stray occurrences."""
+        rel = 'pipeline/attribution.py'
+        owner = KNOWN_DEFERRED[rel]['helper2']
+        src = self._sources[rel]
+        self.assertIsNotNone(
+            _function_span(src, owner),
+            f"{rel}: KNOWN_DEFERRED names {owner}() but it no longer "
+            f"exists -- re-scope or drop the exception",
+        )
+        self.assertEqual(
+            _literal_lines_outside_owner(src, 'helper', owner), [],
+        )
+
+        appended = (
+            src.rstrip('\n')
+            + "\n\n\ndef _future_unrelated_dispatch():\n"
+            + "    return 'helper'\n"
+        )
+        expected_line = appended.count('\n')  # the ``return`` line
+        self.assertEqual(
+            _literal_lines_outside_owner(appended, 'helper', owner),
+            [expected_line],
+        )
+        # And a missing owner reports EVERY occurrence (never widens).
+        self.assertGreater(
+            len(_literal_lines_outside_owner(src, 'helper', '_nope')), 0,
+        )
+
+    def test_helper2_sibling_present_per_top_level_block(self):
+        """Copilot (PR #402): a file-level presence check lets a
+        removed sibling hide behind an unrelated occurrence elsewhere
+        in the same file. Every top-level block that carries a Helper
+        #1 literal in CODE must carry the Helper #2 sibling too. Files
+        whose gap is named in KNOWN_DEFERRED are covered by the
+        owner-function check above instead."""
+        for rel, src in self._sources.items():
+            deferred = KNOWN_DEFERRED.get(rel, {})
+            for helper1_lit, helper2_lit in SIBLING_PAIRS:
+                if helper2_lit in deferred:
+                    continue
+                with self.subTest(file=rel, pair=(helper1_lit, helper2_lit)):
+                    self.assertEqual(
+                        _blocks_missing_sibling(src, helper1_lit, helper2_lit),
+                        [],
+                        f"{rel}: top-level block(s) enumerate "
+                        f"{helper1_lit!r} without {helper2_lit!r} "
+                        f"(Pitfall 3 -- a Helper #1 site hiding behind "
+                        f"an unrelated sibling occurrence elsewhere in "
+                        f"the file)",
+                    )
+
+    def test_per_block_check_catches_a_site_hidden_by_another(self):
+        """RED for the per-block guard: two dispatch sites in one file,
+        the sibling removed from only one of them -- the old file-level
+        check passes (the other site still carries it); the per-block
+        check must name exactly the stripped block. Prose (docstrings,
+        comments) is never a site."""
+        sample = (
+            "def early_gate(variant):\n"
+            "    return variant in ('reduced_sub_helper',\n"
+            "                       'reduced_sub_helper2')\n"
+            "\n"
+            "\n"
+            "def rate_class(variant):\n"
+            "    '''Docstring mentioning 'reduced_sub_helper' only.'''\n"
+            "    # comment mentioning 'reduced_sub_helper' only\n"
+            "    if variant in ('reduced_sub', 'reduced_sub_helper'):\n"
+            "        return 'rs'\n"
+            "    return 'aep'\n"
+        )
+        self.assertTrue(_literal_present('reduced_sub_helper2', sample))
+        self.assertEqual(
+            _blocks_missing_sibling(
+                sample, 'reduced_sub_helper', 'reduced_sub_helper2',
+            ),
+            [('FunctionDef:rate_class', 6, 11)],
+        )
+        prose_only = (
+            "def f():\n"
+            "    '''only prose: 'helper' here'''\n"
+            "    # and 'helper' here\n"
+            "    return None\n"
+        )
+        self.assertEqual(
+            _blocks_missing_sibling(prose_only, 'helper', 'helper2'), [],
+        )
 
     def test_helper2_spelling_is_not_miscounted_as_helper1(self):
         """Guard the guard: the quoted-literal technique actually

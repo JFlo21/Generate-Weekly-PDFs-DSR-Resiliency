@@ -614,8 +614,16 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
     Args:
         row: Group row dict (already passed through
             ``_validate_single_sheet`` synonyms layer).
-        variant: One of ``{primary, helper, vac_crew, aep_billable,
-            reduced_sub, aep_billable_helper, reduced_sub_helper}``.
+        variant: One of ``{primary, helper, helper2, vac_crew,
+            aep_billable, reduced_sub, aep_billable_helper,
+            reduced_sub_helper, aep_billable_helper2,
+            reduced_sub_helper2}``. Plain Helper #2 groups pass
+            ``variant='helper2'`` (see ``pipeline/excel.py``'s
+            ``elif variant == 'helper2':`` branch) and take the same
+            raw-``Units Total Price`` fall-through path as ``helper``
+            below -- only the ``aep_billable_helper2`` /
+            ``reduced_sub_helper2`` shadow variants price via the
+            rate matrix.
         missing_cus: Per-call ``collections.Counter[str]`` accumulated
             across the row-write loop. Caller is responsible for
             instantiation and downstream forwarding.
@@ -636,6 +644,7 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
     if variant not in (
         'aep_billable', 'reduced_sub',
         'aep_billable_helper', 'reduced_sub_helper',
+        'aep_billable_helper2', 'reduced_sub_helper2',
     ):
         return parse_price(row.get('Units Total Price'))
 
@@ -675,9 +684,11 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
         # Unknown work type: keep SmartSheet pricing (safety floor).
         return parse_price(row.get('Units Total Price'))
 
-    if variant in ('aep_billable', 'aep_billable_helper'):
+    if variant in (
+        'aep_billable', 'aep_billable_helper', 'aep_billable_helper2',
+    ):
         rate = rate_row.get(f'new_{wt}_price', 0.0)
-    else:  # reduced_sub / reduced_sub_helper
+    else:  # reduced_sub / reduced_sub_helper / reduced_sub_helper2
         rate = rate_row.get(f'reduced_{wt}_price', 0.0)
 
     # Canonical 'Quantity' ONLY — never 'Units Completed' (checkbox).

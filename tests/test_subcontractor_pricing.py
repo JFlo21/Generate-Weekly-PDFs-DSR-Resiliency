@@ -3368,6 +3368,37 @@ class TestSubcontractorVariantOpenpyxlCompliance(unittest.TestCase):
         self.assertEqual(hits, [], "oddFooter.right.text MUST NOT be assigned — XML corruption vector")
 
 
+def _rate_matrix_gate(rel_path: str, func_name: str) -> frozenset[str]:
+    """Return the variant-literal tuple inside ``func_name`` that names
+    the subcontractor rate-matrix consumers -- identified as the one
+    ``Compare`` tuple containing BOTH ``'aep_billable'`` and
+    ``'reduced_sub'``. Exactly one such tuple must exist."""
+    import ast
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1]
+    tree = ast.parse((root / rel_path).read_text(encoding='utf-8'))
+    found: list[frozenset[str]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.FunctionDef)
+                and node.name == func_name):
+            continue
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Compare):
+                continue
+            for comp in sub.comparators:
+                if not isinstance(comp, ast.Tuple):
+                    continue
+                vals = frozenset(
+                    e.value for e in comp.elts
+                    if isinstance(e, ast.Constant)
+                    and isinstance(e.value, str)
+                )
+                if {'aep_billable', 'reduced_sub'} <= vals:
+                    found.append(vals)
+    assert len(found) == 1, (rel_path, func_name, found)
+    return found[0]
+
+
 class TestPhase1IntegrationRegression(unittest.TestCase):
     """Locks ROADMAP success criterion 5 — the byte-identical
     guarantee for primary / helper / vac_crew Excel files under the
@@ -3578,12 +3609,13 @@ class TestPhase1IntegrationRegression(unittest.TestCase):
         that actually consume the subcontractor rates CSV).
 
         Symmetry note: the production code mixes the fingerprint
-        in for all four new variants
-        (aep_billable / reduced_sub / aep_billable_helper /
-        reduced_sub_helper). Testing one positive case is
-        sufficient because the variant-gate is a single ``in
-        (...)`` check; the other three variants share the same
-        branch and would regress together.
+        in for the six rate-matrix consumers (aep_billable /
+        reduced_sub / aep_billable_helper / reduced_sub_helper,
+        plus the Helper #2 shadows since CR-01). One positive case
+        covers the branch itself, but a MISSING tuple member is
+        invisible to its siblings' tests -- that is how the
+        Helper #2 shadows slipped through until PR #402 -- so
+        Test 4b names both Helper #2 shadows explicitly.
         """
         rows = [
             self._aep_billable_row(cu='CU-S1', qty=1, price='$50.00',
@@ -3603,6 +3635,104 @@ class TestPhase1IntegrationRegression(unittest.TestCase):
             "variants. Dropping it silently means CSV edits to "
             "data/subcontractor_rates.csv would NOT force "
             "regeneration of the _AEPBillable / _ReducedSub files."
+        )
+
+    def _helper2_shadow_row(self, variant, cu='CU-S2', qty=1,
+                            price='$50.00', pole='P-S2'):
+        """Helper #2 subcontractor shadow row (Phase 14 / CR-01)."""
+        return {
+            'Work Request #': '19236776',
+            'Snapshot Date': '2026-04-19',
+            'CU': cu,
+            'Quantity': qty,
+            'Pole #': pole,
+            'Work Type': 'Install',
+            'Dept #': '800',
+            'Units Total Price': price,
+            'Units Completed?': True,
+            '__variant': variant,
+            'Foreman': 'SubForeman',
+            '__effective_user': 'SubForeman',
+            '__current_foreman': 'EveHelper2',
+            '__helper2_foreman': 'EveHelper2',
+            '__helper2_dept': '800',
+            '__helper2_job': 'J2',
+        }
+
+    # ── Test 4b ───────────────────────────────────────────────────
+    def test_helper2_shadow_hashes_change_on_sub_fingerprint_mutation(
+            self):
+        """Positive regression (PR #402 Copilot follow-up to CR-01):
+        both Helper #2 subcontractor shadow variants price from the
+        subcontractor rate matrix since CR-01, so their hashes MUST
+        move when ``_SUBCONTRACTOR_RATES_FINGERPRINT`` mutates --
+        otherwise a rates-CSV edit leaves the ``_Helper2_`` shadow
+        attachments stale and skipped as unchanged.
+        """
+        for variant in ('aep_billable_helper2', 'reduced_sub_helper2'):
+            with self.subTest(variant=variant):
+                rows = [
+                    self._helper2_shadow_row(variant, cu='CU-S1',
+                                             qty=1, price='$50.00',
+                                             pole='P-S1'),
+                    self._helper2_shadow_row(variant, cu='CU-S2',
+                                             qty=2, price='$100.00',
+                                             pole='P-S2'),
+                ]
+                generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'A'
+                h1 = generate_weekly_pdfs.calculate_data_hash(rows)
+                generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'B'
+                h2 = generate_weekly_pdfs.calculate_data_hash(rows)
+                self.assertNotEqual(
+                    h1, h2,
+                    f"{variant} hash did NOT change when "
+                    "_SUBCONTRACTOR_RATES_FINGERPRINT mutated -- the "
+                    "SUB_RATES_FP gate in calculate_data_hash() must "
+                    "list every variant that prices from the "
+                    "subcontractor rate matrix (CR-01 sibling).",
+                )
+
+    # ── Test 4c ───────────────────────────────────────────────────
+    def test_plain_helper2_hash_byte_identical_across_sub_fp_mutation(
+            self):
+        """Plain ``helper2`` prices from ``Units Total Price`` (not
+        the rate matrix), so like ``helper`` its hash MUST NOT move
+        on a fingerprint mutation."""
+        rows = [
+            self._helper2_shadow_row('helper2', cu='CU-H2', qty=1,
+                                     price='$200.00', pole='P-H2'),
+        ]
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'A'
+        h1 = generate_weekly_pdfs.calculate_data_hash(rows)
+        generate_weekly_pdfs._SUBCONTRACTOR_RATES_FINGERPRINT = 'B'
+        h2 = generate_weekly_pdfs.calculate_data_hash(rows)
+        self.assertEqual(
+            h1, h2,
+            "plain helper2 hash changed when "
+            "_SUBCONTRACTOR_RATES_FINGERPRINT mutated -- the gate "
+            "must stay scoped to the rate-matrix consumers.",
+        )
+
+    # ── Test 4d ───────────────────────────────────────────────────
+    def test_pricing_gate_and_hash_gate_name_the_same_variants(self):
+        """Cross-file invariant (PR #402 production-risk pass): the
+        rate-matrix consumer set is spelled twice -- the pricing
+        eligibility gate in ``_resolve_row_price`` and the
+        ``SUB_RATES_FP`` gate in ``calculate_data_hash`` -- with no
+        shared constant. Drift between them is exactly the CR-01
+        bug shape (a variant priced from the matrix whose hash
+        ignores matrix changes), so pin set equality here.
+        """
+        self.assertEqual(
+            _rate_matrix_gate('pipeline/pricing.py',
+                              '_resolve_row_price'),
+            _rate_matrix_gate('pipeline/change_detection.py',
+                              'calculate_data_hash'),
+            "pipeline/pricing.py::_resolve_row_price and "
+            "pipeline/change_detection.py::calculate_data_hash "
+            "disagree on which variants consume the subcontractor "
+            "rate matrix -- add the variant to BOTH gates in the "
+            "same change (ledger [2026-09-10 20:15]).",
         )
 
     # ── Test 5 ────────────────────────────────────────────────────
@@ -4500,6 +4630,31 @@ class TestResolveRowPriceAbbreviatedWorkType(unittest.TestCase):
         self.assertEqual(aep_h, 100.00)
         self.assertEqual(red_h, 50.00)
         self.assertNotEqual(aep_h, red_h)
+
+    def test_helper2_shadow_variants_also_diverge(self):
+        """Phase 14 CR-01: the Helper #2 shadow variants
+        (``aep_billable_helper2`` / ``reduced_sub_helper2``) MUST hit
+        the rate matrix (not the raw-SmartSheet safety floor 999.99)
+        AND pick the correct rate column, exactly like the Helper #1
+        pair above. Pre-fix, both variants were absent from the early
+        gate tuple in ``_resolve_row_price`` and returned the
+        ``Units Total Price`` canary (999.99) unchanged.
+        """
+        aep_h2 = self._resolve('Inst', 'aep_billable_helper2')
+        red_h2 = self._resolve('Inst', 'reduced_sub_helper2')
+        self.assertEqual(aep_h2, 100.00)
+        self.assertEqual(red_h2, 50.00)
+        self.assertNotEqual(aep_h2, red_h2)
+        self.assertNotEqual(
+            aep_h2, 999.99,
+            'aep_billable_helper2 must not fall through to the '
+            'SmartSheet safety-floor canary',
+        )
+        self.assertNotEqual(
+            red_h2, 999.99,
+            'reduced_sub_helper2 must not fall through to the '
+            'SmartSheet safety-floor canary',
+        )
 
 
 class TestCleanupVariantWhitelist(unittest.TestCase):

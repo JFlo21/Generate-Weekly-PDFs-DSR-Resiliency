@@ -9488,3 +9488,63 @@ file certifies nothing about it (WR-02 is exactly how CR-01 slipped through 14 p
 (billing formula + WR controls): TDD, both pricing sites together, validated against a known-good Helper #1
 subcontractor sample. Report review rounds: Greptile ×3 + Copilot ×1 fixed (920d340, 970c124, 7dc207e); 12 Codex
 threads listed for Juan only (harness boundary).
+
+[2026-09-10 15:30] Phase 14 code review fix (`14-REVIEW-FIX.md`): CR-01/CR-02/WR-01/WR-02 closed.
+CR-01: `pipeline/pricing.py` `_resolve_row_price` gained `aep_billable_helper2` / `reduced_sub_helper2`
+at BOTH literal sites (early gate + rate-class selection) — a Helper #2 subcontractor shadow file was
+billing at the raw Smartsheet price (or, if only the first site had been fixed, at the wrong rate
+class). CR-02: `pipeline/grouping.py` `_key_matches_wr` / `_key_matches_excluded_wr` gained the three
+`_HELPER2_` / `_REDUCEDSUB_HELPER2_` / `_AEPBILLABLE_HELPER2_` clauses (docstrings now "fourteen
+shapes") — `EXCLUDE_WRS` (production-active) was silently failing to hold back Helper #2 files, and
+`WR_FILTER` was silently dropping them from a scoped dry run. WR-01: `pipeline/attribution.py`
+`_SUBCONTRACTOR_SCOPE_VARIANTS` gained both Helper #2 shadow variants — a WR whose only completed
+subcontractor rows were Helper #2 claims was not entering the legacy off-contract / legacy-primary
+cleanup scope. WR-02: `tests/test_helper2_family_parity.py` `PARITY_TABLE` now includes
+`pipeline/pricing.py` and `pipeline/attribution.py` (both were missing from the enforcement net,
+which is exactly how CR-01/WR-01 slipped through 14 plans); `pipeline/attribution.py` needed one
+`KNOWN_DEFERRED` entry for a bare `'helper'` literal that belongs to the unrelated, pre-Helper-2
+`_run_phase_1_1_hash_prune` one-time migration, not a variant-dispatch site.
+RULE (extends the [2026-05-25 18:35] WR-matcher rule): any new variant emitted by `group_source_rows`
+must extend ALL FOUR of — (1) both WR matchers (`_key_matches_wr` / `_key_matches_excluded_wr`,
+`pipeline/grouping.py`), (2) `_resolve_row_price`'s two literal sites (`pipeline/pricing.py`),
+(3) `_SUBCONTRACTOR_SCOPE_VARIANTS` (`pipeline/attribution.py`), and (4) `PARITY_TABLE`
+(`tests/test_helper2_family_parity.py`) — in the SAME PR. A parity table that omits a file
+certifies nothing about it.
+
+[2026-09-10 17:00] Phase 14 code review fix, WR-03 round 2 (`7e9c56e`, after a read-only production-risk pass
+rejected round 1 `7c0fdec`). Round 1's four-state probe (`billing_audit/writer.py`) returned `supported` for ANY
+non-PGRST202 outcome and published it as a terminal state — on an un-migrated `freeze_attribution` RPC a single
+transient 503/timeout/PGRST203 on the prober's re-invoke would have pinned the process to "supported" forever:
+every later row sends full params, hits the real PGRST202, never re-probes, never degrades (100%
+`snapshots_errored`). The old boolean never had that terminal state. Fix: tri-valued probe
+(`supported` / `unsupported` / `inconclusive`); `inconclusive` (any other exception, incl. `BaseException`)
+reverts the persisted state to `unknown` and still `notify_all()`s; re-probes bounded by
+`_HELPER2_PROBE_MAX_ATTEMPTS = 5` (exhausted → `inconclusive` without an RPC, state stays `unknown`, never a
+false `unsupported`); waiters share ONE `time.monotonic()` deadline across probe cycles. Adjacent latent defect
+fixed in the same commit: the degraded retry reused `op="freeze_attribution"`, so 3 concurrent PGRST202
+failures tripped `billing_audit/client.py`'s per-op circuit breaker before the prober resolved and the degraded
+path short-circuited to `None` for the rest of the process — now `op="freeze_attribution_degraded"`.
+RULES: (1) a terminal capability state may only come from a definitive signal (an explicit success or the
+exact rejection code); anything else is inconclusive and must leave the state re-probeable, bounded. (2) A
+fallback/degraded call must never share a circuit-breaker op label with the call whose failures it is the
+fallback for. Accepted residuals: `except BaseException` also swallows `SystemExit`/`KeyboardInterrupt`
+inside the worker thread; `client.py` ~566 prose op list does not name the new label. Verification: suite
+2326 passed / 1 skipped / 567 subtests (independent run), six gates pass, rubric verifier PASS,
+production-risk re-check PASS. Branch `fix/phase-14-cr01-cr02-wr03` → PR #402 (opened 2026-09-10; Copilot,
+Codex and Greptile rounds answered on the PR — follow-ups `5720ce4` post-degrade rows use the degraded op label,
+`1f2218c` pricing docstring, `be6fccf` parity deferral scoped to `_run_phase_1_1_hash_prune`; Greptile P1 on the
+SUB-09 scope left open as an owner decision; Copilot's "auto-close the open breaker after a successful probe"
+declined as a new client feature — todo, not this PR).
+
+[2026-09-10 20:15] Phase 14 CR-01 follow-up (PR #402, Copilot post-review round): `calculate_data_hash()` mixed
+`SUB_RATES_FP` (subcontractor rates fingerprint, D-20) into the hash only for the four Phase 01 subcontractor
+variants. After CR-01 the Helper #2 shadows (`aep_billable_helper2` / `reduced_sub_helper2`) price from the rate
+matrix, but a rates-CSV edit never moved their hash — the `_Helper2_` shadow attachments would be skipped as
+unchanged and stay stale (`TOTAL=` in the hash is the raw `Units Total Price`, not the matrix price, so nothing
+else covered it). Fix: both shadows added to the gate in `pipeline/change_detection.py`; RED/GREEN
+`test_helper2_shadow_hashes_change_on_sub_fingerprint_mutation` plus a plain-`helper2` byte-identical guard in
+`tests/test_subcontractor_pricing.py`. The per-block parity net did not catch it because the D-20 gate and the
+HELPER2 meta block share one owning function (same shape as the two `pricing.py` sites). RULES: (1) a variant
+that prices from a rate table must be added to that table's fingerprint gate in the same change — pricing site
+and hash site are one unit; (2) test one positive case per tuple MEMBER, not per family — a missing member is
+invisible to its siblings' tests.

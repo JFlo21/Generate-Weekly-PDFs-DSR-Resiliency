@@ -468,13 +468,15 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
             meta_parts.append(f"RATES_FP={_RATES_FINGERPRINT}")
 
     # Per Phase 01 Plan 02 D-20: mix the subcontractor rates
-    # fingerprint into the hash ONLY for the four new variants
-    # that actually consume the subcontractor rates CSV. This
+    # fingerprint into the hash ONLY for the variants that
+    # actually consume the subcontractor rates CSV -- the four
+    # Phase 01 variants plus the two Helper #2 shadows that price
+    # from the same matrix since Phase 14 CR-01 (PR #402). This
     # forces regeneration of _AEPBillable / _ReducedSub files (and
     # their shadow-helper twins) when the CSV changes, WITHOUT
-    # touching the primary / helper / vac_crew hashes (preserves
-    # the ROADMAP success criterion 5 byte-identical guarantee for
-    # the legacy variant set). Mirrors the conditional shape of
+    # touching the primary / helper / helper2 / vac_crew hashes
+    # (preserves the ROADMAP success criterion 5 byte-identical
+    # guarantee for the legacy variant set). Mirrors the shape of
     # the existing `if RATE_CUTOFF_DATE: ... RATES_FP=` block
     # above so a future engineer reading the two blocks side by
     # side sees them as parallel — one keys on the retired-but-
@@ -485,6 +487,8 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         'reduced_sub',
         'aep_billable_helper',
         'reduced_sub_helper',
+        'aep_billable_helper2',
+        'reduced_sub_helper2',
     ):
         if _SUBCONTRACTOR_RATES_FINGERPRINT:
             meta_parts.append(

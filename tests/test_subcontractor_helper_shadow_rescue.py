@@ -1738,6 +1738,111 @@ class TestSubcontractorHelper2ShadowRescue(unittest.TestCase):
         self.assertEqual(_grouping.get_helper2_conflict_count(), 1)
 
 
+class TestHelper2WrFilterAndExcludeWrs(unittest.TestCase):
+    """Phase 14 code review CR-02: ``WR_FILTER`` (``_key_matches_wr``)
+    and ``EXCLUDE_WRS`` (``_key_matches_excluded_wr``) in
+    ``pipeline/grouping.py`` must recognize all three Helper #2
+    group-key shapes -- plain ``_HELPER2_<name>``,
+    ``_REDUCEDSUB_HELPER2_<name>``, and ``_AEPBILLABLE_HELPER2_<name>``
+    -- exactly like the pre-Phase-14 Helper #1 clauses. Mirrors
+    ``tests.test_primary_claim_attribution.TestWrFilterMatchesUserVariant``
+    (Task 7's WR_FILTER/EXCLUDE_WRS regression pattern) using the
+    Helper #2 fixtures from ``TestSubcontractorHelper2ShadowRescue``
+    above.
+    """
+
+    _SUB_SHEET_ID = TestEndToEndPipeline._SUB_SHEET_ID
+    _NON_SUB_SHEET_ID = TestEndToEndPipeline._NON_SUB_SHEET_ID
+
+    _make_synth_helper2_row = (
+        TestSubcontractorHelper2ShadowRescue._make_synth_helper2_row
+    )
+
+    def setUp(self):
+        TestEndToEndPipeline.setUp(self)
+        self._orig_wr_filter = list(generate_weekly_pdfs.WR_FILTER)
+        self._orig_exclude_wrs = list(generate_weekly_pdfs.EXCLUDE_WRS)
+        self._orig_test_mode = generate_weekly_pdfs.TEST_MODE
+
+    def tearDown(self):
+        generate_weekly_pdfs.WR_FILTER = self._orig_wr_filter
+        generate_weekly_pdfs.EXCLUDE_WRS = self._orig_exclude_wrs
+        generate_weekly_pdfs.TEST_MODE = self._orig_test_mode
+        TestEndToEndPipeline.tearDown(self)
+
+    def _rows(self):
+        # WR under test: one subcontractor Helper #2 row (emits BOTH
+        # _REDUCEDSUB_HELPER2_ and _AEPBILLABLE_HELPER2_, post-cutoff)
+        # plus one non-subcontractor Helper #2 row (emits the plain
+        # _HELPER2_ key). A second, untouched WR is the negative control.
+        sub_row = self._make_synth_helper2_row(
+            wr='19236776', helper2_foreman='Drew_H2',
+            snapshot='2026-04-19', row_id=30001,
+            source_sheet_id=self._SUB_SHEET_ID,
+        )
+        plain_row = self._make_synth_helper2_row(
+            wr='19236776', helper2_foreman='Casey_H2',
+            snapshot='2026-04-19', row_id=30002,
+            source_sheet_id=self._NON_SUB_SHEET_ID,
+        )
+        other_wr_row = self._make_synth_helper2_row(
+            wr='55555555', helper2_foreman='Other_H2',
+            snapshot='2026-04-19', row_id=30003,
+            source_sheet_id=self._NON_SUB_SHEET_ID,
+        )
+        return [sub_row, plain_row, other_wr_row]
+
+    def test_wr_filter_retains_all_three_helper2_shapes(self):
+        generate_weekly_pdfs.TEST_MODE = True
+        generate_weekly_pdfs.WR_FILTER = ['19236776']
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution', return_value=None,
+        ):
+            groups = generate_weekly_pdfs.group_source_rows(self._rows())
+        keys = list(groups.keys())
+        self.assertTrue(
+            any('REDUCEDSUB_HELPER2_Drew_H2' in k for k in keys),
+            f"WR_FILTER dropped the reduced_sub_helper2 group: {keys}",
+        )
+        self.assertTrue(
+            any('AEPBILLABLE_HELPER2_Drew_H2' in k for k in keys),
+            f"WR_FILTER dropped the aep_billable_helper2 group: {keys}",
+        )
+        self.assertTrue(
+            any(
+                'HELPER2_Casey_H2' in k and 'REDUCEDSUB' not in k
+                and 'AEPBILLABLE' not in k
+                for k in keys
+            ),
+            f"WR_FILTER dropped the plain helper2 group: {keys}",
+        )
+        self.assertFalse(
+            any('Other_H2' in k for k in keys),
+            f"WR_FILTER retained a group for an un-filtered WR: {keys}",
+        )
+
+    def test_exclude_wrs_drops_all_three_helper2_shapes(self):
+        generate_weekly_pdfs.EXCLUDE_WRS = ['19236776']
+        with mock.patch(
+            'billing_audit.writer.lookup_attribution', return_value=None,
+        ):
+            groups = generate_weekly_pdfs.group_source_rows(self._rows())
+        keys = list(groups.keys())
+        self.assertFalse(
+            any('Drew_H2' in k for k in keys),
+            f"EXCLUDE_WRS failed to drop the subcontractor helper2 "
+            f"shadow groups: {keys}",
+        )
+        self.assertFalse(
+            any('Casey_H2' in k for k in keys),
+            f"EXCLUDE_WRS failed to drop the plain helper2 group: {keys}",
+        )
+        self.assertTrue(
+            any('Other_H2' in k for k in keys),
+            f"EXCLUDE_WRS dropped a group for an un-excluded WR: {keys}",
+        )
+
+
 class TestHelper2ShadowExcelRendering(unittest.TestCase):
     """Phase 14 plan 14-06 Task 2: Helper #2 shadow workbook filename +
     REPORT DETAILS header rendering.
@@ -2103,9 +2208,30 @@ class TestSubcontractorWrScopeVariantGate(unittest.TestCase):
                 {'Work Request #': '444', '__variant': 'aep_billable_helper'}],
             '041926_555_REDUCEDSUB_USER_C': [
                 {'Work Request #': '555', '__variant': 'reduced_sub'}],
+            '041926_666_REDUCEDSUB_HELPER2_H2': [
+                {'Work Request #': '666', '__variant': 'reduced_sub_helper2'}],
+            '041926_777_AEPBILLABLE_HELPER2_H2': [
+                {'Work Request #': '777', '__variant': 'aep_billable_helper2'}],
         }
         scope = generate_weekly_pdfs._build_subcontractor_wr_scope(groups)
-        self.assertEqual(scope, {'111', '222', '333', '444', '555'})
+        self.assertEqual(
+            scope, {'111', '222', '333', '444', '555', '666', '777'},
+        )
+
+    def test_helper2_only_wr_classified_subcontractor_active(self):
+        """WR-01 (Phase 14 code review): a WR whose ONLY completed
+        subcontractor rows this run are Helper #2 claims MUST be
+        classified subcontractor-active -- pre-fix, ``__variant`` values
+        of ``reduced_sub_helper2`` / ``aep_billable_helper2`` were absent
+        from ``_SUBCONTRACTOR_SCOPE_VARIANTS`` and such a WR was silently
+        dropped from the legacy off-contract / legacy-primary cleanup
+        scope (``pipeline/orchestrate.py``'s ``_sub_scope`` gate)."""
+        groups = {
+            '041926_888_REDUCEDSUB_HELPER2_Only': [
+                {'Work Request #': '888', '__variant': 'reduced_sub_helper2'}],
+        }
+        scope = generate_weekly_pdfs._build_subcontractor_wr_scope(groups)
+        self.assertIn('888', scope)
 
     def test_excludes_non_subcontractor_variants(self):
         groups = {
