@@ -614,9 +614,16 @@ def _resolve_row_price(row: dict, variant: str, missing_cus) -> float:
     Args:
         row: Group row dict (already passed through
             ``_validate_single_sheet`` synonyms layer).
-        variant: One of ``{primary, helper, vac_crew, aep_billable,
-            reduced_sub, aep_billable_helper, reduced_sub_helper,
-            aep_billable_helper2, reduced_sub_helper2}``.
+        variant: One of ``{primary, helper, helper2, vac_crew,
+            aep_billable, reduced_sub, aep_billable_helper,
+            reduced_sub_helper, aep_billable_helper2,
+            reduced_sub_helper2}``. Plain Helper #2 groups pass
+            ``variant='helper2'`` (see ``pipeline/excel.py``'s
+            ``elif variant == 'helper2':`` branch) and take the same
+            raw-``Units Total Price`` fall-through path as ``helper``
+            below -- only the ``aep_billable_helper2`` /
+            ``reduced_sub_helper2`` shadow variants price via the
+            rate matrix.
         missing_cus: Per-call ``collections.Counter[str]`` accumulated
             across the row-write loop. Caller is responsible for
             instantiation and downstream forwarding.
