@@ -26,7 +26,7 @@ affects: [14-14]
 # rounds (element-typed annotations) and a rebase onto the #394 docs merge.
 actuals:
   tokens: 14000
-  tasks: 1
+  tasks: 2  # Task 1 executed; Task 2 (verify on the next deep run) superseded by plan 14-14
   commits: 1
   plan_head_before: 7ded60c
 
@@ -58,7 +58,7 @@ requirements-completed: [HLP-06]
 
 coverage:
   - id: D1
-    description: "Both sheet_registry upserts pass mapping_schema_by_sheet derived from the discovery skip index; the marker reaches the writer payload only for fully validated sheets whose mapping is written."
+    description: "(Task 1) Both sheet_registry upserts pass mapping_schema_by_sheet derived from the discovery skip index; the marker reaches the writer payload only for fully validated sheets whose mapping is written."
     requirement: "HLP-06"
     verification:
       - kind: unit
@@ -84,7 +84,7 @@ validated sheet whose mapping is written this call is certified for cache admiss
 ## Performance
 
 - **Duration:** ~3h (TDD + review rounds); executed ad hoc in the owner's session
-- **Tasks:** 1 (TDD `auto`)
+- **Tasks:** 2 planned — Task 1 (TDD `auto`) executed; Task 2 (record; verify on the next deep run) superseded by plan 14-14, see Deviations
 - **Files modified:** 2 production modules + 1 test file + plan/decision records
 - **Commits:** 1 on master (squash-merge `d079e81`, PR #395)
 
@@ -117,7 +117,20 @@ See `key-decisions`: O-14-E root cause and the marker semantics.
 
 ## Deviations from Plan
 
-None in scope. Two Greptile rounds (bare `set`/`list` annotations -> element-typed; stale STATE.md
+### Superseded task
+
+**1. Task 2 "record; verify on the next deep run" — superseded by plan 14-14 (same day)**
+- **Planned:** observe the marker on all 121 rows after the Monday 2026-09-14 `weekly_comprehensive` run,
+  then close O-14-E.
+- **What happened:** Juan could not wait for the deep run ("the 121 sheets do run and I cannot wait for
+  that deep run"). Plan 14-14 was inserted the same afternoon so a frequent run adopts the freshly
+  validated mapping (+ marker); the observation was performed as 14-14 Task 2 on runs `34411958861`
+  (121/121 marked) and `34415980363` (112/121 registry skips). This plan's Task 2 was therefore never
+  executed as written; O-14-E is RESOLVED in `14-DECISIONS.md` under 14-14's record.
+
+### Review-driven
+
+Two Greptile rounds (bare `set`/`list` annotations -> element-typed; stale STATE.md
 lines) and one rebase onto the #394 docs merge (changelog conflict kept both sides).
 
 ## Issues Encountered

@@ -12,7 +12,7 @@ requires:
     provides: "D-03 column_mapping_sheets contract on upsert_sheet_registry and _log_column_mapping_drift (the deep-run drift log this plan reuses with a label)"
 provides:
   - "pipeline/orchestrate.py: _compute_registry_mapping_sheets(..., fully_validated_sids=None) -- on a frequent run the written set is new sheets UNION sheets fully validated this run; _log_column_mapping_drift(..., label=) -- label prefix; main derives _registry_fully_validated_sids once and logs adoption in pass 1 BEFORE the first registry write"
-  - "pipeline_memory/writer.py: upsert_sheet_registry docstring records the widened frequent-run set"
+  - "pipeline_memory/writer.py: upsert_sheet_registry docstring records the widened frequent-run set -- NOT in 736141a: the branch commit bed436c was pushed after PR #396 had already merged at c04dc5b, so it landed as cherry-pick 607f5db in the closure PR #398"
   - "tests/test_frequent_run_mapping_adoption.py: 10 tests -- helper include/exclude/new-sheet/default/deep-run, drift label custom + default, source pin, ordering pin (frequent drift log index < first upsert index; fails on 9fad83c), writer-payload proof (fresh mapping + marker for a fully validated sheet, stored mapping + no marker for a skip-admitted one)"
 provides_records:
   - ".planning/phases/14-foreman-helper-2/14-DECISIONS.md: O-14-E owner instruction, SQL-backfill rejection evidence, 14-14 record, RESOLVED block with the observed runs"
@@ -23,8 +23,9 @@ affects: []
 # NOTE ON SCOPE: executed ad hoc in the owner's session (not by gsd-executor),
 # so no plan-head sentinel exists. `commits` counts the squash-merge on master
 # (PR #396 -> 736141a); the branch carried the RED/GREEN pair plus three bot
-# review rounds (Copilot x3, Greptile x1) and the docs-alignment follow-up
-# landed separately as PR #397 -> 92c9ed6.
+# review rounds (Copilot x3, Greptile x1); the docs-alignment follow-up
+# landed separately as PR #397 -> 92c9ed6, and the writer.py docstring
+# (bed436c, pushed after the merge) as cherry-pick 607f5db in PR #398.
 actuals:
   tokens: 26000
   tasks: 2
@@ -97,7 +98,8 @@ skipped 112 of 121 via the registry. O-14-E is RESOLVED.**
 - **Duration:** ~2h implementation and three review rounds; ~2h observation across two production runs
 - **Tasks:** 2 (1 TDD `auto`, 1 observation)
 - **Files modified:** 2 production modules + 1 test file + records
-- **Commits:** 1 on master (squash-merge `736141a`, PR #396); docs alignment PR #397 -> `92c9ed6`
+- **Commits:** 1 on master (squash-merge `736141a`, PR #396); docs alignment PR #397 -> `92c9ed6`;
+  writer docstring cherry-pick in PR #398
 
 ## Accomplishments
 
@@ -117,7 +119,8 @@ skipped 112 of 121 via the registry. O-14-E is RESOLVED.**
 
 - `pipeline/orchestrate.py` -- `fully_validated_sids` kwarg, `label` kwarg, pass-1 adoption log,
   docstrings for the widened written set.
-- `pipeline_memory/writer.py` -- `upsert_sheet_registry` docstring (review round 3).
+- `pipeline_memory/writer.py` -- `upsert_sheet_registry` docstring (review round 3); not part of
+  `736141a` (bed436c was pushed after the merge) -- landed via PR #398 cherry-pick `607f5db`.
 - `tests/test_frequent_run_mapping_adoption.py` -- 10 tests.
 - Records: `14-14-PLAN.md`, `14-DECISIONS.md`, `.claude/project-state.md`, `.planning/ROADMAP.md`,
   `.planning/STATE.md`, `docs/CHANGELOG_CONTEXT.md`, `memory-bank/living-ledger.md`,
@@ -137,7 +140,8 @@ See `key-decisions`: owner instruction, SQL-backfill rejection, D-03 kept in spi
   no-data exit made adoption silent.
 - **Fix:** frequent-run drift log moved into pass 1 before the first `upsert_sheet_registry`; ordering
   pin test added (round 3); marker/writer docstrings and the closing condition aligned.
-- **Committed in:** `5ce3efc`, `c04dc5b`, `bed436c` (branch), squash `736141a`
+- **Committed in:** `5ce3efc`, `c04dc5b` (branch, in squash `736141a`); `bed436c` (writer docstring)
+  missed the merge and landed as `607f5db` in PR #398
 
 **Total deviations:** 1 auto-fixed (review-driven ordering fix, no change to which sheets are written)
 **Impact on plan:** None on scope; the plan text was updated to say "before the first registry write".

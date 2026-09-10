@@ -124,7 +124,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 - [ ] **Phase 13: Audit Memory** — `audit_finding` lifecycle (open → fixed / resurfaced /
   acknowledged), incremental audits over affected groups + open findings. (AUD-01..03)
 
-- [ ] **Phase 14: Foreman Helper #2** — second, independently identifiable helping-foreman
+- [x] **Phase 14: Foreman Helper #2** (COMPLETE 2026-09-10) — second, independently identifiable helping-foreman
   slot (`Foreman Helping? #2` column family) through the existing Excel-generation workflow,
   mirroring the Helper #1 contract; Intake 8 excluded by owner decision; missing optional
   Helper #2 columns skip only the Helper #2 path. Planning-only authorization. (HLP-01..07)
@@ -144,9 +144,11 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
-| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/8 | In Progress|  |
-| 12. Ownership — last known foreman as of the week | v1.4 | OWN-02 slice shipped | In Progress|  |
+| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | ✅ Complete | 2026-08-31 |
+| 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 2/2 | ✅ Complete | 2026-09-02 |
+| 12. Ownership — last known foreman as of the week | v1.4 | 10/10 executed | In Progress (12-06 Task 4 observation owed) |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
+| 14. Foreman Helper #2 | v1.4 | 14/14 | ✅ Complete | 2026-09-10 |
 
 ---
 
