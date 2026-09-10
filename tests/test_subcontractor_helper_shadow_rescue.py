@@ -2208,9 +2208,30 @@ class TestSubcontractorWrScopeVariantGate(unittest.TestCase):
                 {'Work Request #': '444', '__variant': 'aep_billable_helper'}],
             '041926_555_REDUCEDSUB_USER_C': [
                 {'Work Request #': '555', '__variant': 'reduced_sub'}],
+            '041926_666_REDUCEDSUB_HELPER2_H2': [
+                {'Work Request #': '666', '__variant': 'reduced_sub_helper2'}],
+            '041926_777_AEPBILLABLE_HELPER2_H2': [
+                {'Work Request #': '777', '__variant': 'aep_billable_helper2'}],
         }
         scope = generate_weekly_pdfs._build_subcontractor_wr_scope(groups)
-        self.assertEqual(scope, {'111', '222', '333', '444', '555'})
+        self.assertEqual(
+            scope, {'111', '222', '333', '444', '555', '666', '777'},
+        )
+
+    def test_helper2_only_wr_classified_subcontractor_active(self):
+        """WR-01 (Phase 14 code review): a WR whose ONLY completed
+        subcontractor rows this run are Helper #2 claims MUST be
+        classified subcontractor-active -- pre-fix, ``__variant`` values
+        of ``reduced_sub_helper2`` / ``aep_billable_helper2`` were absent
+        from ``_SUBCONTRACTOR_SCOPE_VARIANTS`` and such a WR was silently
+        dropped from the legacy off-contract / legacy-primary cleanup
+        scope (``pipeline/orchestrate.py``'s ``_sub_scope`` gate)."""
+        groups = {
+            '041926_888_REDUCEDSUB_HELPER2_Only': [
+                {'Work Request #': '888', '__variant': 'reduced_sub_helper2'}],
+        }
+        scope = generate_weekly_pdfs._build_subcontractor_wr_scope(groups)
+        self.assertIn('888', scope)
 
     def test_excludes_non_subcontractor_variants(self):
         groups = {

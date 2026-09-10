@@ -119,6 +119,7 @@ BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES = 200000
 _SUBCONTRACTOR_SCOPE_VARIANTS = frozenset({
     'reduced_sub', 'aep_billable',
     'reduced_sub_helper', 'aep_billable_helper',
+    'reduced_sub_helper2', 'aep_billable_helper2',
 })
 
 
