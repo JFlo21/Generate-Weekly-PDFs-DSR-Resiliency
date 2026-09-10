@@ -1,6 +1,6 @@
 ---
 created: 2026-09-10T13:15:00-05:00
-title: PR #402 review follow-ups — per-site parity, breaker half-open, off-contract keep_historical
+title: PR #402 review follow-ups — breaker half-open, off-contract keep_historical (per-site parity DONE 6129cc4)
 area: billing_audit / pipeline / tests
 severity: minor
 files:
@@ -17,7 +17,7 @@ Three bot-review findings on PR #402 (Phase 14 code-review fix) were assessed as
 valid but deliberately NOT fixed in that PR because each is a design change
 beyond the reviewed findings (CR-01/CR-02/WR-01..03):
 
-1. **Per-site parity (Copilot, `tests/test_helper2_family_parity.py`):** the
+1. **DONE in `6129cc4` — per-site parity (Copilot, `tests/test_helper2_family_parity.py`):** the
    non-deferred branch checks whether each Helper #2 literal appears *anywhere*
    in a file. `pipeline/pricing.py` has two literal sites (early gate and
    rate-class selection); dropping a sibling from one still passes while the
@@ -44,7 +44,12 @@ beyond the reviewed findings (CR-01/CR-02/WR-01..03):
 
 ## Solution
 
-- (1) Test-only: make the parity check site-aware — e.g. count Helper #1 vs
+- (1) DONE `6129cc4`: parity is now checked per owning top-level block via `ast`
+  (`_blocks_missing_sibling`, code occurrences only; docstrings/comments are prose),
+  with a RED sample test naming exactly the stripped block. Remaining note: the
+  two `pricing.py` sites share one function, so within it the guard is the CR-01
+  behavioural coverage in `tests/test_subcontractor_pricing.py` (`0e10891`).
+  Original ask, for the record: make the parity check site-aware — e.g. count Helper #1 vs
   Helper #2 occurrences per file (docstrings included) or map each pinned site
   to its owning function as the deferred branch does; add a RED test that removes
   one of `pricing.py`'s two `aep_billable_helper2` occurrences and expects failure.
