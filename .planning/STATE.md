@@ -5,7 +5,7 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: complete
-stopped_at: "Phase 14 COMPLETE 2026-09-10: 14/14 plans executed; 14-14 Task 2 observed (dispatch 34411958861 stamped 121/121 helper2-v1, scheduled 34415980363 skipped 112/121 via sheet_registry); O-14-E RESOLVED; code review done (14-REVIEW.md via PR #399 94f2636: CR-01 pricing, CR-02 WR matchers await owner decision); next Phase 12 12-06 Task 4"
+stopped_at: "Phase 14 COMPLETE 2026-09-10: 14/14 plans executed; 14-14 Task 2 observed (dispatch 34411958861 stamped 121/121 helper2-v1, scheduled 34415980363 skipped 112/121 via sheet_registry); O-14-E RESOLVED; code review done (14-REVIEW.md via PR #399 94f2636: CR-01 pricing, CR-02 WR matchers, both protected); next Juan's CR-01/CR-02 fix decision FIRST, then Phase 12 12-06 Task 4"
 last_updated: "2026-09-10T04:40:00.000Z"
 last_activity: 2026-09-10
 last_activity_desc: Phase 14 code review report merged (PR #399); CR-01/CR-02 owner decision pending
@@ -46,8 +46,9 @@ Status: Closed — Helper #2 ENABLED (`HELPER2_ENABLED=1`, O-14-D: permanent
   (`94f2636`) — 2 Critical (CR-01 Helper #2 shadow files outside the
   `pipeline/pricing.py` rate-matrix gate; CR-02 `EXCLUDE_WRS`/`WR_FILTER`
   matchers miss `_HELPER2_` keys), 3 Warning, 1 Info; both Criticals are
-  protected areas, fix awaits Juan. Next: Phase 12 12-06 Task 4; Phase 13
-  only when Juan asks.
+  protected areas. Next, in order: (1) Juan's CR-01/CR-02 fix decision
+  (`--fix`, hand-written TDD PR, or accept as-is) — do not skip to (2);
+  (2) Phase 12 12-06 Task 4; (3) Phase 13 only when Juan asks.
 Last activity: 2026-09-10 — Phase 14 closed; O-14-E RESOLVED; code review
   report merged (PR #399)
 
