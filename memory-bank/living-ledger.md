@@ -9530,4 +9530,8 @@ fallback/degraded call must never share a circuit-breaker op label with the call
 fallback for. Accepted residuals: `except BaseException` also swallows `SystemExit`/`KeyboardInterrupt`
 inside the worker thread; `client.py` ~566 prose op list does not name the new label. Verification: suite
 2326 passed / 1 skipped / 567 subtests (independent run), six gates pass, rubric verifier PASS,
-production-risk re-check PASS. Branch `fix/phase-14-cr01-cr02-wr03`, not yet a PR.
+production-risk re-check PASS. Branch `fix/phase-14-cr01-cr02-wr03` → PR #402 (opened 2026-09-10; Copilot,
+Codex and Greptile rounds answered on the PR — follow-ups `5720ce4` post-degrade rows use the degraded op label,
+`1f2218c` pricing docstring, `be6fccf` parity deferral scoped to `_run_phase_1_1_hash_prune`; Greptile P1 on the
+SUB-09 scope left open as an owner decision; Copilot's "auto-close the open breaker after a successful probe"
+declined as a new client feature — todo, not this PR).
