@@ -581,8 +581,20 @@ over synthetic data**. Neither **controlled upload verified** nor
   `bc2de79` runs, so it is intermittent and pre-existing, and the 25-minute probe is what makes long
   runs long. (2) **`sheet_registry.mapping_schema` was NOT written** — see O-14-E.
 
-## O-14-E — FIXED 2026-09-09 (plans 14-13 `d079e81` + 14-14 `736141a`), production observation pending: mapping_schema marker never written, registry skip defeated
+## O-14-E — RESOLVED 2026-09-10 (plans 14-13 `d079e81` + 14-14 `736141a`, observed on runs 34411958861 + 34415980363): mapping_schema marker never written, registry skip defeated
 
+- **RESOLVED 2026-09-10 (observed).** Dispatch run `34411958861` (JFlo21, head `97fe0c3` incl. `736141a`,
+  `EXECUTION_TYPE=manual`, 22:23Z → 23:23Z, success): split 121 candidates / 0 skipped / 121 fully
+  validated; 114 `Frequent-run full-validation column_mapping refresh` warnings, all before the first
+  `sheet_registry` POST; both POSTs carried `mapping_schema` and returned 200; counters 7 unavailable /
+  114 no-qualifying; 0 tracebacks; 6 files. Supabase 23:09Z: 121/121 `mapping_schema='helper2-v1'`,
+  114 with Helper #2 keys, 7 marked without keys = the capability-unavailable sheets (Arrowhead ×4,
+  Intake Promax, Intake Promax 8, Resiliency Promax Database Backup 2). Scheduled run `34415980363`
+  (`production_frequent`, 23:23Z → 00:12Z, success): split 121 / **112 skipped via sheet_registry** /
+  9 fully validated (version bumps), 0 refresh warnings, per pass one POST without `mapping_schema`
+  (112 echoed) and one with (9 validated), all 200; counters 7/114; 0 tracebacks; 7 files. Supabase
+  00:21Z: still 121/114/7. Closing condition met; registry skip restored (Phase 1 no longer pays 121
+  validations per run). Records: plans 14-13 `d079e81` (#395), 14-14 `736141a` (#396), docs `92c9ed6` (#397).
 - **Fix (plan 14-13, Juan approved 2026-09-09 "yes lets write up the fix").** `pipeline/discovery.py`
   now publishes the skip-admitted ids (`get_last_discovery_skip_sids()`, reset per call, mirrors
   `fetch.get_last_sheet_versions`); `pipeline/orchestrate.py` derives

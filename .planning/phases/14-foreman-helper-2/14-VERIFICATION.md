@@ -183,3 +183,16 @@ One genuine, code-confirmed gap: **O-14-B** (`pipeline_memory.upsert_rows_bulk` 
   the new values through the ON CONFLICT set list, and a row_event of kind `update` records them.
 - Status after addendum: passed (7/7). Remaining human items unchanged: portal `variantLabels.ts`
   labels unbuilt locally; real-data pilot pending real data (Resource Analyst column blank).
+
+## Addendum 2026-09-10 — O-14-E closed (plans 14-13 + 14-14)
+
+- Gap found after the 2026-09-09 addendum: `sheet_registry.mapping_schema` was never written by the
+  orchestrator (14-07 shipped the writer kwarg and the read-side condition only), so every run fully
+  validated all 121 sheets. Plan 14-13 (`d079e81`) wires the marker at both registry upserts; plan
+  14-14 (`736141a`) lets a frequent run adopt the freshly validated mapping (+ marker) for the sheets it
+  fully validated, drift logged before the first write, after a SQL backfill was rejected on evidence.
+- Observed: dispatch run `34411958861` stamped all 121 rows (114 with Helper #2 keys, 7
+  capability-unavailable without); scheduled run `34415980363` skipped 112 of 121 via the registry with
+  0 refresh warnings and unchanged Helper #2 counters (7/114). Details: `14-DECISIONS.md` O-14-E.
+- Status after addendum: passed (7/7) unchanged; the registry-skip regression is closed. Remaining
+  human items unchanged (portal `variantLabels.ts` labels unbuilt locally; real-data pilot pending).

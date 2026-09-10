@@ -878,12 +878,13 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 14 plans — 14 executed (14-14 Task 1 merged `736141a`, PR #396); 14-14 Task 2 (production observation) pending
+**Plans:** 14/14 plans complete ✅ (Phase closed 2026-09-10 — 14-14 Task 2 observed, O-14-E RESOLVED)
 (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to close O-14-C, making seven
 waves; 14-12 inserted 2026-09-08/09 to close O-14-B, making eight waves; 14-13 and 14-14 inserted
 2026-09-09 to close O-14-E — the mapping_schema marker was never written by the caller, then the owner
 chose frequent-run mapping adoption over waiting for the Monday deep run — making wave nine).
-Phase 14 closes when 14-14 Task 2 observes the marker on all registry rows and O-14-E is marked RESOLVED.
+Phase 14 closed 2026-09-10: 14-14 Task 2 observed the marker on all 121 registry rows (dispatch run
+`34411958861`) and 112/121 registry skips on the next scheduled run (`34415980363`); O-14-E RESOLVED.
 
 Plans:
 
@@ -953,7 +954,7 @@ Plans:
   validated `column_mapping` (+ marker) for every sheet fully validated this run, drift logged with
   the `Frequent-run full-validation` label BEFORE the first registry write; skip-admitted sheets
   still echo unmarked; SQL marker backfill rejected on evidence (PR #396 → `736141a`). Task 2
-  (observe the marker on all 121 rows, then ≈ 121 registry skips) pending
+  observed 2026-09-10: 121/121 marked (dispatch `34411958861`), 112/121 registry skips (`34415980363`)
 
 **Open owner decisions the plans depend on:**
 
