@@ -9465,3 +9465,14 @@ marker helper then stamps `helper2-v1` on the same call. Expected: first schedul
 mappings + marker on all 121; the next run skips ≈ 121 via the registry. Evidence: 9 new tests RED→GREEN
 (`tests/test_frequent_run_mapping_adoption.py`), full suite 2313 passed / 1 skipped, ALL 6 GATES PASSED (mypy delta
 71→71), independent verifier PASS after one line-length fix round. First run on the 14-13 merge (`34393726548`) was clean.
+
+[2026-09-09 19:35] O-14-E RESOLVED on observed runs; Phase 14 (Foreman Helper #2) CLOSED. Dispatch run `34411958861`
+(first run on the 14-14 merge, manual execution type) stamped `helper2-v1` on 121/121 `sheet_registry` rows — 114 with
+Helper #2 keys, 7 capability-unavailable without — with the 114 adoption warnings logged BEFORE the first registry
+write; the queued scheduled run `34415980363` then skipped 112/121 via the registry (0 refresh warnings, counters
+7/114). RULES that fell out of this closure: (1) a cache-admission marker must be stamped by the production caller in
+the same call that writes the certified data — pin the caller, not only the writer; (2) log adoption before you
+persist it, so an early exit can never adopt silently (ordering pin on the orchestrator source); (3) a closing
+condition must be satisfiable by the documented capability split; (4) never backfill a marker by SQL without first
+proving the certified data is current (here 0/121 stored mappings carried Helper #2 keys). Records: PR #398;
+code #395 `d079e81`, #396 `736141a`; docs #397 `92c9ed6`.

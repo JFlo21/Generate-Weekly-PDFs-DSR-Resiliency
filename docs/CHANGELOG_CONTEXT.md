@@ -1033,3 +1033,15 @@ Operators: the first run after merge still shows `0 skipped ... 121 fully valida
 plus one `column_mapping refresh` warning per sheet whose stored mapping gained keys (up to 121; the seven
 capability-unavailable sheets may not change), then `skipped via sheet_registry` ≈ 121 from the run after.
 Full suite 2313 passed / 1 skipped; six gates pass. Ledger `[2026-09-09 16:50]`. Fix: PR #396 → `736141a`.
+
+**O-14-E RESOLVED — Phase 14 closed on observed runs (2026-09-10).** The first run on the 14-14 merge was Juan's
+dispatch `34411958861` (head `97fe0c3`, manual): 0 skipped / 121 fully validated, 114 `Frequent-run full-validation
+column_mapping refresh` warnings all logged before the first registry write, both `sheet_registry` upserts carrying
+`mapping_schema` and returning 200; `pipeline_memory.sheet_registry` then showed `helper2-v1` on 121/121 rows, Helper #2
+keys on the 114 capable sheets and none on the 7 capability-unavailable ones (Arrowhead ×4, Intake Promax, Intake
+Promax 8, Resiliency Promax Database Backup 2). The next scheduled run `34415980363` skipped 112 of 121 sheets via
+the registry (9 re-validated on version bumps, 0 refresh warnings, counters 7/114, no tracebacks). Operators: Phase 1
+is back to registry-admitted discovery. A full 121-sheet validation now appears only on the Monday deep run (or
+after a code change that resets the marker); a change to one sheet's version, name, mapping, or marker
+re-validates that sheet alone, as the 9 re-validations on the confirming run show. Records: `14-DECISIONS.md` O-14-E, new `14-13-SUMMARY.md` /
+`14-14-SUMMARY.md`, `14-VERIFICATION.md` addendum, ROADMAP 14/14 ✅. Ledger `[2026-09-09 19:35]`. Records: PR #398.

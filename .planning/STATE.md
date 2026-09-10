@@ -4,14 +4,14 @@ milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
-status: executing
-stopped_at: "Phase 14 Plan 14 Task 1 merged 736141a (PR #396, frequent-run mapping adoption); Task 2 observation pending; plans 14-13 (merged d079e81) and 14-14 inserted 2026-09-09 as gap closure for O-14-E; Phase 14 has 14 plans, 14 executed + 14-14 Task 2 (production observation: marker on all 121 sheet_registry rows, then ~121 registry skips) pending; O-14-D resolved; first enabled run 34356004448 observed clean"
-last_updated: "2026-09-09T22:20:00.000Z"
-last_activity: 2026-09-09
-last_activity_desc: Plans 14-13 + 14-14 (O-14-E gap closure); O-14-D resolved; first enabled run verified
+status: complete
+stopped_at: "Phase 14 COMPLETE 2026-09-10: 14/14 plans executed; 14-14 Task 2 observed (dispatch 34411958861 stamped 121/121 helper2-v1, scheduled 34415980363 skipped 112/121 via sheet_registry); O-14-E RESOLVED; next /gsd-code-review 14, then Phase 12 12-06 Task 4"
+last_updated: "2026-09-10T00:30:00.000Z"
+last_activity: 2026-09-10
+last_activity_desc: Phase 14 closed — O-14-E RESOLVED on observed runs; plans 14-13/14-14 summaries written
 progress:
   total_phases: 14
-  completed_phases: 12
+  completed_phases: 13
   total_plans: 72
   completed_plans: 72
   percent: 100
@@ -35,25 +35,16 @@ pipeline.
 
 ## Current Position
 
-Phase: 14 (Foreman Helper #2) — EXECUTING (gap closure)
-Plan: 14 of 14 — all 14 plans executed; 14-14 Task 2 (production
-  observation of the `helper2-v1` marker) pending
-Status: Observing — plan 14-14 merged `736141a` (PR #396, 2026-09-09
-  22:17Z) after three bot review rounds (drift log moved before the
-  pass-1 registry write; ordering pin test; docstrings and status docs
-  aligned). Helper #2 ENABLED (`HELPER2_ENABLED=1`, O-14-D: permanent).
-  Next: the first scheduled run on the merge should show `0 skipped ...
-  121 fully validated` plus `Frequent-run full-validation column_mapping
-  refresh` warnings and both registry upserts 200; then
-  `sheet_registry.mapping_schema='helper2-v1'` on all 121 rows (Helper #2
-  keys on the 114 capable sheets); the following run skips ≈ 121.
-  Then mark O-14-E RESOLVED and close Phase 14.
-Last activity: 2026-09-09 — plan 14-14 merged; O-14-E observation pending
-  GREEN pre-seed helpers, RED test / GREEN main() wiring, phase-gate +
-  Living Ledger entry). SC-1/D-11.1-04 (frequent-run wall clock back
-  under ~75 min) and SC-3's log-content confirmation remain POST-MERGE
-  production observations, not verifiable from these plans alone; see
-  `11.1-VALIDATION.md`.
+Phase: 14 (Foreman Helper #2) — COMPLETE 2026-09-10
+Plan: 14 of 14 executed; 14-14 Task 2 observed (O-14-E RESOLVED)
+Status: Closed — Helper #2 ENABLED (`HELPER2_ENABLED=1`, O-14-D: permanent
+  feature, flag-off = emergency kill switch). Registry skip restored:
+  dispatch run `34411958861` stamped `helper2-v1` on 121/121 registry rows
+  (114 with Helper #2 keys, 7 capability-unavailable without); scheduled
+  run `34415980363` skipped 112/121 via sheet_registry with 0 refresh
+  warnings and counters 7/114. Next: `/gsd-code-review 14`, then Phase 12
+  12-06 Task 4; Phase 13 only when Juan asks.
+Last activity: 2026-09-10 — Phase 14 closed; O-14-E RESOLVED
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
   fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
@@ -312,7 +303,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: D-14-13-DDL-APPLIED (plan 14-12, Task 2, 2026-09-08 evening CDT -> applied 2026-09-09T02:21:29Z): Juan approved applying both pending additive DDLs (row_state helper2_* x4, sheet_registry.mapping_schema) and closing O-14-B in one message ("do this and then enable the helper 2 once these issues are fixed"), apply delegated to the session -- the third apply-delegated occurrence in Phase 14 (after D-14-07-APPLIED/14-09 and O-14-C-APPLIED/14-11). Applied as Supabase migration `20260909022129_helper2_row_state_columns_marker_and_rpc`; pre-state parked in the owner's vault raw folder.
 - [Phase 14]: D-14-13-VERIFIED (plan 14-12, Task 2, production read-back 2026-09-09 02:22-02:27Z): four helper2 columns + mapping_schema confirmed present; `upsert_rows_bulk` def md5 changed 5987e5ed...->378b3353... with 36 helper2_ mentions, search_path pin and grants unchanged; synthetic round-trip on sheet_id -14012 proved insert-then-identical-resend adds 0 events and a changed Helper #2 value produces exactly 1 update event; synthetic rows deleted, 0 remain. **O-14-B RESOLVED.**
 - [Phase 14]: D-14-14-ENABLE (plan 14-12, Task 3, 2026-09-08): enable `HELPER2_ENABLED` for the scheduled workflow once the DDLs and O-14-B are fixed, overriding 14-10's pilot-wait caution -- the Resource Analyst Helper #2 column is blank on every live row today, so flipping the variable changes zero workbooks until a crew records a second helper. Workflow wired (`${{ vars.HELPER2_ENABLED || '0' }}`); the `gh variable set HELPER2_ENABLED --body 1` post-merge step was DONE 2026-09-09 02:49:58Z, after PR #390 merged as `661d6d3` (flag-off = emergency disable, see O-14-D). HLP-06 flipped to Complete (7/7) in REQUIREMENTS.md and the 14-VERIFICATION.md addendum. Phase 14 (Foreman Helper #2) is fully executed: 12/12 plans.
-- [Phase 14]: O-14-E — plan 14-13 merged `d079e81`; plan 14-14 (2026-09-09, Juan: "cannot wait for that deep run") makes frequent runs adopt the freshly validated mapping + marker for fully-validated sheets (merged `736141a`, PR #396) after a SQL backfill was rejected on evidence (0/121 stored mappings carry Helper #2 keys). Earlier record: Helper #2 path verified clean (counters, 0 groups, 0 files, no degrade, freeze_attribution 200s, one-time 218k `row_event` churn) but `sheet_registry.mapping_schema` stays NULL on all 121 rows -- `pipeline/orchestrate.py` never passes `mapping_schema_by_sheet` to `upsert_sheet_registry`, so the D-11.1-01 registry skip is defeated every run (slower but correct). Plan 14-13 implemented (marker = fully validated AND column_mapping written this call; existing sheets earn it on the Mon 2026-09-14 deep run); close after that run shows `mapping_schema = 'helper2-v1'` on all 121 rows.
+- [Phase 14]: O-14-E — plan 14-13 merged `d079e81`; plan 14-14 (2026-09-09, Juan: "cannot wait for that deep run") makes frequent runs adopt the freshly validated mapping + marker for fully-validated sheets (merged `736141a`, PR #396; RESOLVED 2026-09-10 on runs 34411958861 + 34415980363: 121/121 marked, then 112/121 registry skips) after a SQL backfill was rejected on evidence (0/121 stored mappings carry Helper #2 keys). Earlier record: Helper #2 path verified clean (counters, 0 groups, 0 files, no degrade, freeze_attribution 200s, one-time 218k `row_event` churn) but `sheet_registry.mapping_schema` stays NULL on all 121 rows -- `pipeline/orchestrate.py` never passes `mapping_schema_by_sheet` to `upsert_sheet_registry`, so the D-11.1-01 registry skip is defeated every run (slower but correct). Plan 14-13 implemented (marker = fully validated AND column_mapping written this call); its deep-run-only path for existing sheets was superseded by 14-14 the same day, and the closure above is the observed result.
 - [Phase 14]: O-14-D RESOLVED (2026-09-09, Juan): Helper #2 is a permanent capability, not a one-time backfill -- `HELPER2_ENABLED` stays `1` indefinitely and flag-off is an emergency kill switch only. Option (a) accepted (regroup-on-disable limitation stands, reconcile by hand if it ever happens); persisted-claim routing (b) and attachment retirement (c) declined. No code change; runbook, environment reference, project-state, changelog, ledger `[2026-09-09 08:45]` updated.
 
 ### Roadmap Evolution
@@ -408,8 +399,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - Vercel preview vs production hCaptcha keys: verify environment-scoped env var
   isolation before Phase 04 ships.
 
-- Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED). scripts/backfill_claim_time_attribution.py source 3 must strip file extensions before the sentinel check + add a proposed-value guard + rebuild fixtures from the real hash-less filename shape before 12-06 can re-run. See 12-06-SUMMARY.md.
-- ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: ~~O-14-C~~ RESOLVED 2026-09-08 (plan 14-11) -- Juan chose apply-delegated; the per-role fill was applied and verified on synthetic rows (see the O-14-C decision entry above). Real-row post-merge confirmation of the fill counter and degrade-warning check stays PENDING until a live Helper #2 row exists. Second successor: ~~O-14-B~~ RESOLVED 2026-09-09 (plan 14-12) -- `pipeline_memory.upsert_rows_bulk` now carries all four Helper #2 fields; D-14-13-DDL-APPLIED/D-14-13-VERIFIED recorded; HLP-06 now Complete 7/7 in both REQUIREMENTS.md and the 14-VERIFICATION.md addendum. Phase 14 fully executed (12/12 plans). Post-merge step DONE: PR #390 merged as `661d6d3` (2026-09-09 02:49Z) and `HELPER2_ENABLED=1` set 02:49:58Z (D-14-14-ENABLE addendum). First enabled scheduled run `34356004448` OBSERVED 2026-09-09: counters present, no degrade warning, 0 Helper #2 groups -- verified. New gap O-14-E (mapping_schema marker never written by the caller; registry skip defeated, slower but correct) FIXED by plan 14-13 (PR #395, 2026-09-09); only the Monday deep-run observation remains before closing. Flag-off = emergency disable, not a billing-safe rollback (O-14-D, RESOLVED 2026-09-09: accepted, flag stays on indefinitely).
+- ~~Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED)~~ RESOLVED 2026-09-05: gap-closure plans 12-07..12-10 landed the source-3 extension strip, proposed-value guard, and rebuilt fixtures; 12-06 re-entered and Tasks 1-3 are done (live backfill applied, 1,758 rows, read-back clean). Still owed: 12-06 Task 4 (first post-apply scheduled-run check), so 12-06-SUMMARY.md stays `status: blocked` and the ROADMAP counts Phase 12 as 9/10 until then. Pointer: .planning/HANDOFF.json.
+- ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: ~~O-14-C~~ RESOLVED 2026-09-08 (plan 14-11) -- Juan chose apply-delegated; the per-role fill was applied and verified on synthetic rows (see the O-14-C decision entry above). Real-row post-merge confirmation of the fill counter and degrade-warning check stays PENDING until a live Helper #2 row exists. Second successor: ~~O-14-B~~ RESOLVED 2026-09-09 (plan 14-12) -- `pipeline_memory.upsert_rows_bulk` now carries all four Helper #2 fields; D-14-13-DDL-APPLIED/D-14-13-VERIFIED recorded; HLP-06 now Complete 7/7 in both REQUIREMENTS.md and the 14-VERIFICATION.md addendum. Phase 14 fully executed (14/14 plans; closed 2026-09-10). Post-merge step DONE: PR #390 merged as `661d6d3` (2026-09-09 02:49Z) and `HELPER2_ENABLED=1` set 02:49:58Z (D-14-14-ENABLE addendum). First enabled scheduled run `34356004448` OBSERVED 2026-09-09: counters present, no degrade warning, 0 Helper #2 groups -- verified. New gap O-14-E (mapping_schema marker never written by the caller; registry skip defeated, slower but correct) FIXED by plans 14-13 (PR #395 `d079e81`) + 14-14 (PR #396 `736141a`) and RESOLVED 2026-09-10 on observed runs `34411958861` (121/121 marked) and `34415980363` (112/121 registry skips) -- see the O-14-E decision entry above; closure PR #398. Flag-off = emergency disable, not a billing-safe rollback (O-14-D, RESOLVED 2026-09-09: accepted, flag stays on indefinitely).
 
 ### Quick Tasks Completed
 
@@ -487,7 +478,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 ## Session
 
 **Last session:** 2026-09-09T15:45:00.000Z
-**Stopped at:** Phase 14 gap closure continued (2026-09-09). First enabled scheduled run `34356004448` (head `be60755`) observed clean -- Helper #2 counters as expected, 0 groups / 0 `_Helper2_` workbooks, no degrade warning, 130 `freeze_attribution` calls 200, one-time 218,338 `row_event` churn landed. O-14-D RESOLVED by Juan (Helper #2 permanent; flag-off = emergency kill switch only; option a). O-14-E found (`sheet_registry.mapping_schema` NULL on all 121 rows: no caller passed `mapping_schema_by_sheet`) and FIXED by plan 14-13 -- `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed at both `upsert_sheet_registry` call sites; marker only for fully-validated sheets whose mapping is written this call. TDD 8 tests RED->GREEN; full suite 2304 passed / 1 skipped / 557 subtests; six gates pass; independent verifier PASS. PRs: #394 (docs: O-14-D + run record) and #395 (fix, stacked) await Juan's merge. Remaining: observe the Mon 2026-09-14 05:00Z deep run (marker on all 121 rows, then `skipped via sheet_registry` ~121) and close O-14-E; `/gsd-code-review 14`; Phase 12 12-06 Task 4; Phase 13 not started.
+**Stopped at:** Phase 14 COMPLETE 2026-09-10 -- O-14-E RESOLVED on runs `34411958861` + `34415980363`, closure PR #398; the closed-state PR list is at the end of this paragraph. Earlier that day: first enabled scheduled run `34356004448` (head `be60755`) observed clean -- Helper #2 counters as expected, 0 groups / 0 `_Helper2_` workbooks, no degrade warning, 130 `freeze_attribution` calls 200, one-time 218,338 `row_event` churn landed. O-14-D RESOLVED by Juan (Helper #2 permanent; flag-off = emergency kill switch only; option a). O-14-E found (`sheet_registry.mapping_schema` NULL on all 121 rows: no caller passed `mapping_schema_by_sheet`) and FIXED by plan 14-13 -- `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed at both `upsert_sheet_registry` call sites; marker only for fully-validated sheets whose mapping is written this call. TDD 8 tests RED->GREEN; full suite 2304 passed / 1 skipped / 557 subtests; six gates pass; independent verifier PASS. PRs #394 (`7ded60c`), #395 (`d079e81`), #396 (`736141a`, plan 14-14: frequent runs adopt the freshly validated mapping + marker so the Monday deep run was not needed), #397 (`92c9ed6`, docs alignment) merged. O-14-E RESOLVED 2026-09-10 on observed runs (dispatch `34411958861`: 121/121 marked; scheduled `34415980363`: 112/121 registry skips); Phase 14 COMPLETE, closure PR #398. Remaining: `/gsd-code-review 14`; Phase 12 12-06 Task 4; Phase 13 not started.
 **Resume file:** None
 
 ## Session Continuity

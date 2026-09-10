@@ -392,18 +392,25 @@ def upsert_sheet_registry(
     payload columns" mechanism ``full_read_sheets`` already relies on
     for ``last_full_read_at``, so that sheet's stored mapping is left
     untouched (never silently adopted). The weekly deep run
-    (``'weekly_comprehensive'``) is the only caller that refreshes every
-    sheet's mapping (passes ``None``); a frequent run passes the set of
-    sheet ids with NO existing registry row yet, because
-    ``column_mapping`` is ``NOT NULL`` with no default -- a genuinely
-    NEW sheet's first-ever registry row MUST carry a mapping regardless
-    of execution type, or its INSERT half of the upsert fails the whole
-    call with a 23502 (not_null_violation), the same failure class
-    ``run_ledger_finish``'s ``mode`` column already taught this codebase
-    to guard against. An ALREADY-REGISTERED sheet on a frequent run
-    never has its stored mapping touched -- a drifted mapping there is
-    D-02 trigger 2's job to ESCALATE (force a full read of that sheet),
-    never to silently adopt.
+    (``'weekly_comprehensive'``) passes ``None`` and refreshes every
+    sheet's mapping. A frequent run passes (a) the ids with NO existing
+    registry row yet -- ``column_mapping`` is ``NOT NULL`` with no
+    default, so a genuinely NEW sheet's first-ever registry row MUST
+    carry a mapping regardless of execution type or its INSERT half of
+    the upsert fails the whole call with a 23502 (not_null_violation),
+    the same failure class ``run_ledger_finish``'s ``mode`` column
+    already taught this codebase to guard against -- plus, since Phase
+    14 Plan 14 (O-14-E), (b) every registered sheet that took a FULL
+    column validation this run (not admitted from the discovery skip
+    index), with the caller logging drift, before this call, for each
+    adopted sheet whose fresh mapping differs from the stored one (an
+    unchanged mapping adopts silently by design). Before Plan 14 the
+    deep run was the only caller that could refresh a registered
+    sheet; now a frequent run whose candidates all fully validate
+    refreshes all of them too. Only a
+    skip-admitted sheet keeps its stored mapping untouched -- a drifted
+    mapping there is D-02 trigger 2's job to ESCALATE (force a full
+    read of that sheet), never to silently adopt.
 
     Empty input performs ZERO calls, checked before the client/flag
     guards, same as ``upsert_rows_bulk``.

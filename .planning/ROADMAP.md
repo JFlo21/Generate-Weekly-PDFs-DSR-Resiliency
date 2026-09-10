@@ -124,10 +124,12 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 - [ ] **Phase 13: Audit Memory** — `audit_finding` lifecycle (open → fixed / resurfaced /
   acknowledged), incremental audits over affected groups + open findings. (AUD-01..03)
 
-- [ ] **Phase 14: Foreman Helper #2** — second, independently identifiable helping-foreman
+- [x] **Phase 14: Foreman Helper #2** (COMPLETE 2026-09-10) — second, independently identifiable helping-foreman
   slot (`Foreman Helping? #2` column family) through the existing Excel-generation workflow,
   mirroring the Helper #1 contract; Intake 8 excluded by owner decision; missing optional
-  Helper #2 columns skip only the Helper #2 path. Planning-only authorization. (HLP-01..07)
+  Helper #2 columns skip only the Helper #2 path. Planning-only authorization at roadmap time,
+  superseded by the recorded owner approvals (D-14-07-APPLIED, O-14-C-APPLIED, D-14-13-DDL-APPLIED,
+  D-14-14-ENABLE) that implemented, migrated, enabled, and observed it. (HLP-01..07)
 
 ## Progress
 
@@ -144,9 +146,11 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
-| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 0/8 | In Progress|  |
-| 12. Ownership — last known foreman as of the week | v1.4 | OWN-02 slice shipped | In Progress|  |
+| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | ✅ Complete | 2026-08-31 |
+| 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 4/4 | ✅ Complete | 2026-09-02 |
+| 12. Ownership — last known foreman as of the week | v1.4 | 9/10 (12-06 blocked at Task 4) | In Progress |  |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
+| 14. Foreman Helper #2 | v1.4 | 14/14 | ✅ Complete | 2026-09-10 |
 
 ---
 
@@ -853,6 +857,10 @@ attribution must follow — OWN-01, OWN-02, OWN-04). Independent of Phase 13.
 
 **Authorization:** planning only in this pass — no feature implementation, production change,
 workflow dispatch, migration, push, merge, or deployment until Juan approves the plan.
+*Superseded 2026-09-06 → 10:* Juan approved the plans and then, per recorded decision, each
+production step — migrations (D-14-07-APPLIED, O-14-C-APPLIED, D-14-13-DDL-APPLIED), the workflow
+flag and enablement (D-14-14-ENABLE, `HELPER2_ENABLED=1`), and the merges (#389, #390, #394–#398).
+The restriction above is the planning-time record, not the current state.
 
 **Success criteria:**
 
@@ -878,12 +886,13 @@ workflow dispatch, migration, push, merge, or deployment until Juan approves the
    rollback preserves created Helper #2 evidence and never moves claimed units back to the
    primary foreman (HLP-07).
 
-**Plans:** 14 plans — 14 executed (14-14 Task 1 merged `736141a`, PR #396); 14-14 Task 2 (production observation) pending
+**Plans:** 14/14 plans complete ✅ (Phase closed 2026-09-10 — 14-14 Task 2 observed, O-14-E RESOLVED)
 (planned 2026-09-05; tracer-first, six waves; 14-11 inserted 2026-09-08 to close O-14-C, making seven
 waves; 14-12 inserted 2026-09-08/09 to close O-14-B, making eight waves; 14-13 and 14-14 inserted
 2026-09-09 to close O-14-E — the mapping_schema marker was never written by the caller, then the owner
 chose frequent-run mapping adoption over waiting for the Monday deep run — making wave nine).
-Phase 14 closes when 14-14 Task 2 observes the marker on all registry rows and O-14-E is marked RESOLVED.
+Phase 14 closed 2026-09-10: 14-14 Task 2 observed the marker on all 121 registry rows (dispatch run
+`34411958861`) and 112/121 registry skips on the next scheduled run (`34415980363`); O-14-E RESOLVED.
 
 Plans:
 
@@ -953,11 +962,14 @@ Plans:
   validated `column_mapping` (+ marker) for every sheet fully validated this run, drift logged with
   the `Frequent-run full-validation` label BEFORE the first registry write; skip-admitted sheets
   still echo unmarked; SQL marker backfill rejected on evidence (PR #396 → `736141a`). Task 2
-  (observe the marker on all 121 rows, then ≈ 121 registry skips) pending
+  observed 2026-09-10: 121/121 marked (dispatch `34411958861`), 112/121 registry skips (`34415980363`)
 
-**Open owner decisions the plans depend on:**
+**Owner decisions the plans depended on (planning-time record — ALL resolved by 2026-09-10, see
+`14-DECISIONS.md`: O-14-A → **helper2-wins** (Helper #2 > Helper #1 > primary; owner-defined 2026-09-07, plan 14-08 — the
+hold-out below was only the planning-time recommendation) + O-14-A-FOLLOWUP-1 CONFIRMED; the three Supabase changes →
+D-14-07-APPLIED / O-14-C-APPLIED / D-14-13-DDL-APPLIED; D-14-12 rollout → D-14-14-ENABLE and O-14-D):**
 
-- **O-14-A (OPEN)** — a source row with BOTH helper completion boxes checked, both names real, both
+- **O-14-A (OPEN at planning time)** — a source row with BOTH helper completion boxes checked, both names real, both
   depts present. Recommended default: hold the row out of every file for the run, log a distinct
   reason, count it, and surface it for correction. Only plan 14-08 Task 2 is blocked on it; the
   other nine plans proceed. No rule is invented in the plans.
