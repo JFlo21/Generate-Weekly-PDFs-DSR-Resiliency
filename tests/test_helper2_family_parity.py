@@ -39,6 +39,7 @@ point 14-06 must clear" this comment refers to).
 
 from __future__ import annotations
 
+import ast
 import sys
 import unittest
 from pathlib import Path
@@ -103,9 +104,46 @@ PARITY_TABLE = (
 # fixed). There is no Helper #2 equivalent legacy key to prune, so this
 # is a permanent, structural exception (not a later-plan-closes-it
 # gap) -- do not add a ``'helper2'`` clause to the hash-prune matcher.
-KNOWN_DEFERRED: dict[str, set[str]] = {
-    'pipeline/attribution.py': {'helper2'},
+#
+# Greptile (PR #402): the exception is scoped to the OWNING FUNCTION,
+# not the whole file. Value shape is ``{helper2_literal: owner_fn}`` --
+# every occurrence of the Helper #1 literal in that file must sit
+# inside ``owner_fn``'s ``ast`` span (def line .. end line, docstring
+# and comments included). A later, unrelated bare ``'helper'`` dispatch
+# added anywhere else in the file is NOT covered and fails the parity
+# check like any other pinned site would.
+KNOWN_DEFERRED: dict[str, dict[str, str]] = {
+    'pipeline/attribution.py': {'helper2': '_run_phase_1_1_hash_prune'},
 }
+
+
+def _function_span(src: str, fn_name: str) -> tuple[int, int] | None:
+    """1-based inclusive ``(first_line, last_line)`` of top-level or
+    nested ``def fn_name`` in ``src``; ``None`` when it does not exist."""
+    for node in ast.walk(ast.parse(src)):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == fn_name
+        ):
+            return node.lineno, node.end_lineno or node.lineno
+    return None
+
+
+def _literal_lines_outside_owner(
+    src: str, literal: str, owner_fn: str,
+) -> list[int]:
+    """Line numbers where the quoted ``literal`` appears OUTSIDE the
+    ``owner_fn`` span. Every line is reported when ``owner_fn`` is
+    missing, so a renamed/removed owner can never silently widen the
+    exception back to file scope."""
+    span = _function_span(src, owner_fn)
+    forms = _quoted_forms(literal)
+    return [
+        lineno
+        for lineno, line in enumerate(src.splitlines(), start=1)
+        if any(form in line for form in forms)
+        and (span is None or not (span[0] <= lineno <= span[1]))
+    ]
 
 
 def _quoted_forms(literal: str) -> tuple[str, str]:
@@ -154,7 +192,7 @@ class HelperFamilyParityTests(unittest.TestCase):
         """Direction 2: a Helper #1 literal's Helper #2 sibling must be
         present, unless the gap is explicitly named in KNOWN_DEFERRED."""
         for rel, src in self._sources.items():
-            deferred = KNOWN_DEFERRED.get(rel, frozenset())
+            deferred = KNOWN_DEFERRED.get(rel, {})
             for helper1_lit, helper2_lit in SIBLING_PAIRS:
                 if not _literal_present(helper1_lit, src):
                     continue  # this file never carries this family member
@@ -167,6 +205,20 @@ class HelperFamilyParityTests(unittest.TestCase):
                             f"source -- remove it from KNOWN_DEFERRED "
                             f"for this file (the deferring plan landed)",
                         )
+                        owner = deferred[helper2_lit]
+                        stray = _literal_lines_outside_owner(
+                            src, helper1_lit, owner,
+                        )
+                        self.assertEqual(
+                            stray, [],
+                            f"{rel}: the KNOWN_DEFERRED exception for "
+                            f"{helper2_lit!r} covers ONLY {owner}(); "
+                            f"bare {helper1_lit!r} also appears outside "
+                            f"it at line(s) {stray} with no "
+                            f"{helper2_lit!r} sibling (Pitfall 3 -- a "
+                            f"new Helper #1 site the file-wide "
+                            f"deferral used to hide)",
+                        )
                     else:
                         self.assertTrue(
                             _literal_present(helper2_lit, src),
@@ -175,6 +227,40 @@ class HelperFamilyParityTests(unittest.TestCase):
                             f"sibling {helper2_lit!r} (Pitfall 3 -- a "
                             f"Helper #1 site with no Helper #2 sibling)",
                         )
+
+    def test_deferred_exception_is_scoped_to_owner_function(self):
+        """Greptile (PR #402): the attribution.py deferral must NOT be
+        file-wide. Reproduces the reviewer's scenario -- the real file
+        plus one unrelated bare ``'helper'`` dispatch appended outside
+        ``_run_phase_1_1_hash_prune`` -- and requires the scoped check
+        to flag exactly that new line, while the unmodified file has
+        zero stray occurrences."""
+        rel = 'pipeline/attribution.py'
+        owner = KNOWN_DEFERRED[rel]['helper2']
+        src = self._sources[rel]
+        self.assertIsNotNone(
+            _function_span(src, owner),
+            f"{rel}: KNOWN_DEFERRED names {owner}() but it no longer "
+            f"exists -- re-scope or drop the exception",
+        )
+        self.assertEqual(
+            _literal_lines_outside_owner(src, 'helper', owner), [],
+        )
+
+        appended = (
+            src.rstrip('\n')
+            + "\n\n\ndef _future_unrelated_dispatch():\n"
+            + "    return 'helper'\n"
+        )
+        expected_line = appended.count('\n')  # the ``return`` line
+        self.assertEqual(
+            _literal_lines_outside_owner(appended, 'helper', owner),
+            [expected_line],
+        )
+        # And a missing owner reports EVERY occurrence (never widens).
+        self.assertGreater(
+            len(_literal_lines_outside_owner(src, 'helper', '_nope')), 0,
+        )
 
     def test_helper2_spelling_is_not_miscounted_as_helper1(self):
         """Guard the guard: the quoted-literal technique actually
