@@ -1,49 +1,42 @@
 {
   "version": "1.0",
-  "timestamp": "2026-09-04T07:27:59.690Z",
-  "phase": "12",
-  "phase_name": "ownership-last-known-foreman-as-of-the-week",
-  "phase_dir": ".planning/phases/12-ownership-last-known-foreman-as-of-the-week",
-  "plan": 6,
+  "timestamp": "2026-09-10T05:31:44.744Z",
+  "phase": "14",
+  "phase_name": "foreman-helper-2",
+  "phase_dir": ".planning/phases/14-foreman-helper-2",
+  "plan": 14,
   "task": 1,
-  "total_tasks": 4,
+  "total_tasks": 3,
   "status": "paused",
   "completed_tasks": [
-    {"id": "12-07", "name": "Source-3 filename parser: strip/reject document extension + proposed_value guard", "status": "done", "commit": "f14aa5c"},
-    {"id": "12-08", "name": "Owner decisions D-12-C (#NO MATCH scope = defer) and D-12-D (SC3 sample = substitute-89829163)", "status": "done", "commit": "83aa924"},
-    {"id": "12-09", "name": "RPC extension-refusal guard in billing_audit.backfill_attribution; STEP 4 + 5 applied live via Supabase MCP at Juan's instruction (2026-09-04 05:37 UTC)", "status": "done", "commit": "7bc2534"},
-    {"id": "12-10", "name": "Opus production-risk verdict pass; attribution_snapshot_backup_20260904 (220,621 rows, 06:07 UTC); scoped dry-run 0 extension-bearing of 235; Juan chose re-enter-12-06", "status": "done", "commit": "99de701"},
-    {"id": "close-out", "name": "OWN-02/OWN-03 reverted to Pending (5121c30); 12-06 SUMMARY status halted -> blocked (7ce962a); code-quality report (634d93b); ledgers (ff3efb1, 45e9458)", "status": "done", "commit": "45e9458"},
-    {"id": 1, "name": "12-06 Task 1: read-only pre-checks + full-population dry-run for Juan's verdict", "status": "in_progress", "progress": "First run rejected 2026-09-03 (source 3 proposed the literal Unknown Foreman.xlsx). Parser fixed in 12-07, RPC guard live, fresh backup exists. Full-population dry-run NOT yet re-run; scoped proof only (WR 89732091 x 7 weeks: 0 proposed / 235 unresolved)."}
+    {"id": "14-01..14-14", "name": "Phase 14 Foreman Helper #2: 14/14 plans executed and observed; O-14-E RESOLVED on runs 34411958861 (121/121 helper2-v1) + 34415980363 (112/121 registry skips); HELPER2_ENABLED=1 permanent (O-14-D)", "status": "done", "commit": "45bdbbf"},
+    {"id": "14-code-review", "name": "/gsd-code-review 14 (standard, 71 files) -> 14-REVIEW.md: 2 Critical / 3 Warning / 1 Info; report PR #399 after Greptile x3 + Copilot x1 rounds", "status": "done", "commit": "94f2636"},
+    {"id": "14-writeback", "name": "Ledgers record the code-review outcome and put the owner decision before 12-06 Task 4 (project-state, STATE.md, CHANGELOG_CONTEXT, living-ledger [2026-09-09 23:40], AI_CONTEXT_RESUME); vault project page / current-state / log [2026-09-10j]", "status": "done", "commit": "82638ad"}
   ],
   "remaining_tasks": [
-    {"id": 1, "name": "12-06 Task 1 (checkpoint:human-verify): re-run read-only checks + full dry-run; report must show 0 extension-bearing AND 0 hash-tailed proposals", "status": "in_progress"},
-    {"id": 2, "name": "12-06 Task 2 (checkpoint:decision): Juan's apply decision on the fresh dry-run report", "status": "not_started"},
-    {"id": 3, "name": "12-06 Task 3 (checkpoint:human-verify): same-UTC-day --apply with the dated backup present", "status": "not_started"},
-    {"id": 4, "name": "12-06 Task 4 (checkpoint:human-verify): post-run verification of attribution_snapshot provenance", "status": "not_started"},
-    {"id": "after", "name": "/gsd-verify-work 12 (reconcile G-12-3; file CR-01 and WR-01 as gaps) -> phase.complete 12", "status": "not_started"}
+    {"id": 1, "name": "OWNER DECISION on 14-REVIEW.md CR-01 (pipeline/pricing.py _resolve_row_price: both literal variant sites lack aep_billable_helper2 / reduced_sub_helper2) and CR-02 (pipeline/grouping.py EXCLUDE_WRS / WR_FILTER matchers have no _HELPER2_ shape): /gsd-code-review 14 --fix, hand-written TDD PR, or accept as-is", "status": "not_started"},
+    {"id": 2, "name": "If fixing: extend tests/test_helper2_family_parity.py first (add pricing.py + attribution.py; per-site / rate-class assertions so the early gate alone cannot pass), fix BOTH pricing sites together, validate CR-01 against a known-good Helper #1 subcontractor sample, also clear WR-01 / WR-02 / WR-03 / IN-01; Opus production-risk pass before the PR opens", "status": "not_started"},
+    {"id": 3, "name": "Phase 12 12-06 Task 4 (checkpoint:human-verify): first post-apply scheduled-run check of attribution_snapshot provenance, then drop the _20260903/04/05 snapshot backups; detail in .planning/phases/12-ownership-last-known-foreman-as-of-the-week/.continue-here.md (12-06 Tasks 1-3 DONE 2026-09-05, backfill applied 1,758 rows)", "status": "not_started"},
+    {"id": "after", "name": "/gsd-verify-work 12 -> phase.complete 12; Phase 13 (wr_week_ownership, D-12-A) only when Juan asks", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "attribution_snapshot_backup_20260904 satisfies the --apply same-UTC-day probe only before 2026-09-05 00:00 UTC (19:00 CDT 2026-09-04)", "type": "external", "workaround": "Re-run STEP 1 of billing_audit/own03_backfill_attribution.sql (dated backup) on apply day; never drop or overwrite an existing backup table"},
-    {"description": "CR-01 (12-REVIEW.md): _FILENAME_HASH_SUFFIX_RE expects a 6-hex tail but pipeline/excel.py:412 emits hexdigest()[:16]; a hash-tailed placeholder would pass every extension guard and be frozen as a real name", "type": "technical", "workaround": "Latent only: 0 of 116,906 live public.artifacts filenames carry any hash tail while SUPABASE_HASH_STORE_AUTHORITATIVE=1. 12-06 Task 1's dry-run report must be checked for hash-tailed proposed values; fix routes through /gsd-verify-work 12 as a gap (protected parser behavior)"},
-    {"description": "WR-01 (12-REVIEW.md): tests/test_own04_documentation.py pins D-12-C/D-12-D to the NEWEST living-ledger entry; any new bottom-append turns the push-gating suite red", "type": "technical", "workaround": "Do not append memory-bank/living-ledger.md until the test searches every entry; run that test after any ledger edit"}
+    {"description": "CR-01 and CR-02 sit in protected areas (billing formula; WR hold controls EXCLUDE_WRS / WR_FILTER) - no code fix without Juan's decision. Until fixed: *_Helper2_* subcontractor workbook totals are unverified and EXCLUDE_WRS does not hold Helper #2 files", "type": "human_action", "workaround": "None; report-only state is intentional"},
+    {"description": "12 Codex-connector threads on PR #399 and 2 on PR #400 are unresolved by design (harness boundary: never act on or resolve Codex threads). One (#400 ledger line 9487) argues the parity table is file-level so a per-site assertion is required - already demanded by the CR-01 remediation text, not by the ledger rule wording", "type": "external", "workaround": "Juan reads them; a Claude-native verification pass can be run on request"},
+    {"description": "claude-mem worker was DOWN for the closing session (127.0.0.1:37777 ECONNREFUSED); nothing from 2026-09-10 ~04:30Z onward was captured", "type": "technical", "workaround": "Repo ledgers + vault are the record; repair the worker before relying on mem-search for this session"}
   ],
   "async_jobs": [],
   "human_actions_pending": [
-    {"action": "Review the full-population 12-06 dry-run report and give the apply verdict (12-06 Task 2)", "context": "OWN-03 live remediation is owner-run; every live step is a blocking-human checkpoint", "blocking": true},
-    {"action": "If the apply slips past 2026-09-05 00:00 UTC, re-run STEP 1 (dated backup) before --apply", "context": "The --apply probe requires a same-UTC-day backup table", "blocking": true},
-    {"action": "Confirm the RLS policies on billing_audit.attribution_snapshot deny anon/authenticated DML (they hold full grants behind RLS)", "context": "Seen live during 12-03 verification; security item, not on the 12-06 path", "blocking": false},
-    {"action": "Paste the FROZEN MIRROR header into AGENTS.md by hand (text in the PR #385 body)", "context": "The harness-boundary hook denies every ClaudeOS write to that file", "blocking": false}
+    {"action": "Decide CR-01 / CR-02 handling (fix now via --fix or TDD PR, or accept as-is)", "context": "Both are protected areas; the records now put this decision before 12-06 Task 4", "blocking": true},
+    {"action": "Phase 12 12-06 Task 4 post-apply check, then drop the snapshot backups", "context": "Owed since 2026-09-05; pointer in the Phase 12 .continue-here.md", "blocking": false},
+    {"action": "Repair the claude-mem worker (port 37777)", "context": "Session capture stopped during Phase 14 closeout", "blocking": false}
   ],
   "decisions": [
-    {"decision": "D-12-C: #NO MATCH scope for OWN-03 = defer (945 rows stay out; no --include-blank-roles)", "rationale": "Those rows already read as no-history via resolve_claimer; scope belongs to a later phase", "phase": "12"},
-    {"decision": "D-12-D: success-criterion-3 sample = WR 89829163 WE 082425/083125/091425/092125 via backfill_artifacts", "rationale": "Placeholder WR 19073866 has zero rows in every Supabase store", "phase": "12"},
-    {"decision": "12-06 re-entered by flipping its SUMMARY to status: blocked (Juan: re-enter-12-06)", "rationale": "halted still counts as summarized in the plan index; blocked is the only state that returns a plan to runnable", "phase": "12"},
-    {"decision": "verify_phase_goal / update_roadmap skipped at the end of the gaps-only run", "rationale": "Phase incomplete by design until 12-06 applies", "phase": "12"},
-    {"decision": "CR-01 and WR-01 are NOT fixed in this run; they route through /gsd-verify-work 12 as gaps", "rationale": "Code-review gate is advisory, both are outside --gaps-only scope, and the parser regex is protected extraction behavior", "phase": "12"},
-    {"decision": "No living-ledger entry appended this session; lessons went to the vault (guardrail-allowlist-and-gsd-ops-lessons section 11)", "rationale": "WR-01 would turn the push gate red", "phase": "12"}
+    {"decision": "O-14-E closed on two observed frequent runs instead of waiting for the Monday deep run (plan 14-14 adoption path); SQL marker backfill REJECTED", "rationale": "0/121 stored mappings carried Helper #2 keys, so a SQL stamp would have silently disabled Helper #2 detection on 114 sheets", "phase": "14"},
+    {"decision": "Code-review Criticals reported, not fixed", "rationale": "Billing formula and WR hold controls are owner-decision areas under production-guardrails", "phase": "14"},
+    {"decision": "Next-step ordering: owner decision on CR-01/CR-02 precedes Phase 12 12-06 Task 4 in every resume pointer", "rationale": "Greptile on PR #400: a resumed session must not bypass the required owner decision", "phase": "14"},
+    {"decision": "Standalone docs PRs (#397, #398, #400) replaced the earlier 'docs ride the next code PR' habit for phase closeout", "rationale": "Never push to master; records must land on master before the next phase opens", "phase": "14"}
   ],
-  "uncommitted_files": [],
-  "next_action": "/clear then /gsd-execute-phase 12 — the plan index lists 12-06 as the only runnable plan; it resumes at Task 1 (read-only checks + full-population dry-run, report outside the repo, never --apply or --i-approved-this without Juan's Task 2 verdict).",
-  "context_notes": "Gaps-only run closed on feat/phase-12-remediation at HEAD 45e9458; nothing pushed; tree clean apart from four pre-existing untracked dirs (.agents/, .planning/state.json, .serena/, website/.claude/). PR #387 and #388 are both MERGED. Executors were dispatched sequentially (worktree isolation degraded: HEAD ahead of origin/HEAD) with a ~104 KB context bundle file they Read first. Executors must never use the Supabase MCP or run DDL; only the orchestrator does, on Juan's explicit instruction. Avoid the token 'review' in any gsd-tools argument (harness-boundary hook). Touch ledgers with the Edit tool so the context-continuity Stop hook sees them."
+  "uncommitted_files": ["?? .agents/", "?? .planning/state.json", "?? .serena/", "?? website/.claude/"],
+  "next_action": "Ask Juan for the CR-01/CR-02 decision (read .planning/phases/14-foreman-helper-2/14-REVIEW.md Critical Issues first). Do NOT start Phase 12 12-06 Task 4 until that decision is recorded in 14-DECISIONS.md. If the decision is 'fix': TDD - parity test RED first, both pricing sites, known-good Helper #1 subcontractor sample validation, Opus production-risk pass, PR (never push to master).",
+  "context_notes": "Master at d08420f (PR #400 -> 82638ad on top of #399 -> 94f2636). Tree clean apart from the four pre-existing untracked dirs. Avoid whitespace-preceded 'review'/'REVIEW' tokens in any gsd-tools or shell command line (harness-boundary hook). Codex threads: list for Juan, never act, never resolve. CI noise code/snyk and the Azure mirror fail on every PR and never block. Ledger appends are safe again (test_own04_documentation 25 passed after the [2026-09-09 23:40] append). Scratchpad scripts from this session are in the session scratchpad (writeback_399.py, vault_399.py, sweep_400.sh)."
 }
