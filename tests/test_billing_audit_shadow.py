@@ -1034,10 +1034,14 @@ class FreezeRowHelper2DegradeTests(unittest.TestCase):
 
 class FreezeRowHelper2ProbeConcurrencyTests(unittest.TestCase):
     """WR-03 (Phase 14 code review): ``_resolve_helper2_capability``
-    coordinates concurrent ``freeze_row`` callers so AT MOST ONE extra
-    PGRST202 capability-probe RPC call is ever sent per process, and
-    every row -- whether it wins the race and probes, or arrives while
-    a probe is already in flight -- follows the SAME resolved outcome.
+    coordinates concurrent ``freeze_row`` callers so there are NO
+    CONCURRENT DUPLICATE PGRST202 capability-probe RPC calls (exactly
+    one thread probes at a time), and every row -- whether it wins the
+    race and probes, or arrives while a probe is already in flight --
+    follows the SAME resolved outcome. Re-probing IS allowed, but only
+    sequentially after an 'inconclusive' outcome and bounded by
+    ``_HELPER2_PROBE_MAX_ATTEMPTS`` per process (round 2) -- the
+    contract is NOT "at most one extra RPC call ever".
     These are threaded (not single-threaded mocked) tests: the bare
     boolean flag this state machine replaced could not pass them,
     because several concurrently in-flight rows could each
@@ -1541,6 +1545,78 @@ class FreezeRowHelper2ProbeConcurrencyTests(unittest.TestCase):
         )
         self.assertNotIn(
             "freeze_attribution_degraded", ba_client._open_circuits,
+        )
+
+    def test_already_unsupported_row_survives_freeze_attribution_breaker(
+        self,
+    ):
+        """Copilot round-3 finding: a row that ALREADY knows the
+        capability is 'unsupported' (a prior row's probe already
+        resolved it) strips the Helper #2 params up front and sends
+        the SAME degraded request every legacy-compatible row sends
+        -- but the INITIAL call for such a row used to label itself
+        ``op='freeze_attribution'`` (the full-params op), not
+        ``'freeze_attribution_degraded'``. If 3+ EARLIER concurrent
+        full-params rows had already tripped the 'freeze_attribution'
+        breaker, this LATER, already-degraded row would fast-fail with
+        NO RPC call at all -- even though its request has nothing to
+        do with the tripped full-params breaker. The initial call now
+        picks its op label from the same snapshot that decides whether
+        to strip the params."""
+        from billing_audit import writer as ba_writer
+        from billing_audit import client as ba_client
+
+        # This row already knows the capability -- simulates a row
+        # arriving AFTER some earlier row's probe already resolved
+        # 'unsupported'.
+        with ba_writer._helper2_capability_lock:
+            ba_writer._helper2_probe_state = 'unsupported'
+
+        def _always_fails():
+            raise self._api_error("23505", "duplicate key")
+
+        # Trip the 'freeze_attribution' breaker via the client's real
+        # mechanism -- 3 consecutive permanent failures, exactly as
+        # 3+ earlier concurrent full-params rows would have produced.
+        with mock.patch("billing_audit.client.time.sleep"):
+            for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
+                self.assertIsNone(
+                    ba_client.with_retry(
+                        _always_fails, op="freeze_attribution",
+                    )
+                )
+        self.assertIn("freeze_attribution", ba_client._open_circuits)
+        self.assertNotIn(
+            "freeze_attribution_degraded", ba_client._open_circuits,
+        )
+
+        # A fresh row on the ALREADY-DEGRADED path. Its request never
+        # carries p_helper2 (state is 'unsupported'), so a mock that
+        # unconditionally succeeds represents the legacy RPC signature.
+        client = _make_fake_supabase_client()
+        client.schema.return_value.rpc.return_value.execute.return_value = (
+            _fake_rpc_response("run-already-unsupported")
+        )
+        row = self._row(0)
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch("billing_audit.client.time.sleep"):
+            result = ba_writer.freeze_row(
+                row, release="r", run_id="run-au",
+            )
+
+        # The RPC must actually execute -- proving the initial call
+        # used the untripped 'freeze_attribution_degraded' op, not the
+        # already-open 'freeze_attribution' op (which would have
+        # fast-failed with ZERO calls to the mock).
+        client.schema.return_value.rpc.assert_called_once()
+        self.assertTrue(
+            result,
+            "an already-'unsupported' row must still freeze even "
+            "when the unrelated full-params 'freeze_attribution' "
+            "breaker is already open",
         )
 
 

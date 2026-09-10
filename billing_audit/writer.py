@@ -236,14 +236,18 @@ def _bump_counter(key: str) -> None:
 # ThreadPoolExecutor workers, so a bare boolean flag let several
 # concurrently in-flight rows each independently observe "not yet
 # known unsupported" and each send their own extra PGRST202
-# capability-probe RPC call — violating this module's own documented
-# "at most one extra RPC call" invariant. The Condition below makes
-# the 'unknown' -> 'probing' transition atomic and gives every other
+# capability-probe RPC call. The Condition below makes the
+# 'unknown' -> 'probing' transition atomic and gives every other
 # concurrent caller a wait/notify handoff instead of a redundant
 # probe: the FIRST caller to observe 'unknown' claims 'probing' and
 # sends the probe alone; every other caller (whether it arrived before
 # or during that probe) waits on the condition until the state leaves
-# 'probing', then follows the resolved state.
+# 'probing', then follows the resolved state. The invariant this
+# guarantees is NOT "at most one extra RPC call ever" (round 2 added
+# bounded RE-probing — see below): it is NO CONCURRENT DUPLICATE
+# PROBES (exactly one thread probes at a time) PLUS bounded SEQUENTIAL
+# re-probes, capped at ``_HELPER2_PROBE_MAX_ATTEMPTS``, after each
+# 'inconclusive' outcome.
 #
 # Round 2 (production-risk pass): a lone probe outcome is not always
 # definitive. ``_probe_capability`` (in ``freeze_row``) can also return
@@ -945,7 +949,21 @@ def freeze_row(row: dict, release: str | None,
             .execute()
         )
 
-    result = with_retry(_invoke, op="freeze_attribution")
+    # Copilot round-3 fix: a row that ALREADY knows the capability is
+    # 'unsupported' sends the same (degraded, no-Helper-#2) params
+    # every legacy-compatible row has always sent -- it must use the
+    # SAME op label the reactive branch's degraded retry uses below
+    # ("freeze_attribution_degraded"), not "freeze_attribution". Once
+    # 3+ concurrent full-params rows trip the "freeze_attribution"
+    # breaker, every LATER row here would otherwise fast-fail with NO
+    # RPC call at all, even though its own (already-degraded) request
+    # has nothing to do with the tripped full-params breaker.
+    _initial_op = (
+        "freeze_attribution_degraded"
+        if _probe_state_snapshot == 'unsupported'
+        else "freeze_attribution"
+    )
+    result = with_retry(_invoke, op=_initial_op)
 
     if (
         result is None
@@ -963,13 +981,16 @@ def freeze_row(row: dict, release: str | None,
         # ``prefetch_attribution``'s ``rpc_missing`` probe for
         # ``lookup_attribution_bulk`` (D-13).
         #
-        # ``_resolve_helper2_capability`` (WR-03) guarantees AT MOST ONE
-        # extra RPC call is ever sent for this process, even when many
-        # rows hit this branch concurrently: the first caller claims the
-        # probe and every other caller waits for its result instead of
-        # sending its own probe (the bare boolean flag this replaced let
-        # concurrent in-flight rows each independently probe, violating
-        # this module's own "at most one extra RPC call" invariant).
+        # ``_resolve_helper2_capability`` (WR-03, round 2) guarantees NO
+        # CONCURRENT DUPLICATE PROBES — even when many rows hit this
+        # branch at once, the first caller claims the probe and every
+        # other caller waits for its result instead of sending its own
+        # (the bare boolean flag this replaced let concurrent in-flight
+        # rows each independently probe). Re-probing IS allowed, but
+        # only sequentially and only after an 'inconclusive' outcome,
+        # bounded by ``_HELPER2_PROBE_MAX_ATTEMPTS`` total for this
+        # process — this is not an "at most one extra RPC call ever"
+        # guarantee.
         def _probe_capability() -> Literal[
             'supported', 'unsupported', 'inconclusive'
         ]:
