@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-09-10T20:45:00.000Z",
+  "timestamp": "2026-09-10T21:10:00.000Z",
   "phase": "14",
   "phase_name": "foreman-helper-2",
   "phase_dir": ".planning/phases/14-foreman-helper-2",
@@ -29,6 +29,7 @@
   "human_actions_pending": [
     {"action": "DONE 2026-09-10: CR-01 / CR-02 decided (--fix) and merged (PR #402 -> 6e6e1e8)", "context": "Left for traceability; nothing pending", "blocking": false},
     {"action": "Phase 12 12-06 Task 4 post-apply check, then drop the snapshot backups", "context": "Owed since 2026-09-05; pointer in the Phase 12 .continue-here.md", "blocking": false},
+    {"action": "Observe the first scheduled run after 6e6e1e8: the two Helper #2 subcontractor shadow variants regenerate once (SUB_RATES_FP mix-in) - expected empty while no live _Helper2_ file exists; no other variant hash moves; no freeze_attribution_degraded breaker trips", "context": "PR #402 production-safety check; record the run id in project-state", "blocking": false},
     {"action": "Decide the PR #402 follow-ups: breaker half-open policy (billing_audit/client.py, per-run breaker today) and keep_historical inside the SUB-09 off-contract cleanup gate (attachment deletion) before RUN_MEMORY_INCREMENTAL_ENABLED is ever set", "context": ".planning/todos/pending/2026-09-10-pr402-review-followups.md", "blocking": false},
     {"action": "Repair the claude-mem worker (port 37777)", "context": "Session capture stopped during Phase 14 closeout", "blocking": false}
   ],
