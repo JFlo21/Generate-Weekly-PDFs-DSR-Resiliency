@@ -2,7 +2,7 @@
 phase: 14-foreman-helper-2
 reviewed: 2026-09-10T00:00:00Z
 depth: standard
-files_reviewed: 78
+files_reviewed: 71
 files_reviewed_list:
   - .claude/project-state.md
   - .github/copilot-instructions.md
@@ -87,7 +87,7 @@ status: issues_found
 
 **Reviewed:** 2026-09-10T00:00:00Z
 **Depth:** standard
-**Files Reviewed:** 78
+**Files Reviewed:** 71
 **Status:** issues_found
 
 ## Summary
