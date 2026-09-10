@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-09 19:30 CDT (2026-09-10 00:30Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-09 23:40 CDT (2026-09-10 04:40Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -16,7 +16,8 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   post-apply scheduled-run check) is still owed — pointer `.planning/HANDOFF.json`. Phase 13 (the deferred
   `wr_week_ownership` table, D-12-A) has not started.
 - **Phase 14 (Foreman Helper #2)**: COMPLETE 2026-09-10 — 14/14 plans executed and observed; O-14-E RESOLVED.
-  PR #389 → `ba6eeaf`, #390 → `661d6d3`, #394 → `7ded60c`, #395 → `d079e81`, #396 → `736141a`, #397 → `92c9ed6`.
+  PR #389 → `ba6eeaf`, #390 → `661d6d3`, #394 → `7ded60c`, #395 → `d079e81`, #396 → `736141a`, #397 → `92c9ed6`,
+  closure PR #398 → `45bdbbf`; code review report PR #399 → `94f2636` (`14-REVIEW.md`, standard depth, 71 files: 2 Critical / 3 Warning / 1 Info — **CR-01** Helper #2 subcontractor shadow files fall outside the rate-matrix gate in `pipeline/pricing.py`, **CR-02** `EXCLUDE_WRS` / `WR_FILTER` matchers in `pipeline/grouping.py` do not recognise `_HELPER2_` group keys; both are protected areas, so no fix was applied — owner decision pending).
   **Helper #2 is ENABLED** for scheduled runs via the repo variable `HELPER2_ENABLED=1` — section below.
 - **GSD tooling**: HEALTHY as of 2026-09-06 (gsd-core 1.13.0 via the marketplace plugin); a forbidden npm
   reinstall that session was fully rolled back — never accept the npm install prompt on this machine.
@@ -85,8 +86,10 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Next actions
 
-1. `/gsd-code-review 14` on master (Phase 14 closed 2026-09-10; records #394 `7ded60c`, #395 `d079e81`,
-   #396 `736141a`, #397 `92c9ed6`, closure PR #398).
+1. Juan's decision on the Phase 14 code-review Criticals (`14-REVIEW.md` CR-01 pricing gate,
+   CR-02 WR hold matchers — billing formula + WR controls, protected): fix via
+   `/gsd-code-review 14 --fix` or a hand-written TDD PR (extend `test_helper2_family_parity`
+   first; validate CR-01 against a known-good Helper #1 subcontractor sample), or accept as-is.
 2. Phase 12: run 12-06 Task 4 (first post-apply scheduled-run check), then drop the snapshot backups.
 3. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
 
