@@ -1045,3 +1045,19 @@ is back to registry-admitted discovery. A full 121-sheet validation now appears 
 after a code change that resets the marker); a change to one sheet's version, name, mapping, or marker
 re-validates that sheet alone, as the 9 re-validations on the confirming run show. Records: `14-DECISIONS.md` O-14-E, new `14-13-SUMMARY.md` /
 `14-14-SUMMARY.md`, `14-VERIFICATION.md` addendum, ROADMAP 14/14 ✅. Ledger `[2026-09-09 19:35]`. Records: PR #398.
+
+## 2026-09-10 — Phase 14 code review report (PR #399)
+`/gsd-code-review 14` (standard depth, 71 files from the 14 plan summaries plus the git diff since the
+phase started) produced `.planning/phases/14-foreman-helper-2/14-REVIEW.md`: 2 Critical, 3 Warning, 1 Info.
+**CR-01** — `pipeline/pricing.py` `_resolve_row_price` enumerates the Helper #1 subcontractor variants at
+two literal sites (rate-matrix gate and AEP-vs-reduced rate selection) but not `aep_billable_helper2` /
+`reduced_sub_helper2`, so a Helper #2 subcontractor shadow file bills from `Units Total Price` rather than
+the rate matrix; the fix must touch both sites or AEP-billable Helper #2 work lands on the reduced rate.
+**CR-02** — the `EXCLUDE_WRS` / `WR_FILTER` matchers in `pipeline/grouping.py` know the `_HELPER_` and
+`_REDUCEDSUB_HELPER_` shapes but no `_HELPER2_` shape, so a held WR's Helper #2 workbooks are neither
+excluded nor selected. Warnings: WR-scope tuple, parity-table coverage (why CR-01 slipped: the table
+never listed `pricing.py` / `attribution.py`), the degrade-flag read outside its lock. Both Criticals
+sit in protected areas (billing formula, WR hold controls), so **no code changed**; Juan decides between
+`/gsd-code-review 14 --fix` and a hand-written TDD PR, or accepting as-is. Operators: until fixed, treat
+any `*_Helper2_*` subcontractor workbook's totals as unverified and expect `EXCLUDE_WRS` not to hold
+Helper #2 files. Ledger `[2026-09-09 23:40]`. Records: PR #399 → `94f2636`.

@@ -9476,3 +9476,15 @@ persist it, so an early exit can never adopt silently (ordering pin on the orche
 condition must be satisfiable by the documented capability split; (4) never backfill a marker by SQL without first
 proving the certified data is current (here 0/121 stored mappings carried Helper #2 keys). Records: PR #398;
 code #395 `d079e81`, #396 `736141a`; docs #397 `92c9ed6`.
+
+[2026-09-09 23:40] Phase 14 code review (`14-REVIEW.md`, PR #399 → `94f2636`): two Criticals in protected areas,
+no code changed. CR-01: `pipeline/pricing.py` `_resolve_row_price` lists `aep_billable_helper` / `reduced_sub_helper`
+at two literal sites but never the `_helper2` siblings, so Helper #2 subcontractor shadow files price from
+`Units Total Price`. CR-02: `pipeline/grouping.py` `EXCLUDE_WRS` / `WR_FILTER` matchers carry no `_HELPER2_` shape.
+RULE: when a new group variant is added, every literal enumeration of the variant family must be extended in the
+same PR — pricing gate, rate-class selection, WR hold matchers, WR-scope builder — and the family parity test
+(`tests/test_helper2_family_parity.py`) must list every one of those sites, because a parity table that skips a
+file certifies nothing about it (WR-02 is exactly how CR-01 slipped through 14 plans). Fix waits on Juan
+(billing formula + WR controls): TDD, both pricing sites together, validated against a known-good Helper #1
+subcontractor sample. Report review rounds: Greptile ×3 + Copilot ×1 fixed (920d340, 970c124, 7dc207e); 12 Codex
+threads listed for Juan only (harness boundary).

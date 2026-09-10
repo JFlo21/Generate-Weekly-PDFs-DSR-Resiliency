@@ -18,14 +18,19 @@ _Last updated: 2026-09-10 (pointer + dated snapshots, newest first; body below t
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
 >
-> **Snapshot 2026-09-10 (00:30Z) — Phase 14 "Foreman Helper #2" COMPLETE; O-14-E RESOLVED.** 14/14 plans merged
-> (last: plan 14-14, PR #396 → `736141a`; docs #397 → `92c9ed6`; closure PR #398). `HELPER2_ENABLED=1` on the
+> **Snapshot 2026-09-10 (04:45Z) — Phase 14 "Foreman Helper #2" COMPLETE; O-14-E RESOLVED; code review DONE.**
+> 14/14 plans merged (last: plan 14-14, PR #396 → `736141a`; docs #397 → `92c9ed6`; closure PR #398 → `45bdbbf`;
+> code review report PR #399 → `94f2636`). `HELPER2_ENABLED=1` on the
 > scheduled workflow (O-14-D: permanent feature, flag-off = emergency kill switch only). Registry skip restored:
 > dispatch run `34411958861` stamped `helper2-v1` on 121/121 `sheet_registry` rows (114 with Helper #2 keys, 7
 > capability-unavailable without); scheduled run `34415980363` skipped 112/121 via the registry (0 refresh
-> warnings, counters 7/114). **Next:** `/gsd-code-review 14`; Phase 12 12-06 Task 4 (first post-apply
-> scheduled-run check, then drop the `_20260903/04/05` snapshot backups); Phase 13 only when Juan asks.
-> Details: `.claude/project-state.md`, `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`.
+> warnings, counters 7/114). `14-REVIEW.md` found 2 Critical / 3 Warning / 1 Info: CR-01 Helper #2 subcontractor
+> shadow files fall outside the `pipeline/pricing.py` rate-matrix gate (both literal sites), CR-02 `EXCLUDE_WRS` /
+> `WR_FILTER` matchers carry no `_HELPER2_` shape — protected areas, no code changed. **Next, in order:** (1) Juan's
+> CR-01/CR-02 fix decision (`/gsd-code-review 14 --fix`, hand-written TDD PR, or accept as-is) — do not skip past
+> it; (2) Phase 12 12-06 Task 4 (first post-apply scheduled-run check, then drop the `_20260903/04/05` snapshot
+> backups); (3) Phase 13 only when Juan asks. Details: `.claude/project-state.md`, `.planning/STATE.md` Blockers,
+> `.planning/phases/14-foreman-helper-2/14-REVIEW.md`.
 >
 > **Snapshot 2026-09-05 (00:45 CDT) — 12-06 Tasks 1–3 DONE: OWN-03 live backfill APPLIED; Task 4 waits on the first
 > post-apply scheduled run (Sat 2026-09-05 15:00 UTC).** Task 1 full-population dry-run re-run clean (5,829 sentinel
@@ -252,7 +257,7 @@ Sequencing — **A → B → C → D → E**:
 
 ## Current open tasks / next recommended steps
 
-> **2026-09-10 pointer (live status lives in `.claude/project-state.md`):** Phase 14 "Foreman Helper #2" is COMPLETE — 14/14 plans merged and observed (last: plan 14-14, PR #396 → `736141a`; docs #397 → `92c9ed6`), `HELPER2_ENABLED=1` on the scheduled workflow (O-14-D: permanent feature, flag-off = emergency kill switch), O-14-E RESOLVED (registry marker on 121/121 rows, 112/121 registry skips on the next run). Next: `/gsd-code-review 14`, Phase 12 12-06 Task 4. Details: `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`.
+> **2026-09-10 pointer (live status lives in `.claude/project-state.md`):** Phase 14 "Foreman Helper #2" is COMPLETE — 14/14 plans merged and observed (last: plan 14-14, PR #396 → `736141a`; docs #397 → `92c9ed6`), `HELPER2_ENABLED=1` on the scheduled workflow (O-14-D: permanent feature, flag-off = emergency kill switch), O-14-E RESOLVED (registry marker on 121/121 rows, 112/121 registry skips on the next run), code review done (PR #399 → `94f2636`: CR-01 pricing gate, CR-02 WR hold matchers — protected, unfixed). Next, in order: Juan's CR-01/CR-02 fix decision, then Phase 12 12-06 Task 4. Details: `.planning/phases/14-foreman-helper-2/14-REVIEW.md`, `14-DECISIONS.md`.
 
 > _The numbered list below is the 2026-08 planning snapshot, kept for history; it is superseded by
 > the pointer above and by `.claude/project-state.md` → Next actions._

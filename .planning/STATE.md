@@ -5,10 +5,10 @@ milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 14
 current_phase_name: "Foreman Helper #2"
 status: complete
-stopped_at: "Phase 14 COMPLETE 2026-09-10: 14/14 plans executed; 14-14 Task 2 observed (dispatch 34411958861 stamped 121/121 helper2-v1, scheduled 34415980363 skipped 112/121 via sheet_registry); O-14-E RESOLVED; next /gsd-code-review 14, then Phase 12 12-06 Task 4"
-last_updated: "2026-09-10T00:30:00.000Z"
+stopped_at: "Phase 14 COMPLETE 2026-09-10: 14/14 plans executed; 14-14 Task 2 observed (dispatch 34411958861 stamped 121/121 helper2-v1, scheduled 34415980363 skipped 112/121 via sheet_registry); O-14-E RESOLVED; code review done (14-REVIEW.md via PR #399 94f2636: CR-01 pricing, CR-02 WR matchers, both protected); next Juan's CR-01/CR-02 fix decision FIRST, then Phase 12 12-06 Task 4"
+last_updated: "2026-09-10T04:40:00.000Z"
 last_activity: 2026-09-10
-last_activity_desc: Phase 14 closed — O-14-E RESOLVED on observed runs; plans 14-13/14-14 summaries written
+last_activity_desc: Phase 14 code review report merged (PR #399); CR-01/CR-02 owner decision pending
 progress:
   total_phases: 14
   completed_phases: 13
@@ -42,9 +42,15 @@ Status: Closed — Helper #2 ENABLED (`HELPER2_ENABLED=1`, O-14-D: permanent
   dispatch run `34411958861` stamped `helper2-v1` on 121/121 registry rows
   (114 with Helper #2 keys, 7 capability-unavailable without); scheduled
   run `34415980363` skipped 112/121 via sheet_registry with 0 refresh
-  warnings and counters 7/114. Next: `/gsd-code-review 14`, then Phase 12
-  12-06 Task 4; Phase 13 only when Juan asks.
-Last activity: 2026-09-10 — Phase 14 closed; O-14-E RESOLVED
+  warnings and counters 7/114. Code review done: `14-REVIEW.md` via PR #399
+  (`94f2636`) — 2 Critical (CR-01 Helper #2 shadow files outside the
+  `pipeline/pricing.py` rate-matrix gate; CR-02 `EXCLUDE_WRS`/`WR_FILTER`
+  matchers miss `_HELPER2_` keys), 3 Warning, 1 Info; both Criticals are
+  protected areas. Next, in order: (1) Juan's CR-01/CR-02 fix decision
+  (`--fix`, hand-written TDD PR, or accept as-is) — do not skip to (2);
+  (2) Phase 12 12-06 Task 4; (3) Phase 13 only when Juan asks.
+Last activity: 2026-09-10 — Phase 14 closed; O-14-E RESOLVED; code review
+  report merged (PR #399)
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
   fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
@@ -329,6 +335,23 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ### Blockers/Concerns
 
+**From the Phase 14 code review (`14-REVIEW.md`, PR #399 → `94f2636`, 2026-09-10 — owner decision pending):**
+
+- 🔴 [Phase 14] CR-01 `pipeline/pricing.py` `_resolve_row_price`: the rate-matrix
+  variant tuple (early gate ~636 and AEP/reduced rate selection ~678) lists the
+  Helper #1 siblings but not `aep_billable_helper2` / `reduced_sub_helper2`, so a
+  Helper #2 subcontractor shadow file prices from `Units Total Price` instead of
+  the rate matrix. Billing formula — protected; fix only on Juan's decision, TDD
+  with a known-good Helper #1 subcontractor sample. Both literal sites must change.
+- 🔴 [Phase 14] CR-02 `pipeline/grouping.py` `EXCLUDE_WRS` / `WR_FILTER` matchers
+  (~1645–1762) have 0 `HELPER2` shapes, so a held WR's Helper #2 workbooks are
+  neither excluded nor selected. WR hold controls — protected; owner decision.
+- ⚠️ [Phase 14] WR-01 subcontractor WR-scope tuple omits the Helper #2 shadow
+  variants; WR-02 `test_helper2_family_parity` PARITY_TABLE lacks `pricing.py` /
+  `attribution.py` (why CR-01 slipped); WR-03 `_helper2_rpc_unsupported` read
+  outside its lock (remediation: four-state probe + Condition, waiters wait);
+  IN-01 runbook operator-note wording. Detail and remediations: `14-REVIEW.md`.
+
 **From the PR #374 merge (2026-09-01, Phase 11.1 — tracked; verify before relying on the skip path):**
 
 - ⚠️ [Phase 11.1] Codex-connector P1 `pipeline/discovery.py:289` (UNVERIFIED): claims a
@@ -477,8 +500,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-09T15:45:00.000Z
-**Stopped at:** Phase 14 COMPLETE 2026-09-10 -- O-14-E RESOLVED on runs `34411958861` + `34415980363`, closure PR #398; the closed-state PR list is at the end of this paragraph. Earlier that day: first enabled scheduled run `34356004448` (head `be60755`) observed clean -- Helper #2 counters as expected, 0 groups / 0 `_Helper2_` workbooks, no degrade warning, 130 `freeze_attribution` calls 200, one-time 218,338 `row_event` churn landed. O-14-D RESOLVED by Juan (Helper #2 permanent; flag-off = emergency kill switch only; option a). O-14-E found (`sheet_registry.mapping_schema` NULL on all 121 rows: no caller passed `mapping_schema_by_sheet`) and FIXED by plan 14-13 -- `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed at both `upsert_sheet_registry` call sites; marker only for fully-validated sheets whose mapping is written this call. TDD 8 tests RED->GREEN; full suite 2304 passed / 1 skipped / 557 subtests; six gates pass; independent verifier PASS. PRs #394 (`7ded60c`), #395 (`d079e81`), #396 (`736141a`, plan 14-14: frequent runs adopt the freshly validated mapping + marker so the Monday deep run was not needed), #397 (`92c9ed6`, docs alignment) merged. O-14-E RESOLVED 2026-09-10 on observed runs (dispatch `34411958861`: 121/121 marked; scheduled `34415980363`: 112/121 registry skips); Phase 14 COMPLETE, closure PR #398. Remaining: `/gsd-code-review 14`; Phase 12 12-06 Task 4; Phase 13 not started.
+**Last session:** 2026-09-10T04:40:00.000Z
+**Stopped at:** Phase 14 COMPLETE 2026-09-10 -- O-14-E RESOLVED on runs `34411958861` + `34415980363`, closure PR #398; the closed-state PR list is at the end of this paragraph. Earlier that day: first enabled scheduled run `34356004448` (head `be60755`) observed clean -- Helper #2 counters as expected, 0 groups / 0 `_Helper2_` workbooks, no degrade warning, 130 `freeze_attribution` calls 200, one-time 218,338 `row_event` churn landed. O-14-D RESOLVED by Juan (Helper #2 permanent; flag-off = emergency kill switch only; option a). O-14-E found (`sheet_registry.mapping_schema` NULL on all 121 rows: no caller passed `mapping_schema_by_sheet`) and FIXED by plan 14-13 -- `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed at both `upsert_sheet_registry` call sites; marker only for fully-validated sheets whose mapping is written this call. TDD 8 tests RED->GREEN; full suite 2304 passed / 1 skipped / 557 subtests; six gates pass; independent verifier PASS. PRs #394 (`7ded60c`), #395 (`d079e81`), #396 (`736141a`, plan 14-14: frequent runs adopt the freshly validated mapping + marker so the Monday deep run was not needed), #397 (`92c9ed6`, docs alignment) merged. O-14-E RESOLVED 2026-09-10 on observed runs (dispatch `34411958861`: 121/121 marked; scheduled `34415980363`: 112/121 registry skips); Phase 14 COMPLETE, closure PR #398. Code review done 2026-09-10: `14-REVIEW.md` via PR #399 (`94f2636`) — CR-01 (pricing gate) and CR-02 (WR hold matchers) are protected areas awaiting Juan's fix decision. Remaining: that decision; Phase 12 12-06 Task 4; Phase 13 not started.
 **Resume file:** None
 
 ## Session Continuity
