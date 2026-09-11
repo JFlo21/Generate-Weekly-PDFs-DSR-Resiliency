@@ -9,6 +9,19 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-11 — Phase 13 (Audit Memory) planning started: research + validation strategy committed
+
+`/gsd:plan-phase 13` on `plan/phase-13`: `13-RESEARCH.md` (`d265800`) verified the two code facts flagged at
+discuss time — `_detect_price_anomalies` is fed `all_rows` and pools per-WR across `week_ending` values, so
+the D-CD-01 NULL-week key fallback is the routine path, not an edge; `_validate_data_consistency` emits eight
+stable literal English sentences (not slug codes), so the key contract needs a wording-pin test;
+`_detect_rate_sanity_mismatches` already emits `wr`/`cu`/`work_type`. All needed `pipeline_memory` /
+`billing_audit` patterns (bulk-upsert RPC, per-op breaker + `_breaker_lock`, fail-open writer, env-flag
+kill switch, reapply-safe DDL in `pipeline_memory/schema.sql`) exist — net-new work is the finding-key
+derivation and the D-08 transition RPC. `13-VALIDATION.md` (`46dda31`) seeds the Nyquist contract
+(Wave 0: `tests/test_audit_findings.py`; AUD-03 view content is an owner SQL checkpoint after DDL apply,
+D-11). No production code touched. Planner/checker output pending.
+
 ## 2026-09-11 — PR #402 follow-ups decided (D-14-FOLLOWUPS): breaker half-open shipped, keep_historical deferred
 
 Juan decided both parked follow-ups. Breaker: `billing_audit.client.close_circuit()` closes an open per-op breaker

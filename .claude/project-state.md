@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-10 23:05 CDT (2026-09-11 04:05Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-11 16:40 CDT (2026-09-11 21:40Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -98,7 +98,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 1. PR #404 merged (`9ba7eb7`) and the post-merge write-back PR #405 merged (`6fd676a`); Phase 12 records final.
 2. PR #402 follow-ups DECIDED 2026-09-11 (D-14-FOLLOWUPS): breaker half-open = clear on probe success (PR open,
    branch `fix/breaker-half-open-on-probe`); `keep_historical` DEFERRED — gate before `RUN_MEMORY_INCREMENTAL_ENABLED`.
-3. Phase 13 (Audit Memory) — CONTEXT captured 2026-09-11; next `/gsd:plan-phase 13` (research-first) on `plan/phase-13`.
+3. Phase 13 (Audit Memory) — `/gsd:plan-phase 13` IN PROGRESS 2026-09-11 on `plan/phase-13`: `13-RESEARCH.md` (`d265800`, HIGH confidence — `_detect_price_anomalies` pools per-WR across weeks so the D-CD-01 NULL-week fallback is routine; `data_consistency_issue` emits literal English strings, needs a pinning test) and `13-VALIDATION.md` (`46dda31`) committed; pattern map → planner (opus) → plan checker next. PLAN.md not yet written.
 4. Owner: Codex threads (PR #399/#400/#402), Dependabot triage.
 
 ## Risks and guardrails
