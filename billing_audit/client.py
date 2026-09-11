@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from typing import Any, Callable
 
@@ -62,6 +63,23 @@ _flag_cache: dict[str, bool] = {}
 _CIRCUIT_BREAKER_THRESHOLD = 3
 _consecutive_failures: dict[str, int] = {}
 _open_circuits: set[str] = set()
+# Per-op trip generation: bumped by exactly one each time an
+# op's breaker OPENS. A ``close_circuit`` caller that proved
+# the endpoint healthy OUTSIDE ``with_retry`` captures the
+# generation before its direct call and hands it back, so a
+# probe that raced with a NEWER trip (another worker opened
+# the breaker while the probe was in flight) closes nothing —
+# the newer failure evidence wins (PR #407 review).
+_breaker_generation: dict[str, int] = {}
+# One lock serialises EVERY read-modify-write of the three
+# breaker structures above (PR #407 review): the 2026-04-25
+# parallel ``freeze_row`` puts up to ``PARALLEL_WORKERS``
+# callers into ``with_retry`` for the same op at once, and an
+# unsynchronised ``count = get(op) + 1; store`` interleaved
+# with a ``close_circuit`` reset could write a stale threshold
+# count back and re-open a breaker the probe had just proven
+# stale. Never log or do I/O while holding it.
+_breaker_lock = threading.Lock()
 
 # ── PostgREST error classification ────────────────────────────────
 # PostgREST returns a JSON error body with a ``code`` field, and
@@ -303,6 +321,7 @@ def reset_cache_for_tests() -> None:
     _flag_cache = {}
     _consecutive_failures.clear()
     _open_circuits.clear()
+    _breaker_generation.clear()
     _global_disable_reason = None
     _global_disable_logged = False
 
@@ -533,6 +552,97 @@ def get_flag(key: str, default: bool = False) -> bool:
     return value
 
 
+def breaker_generation(op: str) -> int:
+    """Current trip generation of ``op``'s breaker (0 = never tripped).
+
+    Capture this BEFORE a direct out-of-band call and hand it to
+    ``close_circuit(observed_generation=...)`` so the close applies
+    only to the breaker state that call actually exercised.
+    """
+    with _breaker_lock:
+        return _breaker_generation.get(op, 0)
+
+
+def close_circuit(op: str, *, reason: str = "",
+                  observed_generation: int | None = None) -> bool:
+    """Close an OPEN per-op breaker after independent proof of health.
+
+    Half-open policy (owner decision 2026-09-11, PR #402 follow-up):
+    ``with_retry`` never re-closes a breaker on its own so a flapping
+    endpoint cannot oscillate, but a caller that has just made a
+    successful DIRECT call to the same endpoint outside ``with_retry``
+    — today only ``billing_audit.writer``'s Helper #2 capability probe,
+    which is fast-failed by the very breaker it then proves stale —
+    may close it so the remaining rows of the run stop fast-failing.
+
+    ``observed_generation`` (PR #407 review): pass the value of
+    ``breaker_generation(op)`` captured BEFORE the direct call. If the
+    breaker tripped again in the meantime (a concurrent worker opened
+    it while the probe was in flight) the generation no longer
+    matches and this call is a no-op returning ``False`` — the newer
+    failure evidence is preserved so the run keeps fast-failing
+    instead of resuming calls against an endpoint that just failed
+    for someone else. ``None`` skips the check. The generation moves
+    only on a TRIP: sub-threshold failures counted during the probe
+    are still reset (bounded at threshold-1, same as before PR #407).
+    A run-global kill (``_disable_for_run``) also makes this a no-op
+    so the kill-switch WARNING stays the single operator message.
+
+    Otherwise resets the op's consecutive-failure counter either way
+    and returns ``True`` only when an open breaker was actually
+    closed. The whole transition runs under ``_breaker_lock`` so a
+    concurrent ``with_retry`` failure update can neither observe a
+    half-applied reset nor write a stale pre-reset count back. Never
+    call this from an ordinary ``with_retry`` success path.
+    """
+    if _global_disable_reason is not None:
+        return False
+    with _breaker_lock:
+        current_generation = _breaker_generation.get(op, 0)
+        stale = (
+            observed_generation is not None
+            and current_generation != observed_generation
+        )
+        was_open = op in _open_circuits
+        if not stale:
+            _consecutive_failures[op] = 0
+            _open_circuits.discard(op)
+    if stale:
+        logging.warning(
+            f"🔌 billing_audit[{op}] circuit breaker NOT closed — "
+            f"{reason or 'direct probe succeeded'}, but the breaker "
+            f"tripped again meanwhile (generation "
+            f"{observed_generation} -> {current_generation}); "
+            "keeping the newer trip."
+        )
+        _sentry_breadcrumb(
+            "billing_audit",
+            "Circuit breaker close skipped (newer trip)",
+            level="warning",
+            data={
+                "op": op,
+                "reason": reason or "direct probe succeeded",
+                "observed_generation": observed_generation,
+                "current_generation": current_generation,
+            },
+        )
+        return False
+    if not was_open:
+        return False
+    logging.warning(
+        f"🔌 billing_audit[{op}] circuit breaker CLOSED — "
+        f"{reason or 'direct probe succeeded'}; {op!r} RPC calls "
+        "resume for the rest of this run."
+    )
+    _sentry_breadcrumb(
+        "billing_audit",
+        "Circuit breaker closed",
+        level="info",
+        data={"op": op, "reason": reason or "direct probe succeeded"},
+    )
+    return True
+
+
 def with_retry(fn: Callable[..., Any], *args: Any,
                op: str = "default", **kwargs: Any) -> Any:
     """Run ``fn`` with exponential backoff on transient errors.
@@ -557,7 +667,11 @@ def with_retry(fn: Callable[..., Any], *args: Any,
     and every subsequent call for that op returns ``None``
     immediately. A single successful call resets that op's failure
     counter (but not an open breaker — the breaker is per-run by
-    design so we don't oscillate).
+    design so we don't oscillate). The one sanctioned exception is
+    ``close_circuit()``: a caller that has independently round-tripped
+    the endpoint OUTSIDE ``with_retry`` (today only the writer's direct
+    Helper #2 capability probe) may close a stale open breaker
+    (half-open policy, owner decision 2026-09-11).
 
     Callers in ``billing_audit.writer`` should pass a stable ``op``
     identifier matching the endpoint being called. Current values
@@ -592,7 +706,9 @@ def with_retry(fn: Callable[..., Any], *args: Any,
     if _global_disable_reason is not None:
         return None
 
-    if op in _open_circuits:
+    with _breaker_lock:
+        circuit_open = op in _open_circuits
+    if circuit_open:
         # Fast path: breaker is open for THIS op; skip all RPC
         # work. Other ops are unaffected.
         return None
@@ -668,7 +784,9 @@ def with_retry(fn: Callable[..., Any], *args: Any,
                 # the breaker trip from any neighbor.
                 if _global_disable_reason is not None:
                     return None
-                if op in _open_circuits:
+                with _breaker_lock:
+                    opened_meanwhile = op in _open_circuits
+                if opened_meanwhile:
                     logging.warning(
                         f"⚠️ billing_audit[{op}] aborting retries: "
                         "circuit breaker opened by a concurrent "
@@ -680,12 +798,29 @@ def with_retry(fn: Callable[..., Any], *args: Any,
             # Non-transient OR last attempt — fall through to failure.
             break
         else:
-            _consecutive_failures[op] = 0
+            with _breaker_lock:
+                _consecutive_failures[op] = 0
             return result
 
-    # Increment this op's consecutive-failure counter.
-    new_count = _consecutive_failures.get(op, 0) + 1
-    _consecutive_failures[op] = new_count
+    # Increment this op's consecutive-failure counter and decide the
+    # trip in ONE critical section (PR #407 review): the read-modify-
+    # write and the open-set update must be atomic with respect to a
+    # concurrent ``close_circuit`` reset, otherwise a worker that
+    # read the pre-reset count could write a stale threshold count
+    # back and re-open a breaker the probe had just closed. Logging
+    # stays outside the lock.
+    with _breaker_lock:
+        new_count = _consecutive_failures.get(op, 0) + 1
+        _consecutive_failures[op] = new_count
+        tripped = (
+            new_count >= _CIRCUIT_BREAKER_THRESHOLD
+            and op not in _open_circuits
+        )
+        if tripped:
+            _open_circuits.add(op)
+            _breaker_generation[op] = (
+                _breaker_generation.get(op, 0) + 1
+            )
 
     # Word the trip message correctly for both modes — "exhausted
     # retries" only applies to transient failures; non-transient
@@ -693,8 +828,7 @@ def with_retry(fn: Callable[..., Any], *args: Any,
     trip_label = (
         "exhausted retries" if final_was_transient else "immediate failures"
     )
-    if new_count >= _CIRCUIT_BREAKER_THRESHOLD and op not in _open_circuits:
-        _open_circuits.add(op)
+    if tripped:
         logging.warning(
             f"🔌 billing_audit[{op}] circuit breaker OPEN after "
             f"{new_count} consecutive {trip_label}; "

@@ -9,6 +9,14 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-11 — PR #402 follow-ups decided (D-14-FOLLOWUPS): breaker half-open shipped, keep_historical deferred
+
+Juan decided both parked follow-ups. Breaker: `billing_audit.client.close_circuit()` closes an open per-op breaker
+when the writer's direct Helper #2 capability probe succeeds (the probe bypasses `with_retry`, so before this one trip
+before the first probe fast-failed every remaining `freeze_attribution` row of the run); `with_retry` itself still
+never re-closes. `keep_historical` in the SUB-09 off-contract gate: deferred — hard gate on
+`RUN_MEMORY_INCREMENTAL_ENABLED` until fixed with a fixture + dry run. PR #407 review round 1 hardened the breaker: one `_breaker_lock` serialises every transition and `close_circuit(observed_generation=...)` refuses to erase a trip that happened while the probe was in flight (three regression tests, one threaded). Ledger `[2026-09-11 04:40]`.
+
 ## 2026-09-10 — 12-06 Task 4 observed and APPROVED (post-apply run 33974128574); D-12-E sample; backups dropped; Phase 12 closed
 
 PR #404 merged 2026-09-11 03:39Z → `9ba7eb7` after four bot review rounds (names redacted + branch collapsed;

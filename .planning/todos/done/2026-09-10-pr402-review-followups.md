@@ -3,6 +3,7 @@ created: 2026-09-10T13:15:00-05:00
 title: "PR #402 review follow-ups — breaker half-open, off-contract keep_historical (per-site parity DONE 6129cc4)"
 area: billing_audit / pipeline / tests
 severity: minor
+status: decided 2026-09-11 (D-14-FOLLOWUPS)
 files:
   - tests/test_helper2_family_parity.py
   - billing_audit/client.py
@@ -61,3 +62,12 @@ beyond the reviewed findings (CR-01/CR-02/WR-01..03):
   (`RUN_MEMORY_INCREMENTAL_ENABLED=1`): either honour `keep_historical` inside the
   off-contract gate or scope legacy cleanup to identities in the run's affected
   set. Do not change without a known-good attachment fixture and a dry-run.
+
+## Decision (2026-09-11, Juan — recorded as D-14-FOLLOWUPS in `14-DECISIONS.md`)
+
+- (2) Breaker: **clear on probe success** — shipped as `billing_audit.client.close_circuit()` called from
+  the writer's capability probe (branch `fix/breaker-half-open-on-probe`), TDD in
+  `tests/test_billing_audit_shadow.py`.
+- (3) `keep_historical`: **deferred to the incremental-read rollout** — hard gate: `RUN_MEMORY_INCREMENTAL_ENABLED`
+  stays unset until the SUB-09 off-contract gate honours `KEEP_HISTORICAL_WEEKS` (fixture + dry run).
+
