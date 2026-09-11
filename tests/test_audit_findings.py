@@ -409,6 +409,78 @@ def test_data_consistency_row_index_never_enters_finding_key():
     assert payloads1[0]["finding_key"] == payloads2[0]["finding_key"]
 
 
+# ── Exhaustive recipe dispatch + collapse observability (Task 2) ────────
+
+def test_recipe_coverage_identity_recipes_matches_memory_backed_checks():
+    assert set(audit_findings.IDENTITY_RECIPES) == audit_findings.MEMORY_BACKED_CHECKS
+
+
+def test_recent_discussion_finding_yields_no_payload_no_counter_no_raise():
+    audit_results = {
+        "unauthorized_changes": [{
+            "type": "recent_discussion",
+            "sheet_id": 1,
+            "sheet_name": "Sheet A",
+            "discussion_id": 99,
+            "created_at": "2026-09-11T00:00:00Z",
+            "severity": "low",
+            "description": "Recent discussion activity detected",
+        }],
+    }
+    audit_findings.reset_counters()
+    payloads = audit_findings.build_finding_payloads(audit_results, [], "run-123")
+    assert payloads == []
+    counters = audit_findings.counters()
+    assert sum(counters.values()) == 0
+
+
+def test_unmapped_check_type_in_memory_backed_checks_skips_and_bumps_no_recipe_counter():
+    fake_type = "future_check_not_yet_wired"
+    audit_results = {"anomalies_detected": [{"type": fake_type, "work_request": "1"}]}
+
+    audit_findings.reset_counters()
+    with mock.patch.object(
+        audit_findings, "MEMORY_BACKED_CHECKS",
+        frozenset(audit_findings.MEMORY_BACKED_CHECKS | {fake_type}),
+    ):
+        payloads = audit_findings.build_finding_payloads(audit_results, [], "run-123")
+
+    assert payloads == []
+    counters = audit_findings.counters()
+    assert counters.get("findings_skipped_no_recipe", 0) > 0
+
+
+def test_two_identical_rate_sanity_findings_collapse_to_one_payload():
+    audit_results = {"rate_sanity_mismatches": [
+        _rate_sanity_finding(), _rate_sanity_finding(),
+    ]}
+    rows = [_matching_row()]
+
+    audit_findings.reset_counters()
+    payloads = audit_findings.build_finding_payloads(audit_results, rows, "run-123")
+
+    assert len(payloads) == 1
+    counters = audit_findings.counters()
+    # "emitted" is examined-before-collapse; distinct payloads returned
+    # is 1 -- the two differ by exactly one (Pitfall 3 collapse case).
+    assert counters.get("findings_emitted", 0) - len(payloads) == 1
+
+
+def test_build_finding_payloads_empty_dict_returns_empty_list_task2():
+    assert audit_findings.build_finding_payloads({}, None, "run-123") == []
+
+
+def test_build_finding_payloads_none_returns_empty_list_task2():
+    assert audit_findings.build_finding_payloads(None, None, "run-123") == []
+
+
+def test_build_finding_payloads_only_recent_discussion_returns_empty_list():
+    audit_results = {
+        "unauthorized_changes": [{"type": "recent_discussion", "sheet_id": 1}],
+    }
+    assert audit_findings.build_finding_payloads(audit_results, [], "run-123") == []
+
+
 # ── upsert_audit_findings ────────────────────────────────────────────────
 
 def test_upsert_audit_findings_flag_off_makes_zero_client_calls(monkeypatch):

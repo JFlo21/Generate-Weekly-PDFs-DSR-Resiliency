@@ -385,25 +385,52 @@ def build_finding_payloads(
     Iterates the four finding lists ``audit_financial_data`` returns,
     reading each defensively with ``.get(key) or []`` so a missing or
     ``None`` key is never an error. Dispatches on each finding's
-    ``type`` value (not on which list it came from). A ``type`` in
-    ``MEMORY_BACKED_CHECKS`` with no branch implemented yet is skipped
-    and counted; a ``type`` outside ``MEMORY_BACKED_CHECKS`` is skipped
-    silently with no counter. Never raises.
+    ``type`` value (not on which list it came from):
+
+    - A ``type`` outside ``MEMORY_BACKED_CHECKS`` (notably
+      ``recent_discussion``) is skipped silently, no counter -- it was
+      never a candidate for audit memory (Pitfall 4). The filter is
+      membership in ``MEMORY_BACKED_CHECKS``, never an explicit
+      exclusion list, so a future sheet-level check is ignored by
+      default too.
+    - A ``type`` in ``MEMORY_BACKED_CHECKS`` but absent from
+      ``IDENTITY_RECIPES`` is a recipe-coverage gap (D-02): skipped in
+      production with ``findings_skipped_no_recipe`` bumped and a
+      WARNING naming only the check id (never raised) -- while a
+      dedicated test asserts ``set(IDENTITY_RECIPES) ==
+      MEMORY_BACKED_CHECKS`` so the gap fails CI before it ever reaches
+      a production run.
+    - Every other memory-backed type has both a recipe and a
+      payload-building branch below.
+
+    Collapse observability (Pitfall 3): findings sharing an identical
+    ``finding_key`` (e.g. two ``rate_sanity_mismatch`` rows with the
+    same ``(wr, cu, work_type, week_ending)``, which the D-01 recipe
+    deliberately cannot disambiguate) collapse to one payload,
+    last-write-wins for ``evidence``. The INFO summary line below always
+    reports both the number of findings examined and the number of
+    distinct keys emitted, so a growing gap is visible rather than
+    silently hidden. Never raises.
     """
     if not audit_results:
         return []
     rows = rows or []
 
-    payloads: list[dict] = []
+    examined = 0
+    keyed_payloads: dict[str, dict] = {}
+    key_order: list[str] = []
     for list_key in _AUDIT_RESULT_LIST_KEYS:
         findings = audit_results.get(list_key) or []
         for finding in findings:
             finding_type = finding.get("type")
             if finding_type not in MEMORY_BACKED_CHECKS:
-                # recent_discussion and any other non-memory-backed type
-                # is filtered by MEMORY_BACKED_CHECKS membership, not an
-                # explicit exclusion list (Pitfall 4) -- a future
-                # sheet-level check is ignored by default too.
+                continue
+            if finding_type not in IDENTITY_RECIPES:
+                logging.warning(
+                    "Audit-memory: no identity recipe for check_id=%s",
+                    finding_type,
+                )
+                _bump_counter("findings_skipped_no_recipe")
                 continue
             if finding_type == "rate_sanity_mismatch":
                 payload = _build_rate_sanity_payload(finding, rows)
@@ -412,15 +439,31 @@ def build_finding_payloads(
             elif finding_type == "data_consistency_issue":
                 payload = _build_data_consistency_payload(finding, rows)
             else:
-                # price_variance_anomaly / data_consistency_issue: not
-                # yet implemented (plan 13-03). Skip, never raise, never
-                # emit a placeholder key.
+                # Defensive fail-safe only: a check_id was added to both
+                # MEMORY_BACKED_CHECKS and IDENTITY_RECIPES but no
+                # payload-building branch was wired here. Never reached
+                # today -- the recipe-coverage test above keeps the two
+                # collections equal, and every entry in IDENTITY_RECIPES
+                # has a branch -- but skipped and counted rather than
+                # raising, matching every other unresolvable-finding path
+                # in this module.
                 _bump_counter("findings_skipped_unimplemented_check")
                 continue
-            if payload is not None:
-                payloads.append(payload)
-                _bump_counter("findings_emitted")
+            if payload is None:
+                continue
+            examined += 1
+            _bump_counter("findings_emitted")
+            key = payload["finding_key"]
+            if key not in keyed_payloads:
+                key_order.append(key)
+            keyed_payloads[key] = payload  # last-write-wins on collapse
 
+    payloads = [keyed_payloads[key] for key in key_order]
+    if examined:
+        logging.info(
+            "🔎 Audit-memory findings: examined=%d distinct=%d",
+            examined, len(payloads),
+        )
     return payloads
 
 
