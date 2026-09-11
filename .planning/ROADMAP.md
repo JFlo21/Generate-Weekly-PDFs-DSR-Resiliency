@@ -151,7 +151,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | ✅ Complete | 2026-08-31 |
 | 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 4/4 | ✅ Complete | 2026-09-02 |
 | 12. Ownership — last known foreman as of the week | v1.4 | 10/10 | ✅ Complete | 2026-09-10 |
-| 13. Audit Memory | v1.4 | 0/? | Draft |  |
+| 13. Audit Memory | v1.4 | 0/? | In Progress|  |
 | 14. Foreman Helper #2 | v1.4 | 14/14 | ✅ Complete | 2026-09-10 |
 
 ---
@@ -838,13 +838,13 @@ on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
    > Excel/portal visual surface is a tracked backlog item (see below), decided after observing
    > real finding volume in shadow.
 
-**Plans:** 6 plans (5 waves)
+**Plans:** 1/6 plans executed (5 waves)
 
 Plans:
 **Wave 1**
 
 - [ ] 13-01-PLAN.md — Tracer: one check type end-to-end (flag, client gate, `pipeline_memory/audit_findings.py`, the two tables and the RPC skeleton, the orchestrate hook) behind an owner `checkpoint:decision` on the finding-key recipe *(wave 1)*
-- [ ] 13-02-PLAN.md — Folded-todo hygiene: the `snapshot_store` Class-A arg-type fix, an exact one-line mypy re-baseline with its ledger entry, and closure of the Phase 10 review todos *(wave 1, parallel)*
+- [x] 13-02-PLAN.md — Folded-todo hygiene: the `snapshot_store` Class-A arg-type fix, an exact one-line mypy re-baseline with its ledger entry, and closure of the Phase 10 review todos *(wave 1, parallel)*
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

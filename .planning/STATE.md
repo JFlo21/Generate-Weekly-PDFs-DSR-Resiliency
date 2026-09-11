@@ -5,17 +5,17 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 13
 current_phase_name: Audit Memory
 status: executing
-stopped_at: Phase 13 context gathered
-last_updated: "2026-09-11T21:39:55.663Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-09-11T22:59:43.941Z"
 last_activity: 2026-09-11
-last_activity_desc: Phase 12 complete, transitioned to Phase 13; closure docs PRs
-state_head: 87f3f5f3f20fe0a2b786b005c89bfd189d83915a
+last_activity_desc: Phase 13 execution started
+state_head: ea128c46ae2cefaa1d1384293517f37c343b303d
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 80
-  completed_plans: 74
-  percent: 29
+  completed_plans: 75
+  percent: 93
 ---
 
 # Project State
@@ -31,12 +31,12 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 13 Audit Memory — only when Juan asks; PR #402 owner follow-ups first
+**Current focus:** Phase 13 — Audit Memory
 
 ## Current Position
 
-Phase: 13 (Audit Memory) — READY TO EXECUTE
-Plan: Not started
+Phase: 13 (Audit Memory) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
 
 Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
@@ -67,7 +67,7 @@ breaker lock + trip-generation check); `keep_historical` deferred behind
 the incremental-mode gate. Next, in order: (1) merge the breaker PR; (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A) on
 its contract then; (3) owner: Codex threads, Dependabot triage.
-Last activity: 2026-09-10 — Phase 12 complete, transitioned to Phase 13
+Last activity: 2026-09-11 — Phase 13 execution started
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
   fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
@@ -92,7 +92,7 @@ Last activity: 2026-09-10 — Phase 12 complete, transitioned to Phase 13
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans ([███░░░░░░░] 29%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([█████████░] 93%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -167,6 +167,7 @@ Progress: [████████████████████] 74/74 p
 | Phase 14 P11 | ~40min (2 checkpoint-gated stretches) | 3 tasks | 12 files |
 | Phase 14 P10 | ~12min active (2 stretches, 1 gate wait) | 3 tasks | 9 files |
 | Phase 14 P12 | executed by prior session (gap closure); closeout ~10min | 3 tasks | 10 files |
+| Phase 13 P02 | 14min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -331,6 +332,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: O-14-D RESOLVED (2026-09-09, Juan): Helper #2 is a permanent capability, not a one-time backfill -- `HELPER2_ENABLED` stays `1` indefinitely and flag-off is an emergency kill switch only. Option (a) accepted (regroup-on-disable limitation stands, reconcile by hand if it ever happens); persisted-claim routing (b) and attachment retirement (c) declined. No code change; runbook, environment reference, project-state, changelog, ledger `[2026-09-09 08:45]` updated.
 
 - [Phase 14]: D-14-CR-FIX (2026-09-10, Juan): fix the `14-REVIEW.md` Critical/Warning findings via `/gsd-code-review 14 --fix` rather than accept-as-is or a hand-written PR — protected areas (`pipeline/pricing.py` rate-matrix gate, `pipeline/grouping.py` WR hold matchers, `billing_audit/writer.py`) touched only with TDD, Helper #1 parity as the known-good sample, and a read-only production-risk pass before the PR. Round 1 of WR-03 was rejected by that pass (terminal `supported` on an inconclusive probe); the accepted design is tri-valued probe outcome, `inconclusive` → state `unknown`, bounded re-probes, isolated degraded op label.
+- [Phase 13]: 13-02: provenance key guard is a static-typing narrowing only, not a behavior fix -- runtime skip already held via the pre-existing except (TypeError, ValueError)
+- [Phase 13]: 13-02: AUD-01 not marked complete -- requirements.ready-ids confirmed 0/1 ready (shared with sibling Phase 13 plans still in progress)
 
 ### Roadmap Evolution
 
@@ -528,8 +531,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-11T18:50:44.915Z
-**Stopped at:** Phase 13 context gathered
+**Last session:** 2026-09-11T22:59:42.931Z
+**Stopped at:** Completed 13-02-PLAN.md
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
@@ -547,7 +550,7 @@ breaker); `keep_historical` deferred behind the incremental-mode gate
 (record `.planning/todos/done/2026-09-10-pr402-review-followups.md`); (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A)
 on its contract then; (3) owner: Dependabot triage / Codex threads.
-**Resume file:** .planning/phases/13-audit-memory/13-CONTEXT.md
+**Resume file:** None
 
 ## Session Continuity
 
