@@ -23,3 +23,17 @@ One-line fix in protected billing code (narrow the value before `int()`, or
 task. After the fix, lower `tests/golden/mypy_baseline*.txt` back by exactly the
 removed lines in a dedicated re-baseline commit whose ledger entry names them
 (re-baseline hygiene rule, ledger `[2026-08-25 00:02]`).
+
+## Resolution
+
+**2026-09-11 (Phase 13 plan 13-02, Tasks 1-2):** Fixed. `sheet_id`/`row_id` are
+now read into locals in `fetch_snapshot_provenance` and the loop `continue`s
+when either is `None` BEFORE the `int()` cast; the pre-existing
+`except (TypeError, ValueError): continue` is unchanged, so runtime behavior
+is byte-for-byte preserved (4 new regression tests in
+`tests/test_snapshot_store.py::TestFetchSnapshotProvenanceKeyGuard`, plus the
+full suite: 2342 passed / 1 skipped, no regression). `tests/golden/mypy_baseline.txt`
+dropped exactly the one `snapshot_store.py:370` `[arg-type]` line (71 -> 70
+lines); `tests/golden/mypy_baseline_count.txt` moved `71` -> `70`; ledger entry
+recorded per the re-baseline hygiene rule. `bash scripts/run_6_gates.sh` green
+at the lowered baseline.

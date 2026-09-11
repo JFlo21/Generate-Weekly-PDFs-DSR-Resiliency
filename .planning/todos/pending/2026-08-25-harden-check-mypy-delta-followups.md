@@ -36,3 +36,13 @@ line before the `tr`. Add fail-capability tests in `tests/test_facade_harness.py
 `check-attr` test for `*.sh`. Decide a path-separator convention for the golden
 baseline before wiring the harness into CI. Small, test-first quick tasks; none
 touch `pipeline/` or the facade.
+
+## Deferred
+
+**2026-09-11 (Phase 13 plan 13-02):** Phase 13 deliberately split this todo
+back out under the `13-CONTEXT.md` Folded Todos authorization ("Gate-4 mypy
+hardening ... Low priority, `scripts/` only; last plan, may be split out if
+the phase runs long"). It touches `scripts/check_mypy_delta.sh` and
+`tests/test_facade_harness.py` only — no `pipeline/` or facade code — and
+`scripts/check_mypy_delta.sh` is untouched by this plan (`git diff -- scripts/`
+is empty). It is tracked as a ROADMAP backlog line to be added by plan 13-06.

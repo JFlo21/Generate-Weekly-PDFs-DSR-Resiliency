@@ -79,3 +79,17 @@ WR-02 and WR-03 were already CLOSED per the strikethrough entries above.
 All five findings from `10-REVIEW.md` are now resolved or checklist-gated;
 this todo can be archived once the flip PR itself completes checklist item 6
 (post-flip confirmation).
+
+**2026-09-11 (Phase 13 plan 13-02):** Archived to `done/`. WR-01/02/03/04 are
+all landed with commit or test evidence as recorded above — re-verified this
+plan: `pipeline/orchestrate.py` passes `sheets_changed=_mem_sheets_written`
+at both `run_ledger_finish` call sites (success path and the `finally`-block
+failure path), `_RUN_LEDGER_FINISH_COLUMNS` in `pipeline_memory/writer.py`
+includes `sheets_changed`, and both are pinned by
+`tests/test_pipeline_memory_shadow.py::RunLedgerFailurePathTests::test_failure_path_finish_includes_sheets_changed`
+and `::RunLedgerSheetsChangedCallSiteTests::test_both_finish_call_sites_pass_sheets_changed`
+(101 passed). IN-01 remains a checklist gate — checklist item 2
+("IN-01 — upload-enabled control run") in
+`docs/run-memory-write-flip-checklist.md` — rather than a unit test, since it
+is genuinely untestable under `SKIP_UPLOAD`; that checklist item is the
+traceable pointer for IN-01 going forward.
