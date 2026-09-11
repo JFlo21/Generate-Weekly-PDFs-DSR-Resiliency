@@ -11,12 +11,13 @@ logs COUNTS and ERROR CODES ONLY. No WR, CU, price, or personnel name is
 ever logged at any level; the summary breadcrumb on a successful RPC
 call carries only integers.
 
-Scope (Phase 13, plan 13-01, AUD-01 vertical slice): ``build_finding_payloads``
-implements the ``rate_sanity_mismatch`` branch only. ``price_variance_anomaly``
-and ``data_consistency_issue`` are declared in ``MEMORY_BACKED_CHECKS`` /
-``IDENTITY_RECIPES`` (D-01) but have no payload-building branch yet -- a
-finding of either type is skipped and counted, never raised on, never
-given a placeholder key. Those branches are finished in plan 13-03.
+Scope (Phase 13, plan 13-01 + 13-03, AUD-01): ``build_finding_payloads``
+implements all three ``MEMORY_BACKED_CHECKS`` branches -- ``rate_sanity_mismatch``
+(13-01), ``price_variance_anomaly`` and ``data_consistency_issue`` (13-03).
+A finding whose ``type`` is in ``MEMORY_BACKED_CHECKS`` but absent from
+``IDENTITY_RECIPES`` (a future check added to one collection but not the
+other) is skipped and counted, never raised on, never given a placeholder
+key -- see the recipe-coverage check in ``build_finding_payloads`` (D-02).
 
 Finding-key recipe (D-01, owner-confirmed 2026-09-11, verbatim answer
 recorded in this plan's SUMMARY): the canonical hash input is a
@@ -73,6 +74,18 @@ _counters: dict[str, int] = {
     "findings_skipped_no_match": 0,
     "findings_skipped_multi_week": 0,
     "findings_skipped_unimplemented_check": 0,
+    # D-CD-01: a price_variance_anomaly whose WR-wide row pool resolves
+    # to MORE THAN ONE distinct week_ending. Zero distinct weeks also
+    # persists week_ending=None but is not "ambiguous" (nothing to
+    # disambiguate), so it does not bump this counter.
+    "findings_week_ambiguous": 0,
+    # A data_consistency_issue whose row_index does not resolve against
+    # the rows list passed to build_finding_payloads.
+    "findings_skipped_unresolved_row": 0,
+    # A finding whose type is in MEMORY_BACKED_CHECKS but absent from
+    # IDENTITY_RECIPES (D-02 recipe-coverage gap; see the module test
+    # asserting set(IDENTITY_RECIPES) == MEMORY_BACKED_CHECKS).
+    "findings_skipped_no_recipe": 0,
     "upsert_written": 0,
     "upsert_errored": 0,
 }
@@ -223,6 +236,137 @@ def _build_rate_sanity_payload(
     }
 
 
+# ── price_variance_anomaly payload building ──────────────────────────────
+
+def _resolve_price_variance_week_ending(
+    finding: dict, rows: Iterable[dict],
+) -> str | None:
+    """Resolve week_ending for a price_variance_anomaly finding (D-CD-01).
+
+    ``_detect_price_anomalies`` pools ``Units Total Price`` per Work
+    Request with NO week filter at all, so this collects the distinct
+    weeks of every row in ``rows`` whose Work Request matches the
+    finding's ``work_request``. Exactly one distinct non-``None`` week
+    means use it. Zero distinct weeks (no matching rows, or matching
+    rows with no parseable date) legitimately persists ``None`` without
+    bumping any counter -- there is nothing ambiguous about "no data".
+    More than one distinct week ALSO persists ``None``, but bumps the
+    ``findings_week_ambiguous`` counter so the real production frequency
+    of a multi-week pool is observable in shadow (RESEARCH.md Assumption
+    A2). A ``None`` week is a legitimate persisted value here, never a
+    reason to drop the finding (unlike rate_sanity_mismatch's no-match
+    case).
+    """
+    wr = str(finding.get("work_request") or "").strip()
+
+    weeks: set[str] = set()
+    for row in rows:
+        row_wr = str(row.get("Work Request #") or "").strip()
+        if row_wr != wr:
+            continue
+        iso_week = _week_ending_iso(row.get("Weekly Reference Logged Date"))
+        if iso_week is not None:
+            weeks.add(iso_week)
+
+    if len(weeks) == 1:
+        return next(iter(weeks))
+    if len(weeks) > 1:
+        _bump_counter("findings_week_ambiguous")
+    return None
+
+
+def _build_price_variance_payload(
+    finding: dict, rows: Sequence[dict],
+) -> dict:
+    """Build one RPC payload dict for a ``price_variance_anomaly`` finding.
+
+    Never returns ``None`` -- a price_variance_anomaly is never dropped,
+    even when ``week_ending`` cannot be resolved (D-CD-01).
+    """
+    wr = str(finding.get("work_request") or "").strip()
+    week_ending = _resolve_price_variance_week_ending(finding, rows)
+
+    identity_values = (wr, week_ending)
+    finding_key = compute_finding_key("price_variance_anomaly", identity_values)
+
+    evidence = {
+        "price_range": finding.get("price_range"),
+        "average_price": finding.get("average_price"),
+        "variance_percentage": finding.get("variance_percentage"),
+        "description": finding.get("description"),
+    }
+
+    return {
+        "finding_key": finding_key,
+        "recipe_version": FINDING_KEY_RECIPE_VERSION,
+        "check_id": "price_variance_anomaly",
+        "wr": wr,
+        "week_ending": week_ending,
+        # _detect_price_anomalies always emits severity="medium" today
+        # (audit_billing_changes.py). Stored exactly as emitted, never
+        # re-derived here (D-04) -- this module has no risk-ladder logic.
+        "severity": finding.get("severity"),
+        "evidence": evidence,
+    }
+
+
+# ── data_consistency_issue payload building ──────────────────────────────
+
+def _build_data_consistency_payload(
+    finding: dict, rows: Sequence[dict],
+) -> dict | None:
+    """Build one RPC payload dict for a ``data_consistency_issue`` finding.
+
+    Resolves the source row by the finding's ``row_index`` against the
+    same ``rows`` list passed to ``audit_financial_data``. An index
+    outside that list is a skip with ``findings_skipped_unresolved_row``
+    bumped -- never an exception. ``row_index`` is used ONLY to resolve
+    the row for the ``week_ending`` join and to carry provenance in
+    ``evidence``; it never enters the hash input (D-01 -- see
+    ``compute_finding_key`` call below).
+
+    The identity segment for the issue set is ``_validate_data_consistency``'s
+    ``issues`` list, ``sorted()`` and joined by ``,``. Those exact string
+    literals are durable identity for this check -- pinned by the
+    ``DATA_CONSISTENCY_ISSUE_LITERALS`` contract test (plan 13-03 Task 3).
+    Changing any of them in ``audit_billing_changes.py`` is a deliberate
+    key migration requiring a ``FINDING_KEY_RECIPE_VERSION`` bump, not a
+    cosmetic wording edit (RESEARCH.md Pitfall 2).
+    """
+    row_index = finding.get("row_index")
+    if not isinstance(row_index, int) or isinstance(row_index, bool) or not (
+        0 <= row_index < len(rows)
+    ):
+        _bump_counter("findings_skipped_unresolved_row")
+        return None
+    row = rows[row_index]
+
+    wr = str(finding.get("work_request") or "").strip()
+    week_ending = _week_ending_iso(row.get("Weekly Reference Logged Date"))
+
+    issues = finding.get("issues") or []
+    issue_codes = sorted(str(issue) for issue in issues)
+
+    identity_values = (wr, week_ending, ",".join(issue_codes))
+    finding_key = compute_finding_key("data_consistency_issue", identity_values)
+
+    evidence = {
+        "row_index": row_index,
+        "description": finding.get("description"),
+    }
+
+    return {
+        "finding_key": finding_key,
+        "recipe_version": FINDING_KEY_RECIPE_VERSION,
+        "check_id": "data_consistency_issue",
+        "wr": wr,
+        "week_ending": week_ending,
+        "issue_codes": issue_codes,
+        "severity": finding.get("severity"),
+        "evidence": evidence,
+    }
+
+
 # ── build_finding_payloads ────────────────────────────────────────────────
 
 _AUDIT_RESULT_LIST_KEYS = (
@@ -256,17 +400,26 @@ def build_finding_payloads(
         for finding in findings:
             finding_type = finding.get("type")
             if finding_type not in MEMORY_BACKED_CHECKS:
+                # recent_discussion and any other non-memory-backed type
+                # is filtered by MEMORY_BACKED_CHECKS membership, not an
+                # explicit exclusion list (Pitfall 4) -- a future
+                # sheet-level check is ignored by default too.
                 continue
             if finding_type == "rate_sanity_mismatch":
                 payload = _build_rate_sanity_payload(finding, rows)
-                if payload is not None:
-                    payloads.append(payload)
-                    _bump_counter("findings_emitted")
+            elif finding_type == "price_variance_anomaly":
+                payload = _build_price_variance_payload(finding, rows)
+            elif finding_type == "data_consistency_issue":
+                payload = _build_data_consistency_payload(finding, rows)
             else:
                 # price_variance_anomaly / data_consistency_issue: not
                 # yet implemented (plan 13-03). Skip, never raise, never
                 # emit a placeholder key.
                 _bump_counter("findings_skipped_unimplemented_check")
+                continue
+            if payload is not None:
+                payloads.append(payload)
+                _bump_counter("findings_emitted")
 
     return payloads
 

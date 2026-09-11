@@ -87,6 +87,33 @@ def _matching_row(**overrides):
     return row
 
 
+def _price_variance_finding(**overrides):
+    finding = {
+        "type": "price_variance_anomaly",
+        "work_request": "12345",
+        "price_range": 500.0,
+        "average_price": 800.0,
+        "variance_percentage": 62.5,
+        "severity": "medium",
+        "description": "High price variance detected in WR# 12345",
+    }
+    finding.update(overrides)
+    return finding
+
+
+def _data_consistency_finding(**overrides):
+    finding = {
+        "type": "data_consistency_issue",
+        "row_index": 0,
+        "work_request": "12345",
+        "issues": ["Missing CU", "Invalid quantity format"],
+        "severity": "medium",
+        "description": None,
+    }
+    finding.update(overrides)
+    return finding
+
+
 # ── compute_finding_key / key derivation ────────────────────────────────
 
 def test_key_derivation_returns_64_char_hex():
@@ -199,15 +226,20 @@ def test_build_finding_payloads_reads_all_four_lists_defensively():
     assert len(payloads) == 1
 
 
-def test_build_finding_payloads_unimplemented_memory_backed_check_skips_and_counts():
+def test_build_finding_payloads_price_variance_now_implemented_yields_payload():
+    """Superseded by plan 13-03 Task 1: price_variance_anomaly now has a
+    payload-building branch, so a finding of this type is no longer
+    skipped as "unimplemented" -- it produces a real payload (with
+    week_ending=None here, since no rows were supplied to resolve a
+    week from)."""
     audit_results = {
         "anomalies_detected": [{"type": "price_variance_anomaly", "work_request": "1"}],
     }
     audit_findings.reset_counters()
     payloads = audit_findings.build_finding_payloads(audit_results, [], "run-123")
-    assert payloads == []
-    counters = audit_findings.counters()
-    assert sum(counters.values()) > 0
+    assert len(payloads) == 1
+    assert payloads[0]["check_id"] == "price_variance_anomaly"
+    assert payloads[0]["week_ending"] is None
 
 
 def test_build_finding_payloads_ignores_non_memory_backed_type_silently():
@@ -230,6 +262,151 @@ def test_build_finding_payloads_multi_week_match_uses_none_week_ending():
     payloads = audit_findings.build_finding_payloads(audit_results, rows, "run-123")
     assert len(payloads) == 1
     assert payloads[0]["week_ending"] is None
+
+
+# ── price_variance_anomaly / data_consistency_issue key derivation ──────
+# (Plan 13-03 Task 1)
+
+def test_key_derivation_price_variance_single_week_matches_and_differs_by_week():
+    audit_results = {"anomalies_detected": [_price_variance_finding()]}
+    rows_week1 = [_matching_row(**{"Weekly Reference Logged Date": "2026-09-07"})]
+    rows_week2 = [_matching_row(**{"Weekly Reference Logged Date": "2026-09-14"})]
+
+    payloads_week1 = audit_findings.build_finding_payloads(
+        audit_results, rows_week1, "run-123",
+    )
+    payloads_week2 = audit_findings.build_finding_payloads(
+        audit_results, rows_week2, "run-123",
+    )
+
+    assert len(payloads_week1) == 1
+    assert len(payloads_week2) == 1
+    assert payloads_week1[0]["week_ending"] == "2026-09-07"
+    assert payloads_week2[0]["week_ending"] == "2026-09-14"
+    assert payloads_week1[0]["finding_key"] != payloads_week2[0]["finding_key"]
+
+
+def test_price_variance_multi_week_yields_none_week_ending_and_bumps_counter():
+    audit_results = {"anomalies_detected": [_price_variance_finding()]}
+    rows = [
+        _matching_row(**{"Weekly Reference Logged Date": "2026-09-07"}),
+        _matching_row(**{"Weekly Reference Logged Date": "2026-09-14"}),
+    ]
+
+    audit_findings.reset_counters()
+    payloads = audit_findings.build_finding_payloads(audit_results, rows, "run-123")
+
+    assert len(payloads) == 1
+    assert payloads[0]["week_ending"] is None
+    counters = audit_findings.counters()
+    assert counters.get("findings_week_ambiguous", 0) > 0
+
+
+def test_price_variance_no_parseable_week_yields_none_and_is_not_dropped():
+    audit_results = {"anomalies_detected": [_price_variance_finding()]}
+    rows = [_matching_row(**{"Weekly Reference Logged Date": "not-a-date"})]
+
+    audit_findings.reset_counters()
+    payloads = audit_findings.build_finding_payloads(audit_results, rows, "run-123")
+
+    assert len(payloads) == 1
+    assert payloads[0]["week_ending"] is None
+    counters = audit_findings.counters()
+    assert counters.get("findings_week_ambiguous", 0) == 0
+
+
+def test_price_variance_no_matching_rows_yields_none_and_is_not_dropped():
+    audit_results = {"anomalies_detected": [_price_variance_finding()]}
+    rows = [_matching_row(**{"Work Request #": "OTHER"})]
+
+    payloads = audit_findings.build_finding_payloads(audit_results, rows, "run-123")
+
+    assert len(payloads) == 1
+    assert payloads[0]["week_ending"] is None
+
+
+def test_price_variance_same_wr_same_rows_is_idempotent():
+    audit_results = {"anomalies_detected": [_price_variance_finding()]}
+    rows = [_matching_row()]
+
+    payloads1 = audit_findings.build_finding_payloads(audit_results, rows, "run-123")
+    payloads2 = audit_findings.build_finding_payloads(audit_results, rows, "run-456")
+
+    assert payloads1[0]["finding_key"] == payloads2[0]["finding_key"]
+
+
+def test_price_variance_evidence_only_fields_do_not_change_key():
+    rows = [_matching_row()]
+    audit_results1 = {"anomalies_detected": [_price_variance_finding(
+        price_range=100.0, average_price=200.0, variance_percentage=50.0,
+    )]}
+    audit_results2 = {"anomalies_detected": [_price_variance_finding(
+        price_range=999.0, average_price=1234.0, variance_percentage=99.0,
+    )]}
+
+    payloads1 = audit_findings.build_finding_payloads(audit_results1, rows, "run-123")
+    payloads2 = audit_findings.build_finding_payloads(audit_results2, rows, "run-123")
+
+    assert payloads1[0]["finding_key"] == payloads2[0]["finding_key"]
+    assert payloads2[0]["evidence"]["price_range"] == 999.0
+    assert payloads2[0]["evidence"]["average_price"] == 1234.0
+    assert payloads2[0]["evidence"]["variance_percentage"] == 99.0
+
+
+def test_data_consistency_sorted_issues_produce_equal_key_key_derivation():
+    audit_results1 = {"data_integrity_issues": [_data_consistency_finding(
+        issues=["Missing CU", "Invalid quantity format"],
+    )]}
+    audit_results2 = {"data_integrity_issues": [_data_consistency_finding(
+        issues=["Invalid quantity format", "Missing CU"],
+    )]}
+    rows = [_matching_row()]
+
+    payloads1 = audit_findings.build_finding_payloads(audit_results1, rows, "run-123")
+    payloads2 = audit_findings.build_finding_payloads(audit_results2, rows, "run-123")
+
+    assert len(payloads1) == 1
+    assert len(payloads2) == 1
+    assert payloads1[0]["finding_key"] == payloads2[0]["finding_key"]
+
+
+def test_data_consistency_out_of_range_row_index_skips_and_bumps_counter():
+    audit_results = {"data_integrity_issues": [_data_consistency_finding(row_index=99)]}
+    rows = [_matching_row()]
+
+    audit_findings.reset_counters()
+    payloads = audit_findings.build_finding_payloads(audit_results, rows, "run-123")
+
+    assert payloads == []
+    counters = audit_findings.counters()
+    assert counters.get("findings_skipped_unresolved_row", 0) > 0
+
+
+def test_data_consistency_resolves_week_ending_from_its_own_row_index():
+    rows = [
+        _matching_row(**{"Weekly Reference Logged Date": "2026-08-01"}),
+        _matching_row(**{"Weekly Reference Logged Date": "2026-09-07"}),
+    ]
+    audit_results = {"data_integrity_issues": [_data_consistency_finding(row_index=1)]}
+
+    payloads = audit_findings.build_finding_payloads(audit_results, rows, "run-123")
+
+    assert len(payloads) == 1
+    assert payloads[0]["week_ending"] == "2026-09-07"
+
+
+def test_data_consistency_row_index_never_enters_finding_key():
+    rows = [_matching_row()]
+    audit_results1 = {"data_integrity_issues": [_data_consistency_finding(row_index=0)]}
+    # A second finding, identical identity, but a different row_index
+    # pointing at an equivalent row -- must hash to the SAME key.
+    rows2 = [_matching_row(), _matching_row()]
+    audit_results2 = {"data_integrity_issues": [_data_consistency_finding(row_index=1)]}
+
+    payloads1 = audit_findings.build_finding_payloads(audit_results1, rows, "run-123")
+    payloads2 = audit_findings.build_finding_payloads(audit_results2, rows2, "run-123")
+
+    assert payloads1[0]["finding_key"] == payloads2[0]["finding_key"]
 
 
 # ── upsert_audit_findings ────────────────────────────────────────────────
