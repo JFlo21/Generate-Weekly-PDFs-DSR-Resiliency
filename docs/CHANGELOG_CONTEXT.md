@@ -15,7 +15,7 @@ Juan decided both parked follow-ups. Breaker: `billing_audit.client.close_circui
 when the writer's direct Helper #2 capability probe succeeds (the probe bypasses `with_retry`, so before this one trip
 before the first probe fast-failed every remaining `freeze_attribution` row of the run); `with_retry` itself still
 never re-closes. `keep_historical` in the SUB-09 off-contract gate: deferred — hard gate on
-`RUN_MEMORY_INCREMENTAL_ENABLED` until fixed with a fixture + dry run. Ledger `[2026-09-11 04:40]`.
+`RUN_MEMORY_INCREMENTAL_ENABLED` until fixed with a fixture + dry run. PR #407 review round 1 hardened the breaker: one `_breaker_lock` serialises every transition and `close_circuit(observed_generation=...)` refuses to erase a trip that happened while the probe was in flight (three regression tests, one threaded). Ledger `[2026-09-11 04:40]`.
 
 ## 2026-09-10 — 12-06 Task 4 observed and APPROVED (post-apply run 33974128574); D-12-E sample; backups dropped; Phase 12 closed
 

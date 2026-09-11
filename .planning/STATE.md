@@ -54,15 +54,16 @@ handoff.
 Phase 14 (Foreman Helper #2) closed 2026-09-10 via PR #402 (`6e6e1e8`) —
 CR-01/CR-02/WR-01/WR-02/WR-03 fixed; suite 2333 passed / 1 skipped;
 operator changelog `website/blog/2026-09-10-pr402-phase-14-review-fixes.md`.
-Owner follow-ups parked in
-`.planning/todos/done/2026-09-10-pr402-review-followups.md`. The first
+Owner follow-ups decided 2026-09-11 (D-14-FOLLOWUPS, next paragraph;
+record `.planning/todos/done/2026-09-10-pr402-review-followups.md`). The first
 scheduled run after `6e6e1e8` (run `34530899488`) was observed clean — no
 Helper #2 shadow groups exist yet, so the expected empty regeneration wave
 produced nothing to act on.
 
 PR #404 merged 2026-09-11 03:39Z → `9ba7eb7`. PR #402 follow-ups DECIDED 2026-09-11
 (D-14-FOLLOWUPS): breaker half-open shipped on branch
-`fix/breaker-half-open-on-probe` (PR open); `keep_historical` deferred behind
+`fix/breaker-half-open-on-probe` (PR #407 open; review round 1 added the
+breaker lock + trip-generation check); `keep_historical` deferred behind
 the incremental-mode gate. Next, in order: (1) merge the breaker PR; (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A) on
 its contract then; (3) owner: Codex threads, Dependabot triage.
@@ -539,8 +540,11 @@ backups dropped via the Supabase connector). The first scheduled run after
 `6e6e1e8` (run `34530899488`) was also observed clean — no Helper #2 shadow
 groups exist yet, so the expected empty regeneration wave produced nothing
 to act on.
-Next: (1) PR #402 owner follow-ups
-(`.planning/todos/done/2026-09-10-pr402-review-followups.md`); (2) Phase
+Next: (1) merge PR #407 — D-14-FOLLOWUPS decided 2026-09-11: breaker
+half-open implemented (review round 1: breaker lock + trip-generation
+check; follow-up: mirror `_breaker_lock` into the `pipeline_memory` twin
+breaker); `keep_historical` deferred behind the incremental-mode gate
+(record `.planning/todos/done/2026-09-10-pr402-review-followups.md`); (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A)
 on its contract then; (3) owner: Dependabot triage / Codex threads.
 **Resume file:** None

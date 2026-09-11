@@ -63,6 +63,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Literal, NamedTuple
 
 from billing_audit.client import (
+    breaker_generation,
     close_circuit,
     get_client,
     get_flag,
@@ -1006,6 +1007,12 @@ def freeze_row(row: dict, release: str | None,
             from billing_audit.client import (
                 _PGAPIError as _client_pgapi_error,
             )
+            # PR #407 review (Greptile): remember which breaker
+            # generation this probe is about to exercise. If another
+            # worker trips 'freeze_attribution' while the bare invoke
+            # is in flight, the close below must NOT erase that newer
+            # evidence — ``close_circuit`` compares generations.
+            _observed_generation = breaker_generation("freeze_attribution")
             try:
                 _invoke()
                 # Bare re-invoke succeeded: the original failure was some
@@ -1043,6 +1050,7 @@ def freeze_row(row: dict, release: str | None,
             close_circuit(
                 "freeze_attribution",
                 reason="Helper #2 capability probe succeeded",
+                observed_generation=_observed_generation,
             )
             return 'supported'
 

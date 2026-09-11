@@ -1618,6 +1618,177 @@ class FreezeRowHelper2ProbeConcurrencyTests(unittest.TestCase):
         )
         self.assertNotIn("freeze_attribution", ba_client._open_circuits)
 
+    def test_close_circuit_preserves_a_newer_trip_by_generation(self):
+        """PR #407 review (Greptile P1): a probe that captured the
+        breaker generation BEFORE its direct call must not erase a
+        trip that happened while that call was in flight — the newer
+        failure evidence wins and the run keeps fast-failing."""
+        from billing_audit import client as ba_client
+
+        op = "freeze_attribution"
+
+        def _always_fails():
+            raise self._api_error("23505", "duplicate key")
+
+        observed = ba_client.breaker_generation(op)
+        self.assertEqual(observed, 0)
+        with mock.patch("billing_audit.client.time.sleep"):
+            for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
+                self.assertIsNone(
+                    ba_client.with_retry(_always_fails, op=op)
+                )
+        self.assertIn(op, ba_client._open_circuits)
+        self.assertEqual(ba_client.breaker_generation(op), 1)
+
+        # Stale generation: the close is refused and nothing is reset.
+        self.assertFalse(
+            ba_client.close_circuit(op, observed_generation=observed)
+        )
+        self.assertIn(op, ba_client._open_circuits)
+        self.assertEqual(
+            ba_client._consecutive_failures[op],
+            ba_client._CIRCUIT_BREAKER_THRESHOLD,
+        )
+        # Current generation: closes normally.
+        self.assertTrue(
+            ba_client.close_circuit(
+                op, observed_generation=ba_client.breaker_generation(op),
+            )
+        )
+        self.assertNotIn(op, ba_client._open_circuits)
+        self.assertEqual(ba_client._consecutive_failures[op], 0)
+
+    def test_probe_success_keeps_a_breaker_tripped_during_the_probe(self):
+        """PR #407 review (Greptile P1, writer level): the row's own
+        attempt fails (count 1), the probe's bare invoke succeeds, but
+        by the time the probe closes the breaker two OTHER workers have
+        tripped it. The newer trip must survive the probe's close and
+        later rows must keep fast-failing (no RPC)."""
+        from billing_audit import writer as ba_writer
+        from billing_audit import client as ba_client
+
+        op = "freeze_attribution"
+        client = _make_fake_supabase_client()
+        execute = client.schema.return_value.rpc.return_value.execute
+
+        def _other_worker_fails():
+            raise self._api_error("23505", "duplicate key")
+
+        calls = {"n": 0}
+
+        def _execute_side_effect(*_a, **_k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # The row's own with_retry attempt: non-transient,
+                # single attempt, count -> 1.
+                raise self._api_error("23505", "duplicate key")
+            if calls["n"] == 2:
+                # The probe's bare invoke succeeds — and while it was
+                # "in flight" two concurrent workers exhaust the op
+                # (count 1 -> 3) and trip the breaker.
+                for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD - 1):
+                    ba_client.with_retry(_other_worker_fails, op=op)
+                self.assertIn(op, ba_client._open_circuits)
+                return _fake_rpc_response("run-newer-trip")
+            raise AssertionError("no further RPC calls expected")
+
+        execute.side_effect = _execute_side_effect
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch("billing_audit.client.time.sleep"):
+            first = ba_writer.freeze_row(
+                self._row(0), release="r", run_id="run-nt",
+            )
+            self.assertFalse(first)
+            self.assertEqual(ba_writer._helper2_probe_state, 'supported')
+            self.assertIn(
+                op, ba_client._open_circuits,
+                "a trip that happened while the probe was in flight "
+                "must survive the probe's close",
+            )
+            second = ba_writer.freeze_row(
+                self._row(1), release="r", run_id="run-nt",
+            )
+        self.assertFalse(second, "later rows keep fast-failing")
+        self.assertEqual(execute.call_count, 2)
+
+    def test_close_circuit_serialises_with_a_concurrent_failure_update(
+        self,
+    ):
+        """PR #407 review (Copilot / Codex): threaded regression for
+        the recovery race. A worker inside ``with_retry`` has READ the
+        pre-reset failure count; ``close_circuit`` must not be able to
+        slip in before that worker WRITES, or the worker re-opens the
+        breaker with a stale threshold count right after the probe
+        proved the endpoint healthy."""
+        import threading
+        from billing_audit import client as ba_client
+
+        op = "freeze_attribution"
+        read_done = threading.Event()
+        resume = threading.Event()
+        worker_holder: dict = {}
+
+        class _HookedCounts(dict):
+            # Pauses the worker between its read and its write — the
+            # window the race lives in.
+            fired = False
+
+            def get(self, key, default=None):
+                if (
+                    key == op and not _HookedCounts.fired
+                    and threading.current_thread()
+                    is worker_holder.get("t")
+                ):
+                    _HookedCounts.fired = True
+                    read_done.set()
+                    resume.wait(timeout=5)
+                return super().get(key, default)
+
+        counts = _HookedCounts()
+        counts[op] = ba_client._CIRCUIT_BREAKER_THRESHOLD - 1
+
+        def _always_fails():
+            raise self._api_error("23505", "duplicate key")
+
+        def _worker():
+            ba_client.with_retry(_always_fails, op=op)
+
+        with mock.patch.object(
+            ba_client, "_consecutive_failures", counts
+        ), mock.patch("billing_audit.client.time.sleep"):
+            worker = threading.Thread(target=_worker)
+            worker_holder["t"] = worker
+            worker.start()
+            self.assertTrue(read_done.wait(timeout=5))
+            # The probe's close arrives while the worker sits between
+            # its read and its write.
+            closer = threading.Thread(
+                target=ba_client.close_circuit, args=(op,),
+                kwargs={"reason": "probe"},
+            )
+            closer.start()
+            closer.join(timeout=0.3)
+            self.assertTrue(
+                closer.is_alive(),
+                "close_circuit must wait behind the in-flight failure "
+                "update instead of interleaving with it",
+            )
+            resume.set()
+            worker.join(timeout=5)
+            closer.join(timeout=5)
+            self.assertFalse(worker.is_alive())
+            self.assertFalse(closer.is_alive())
+
+        self.assertNotIn(
+            op, ba_client._open_circuits,
+            "the stale pre-reset count must not re-open the breaker "
+            "after the probe closed it",
+        )
+        self.assertEqual(counts.get(op, 0), 0)
+
     def test_already_unsupported_row_survives_freeze_attribution_breaker(
         self,
     ):
