@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 12-ownership-last-known-foreman-as-of-the-week
-source: 12-01-SUMMARY.md, 12-02-SUMMARY.md, 12-03-SUMMARY.md, 12-04-SUMMARY.md, 12-05-SUMMARY.md, 12-06-SUMMARY.md
+source: 12-01-SUMMARY.md, 12-02-SUMMARY.md, 12-03-SUMMARY.md, 12-04-SUMMARY.md, 12-05-SUMMARY.md, 12-06-SUMMARY.md, 12-07-SUMMARY.md, 12-08-SUMMARY.md, 12-09-SUMMARY.md, 12-10-SUMMARY.md
 started: 2026-09-03T23:31:58Z
-updated: 2026-09-04T01:21:38Z
+updated: 2026-09-11T01:40:00Z
 ---
 
 ## Current Test
@@ -27,9 +27,11 @@ evidence: Juan asked the session to run the check (read-only, no dispatch). Stat
 ### 3. Live OWN-03 dry-run report reviewed and a written verdict recorded (12-06 Task 1)
 expected: A scoped dry-run of scripts/backfill_claim_time_attribution.py against live Supabase data exits 0 and produces generated_docs/own03_backfill_report.{json,csv}. Every proposed value is a real claimer name — no sentinel and no filename-derived placeholder such as "Unknown Foreman.xlsx" — and source-3 (public.artifacts filename) candidates carry the extension-stripped real name. The known-good sample resolves through backfill_hash_history. Juan records APPROVE / APPROVE WITH SCOPE / REJECT in writing in 12-06-SUMMARY.md before any --apply.
 context: 12-06 coverage D1 (human_judgment) — human review of proposed claimer names, live production counts and operator domain knowledge; no automated check can approve a production billing-attribution write. Tasks 2-4 (apply decision, live apply, post-apply scheduled-run check) are gated on this verdict.
-result: issue
+result: pass
+retested: 2026-09-05 — after G-12-3 closed (12-07..12-10), the full-scope read-only dry-run (207 WRs x 54 weeks) exited 0 with 1,758 proposed rows / 30 WRs / 76 pairs from 24 real names, 0 conflicts, 4,071 genuinely evidence-less rows, 0 extension-bearing and 0 hash-tailed proposals, 1,758/1,758 proposals matching the public.artifacts filename; Juan APPROVED in writing (verbatim `I approve`), chose `apply-full`, and the apply landed 03:45Z (1,758 updated / 0 errors). The known-good sample resolves through the D-12-E substitute WR 89746993 (backfill_artifacts), not backfill_hash_history — recorded as an accepted ROADMAP SC3 amendment, not a defect. Original 2026-09-03 verdict kept below as history.
+history_result: issue (2026-09-03)
 reported: "reject: source-3 filename parser defect" (Juan's verbatim 12-06 Task 1 verdict, recorded in 12-06-SUMMARY.md; Juan asked the session to re-run the check itself)
-severity: blocker
+severity: blocker (at the time; resolved by G-12-3 closure)
 evidence: (1) Juan's full-set report generated_docs/own03_backfill_report.json (2026-09-03 17:15, git-ignored) analysed in-sandbox, counts only: 5,829 rows; proposed 4,762 / conflict 1,066 / unresolved 1; sources backfill_artifacts 5,136 / live 692; 4,070 proposed values end in .xlsx and ALL are the single string 'Unknown Foreman.xlsx' (a sentinel once the extension is stripped); 0 rows for WR 19073866; 0 rows resolved via backfill_hash_history. (2) Scoped live re-run by the session, read-only dry-run, report written to the session scratchpad (Juan's report untouched): --wr 89732091 --weeks 071325,072025,072725,080325,081025,090725,091425 -> exit 0, 235 sentinel rows considered, 235/235 status=proposed source=backfill_artifacts fidelity=desanitized proposed_value='Unknown Foreman.xlsx' with current_value 'Unknown Foreman'; evidence field shape 'primary|Unknown_Foreman.xlsx|<ts>'. The expected outcome (real names only, extension-stripped source-3 candidates, known-good sample via backfill_hash_history, APPROVE) is not met; an --apply would freeze the placeholder as a real name.
 
 ### 4. 12-01 D1 — Dry-run for the WR 19073866 known-good sample resolves the primary claimer via source 4 (backfill_hash_history) across all four weeks with zero writes
@@ -140,11 +142,84 @@ result: pass
 source: automated
 coverage_id: 12-05/D4
 
+### 22. 12-07 D1 — A live hash-less sentinel filename never produces a source-3 proposal
+expected: WR_<wr>_WeekEnding_<mmddyy>_User_Unknown_Foreman.xlsx (no hash tail) is rejected before the sentinel check; no 'Unknown Foreman.xlsx' candidate survives
+result: pass
+source: automated
+coverage_id: 12-07/D1
+
+### 23. 12-07 D2 — A live hash-less filename carrying a real name still resolves to the desanitized name
+expected: source backfill_artifacts, extension stripped, name_fidelity desanitized
+result: pass
+source: automated
+coverage_id: 12-07/D2
+
+### 24. 12-07 D3 — The pre-existing hash-suffixed filename shape behaves exactly as before
+expected: no regression on the _<hex>.xlsx shape
+result: pass
+source: automated
+coverage_id: 12-07/D3
+
+### 25. 12-07 D4 — Both filename shapes are exercised by every source-3 case
+expected: single-name, conflict, subcontractor helper token and sentinel cases each run against both shapes
+result: pass
+source: automated
+coverage_id: 12-07/D4
+
+### 26. 12-09 D3 — The amended backfill_attribution RPC is deployed live
+expected: In poeyztlmsawfoqlanucc the RPC carries the extension-refusal check in its STEP 4 validation loop, EXECUTE remains service_role-only, and NOTIFY pgrst reload was issued (12-09-SUMMARY: applied via the Supabase MCP 2026-09-04 with Juan's approval)
+result: pass
+evidence: Juan confirmed `Yes` 2026-09-11 (consolidated checkpoint 26/30/31/32); 12-09-SUMMARY records the live apply via the Supabase MCP 2026-09-04 (STEP 4 extension guard, EXECUTE service_role-only, NOTIFY pgrst reload)
+
+### 27. 12-07 D5 — _build_apply_payload refuses a sentinel or extension-bearing proposed_value
+expected: --apply cannot send such a value to the RPC (client-side guard)
+result: pass
+source: automated
+coverage_id: 12-07/D5
+
+### 28. 12-09 D1 — STEP 4 validation loop raises on a proposed value carrying a document file extension
+expected: billing_audit.backfill_attribution rejects 'Unknown Foreman.xlsx'-shaped values; is_sentinel_value byte-identical
+result: pass
+source: automated
+coverage_id: 12-09/D1
+
+### 29. 12-09 D2 — billing_audit/schema.sql documents the amended two-ground refusal contract
+expected: sentinel OR extension-bearing proposed values are refused; contract test pins the shape
+result: pass
+source: automated
+coverage_id: 12-09/D2
+
+### 30. 12-10 D2 — Backup attribution_snapshot_backup_20260904 existed, service_role-readable, name recorded
+expected: 220,621 rows = live count on 2026-09-04; recorded in 12-10-SUMMARY (dropped 2026-09-10 after 12-06 Task 4 on Juan's instruction, together with _20260903 and _20260905)
+result: pass
+evidence: Juan confirmed `Yes` 2026-09-11; 12-10-SUMMARY records attribution_snapshot_backup_20260904 = 220,621 rows (live count on 2026-09-04); dropped 2026-09-10 via migration drop_attribution_snapshot_backups_20260903_04_05 on Juan's instruction
+
+### 31. 12-10 D3 — Scoped read-only dry-run against live data exits 0 with zero extension-bearing / zero sentinel proposals
+expected: WR 89732091 x 7 weeks: exit 0, 0 proposed / 235 unresolved, 0 extension-bearing, 0 sentinel (12-10-SUMMARY)
+result: pass
+evidence: Juan confirmed `Yes` 2026-09-11; 12-10-SUMMARY records the scoped dry-run WR 89732091 x 7 weeks: exit 0, 0 proposed / 235 unresolved, 0 extension-bearing, 0 sentinel
+
+### 32. 12-10 D4 — 12-06 declared re-entrant from Task 1 under the 12-08 decisions, then completed
+expected: re-entry posture pinned (no --include-blank-roles, D-12-C defer); 12-06 re-ran Tasks 1-3 on 2026-09-05 and Task 4 on 2026-09-10 (approved)
+result: pass
+evidence: Juan confirmed `Yes` 2026-09-11; 12-06 re-entered 2026-09-05 under the 12-08 decisions (D-12-C defer, no --include-blank-roles) and completed: Tasks 1-3 on 2026-09-05, Task 4 approved 2026-09-10 (12-06-SUMMARY status: complete)
+
+### 33. 12-10 D1 — Independent production-risk verdict on the combined 12-07 + 12-09 delta
+expected: an Opus reviewer with no authoring context judged the delta against the 8-point production-risk rubric: verdict pass (12-10-SUMMARY)
+result: pass
+source: automated
+coverage_id: 12-10/D1
+
+### 34. 12-06 Task 4 — First post-apply scheduled run regenerates under real names and cleans up (human-verify checkpoint)
+expected: On the first scheduled weekly-excel-generation.yml run after the 2026-09-05 apply, the backfilled (WR, week) files regenerate under real _User_<name> names, their _User_Unknown_Foreman counterparts are removed by the sentinel-superseded gate, no PPP attachment and no real person's attachment is deleted, the run stays within TIME_BUDGET_MINUTES and succeeds with no new Sentry issue
+result: pass
+evidence: run 33974128574 (2026-09-05 15:13Z, success, Python 47:51): 74 files generated / 64 _User_Unknown_Foreman placeholders removed, all on TARGET_SHEET_ID; sample WR 89746993 (D-12-E) + spot-checks 89841789 / 89848991 / 89877351 / 89954686 carry real-name files and their placeholders are gone; 0 punctuation-leading claimers, all 64 deletions were placeholders; no new Sentry issue in generate-weekly-excel. Seven observations transcribed in 12-06-SUMMARY.md Task 4; Juan replied `Approved` 2026-09-10 (plus `Adopt 89746993`, backups dropped).
+
 ## Summary
 
-total: 21
-passed: 20
-issues: 1
+total: 34
+passed: 34
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -154,7 +229,9 @@ blocked: 0
 <!-- YAML format for plan-phase --gaps consumption -->
 - gap_id: G-12-3
   truth: "Live OWN-03 dry-run proposes only real claimer names (no sentinel, no filename-derived placeholder), source-3 candidates carry the extension-stripped real name, the known-good sample resolves via backfill_hash_history, and Juan approves the report before any --apply"
-  status: failed
+  status: resolved        # was: failed
+  resolved_by: 12-07-PLAN.md, 12-08-PLAN.md, 12-09-PLAN.md, 12-10-PLAN.md (gap_ids: [G-12-3], all with SUMMARYs, executed 2026-09-04); re-tested 2026-09-05 (test 3 pass)
+  resolved_at: 2026-09-11
   reason: "User reported: reject: source-3 filename parser defect (Juan's verbatim 12-06 Task 1 verdict; re-confirmed by the session 2026-09-04: full-set report 4,070 of 4,762 proposals = 'Unknown Foreman.xlsx'; scoped live re-run WR 89732091 x 7 weeks exit 0 with 235/235 rows proposing 'Unknown Foreman.xlsx'; WR 19073866 has 0 rows in Supabase; 0 rows resolve via backfill_hash_history)"
   severity: blocker
   test: 3

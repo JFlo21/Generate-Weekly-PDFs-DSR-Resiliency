@@ -14,12 +14,14 @@ requires:
   - phase: 12-05
     provides: website/docs/runbook/ownership-attribution.md operator procedure
 provides:
-  - A recorded, REJECTED Task 1 dry-run review with live counts and a named script defect blocking any --apply
+  - OWN-03 live remediation landed (1,758 rows updated 2026-09-05, read-back clean); Task 4 post-apply
+    observation transcribed and APPROVED by Juan 2026-09-10; ROADMAP success criterion 3 sample WR 89746993
+    recorded (D-12-E); the three attribution_snapshot backups dropped
 affects: [12-gap-closure, own-03-remediation]
 
 actuals:
   tokens: 3600
-  tasks: 1
+  tasks: 4
   commits: 1
 
 tech-stack:
@@ -37,6 +39,8 @@ key-decisions:
   - "Task 2 (2026-09-05): Juan chose `apply-full` (verbatim) — apply the whole approved report (same --wr/--weeks scope as the dry-run, no --include-blank-roles); Task 3 requires a fresh same-UTC-day STEP 1 backup first"
   - "Whole-project read-only inventory: no Supabase store holds in-week Jul–Nov 2025 foreman evidence for the 4,071 unresolved rows; they route to source 5 (Smartsheet cell history) after the apply"
   - "Task 3 (2026-09-05 03:43 UTC): live apply executed by the orchestrator at Juan's `Run it` after a fresh same-UTC-day STEP 1 backup (`attribution_snapshot_backup_20260905`, 221,276 rows): updated 1,758 / skipped_real_name 0 / skipped_no_row 0 / errors 0; 219,518 untouched rows show 0 differences vs the backup; provenance total 1,758 = updated; backfill_run_id is '' on local runs (note for verify-work)"
+  - "Task 4 (2026-09-10): seven post-apply observations transcribed read-only from run 33974128574 (first scheduled run after the apply), Smartsheet target-sheet inventory and Supabase — all pass; substitute SC3 sample WR 89746993 proposed"
+  - "Task 4 (2026-09-10 ~23:45Z): Juan replied `Approved`, `Adopt 89746993` (D-12-E) and `Yes drop them using our supabase connector` — backups dropped, plan complete"
 
 patterns-established: []
 
@@ -48,26 +52,27 @@ coverage:
     requirement: OWN-03
     verification: []
     human_judgment: true
-    rationale: "Requires human review of proposed claimer names, live production counts, and operator domain knowledge against the dry-run report; Juan's verdict was REJECT — no automated check can approve a production billing-attribution write."
+    rationale: "Requires human review of proposed claimer names, live production counts, and operator domain knowledge against the dry-run report; Juan's first verdict (2026-09-03) was REJECT and the 2026-09-05 re-run was APPROVED — no automated check can approve a production billing-attribution write."
 
-duration: ~15min (documentation/transcription only — no code executed, no live credentials used)
-completed: 2026-09-03
-# Re-entry 2026-09-04: G-12-3 closed by 12-07..12-10 (Juan: `re-enter-12-06`). `blocked` reads as
-# no completion record (#3345), so /gsd-execute-phase 12 re-runs this plan from Task 1. The halted
-# 2026-09-03 dry-run evidence below is preserved unchanged; the executor rewrites this file on completion.
-status: blocked
+duration: ~15min per checkpoint session (documentation/transcription only — no code executed by the executor; the 2026-09-05 apply and 2026-09-10 observations were orchestrator-run at Juan's instruction)
+completed: 2026-09-10
+# History: re-entered 2026-09-04 after G-12-3 closed (12-07..12-10, Juan: `re-enter-12-06`) via the
+# `blocked` re-entrant state (#3345); Tasks 1-3 landed 2026-09-05 and Task 4 was observed 2026-09-10,
+# then APPROVED 2026-09-10 ~23:45Z (Juan: `Approved`, `Adopt 89746993`, `Yes drop them using our
+# supabase connector`) — this file was rewritten into a completion record at that point.
+status: complete
 ---
 
-# Phase 12 Plan 06: Ownership Attribution Live Remediation (OWN-03) — Tasks 1–3 DONE (live apply landed 2026-09-05 03:45 UTC); Task 4 pending the first post-apply scheduled run (Sat 2026-09-05 15:00 UTC)
+# Phase 12 Plan 06: Ownership Attribution Live Remediation (OWN-03) — COMPLETE (Tasks 1–4; Task 4 approved 2026-09-10)
 
-**Re-run 2026-09-05 (after the G-12-3 gap closure 12-07..12-10): the full-scope read-only dry-run was clean — 1,758 proposed rows over 30 WRs / 76 pairs from 24 real names, 0 conflicts, 4,071 rows genuinely evidence-less, every G-12-3 / CR-01 guard at 0, every proposal matching its `public.artifacts` filename — Juan APPROVED it (`I approve`), chose `apply-full`, and said `Run it`. The orchestrator created the same-UTC-day backup `attribution_snapshot_backup_20260905` and ran the apply: 1,758 rows updated, 0 skipped, 0 errors, 0 differences on the 219,518 untouched rows, provenance total = updated. Task 4 (observe Monday 2026-09-07's first scheduled run) is the remaining gate. The 2026-09-03 first attempt below was REJECTED because source 3's filename parser proposed "Unknown Foreman.xlsx" as a real name for 4,070 rows; that record is preserved unchanged as history.**
+**Re-run 2026-09-05 (after the G-12-3 gap closure 12-07..12-10): the full-scope read-only dry-run was clean — 1,758 proposed rows over 30 WRs / 76 pairs from 24 real names, 0 conflicts, 4,071 rows genuinely evidence-less, every G-12-3 / CR-01 guard at 0, every proposal matching its `public.artifacts` filename — Juan APPROVED it (`I approve`), chose `apply-full`, and said `Run it`. The orchestrator created the same-UTC-day backup `attribution_snapshot_backup_20260905` and ran the apply: 1,758 rows updated, 0 skipped, 0 errors, 0 differences on the 219,518 untouched rows, provenance total = updated. Task 4 (observe the first post-apply scheduled run) was performed read-only on 2026-09-10 — see Task 4 below — and Juan then replied `Approved` (with `Adopt 89746993` for D-12-E and `Yes drop them using our supabase connector` for the backups) at ~23:45Z, closing the plan. The 2026-09-03 first attempt below was REJECTED because source 3's filename parser proposed "Unknown Foreman.xlsx" as a real name for 4,070 rows; that record is preserved unchanged as history.**
 
 ## Performance
 
 - **Duration:** ~15 min (recording Juan's review outcome and writing this summary; no code, no live Supabase/Smartsheet calls)
-- **Completed:** 2026-09-03T22:46:12Z
-- **Tasks:** 1 of 4 (plan halted at its designed stop; Tasks 2-4 not executed)
-- **Files modified:** 0 (Task 1 is read-only by design — "the executor runs nothing against live credentials")
+- **Completed:** 2026-09-10 ~23:45Z (Task 4 approved); Task 1 first attempt 2026-09-03T22:46:12Z (REJECT), Tasks 1–3 re-run 2026-09-05, Task 4 observed 2026-09-10
+- **Tasks:** 4 of 4 (Task 1 halted at its designed stop on 2026-09-03; re-entered after 12-07..12-10 and completed)
+- **Files modified:** 0 repo files by the plan itself (Task 1 is read-only by design); one production write — the Task 3 live apply (1,758 rows, 2026-09-05) — plus the three backups dropped after Task 4
 
 ## Accomplishments
 
@@ -179,9 +184,25 @@ status: blocked
 
 Counts, WR numbers and source labels only — no claimer name recorded, per the plan's prohibition. Evidence: session scratchpad `own03_apply/` (report, run log, `analyze_apply.py`, `evidence_12-06_task3.md`).
 
-### Task 4 — PENDING (blocking-human): verify the next scheduled run regenerates under real names and cleans up
+### Task 4 (observed and APPROVED 2026-09-10): verify the next scheduled run regenerates under real names and cleans up
 
-Not yet observable: the apply landed Friday 2026-09-04 22:45 CDT (2026-09-05 03:45Z). `weekly-excel-generation.yml` also has a weekend cron (`0 15,19,23 * * 0,6`), so the first post-apply scheduled run is Saturday 2026-09-05 15:00 UTC; GitHub shows 0 runs since the apply (last run 2026-09-04 23:13Z produced 6 files in ~33 min — the baseline). Juan replied `Verified` at ~05:40Z, before any such run existed; the orchestrator did not accept it and Juan chose to wait for the 15:00Z run. Expected: 76 (WR, week) files across 30 WRs regenerate under real names and their `_User_Unknown_Foreman` counterparts are removed by the sentinel-superseded gate; `sentinel_claimers_ignored` drops for those WRs; no PPP attachment deleted; run within `TIME_BUDGET_MINUTES`. ROADMAP SC3's sample must be re-decided first (WR 89829163 is unresolvable — see Task 1) so Task 4 step 2 can name a WR to inspect; candidates WR 89746993 (4 weeks), 89841789, 89848991, 90851321.
+**Lead.** The apply landed Friday 2026-09-04 22:45 CDT (2026-09-05 03:45Z); the first scheduled run after it was **33974128574** (`weekly_maintenance` trigger, head `3fa4527`, 2026-09-05 15:13:18Z → 16:02:29Z, `success`, Python step 47:51, well under the 165-min budget) — the natural target for this task's seven observations. Juan's earlier `Verified` at ~05:40Z predated any such run and was not accepted; this pass performed the seven observations read-only on 2026-09-10 ~23:15Z against that run plus a live Smartsheet target-sheet inventory and Supabase reads (full evidence: session scratchpad `task4-evidence.md`). Conclusion: all seven observations pass (one production metric gap and one hygiene note recorded below, neither a blocker). **Juan replied `Approved` 2026-09-10 ~23:45Z** (plus `Adopt 89746993` for the D-12-E sample and `Yes drop them using our supabase connector` for the backups) — the plan's resume-signal is satisfied and this frontmatter is now a completion record.
+
+1. **`sentinel_claimers_ignored`** — not emitted by production (0 occurrences across all three inspected runs; no `run_summary.json` artifact, only `artifact_manifest.json`). Proxy evidence instead: run 33974128574 generated 74 files / uploaded 74, `🔄 Sentinel-superseded attachment detected` 63 times, `🗑️ Removed off-contract variant` 64 times (all 64 `_User_Unknown_Foreman`, all on `TARGET_SHEET_ID` 5723337641643908). Live today: 152 `_User_Unknown_Foreman` attachments remain on the target sheet, 0 on any of the 76 backfilled (WR, week) pairs; 13 sit on backfilled WRs at non-backfilled weeks, all `backfilled = 0` / `frozen_primary = 'Unknown Foreman'` (expected — the 4,071 evidence-less rows routed to source 5, not a gap). **Verdict: pass for the backfilled scope; gap for verify-work** — no `sentinel_claimers_ignored` counter exists in production output.
+2. **Sample WR / attachment swap** — ROADMAP SC3's WR 19073866 has 0 rows in every Supabase store; D-12-D's substitute 89829163 has placeholder-only artifacts. Substitute sample **WR 89746993** (4 weeks, 114 backfilled rows; the resolved person is not recorded here — T-12-28): `WR_89746993_WeekEnding_{082425,083125,090725,091425}_User_<real resolved name>.xlsx` all present on the target sheet today (created 2026-09-05, `last_generated_run` 33974128574.1); the prior `..._090725_User_Unknown_Foreman.xlsx` was detected superseded and removed within the same run (15:58:58Z → 15:58:59Z). **Verdict: pass.** ROADMAP SC3 sample re-decided by the owner: 19073866 → 89746993 (D-12-E, recorded in ROADMAP.md).
+3. **Spot-checks** — five additional backfilled WRs (89841789, 89848991, 89877351, 89954686, 90851321) all regenerated under the real `_User_<name>` filename in the same run with the matching `_User_Unknown_Foreman` file removed seconds later, no `RESET_WR_LIST` nudge needed (90851321 was already live from an earlier run and untouched, consistent). Across the whole set: all 76 backfilled pairs have a `group_state` row; 91 `_User_<real name>` rows across 30 WRs; 0 live placeholder attachments on those pairs. **Verdict: pass.** Hygiene note (not a gap): 15 `pipeline_memory.group_state` rows for `Unknown_Foreman` on backfilled pairs remain after their attachment was deleted — the sentinel-superseded gate removes the attachment but leaves the stale `group_state` row.
+4. **No PPP attachment deleted** — every `🗑️ Removed off-contract variant` line in run 33974128574 names sheet 5723337641643908 (`TARGET_SHEET_ID`); 0 reference `SUBCONTRACTOR_PPP_SHEET_ID` 8162920222379908 or any other sheet; the 51 `✅ Deleted:` lines are the normal delete-then-reupload replace pattern. **Verdict: pass** (confirmed by log inspection; no before/after PPP count was captured).
+5. **No real person's history touched** — 0 of the 1,758 backfilled rows have a punctuation-leading `frozen_primary`; all 64 removals were `_User_Unknown_Foreman` files; the only punctuation-leading attachments on the sheet are the 10 `WR_90250489_..._User__NO_MATCH.xlsx` files (D-12-C `defer`), all still present. **Verdict: pass.**
+6. **Duration vs `TIME_BUDGET_MINUTES`** — run 33974128574 Python step 47:51 (baseline pre-apply run 33928680844: 31:55; the first post-6e6e1e8 run 34530899488: 63:19) — never within reach of the 165-min budget. **Verdict: pass.**
+7. **Conclusion / Sentry** — 33974128574 `success`; Sentry `generate-weekly-excel` has no new issue first-seen after 2026-09-05; the run's `🚨 Shadow parity FAIL` line is the pre-existing GENERATE-WEEKLY-EXCEL-AH (INC-06, recurring since 2026-08-19), not new; the chronic "154 group(s) ... have no row on target sheet" line is a pre-existing data-quality condition present in all three inspected runs. **Verdict: pass.**
+
+**Not a gap / gap candidates for `/gsd-verify-work 12`:** (a) `sentinel_claimers_ignored` has no production counter — verify sentinel churn via the `Sentinel-superseded` / `Removed off-contract variant` log lines and the target-sheet inventory instead; (b) `backfill_run_id = ''` (not NULL) on local-operator runs (pre-existing observation from Task 3); (c) stale `Unknown_Foreman` `group_state` rows survive the sentinel-superseded attachment delete (hygiene, not correctness); (d) the SC3 sample substitution (19073866 → 89746993, D-12-E) — recorded in ROADMAP.md; (e) CR-01 / WR-01 (already known, filed in `12-REVIEW.md`).
+
+**Owner actions DONE (2026-09-10 ~23:45Z, Juan's reply verbatim: `Approved` / `Adopt 89746993` / `Yes drop them using our supabase connector`):**
+
+1. Approved this Task 4 record.
+2. Recorded ROADMAP SC3 sample 89746993 (decision D-12-E).
+3. Dropped the three backups `attribution_snapshot_backup_20260903` / `_20260904` / `_20260905` via the Supabase connector — migration `drop_attribution_snapshot_backups_20260903_04_05` on project `poeyztlmsawfoqlanucc`. Pre-check: live `billing_audit.attribution_snapshot` 224,371 rows / 1,758 with `backfill_provenance`, no dependent views; backups held 220,010 / 220,621 / 221,276 rows. Post-check: 0 `attribution_snapshot_backup_%` tables remain; live table unchanged at 224,371 / 1,758.
 
 The 2026-09-03 first-attempt note below records why Tasks 2-4 did not run then: Task 1 recorded `reject`, so Task 2's precondition was unmet by design.
 
@@ -201,7 +222,13 @@ None - plan executed exactly as written. Task 1's checkpoint reached its designe
 
 The dry-run surfaced a defect in `scripts/backfill_claim_time_attribution.py` (shipped in plan 12-01): source 3's filename-derived claimer extraction does not account for the hash-less filename shape production actually stores in `public.artifacts.filename`, causing it to propose a sentinel string as a real name. This is a code defect in an already-shipped plan, not something this plan's checkpoint tasks are scoped to fix (Task 1 is read-only by design). Routed to `/gsd:plan-phase 12 --gaps` rather than fixed inline, per the plan's own "record it as a phase gap" instruction pattern and the Living Ledger's recorded route.
 
-## Halted at Designed Stop
+## Checkpoint history
+
+**Status update (2026-09-10, final):** the gap route below was closed by plans 12-07..12-10 (2026-09-04); 12-06
+re-entered and ran Tasks 1-3 to completion on 2026-09-05; Task 4's seven observations were recorded 2026-09-10
+(all pass, above) and Juan replied `Approved` the same day ~23:45Z (plus `Adopt 89746993` and `Yes drop them
+using our supabase connector`), closing the plan. This section is preserved as history of the 2026-09-03 REJECT
+outcome and the subsequent re-entry; the plan is no longer halted — it is COMPLETE.
 
 **Gap:** `scripts/backfill_claim_time_attribution.py`'s source-3 (`backfill_artifacts`) filename parser strips only a `_<6hex>.xlsx` hash suffix, but `public.artifacts.filename` (the live, stable attachment name written by `scripts/publish_artifacts_to_supabase.py::_parse_stable`) never carries one. Left unstripped, the whole `_User_<name>.xlsx` remainder — including a sentinel name like `Unknown Foreman.xlsx` — survives as the "extracted" claimer and passes `is_sentinel_claimer`, because the RPC's server-side guard (`is_sentinel_value(s.frozen_<role>)`) only re-checks the CURRENT frozen value, never the newly PROPOSED one. An `--apply` run today would silently freeze the placeholder string as a permanent "real" name across 4,070 rows (69 WRs). A related, smaller scope gap: `lookup_attribution_bulk` returns NULL for values starting with `#`, so the 945 `#NO MATCH` rows are invisible to the script's targeting and need a separate scope decision. The known-good sample (WR 19073866) also has no data in Supabase to prove ROADMAP SC3 via `backfill_hash_history`; WR 89829163 is a partial substitute pending Juan's confirmation.
 
@@ -220,9 +247,15 @@ None - no external service configuration required.
 
 ## Next Phase Readiness
 
-Phase 12 (Ownership — last known foreman as of the week) is NOT complete. OWN-02 and OWN-03 remain outstanding pending the gap-closure route above and a subsequent clean 12-06 re-run (dry-run review, live apply, post-run verification). No production data was altered by this plan; the dated backup table and the RPC's server-side sentinel-only guard were never exercised because no `--apply` ran.
+Plan 12-06 (Ownership Attribution Live Remediation, OWN-03) is COMPLETE: Tasks 1-3 landed the live apply
+(2026-09-05, 1,758 rows), Task 4's seven observations are on record (2026-09-10, all pass), and Juan approved
+Task 4 plus D-12-E (sample WR 89746993) and the backup drop on 2026-09-10 ~23:45Z. Next, in order: (1)
+`/gsd-verify-work 12`, reconciling the gap list from Task 4 — no `sentinel_claimers_ignored` counter in
+production output, `backfill_run_id=''` on local runs, stale `Unknown_Foreman` `group_state` rows after the
+sentinel-superseded delete, CR-01, WR-01 — → `phase.complete 12`; (2) Phase 13 (`wr_week_ownership`, D-12-A)
+only when Juan asks.
 
 ---
 *Phase: 12-ownership-last-known-foreman-as-of-the-week*
-*Completed: 2026-09-03*
-*Status: HALTED (designed stop — Task 1 REJECT; Tasks 2-4 not executed)*
+*Completed: 2026-09-10 (first attempt halted 2026-09-03)*
+*Status: COMPLETE (Tasks 1-4; Task 4 approved 2026-09-10 ~23:45Z — see Checkpoint history)*

@@ -1,28 +1,28 @@
 ---
-gsd_state_version: 1.0
+gsd_state_version: "1.0"
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline
-current_phase: 14
-current_phase_name: "Foreman Helper #2"
-status: complete
-stopped_at: "Phase 14 COMPLETE 2026-09-10: 14/14 plans executed; 14-14 Task 2 observed (dispatch 34411958861 stamped 121/121 helper2-v1, scheduled 34415980363 skipped 112/121 via sheet_registry); O-14-E RESOLVED; code review done (14-REVIEW.md via PR #399 94f2636: CR-01 pricing, CR-02 WR matchers, both protected); next Juan's CR-01/CR-02 fix decision FIRST, then Phase 12 12-06 Task 4"
-last_updated: "2026-09-10T04:40:00.000Z"
+milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
+current_phase: 13
+current_phase_name: Audit Memory
+status: planning
+stopped_at: Phase 12 complete, ready to plan Phase 13
+last_updated: "2026-09-11T01:46:48.110Z"
 last_activity: 2026-09-10
-last_activity_desc: Phase 14 code review report merged (PR #399); CR-01/CR-02 owner decision pending
+last_activity_desc: Phase 12 complete, transitioned to Phase 13
+state_head: 2b0ffb97c2ebfce16c534cdf0e6f6da0d116d7cd
 progress:
   total_phases: 14
   completed_phases: 13
-  total_plans: 72
-  completed_plans: 72
-  percent: 100
-state_head: 365e76dd99d4cd1d64324656e42f02663d1939d7
+  total_plans: 74
+  completed_plans: 74
+  percent: 93
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-02 after Phase 11.1 close)
+See: .planning/PROJECT.md (updated 2026-09-10)
 
 **Core value:** The production Smartsheet → Excel → Smartsheet attachment
 pipeline runs every 2 hours on weekdays and ships billing-grade Excel
@@ -31,40 +31,40 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 14 — Foreman Helper #2
+**Current focus:** Phase 13 Audit Memory — only when Juan asks; PR #402 owner follow-ups first
 
 ## Current Position
 
-Phase: 14 (Foreman Helper #2) — COMPLETE 2026-09-10
-Plan: 14 of 14 executed; 14-14 Task 2 observed (O-14-E RESOLVED)
-Status: Closed — Helper #2 ENABLED (`HELPER2_ENABLED=1`, O-14-D: permanent
-  feature, flag-off = emergency kill switch). Registry skip restored:
-  dispatch run `34411958861` stamped `helper2-v1` on 121/121 registry rows
-  (114 with Helper #2 keys, 7 capability-unavailable without); scheduled
-  run `34415980363` skipped 112/121 via sheet_registry with 0 refresh
-  warnings and counters 7/114. Code review done: `14-REVIEW.md` via PR #399
-  (`94f2636`) — 2 Critical (CR-01 Helper #2 shadow files outside the
-  `pipeline/pricing.py` rate-matrix gate; CR-02 `EXCLUDE_WRS`/`WR_FILTER`
-  matchers miss `_HELPER2_` keys), 3 Warning, 1 Info; both Criticals are
-  protected areas. Owner decision 2026-09-10: Juan chose `--fix`. All five
-  Critical/Warning findings are fixed on branch `fix/phase-14-cr01-cr02-wr03`
-  (6 `fix(14):` commits `0e10891`..`7e9c56e` + `14-REVIEW-FIX.md`; TDD,
-  Helper #1 parity as the known-good sample; independent suite 2326 passed /
-  1 skipped; six gates pass; rubric verifier PASS; production-risk pass PASS
-  after one fix round). **PR #402 MERGED 2026-09-10 20:25Z → `6e6e1e8`**
-  (Copilot / Greptile / Codex / Cursor rounds addressed on the branch through
-  `dc484f2`, incl. the `SUB_RATES_FP` hash gate widened to the Helper #2
-  shadows in `c7544b4`; suite 2333 passed / 1 skipped; operator changelog
-  `website/blog/2026-09-10-pr402-phase-14-review-fixes.md`). Owner follow-ups
-  parked in `.planning/todos/pending/2026-09-10-pr402-review-followups.md`.
-  Next, in order: (1) Phase 12 12-06 Task 4 (resume at Task 4 only);
-  (2) observe the first scheduled run after `6e6e1e8` (Helper #2 shadow
-  workbooks regenerate once via the `SUB_RATES_FP` mix-in, expected empty; no
-  other variant hash moves); (3) PR #402 owner follow-ups (breaker half-open,
-  `keep_historical` in the SUB-09 off-contract gate); (4) Phase 13 only when
-  Juan asks.
-Last activity: 2026-09-10 — Phase 14 closed; O-14-E RESOLVED; code review
-  report merged (PR #399); code-review fixes merged (PR #402 → `6e6e1e8`)
+Phase: 13 — Audit Memory
+Plan: Not started
+Status: Ready to plan
+
+Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
+2026-09-10: 10/10 plans (incl. 4 gap-closure plans 12-07..12-10 that closed
+G-12-3). Live OWN-03 remediation applied 2026-09-05 (1,758 rows / 30 WRs /
+76 pairs); 12-06 Task 4's seven observations (run 33974128574) all passed
+and Juan replied `Approved` 2026-09-10 ~23:45Z (plus `Adopt 89746993` for
+D-12-E and `Yes drop them using our supabase connector` for the three
+snapshot backups, now dropped). `/gsd-verify-work 12` passed (12-UAT.md
+34/34, 12-VERIFICATION.md 77/77 must-haves, 6 advisory gaps — see
+Blockers/Concerns) and `phase.complete 12` advanced this file to the
+position above; the Phase 12 `.continue-here.md` was deleted as a stale
+handoff.
+
+Phase 14 (Foreman Helper #2) closed 2026-09-10 via PR #402 (`6e6e1e8`) —
+CR-01/CR-02/WR-01/WR-02/WR-03 fixed; suite 2333 passed / 1 skipped;
+operator changelog `website/blog/2026-09-10-pr402-phase-14-review-fixes.md`.
+Owner follow-ups parked in
+`.planning/todos/pending/2026-09-10-pr402-review-followups.md`. The first
+scheduled run after `6e6e1e8` (run `34530899488`) was observed clean — no
+Helper #2 shadow groups exist yet, so the expected empty regeneration wave
+produced nothing to act on.
+
+Next, in order: (1) merge PR #404 (this docs pass); (2) PR #402 owner
+follow-ups (breaker half-open, `keep_historical` in the SUB-09 off-contract
+gate); (3) Phase 13 (Audit Memory) only when Juan asks; (4) owner: Codex
+threads, Dependabot triage.
+Last activity: 2026-09-10 — Phase 12 complete, transitioned to Phase 13
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
   fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
@@ -89,7 +89,7 @@ Last activity: 2026-09-10 — Phase 14 closed; O-14-E RESOLVED; code review
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 50/50 plans ([██████████] 97%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 not yet planned)
+Progress: [████████████████████] 74/74 plans (100%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -294,6 +294,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: 12-10 Task 2: owner-authorized deviation -- STEP 1 same-UTC-day backup (attribution_snapshot_backup_20260904) applied via Supabase MCP at Juan's explicit direction, mirroring 12-09's STEP 4/5 pattern
 - [Phase ?]: 12-10 Task 3: zero-defect scoped dry-run confirmed -- WR 89732091 x 7 weeks went from 235/235 to 0/0 extension-bearing proposals
 - [Phase ?]: 12-06 declared re-entrant from its own Task 1 per Juan's re-enter-12-06 resume signal (2026-09-04); backup valid for --apply only through 2026-09-04 23:59 UTC
+- [Phase 12]: D-12-E (2026-09-10, Juan verbatim: `Approved` / `2. Adopt 89746993` / `3. Yes drop them using our supabase connector`): ROADMAP success criterion 3's sample is WR 89746993, superseding D-12-D's unresolvable 89829163 substitute; 12-06 Task 4 approved and the three `attribution_snapshot_backup_20260903/04/05` tables dropped via the Supabase connector; 12-06 is COMPLETE (Tasks 1-4)
 - [Phase 14]: 14-01: extracted pipeline/fetch.py's Helper #2 row detection into a standalone _detect_helper2_row() function (unlike Helper #1's inline block) for direct unit-testability without a Smartsheet client mock
 - [Phase 14]: 14-01: normalize_helper_value() rejects the literal 'NA' (case-insensitive) in addition to the 11-member FORMULA_ERROR_VALUES set, per D-14-05's must-have (FORMULA_ERROR_VALUES itself stays exactly the 11 tokens the plan specifies)
 - [Phase 14]: 14-01: tests/test_helper2_family_parity.py uses a KNOWN_DEFERRED allowlist for pipeline/excel.py's two subcontractor Helper #2 shadow branches, explicitly deferred to plan 14-06
@@ -444,7 +445,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - Vercel preview vs production hCaptcha keys: verify environment-scoped env var
   isolation before Phase 04 ships.
 
-- ~~Phase 12 / 12-06: OWN-03 live remediation HALTED at Task 1 (dry-run REJECTED)~~ RESOLVED 2026-09-05: gap-closure plans 12-07..12-10 landed the source-3 extension strip, proposed-value guard, and rebuilt fixtures; 12-06 re-entered and Tasks 1-3 are done (live backfill applied, 1,758 rows, read-back clean). Still owed: 12-06 Task 4 (first post-apply scheduled-run check), so 12-06-SUMMARY.md stays `status: blocked` and the ROADMAP counts Phase 12 as 9/10 until then. Pointer: .planning/HANDOFF.json.
+- Phase 12 advisory gaps (see 12-VERIFICATION.md § Gaps Summary) — owner follow-ups.
 - ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: ~~O-14-C~~ RESOLVED 2026-09-08 (plan 14-11) -- Juan chose apply-delegated; the per-role fill was applied and verified on synthetic rows (see the O-14-C decision entry above). Real-row post-merge confirmation of the fill counter and degrade-warning check stays PENDING until a live Helper #2 row exists. Second successor: ~~O-14-B~~ RESOLVED 2026-09-09 (plan 14-12) -- `pipeline_memory.upsert_rows_bulk` now carries all four Helper #2 fields; D-14-13-DDL-APPLIED/D-14-13-VERIFIED recorded; HLP-06 now Complete 7/7 in both REQUIREMENTS.md and the 14-VERIFICATION.md addendum. Phase 14 fully executed (14/14 plans; closed 2026-09-10). Post-merge step DONE: PR #390 merged as `661d6d3` (2026-09-09 02:49Z) and `HELPER2_ENABLED=1` set 02:49:58Z (D-14-14-ENABLE addendum). First enabled scheduled run `34356004448` OBSERVED 2026-09-09: counters present, no degrade warning, 0 Helper #2 groups -- verified. New gap O-14-E (mapping_schema marker never written by the caller; registry skip defeated, slower but correct) FIXED by plans 14-13 (PR #395 `d079e81`) + 14-14 (PR #396 `736141a`) and RESOLVED 2026-09-10 on observed runs `34411958861` (121/121 marked) and `34415980363` (112/121 registry skips) -- see the O-14-E decision entry above; closure PR #398. Flag-off = emergency disable, not a billing-safe rollback (O-14-D, RESOLVED 2026-09-09: accepted, flag stays on indefinitely).
 
 ### Quick Tasks Completed
@@ -522,8 +523,22 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-10T21:10:00.000Z
-**Stopped at:** PR #402 MERGED 2026-09-10 20:25Z → `6e6e1e8` (bot-review rounds Copilot ×3 / Greptile ×4 / Codex / Cursor answered on the branch through `dc484f2`: degraded op label for post-degrade rows `5720ce4`, pricing docstring `1f2218c`, parity per owning function/block `be6fccf` + `6129cc4`, `SUB_RATES_FP` gate widened to the Helper #2 shadows `c7544b4`, operator changelog `a2a7933`/`27b47a8`; suite 2333 passed / 1 skipped; Greptile P1 on the SUB-09 cleanup scope and Copilot's breaker half-open ask declined as by-design / follow-ups — `.planning/todos/pending/2026-09-10-pr402-review-followups.md`). PR #401 (pause handoff) also merged with the Phase 12 `.continue-here.md` corrected to resume 12-06 at Task 4 (`fa33df5`). Next: Phase 12 12-06 Task 4 — resume at Task 4 ONLY (the 12-06 SUMMARY's `status: blocked` would re-enter at Task 1); then observe the first scheduled run after `6e6e1e8` (Helper #2 subcontractor shadows regenerate once via the `SUB_RATES_FP` mix-in, expected empty; no other variant hash moves); then the PR #402 owner follow-ups (`.planning/todos/pending/2026-09-10-pr402-review-followups.md`); then Phase 13 when Juan asks. Previous stop: Session resumed 2026-09-10 via /gsd-resume-work; Juan chose `/gsd-code-review 14 --fix` (owner decision for CR-01 / CR-02). Fix lane DONE on branch `fix/phase-14-cr01-cr02-wr03` (off master `d08420f`): six `fix(14):` commits `0e10891`, `f08d63e`, `4cc2cd0`, `a7aef8a`, `7c0fdec`, `7e9c56e` + docs commit with `14-REVIEW-FIX.md` (iteration 2, all_fixed 5/5). Verified independently: `pytest tests/` 2326 passed / 1 skipped / 567 subtests; six gates pass; haiku rubric verifier PASS; production-risk pass NEEDS-FIX → one round → PASS. Branch pushed; **PR #402 open** (Objective · Changes Made · Production Safety Check), babysat via `/claude-mem:babysit`: Cursor approver approved, CodeQL/tests/codecov/Semgrep green, Copilot "changes recommended" threads (post-degrade rows still on the primary breaker op; three stale comment/docstring contracts; stale planning status) fixed on the branch. Next: merge PR #402; then Phase 12 12-06 Task 4. Stale `.planning/HANDOFF.json` (2026-09-04, pre-Phase-14) superseded by this file. Previous stop: Phase 14 COMPLETE 2026-09-10 -- O-14-E RESOLVED on runs `34411958861` + `34415980363`, closure PR #398; the closed-state PR list is at the end of this paragraph. Earlier that day: first enabled scheduled run `34356004448` (head `be60755`) observed clean -- Helper #2 counters as expected, 0 groups / 0 `_Helper2_` workbooks, no degrade warning, 130 `freeze_attribution` calls 200, one-time 218,338 `row_event` churn landed. O-14-D RESOLVED by Juan (Helper #2 permanent; flag-off = emergency kill switch only; option a). O-14-E found (`sheet_registry.mapping_schema` NULL on all 121 rows: no caller passed `mapping_schema_by_sheet`) and FIXED by plan 14-13 -- `discovery.get_last_discovery_skip_sids()` + `orchestrate._compute_registry_marker_sheets()` passed at both `upsert_sheet_registry` call sites; marker only for fully-validated sheets whose mapping is written this call. TDD 8 tests RED->GREEN; full suite 2304 passed / 1 skipped / 557 subtests; six gates pass; independent verifier PASS. PRs #394 (`7ded60c`), #395 (`d079e81`), #396 (`736141a`, plan 14-14: frequent runs adopt the freshly validated mapping + marker so the Monday deep run was not needed), #397 (`92c9ed6`, docs alignment) merged. O-14-E RESOLVED 2026-09-10 on observed runs (dispatch `34411958861`: 121/121 marked; scheduled `34415980363`: 112/121 registry skips); Phase 14 COMPLETE, closure PR #398. Code review done 2026-09-10: `14-REVIEW.md` via PR #399 (`94f2636`) — CR-01 (pricing gate) and CR-02 (WR hold matchers) are protected areas awaiting Juan's fix decision. Remaining: that decision; Phase 12 12-06 Task 4; Phase 13 not started. Post-review follow-ups landed through `c7544b4` (last: `SUB_RATES_FP` hash gate widened to the Helper #2 shadows, suite 2333 / 1 skipped); the three Codex threads remain Juan's.
+**Last session:** 2026-09-11T02:10:00.000Z
+**Stopped at:** Phase 12 COMPLETE via PR #404 (docs). `/gsd-verify-work 12`
+passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
+6 advisory gaps recorded in the Gaps Summary); `phase.complete 12` advanced
+STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
+ROADMAP.md; the Phase 12 `.continue-here.md` was deleted as a stale
+handoff. 12-06 Task 4's seven observations (run 33974128574) all passed and
+Juan approved 2026-09-10 ~23:45Z (`Adopt 89746993` for D-12-E; snapshot
+backups dropped via the Supabase connector). The first scheduled run after
+`6e6e1e8` (run `34530899488`) was also observed clean — no Helper #2 shadow
+groups exist yet, so the expected empty regeneration wave produced nothing
+to act on.
+Next: (1) merge PR #404; (2) PR #402 owner follow-ups
+(`.planning/todos/pending/2026-09-10-pr402-review-followups.md`); (3) Phase
+13 (Audit Memory) only when Juan asks; (4) owner: Dependabot triage /
+Codex threads.
 **Resume file:** None
 
 ## Session Continuity
