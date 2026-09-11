@@ -833,6 +833,20 @@ on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
 
 2. Audit wall clock on frequent runs is proportional to affected groups + open findings.
 3. Audit Excel/portal shows open + resurfaced only; per-WR history is queryable in SQL.
+   > Re-scoped by D-07 (2026-09-11): Phase 13 ships the SQL half only — the
+   > `pipeline_memory.open_findings` and `pipeline_memory.finding_history_by_wr` views. The
+   > Excel/portal visual surface is a tracked backlog item (see below), decided after observing
+   > real finding volume in shadow.
+
+**Plans:** 6 plans (5 waves)
+
+Plans:
+- [ ] 13-01-PLAN.md — Tracer: one check type end-to-end (flag, client gate, `pipeline_memory/audit_findings.py`, the two tables and the RPC skeleton, the orchestrate hook) behind an owner `checkpoint:decision` on the finding-key recipe *(wave 1)*
+- [ ] 13-02-PLAN.md — Folded-todo hygiene: the `snapshot_store` Class-A arg-type fix, an exact one-line mypy re-baseline with its ledger entry, and closure of the Phase 10 review todos *(wave 1, parallel)*
+- [ ] 13-03-PLAN.md — Check-type expansion: the `price_variance_anomaly` multi-week rule (D-CD-01), the `data_consistency_issue` sorted-set rule (D-CD-02), exhaustive recipe dispatch, and the load-bearing message-string pin *(wave 2)*
+- [ ] 13-04-PLAN.md — Full D-08 transition table in the `upsert_audit_findings` RPC plus the per-check re-audited-pair scoping that gates closing (AUD-02), with a lockstep Python-to-SQL contract test *(wave 3)*
+- [ ] 13-05-PLAN.md — The two SQL views, `acknowledge_finding`, RLS/revoke coverage, the D-13-A header closure, then the owner DDL apply and live read-back checkpoints *(wave 4)*
+- [ ] 13-06-PLAN.md — Docs: D-13-A closure across the spec/REQUIREMENTS/ROADMAP, the two backlog entries, operator documentation for `AUDIT_MEMORY_ENABLED` and the SQL surface, and the finding-key ledger entry *(wave 5)*
 
 ---
 
