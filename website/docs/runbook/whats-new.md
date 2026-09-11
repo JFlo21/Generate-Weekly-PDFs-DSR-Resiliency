@@ -9,6 +9,24 @@ _Last updated: September 11, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — September 11, 2026
+
+- ✅ Problem fixed: BUG-035 -- a pre-unlock inspector decision is consumed, not re-confirmed; the webapp unlock refreshes Unlock Authorized At
+- ✅ Problem fixed: BUG-036 follow-up -- fast path keeps the ledger leg and Sentry capture, cache-less callers unchanged, version GETs counted
+- ✅ Problem fixed: BUG-034 -- explicit --only-wr dispatch admits its named WR past the historical active-window cutoff (WR 90214790 never reached the GF Decision Register)
+- ✅ Problem fixed: BUG-036 -- staging pass is write-free when nothing changed, real work first, soft budget so decision sync always runs
+- 📄 Help guides updated: close-out ledger pass -- task 4 done, README refresh, BUG-034 learning
+- 📄 Help guides updated: post-merge ledger pass -- PR merged, migration 0019 amended and still unapplied, next steps
+- ✅ Problem fixed: BUG-033 round 4 -- stamps-only verdict post-0019, by-id fallback read, both contact forms (follow-up to )
+- • ops(claudeos): context-continuity hardening -- policy enforce, lane admin-env fence, phase close-out checklist, dated Render table
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
@@ -16,32 +34,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — September 11, 2026
 
-- 📄 Help guides updated: final state pointers after PR
 - 📄 Help guides updated: post-merge write-back for PR
+- 📄 Help guides updated: final state pointers after PR
 - 📄 Help guides updated: close Phase 12 — 12-06 Task 4, D-12-E, verify-work
 - 📄 Help guides updated: post-merge write-back for PR
 - ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
 - • wip(14): pause handoff, decision-first (#HLP-06)
 - 📄 Help guides updated: record code review outcome (#HLP-06)
 - 📄 Help guides updated: Phase 14 code review report (#HLP-06)
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Python CLI that generates inspector-facing manifest Excel workbooks of ProMax claimed units — one Work Request at a time. It is a visual sibling of the weekly billing Excel (LineTec logo, red banner, summary blocks) restyled for review: no pricing, no Monday-Sunday day blocks, one continuous list natural-sorted by Point Number, with inspector-editable approval columns.
-
-### 📋 Changelog — September 10, 2026
-
-- 📄 Help guides updated: post-merge ledger pass -- PR merged, migration 0019 amended and still unapplied, next steps
-- ✅ Problem fixed: BUG-033 round 4 -- stamps-only verdict post-0019, by-id fallback read, both contact forms (follow-up to )
-- • ops(claudeos): context-continuity hardening -- policy enforce, lane admin-env fence, phase close-out checklist, dated Render table
-- ✅ Problem fixed: BUG-033 -- settled No-Revisions approval-lock repair no longer re-locks an admin-authorized unlock
-- ✅ Problem fixed: BUG-032 -- gf-edit-watcher.yml maps APP&#95;SUPABASE&#95;URL / APP&#95;SUPABASE&#95;SECRET&#95;KEY for the 33-03 approval-lock check
-- 📄 Help guides updated: ledgers -- PR merged + Render deploy verified; version-authority arming held on evidence
-- ✨ New capability: approval lock + post-approval change alerts (LOCK-01/02/03) -- gated dark
-- 📄 Help guides updated: BUG-030 closed / live-proven -- first green decision-sync run after PR
 
 <!-- /runbook-repo -->
 
@@ -59,7 +59,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 10, 2026
+### 📋 Changelog — September 11, 2026
 
 - • 📊 Audit: 2026-09-07T07:04:39Z
 
@@ -448,7 +448,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 10, 2026
+### 📋 Changelog — September 11, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -459,7 +459,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — September 10, 2026
+### 📋 Changelog — September 11, 2026
 
 - • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits
 - • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits ()
@@ -483,3 +483,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
