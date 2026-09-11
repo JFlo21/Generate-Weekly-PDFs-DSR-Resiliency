@@ -218,7 +218,23 @@ def test_success_criterion_3_matches_recorded_decision() -> None:
         f"success criterion 3 missing traceability marker: {criterion!r}"
     )
 
-    if option == "substitute-89829163":
+    if "**D-12-E**" in section:
+        # D-12-E (2026-09-10) supersedes the D-12-D sample: the substitute
+        # WR 89829163 carried placeholder-only artifacts, so the criterion
+        # now names the first backfilled WR whose swap was observed live.
+        # Anchor on the recorded decision bullet, not on the criterion's own
+        # traceability marker, so a deleted or corrupted bullet fails here.
+        # A later decision that supersedes D-12-E must extend this branch.
+        e_bullet = _slice_bullet(section, "D-12-E")
+        assert "89746993" in e_bullet, (
+            f"D-12-E bullet does not name the SC3 sample WR: {e_bullet!r}"
+        )
+        assert "per D-12-E" in criterion, (
+            f"success criterion 3 missing the D-12-E marker: {criterion!r}"
+        )
+        assert "89746993" in criterion
+        assert "sentinel-superseded" in criterion
+    elif option == "substitute-89829163":
         assert "89829163" in criterion
         assert "backfill_artifacts" in criterion
     elif option == "amend-observable":

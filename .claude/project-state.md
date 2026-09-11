@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-10 16:10 CDT (2026-09-10 21:10Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-10 21:10 CDT (2026-09-11 02:10Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -11,16 +11,20 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   (`RUN_MEMORY_WRITE_ENABLED='1'` on the `Generate reports` step only); `RUN_MEMORY_INCREMENTAL_ENABLED` OFF;
   change detection and attachment identity are `group_state`-backed; `TIME_BUDGET_MINUTES=165` under
   `timeout-minutes: 180`.
-- **Phase 12 (Ownership)**: waves 1–3 plus gap closure (plans 12-01..12-10) merged via PR #387 and PR #388;
-  the live attribution backfill is applied (1,758 rows updated, read-back clean). **12-06 Task 4** (first
-  post-apply scheduled-run check) is still owed — pointer `.planning/HANDOFF.json`. Phase 13 (the deferred
-  `wr_week_ownership` table, D-12-A) has not started.
+- **Phase 12 (Ownership)**: **COMPLETE 2026-09-10** — 10/10 plans (incl. 4 gap-closure plans). `/gsd-verify-work 12`
+  passed: `12-UAT.md` 34/34, `12-VERIFICATION.md` 77/77 must-haves; 5 open advisory gaps for owner follow-up, the 6th — runbook WR-09 — fixed in the PR; PR #404
+  (docs). Live attribution backfill applied 2026-09-05 (1,758 rows); 12-06 Task 4 approved 2026-09-10 ~23:45Z
+  (`Adopt 89746993` for D-12-E; snapshot backups dropped). Phase 13 (`wr_week_ownership`, D-12-A) not started —
+  plan only when Juan asks.
 - **Phase 14 (Foreman Helper #2)**: COMPLETE 2026-09-10 — 14/14 plans executed and observed; O-14-E RESOLVED.
   PR #389 → `ba6eeaf`, #390 → `661d6d3`, #394 → `7ded60c`, #395 → `d079e81`, #396 → `736141a`, #397 → `92c9ed6`,
   closure PR #398 → `45bdbbf`; code review report PR #399 → `94f2636` (`14-REVIEW.md`, standard depth, 71 files: 2 Critical / 3 Warning / 1 Info — **CR-01** Helper #2 subcontractor shadow files fall outside the rate-matrix gate in `pipeline/pricing.py`, **CR-02** `EXCLUDE_WRS` / `WR_FILTER` matchers in `pipeline/grouping.py` do not recognise `_HELPER2_` group keys). **Owner decision 2026-09-10: `--fix`.** All 5 Critical/Warning findings fixed on local branch `fix/phase-14-cr01-cr02-wr03` (`0e10891`..`7e9c56e`, `14-REVIEW-FIX.md` all_fixed; six gates, rubric + production-risk passes; bot-review follow-ups through `c7544b4`, incl. the `SUB_RATES_FP` hash gate widened to the Helper #2 shadows, suite 2333/1 skipped) — **PR #402 MERGED 2026-09-10 20:25Z → `6e6e1e8`** (review rounds: Copilot ×3, Greptile ×4, Codex, Cursor; follow-ups through `dc484f2`; synthesized operator changelog `website/blog/2026-09-10-pr402-phase-14-review-fixes.md`; local fix branch deleted, remote branch still on origin); IN-01 self-resolved with CR-02. Owner follow-ups parked in `.planning/todos/pending/2026-09-10-pr402-review-followups.md` (breaker half-open after a successful probe; `keep_historical` inside the SUB-09 off-contract gate before incremental read is ever enabled).
   **Helper #2 is ENABLED** for scheduled runs via the repo variable `HELPER2_ENABLED=1` — section below.
 - **GSD tooling**: HEALTHY as of 2026-09-06 (gsd-core 1.13.0 via the marketplace plugin); a forbidden npm
   reinstall that session was fully rolled back — never accept the npm install prompt on this machine.
+- **claude-mem**: the 13.24.7 plugin cache was gutted by the plugin updater (only hooks/modes/node_modules
+  survived); restored from the marketplace checkout 2026-09-11 — if hooks stop capturing again, re-copy
+  package.json, scripts/, skills/, sqlite/, ui/ from `~/.claude/plugins/marketplaces/thedotmack/plugin`.
 - **CI noise**: `code/snyk` ("Code test limit reached") and the Azure DevOps mirror build fail on every PR
   (same on merged #388/#389/#390); master carries no required checks.
 
@@ -67,8 +71,10 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 - **pipeline_memory**: migration `20260909022129_helper2_row_state_columns_marker_and_rpc` is live
   (14-12 Task 2) — adds the `row_state` Helper #2 columns and `sheet_registry.mapping_schema`; read back
   clean (`D-14-13-VERIFIED`). Pre-state rollback reference parked in the owner's vault `raw/` folder.
-- **Phase 12 attribution**: live backfill applied 2026-09-05 (1,758 rows); snapshot backups
-  `_20260903`/`_20260904`/`_20260905` retained until 12-06 Task 4 verifies the post-apply run.
+- **Phase 12 attribution**: live backfill applied 2026-09-05 (1,758 rows); 12-06 Task 4 observed the post-apply
+  run 2026-09-10 (all pass) and Juan approved it ~23:45Z; snapshot backups `_20260903`/`_20260904`/`_20260905`
+  dropped via the Supabase connector (migration `drop_attribution_snapshot_backups_20260903_04_05`) — 0 left,
+  live table unchanged at 224,371 rows / 1,758 with `backfill_provenance`.
 
 ## Open items / owner decisions
 
@@ -81,19 +87,18 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   flag is an emergency kill switch only, persisted-claim routing declined (`14-DECISIONS.md`).
 - **O-14-B** (`upsert_rows_bulk` RPC gap): RESOLVED 2026-09-09 (`D-14-13-VERIFIED`).
 - **O-14-A Follow-up 1** (per-slot Helper #2 duplication): CONFIRMED by Juan 2026-09-08 (`O-14-A-FOLLOWUP-1`).
-- **12-06 Task 4**: first post-apply scheduled-run check still owed — pointer `.planning/HANDOFF.json`.
+- **12-06 Task 4 observed and APPROVED** (run 33974128574: 74 files regenerated, 64 placeholders removed, sample
+  WR 89746993 pass, 47:51 < 165 min) — Juan replied `Approved` / `Adopt 89746993` (D-12-E) / backups dropped
+  2026-09-10 ~23:45Z; 12-06 COMPLETE. First run after `6e6e1e8` (`34530899488`) clean, no Helper #2 shadow groups.
 - **HELPER2_ENABLED**: ENABLED (variable `1` since 2026-09-09 02:49:58Z); repo default stays `'0'`.
 
 ## Next actions
 
-1. Phase 12: run 12-06 Task 4 (post-apply scheduled-run check — resume at Task 4 ONLY, never a bare
-   `/gsd-execute-phase 12`; see `.planning/phases/12-ownership-last-known-foreman-as-of-the-week/.continue-here.md`),
-   then drop the `_20260903/04/05` snapshot backups and `/gsd-verify-work 12`.
-2. Observe the first scheduled run after `6e6e1e8`: Helper #2 shadow workbooks regenerate once (`SUB_RATES_FP`
-   mix-in) — expected empty while no live `_Helper2_` file exists; no other variant's hash moves.
-3. PR #402 owner follow-ups (`.planning/todos/pending/2026-09-10-pr402-review-followups.md`): breaker half-open
+1. Merge PR #404 (this docs pass).
+2. PR #402 owner follow-ups (`.planning/todos/pending/2026-09-10-pr402-review-followups.md`): breaker half-open
    policy (client feature), `keep_historical` in the SUB-09 off-contract gate (attachment deletion — owner decision).
-4. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
+3. Phase 13 (`wr_week_ownership`, D-12-A) — plan only when Juan asks.
+4. Owner: Codex threads (PR #399/#400/#402), Dependabot triage.
 
 ## Risks and guardrails
 
@@ -111,4 +116,4 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 - Roadmap: `.planning/ROADMAP.md`.
 - Decisions: `docs/DECISIONS.md`, `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`.
 - Runbook: `website/docs/runbook/foreman-helper-2.md`.
-- Handoff: `.planning/HANDOFF.json` (Phase 12 12-06 Task 4 resume pointer).
+- Handoff: `.planning/HANDOFF.json` (Phase 12 CLOSED; next = PR #402 follow-ups, Phase 13 when asked).

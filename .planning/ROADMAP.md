@@ -114,12 +114,13 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
   weekly deep run = full reconciliation, `RUN_MEMORY_INCREMENTAL_ENABLED` kill switch,
   parity proof, then retire local JSON caches + attachment pre-fetch. (INC-01..05)
 
-- [ ] **Phase 12: Ownership — last known foreman as of the week** — `wr_week_ownership`
-  ladder, sentinel-never-a-name fix in `freeze_row`/`resolve_claimer`, dry-run-first
-  backfill (artifacts filenames, attribution_snapshot, 2025 hash_history) and remediation
-  of the 93 `Unknown Foreman` WRs; amends Foundation A first-write-wins. (OWN-01..04)
-  **First slice shipped 2026-09-01 (OWN-02, owner policy A):** frozen sentinels read as
-  no-history and are never stored; OWN-01 / OWN-03 / OWN-04 ladder + backfill still open.
+- [x] **Phase 12: Ownership — last known foreman as of the week** (completed 2026-09-10) — claim-time
+  ownership ladder in `resolve_claimer` over `attribution_snapshot` (observed_in_week →
+  backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel, with provenance
+  columns; no `wr_week_ownership` table — deferred to Phase 13 per D-12-A), sentinel-never-a-name
+  fix in `freeze_row`/`resolve_claimer` (shipped 2026-09-01, owner policy A), dry-run-first
+  backfill applied live 2026-09-05 (1,758 rows / 30 WRs / 76 pairs; `#NO MATCH` deferred per
+  D-12-C) and the amended Foundation A contract documented. (OWN-01..04 complete)
 
 - [ ] **Phase 13: Audit Memory** — `audit_finding` lifecycle (open → fixed / resurfaced /
   acknowledged), incremental audits over affected groups + open findings. (AUD-01..03)
@@ -148,7 +149,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | ✅ Complete | 2026-08-31 |
 | 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 4/4 | ✅ Complete | 2026-09-02 |
-| 12. Ownership — last known foreman as of the week | v1.4 | 9/10 (12-06 blocked at Task 4) | In Progress |  |
+| 12. Ownership — last known foreman as of the week | v1.4 | 10/10 | ✅ Complete | 2026-09-10 |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
 | 14. Foreman Helper #2 | v1.4 | 14/14 | ✅ Complete | 2026-09-10 |
 
@@ -727,15 +728,20 @@ approved as the next small PR.
 2. Dry-run backfill report lists, per affected (WR, week), the proposed owner and its
    source; Juan approves before the live remediation.
 
-3. WR 89829163 WE 082425/083125/091425/092125 regenerate under a real resolved name from the
-   `backfill_artifacts` source; no `_User__NO_MATCH` / `_User_Unknown_Foreman` churn remains
-   in the scheduled run. (Amended 2026-09-04 per D-12-D; see 12-08-SUMMARY.md.)
+3. WR 89746993 WE 082425/083125/090725/091425 regenerate under a real resolved name
+   (`_User_<real resolved name>` — the person is not recorded, T-12-28; 114 backfilled rows) and the `_User_Unknown_Foreman` counterpart is
+   removed by the sentinel-superseded gate; no placeholder churn remains on the backfilled
+   (WR, week) pairs in the scheduled run. (Amended 2026-09-04 per D-12-D; amended again
+   2026-09-10 per D-12-E — observed on run 33974128574; see 12-06-SUMMARY.md Task 4.)
 
 4. Living Ledger + runbook document the amended Foundation A contract.
 
-**Plans:** 10/10 plans executed — 5/6 of the original set executed; 12-06 HALTED at Task 1 (dry-run REJECTED
-2026-09-03 — source-3 filename parser defect; 12-03 SQL applied live 2026-09-03). Gap-closure plans
-12-07 through 12-10 planned 2026-09-04 for G-12-3; 12-06 re-enters at Task 1 after 12-10.
+**Plans:** 10/10 plans complete
+12-06 Tasks 1-3 landed the live apply (2026-09-05, 1,758 rows / 30 WRs / 76 pairs) and Task 4 was observed on
+run 33974128574 and `Approved` (D-12-E; backups dropped). History: 12-06 HALTED at Task 1 on 2026-09-03
+(dry-run REJECTED — source-3 filename parser defect); gap-closure plans 12-07 through 12-10 closed G-12-3 on
+2026-09-04 and 12-06 re-entered at Task 1. `/gsd-verify-work 12` passed 2026-09-11 (12-UAT.md 34/34,
+12-VERIFICATION.md 77/77 must-haves) and `phase.complete 12` closed the phase.
 
 Plans:
 **Wave 1**
@@ -754,7 +760,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [x] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run — HALTED at Task 1 (dry-run REJECTED 2026-09-03; see 12-06-SUMMARY.md)
+- [x] 12-06-PLAN.md — Live rollout: dry-run review, the one-way `--apply` decision, the apply, and post-run verification of the scheduled billing run — COMPLETE 2026-09-10 (Tasks 1–3 landed 2026-09-05, Task 4 approved 2026-09-10; history: HALTED at Task 1 on 2026-09-03 after the dry-run REJECT, re-entered after 12-07..12-10; see 12-06-SUMMARY.md)
 
 **Gap closure — G-12-3** *(source-3 filename parser defect; from 12-UAT.md)*
 
@@ -797,6 +803,14 @@ Plans:
   `substitute-89829163`: WR 19073866 has zero rows in every Supabase store the ladder reads,
   so success criterion 3 above now names WR 89829163 (live-verified sentinel rows on WE
   082425/083125/091425/092125) resolved through the `backfill_artifacts` source.
+
+- **D-12-E** (2026-09-10) — success criterion 3's sample is WR 89746993 (verbatim: `Adopt
+  89746993`): the D-12-D substitute 89829163 turned out to carry placeholder-only artifacts and
+  hash identifiers, so it can never show a real-name swap. WR 89746993 (4 weeks, 114 backfilled
+  rows, resolved name not recorded per T-12-28) is the first backfilled WR whose swap was observed on the first
+  post-apply scheduled run (33974128574, 2026-09-05). Same reply: 12-06 Task 4 `Approved`, and
+  the three `attribution_snapshot_backup_2026090{3,4,5}` tables dropped via the Supabase
+  connector (live table 224,371 rows / 1,758 backfilled verified first).
 
 ### Phase 13: Audit Memory
 

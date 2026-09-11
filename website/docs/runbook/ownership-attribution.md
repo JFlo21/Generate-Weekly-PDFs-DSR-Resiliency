@@ -209,11 +209,18 @@ through to that fallback; the `#NO MATCH` population keeps falling through
 until a later phase addresses it.
 
 The sample this remediation is verified against is also a decision, not the
-originally planned WR: success criterion 3 (decision **D-12-D**, 2026-09-04,
-option `substitute-89829163`) now names WR 89829163 WE
-082425/083125/091425/092125, resolved through the `backfill_artifacts`
-source, because the originally named WR 19073866 has zero rows in every
-Supabase store the ladder reads.
+originally planned WR: success criterion 3 was first amended by decision
+**D-12-D** (2026-09-04, option `substitute-89829163`) to WR 89829163 WE
+082425/083125/091425/092125, because the originally named WR 19073866 has
+zero rows in every Supabase store the ladder reads. Decision **D-12-E**
+(2026-09-10) supersedes D-12-D: 89829163 turned out to carry only
+placeholder-named artifacts and hash identifiers in all four weeks, so it
+could never show a real-name swap. Success criterion 3 now names WR
+89746993 WE 082425/083125/090725/091425 (`_User_<real resolved name>`, 114
+backfilled rows, `backfill_artifacts` source) — the first backfilled WR
+whose real-name swap (placeholder removed by the sentinel-superseded gate)
+was observed live on the first post-apply scheduled run (33974128574,
+2026-09-05).
 
 ## Running the backfill
 
@@ -237,7 +244,7 @@ applying role must also hold `UPDATE` on `billing_audit.attribution_snapshot`.
 
    ```bash
    python scripts/backfill_claim_time_attribution.py \
-     --wr 19073866 --weeks 082425,083125,091425,092125
+     --wr 89746993 --weeks 082425,083125,090725,091425
    ```
 
    Optional: `--roles primary,helper,vac_crew` (default all three),
@@ -266,7 +273,7 @@ applying role must also hold `UPDATE` on `billing_audit.attribution_snapshot`.
 
    ```bash
    python scripts/backfill_claim_time_attribution.py \
-     --wr 19073866 --weeks 082425,083125,091425,092125 \
+     --wr 89746993 --weeks 082425,083125,090725,091425 \
      --apply --i-approved-this
    ```
 

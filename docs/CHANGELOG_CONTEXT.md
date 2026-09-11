@@ -9,6 +9,35 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-10 — 12-06 Task 4 observed and APPROVED (post-apply run 33974128574); D-12-E sample; backups dropped; Phase 12 closed
+
+Read-only, ~23:15Z: transcribed all seven of 12-06 Task 4's post-apply observations against run 33974128574 (the
+first scheduled run after the 2026-09-05 attribution backfill) plus a live Smartsheet target-sheet inventory and
+Supabase reads. All seven pass: 74 files regenerated / 64 `_User_Unknown_Foreman` placeholders removed, sample
+WR 89746993 + 4 spot-checks correct, no PPP or real-name-history loss, 47:51 well under the 165-min budget,
+`success`, no new Sentry issue. Two non-blocking findings routed to `/gsd-verify-work 12`: production emits no
+`sentinel_claimers_ignored` counter (verified via log-line proxies instead), and 15 stale `Unknown_Foreman`
+`group_state` rows survive their attachment's supersede-delete. ROADMAP SC3's known-good sample is unresolvable
+at WR 19073866/89829163; substitute WR 89746993 proposed. Separately, the first scheduled run after Phase 14's
+PR #402 (`6e6e1e8`) — run 34530899488 — was observed clean: no Helper #2 shadow groups exist yet, so nothing
+regenerated. At ~23:45Z the same day Juan replied verbatim: `Approved` / `2. Adopt 89746993` / `3. Yes drop them
+using our supabase connector`. The reply closes 12-06: `12-06-SUMMARY.md`'s frontmatter is now a completion
+record, ROADMAP success criterion 3 names decision **D-12-E** (WR 89746993, superseding D-12-D's unresolvable
+89829163 substitute), and the three `attribution_snapshot_backup_20260903/04/05` tables were dropped via the
+Supabase connector as migration `drop_attribution_snapshot_backups_20260903_04_05` on project
+`poeyztlmsawfoqlanucc` — pre-check live table 224,371 rows / 1,758 with `backfill_provenance`, no dependent
+views, backups 220,010 / 220,621 / 221,276 rows; post-check 0 `attribution_snapshot_backup_%` tables remain,
+live table unchanged. `/gsd-verify-work 12` then ran 2026-09-11: `12-UAT.md` reconciled the four G-12-3 gap
+items and closed `status: complete` at 34/34 pass; `12-VERIFICATION.md` regenerated `status: passed` at 77/77
+must-haves, with 6 advisory items in its Gaps Summary — 5 stay open for owner follow-up (no production
+`sentinel_claimers_ignored` counter, `backfill_run_id=''` on local runs, stale `Unknown_Foreman` `group_state`
+rows after supersede-delete, the CR-01 latent 6-hex-vs-16-hex regex-width mismatch, the WR-01
+newest-ledger-heading test pin) and the 6th, a runbook example WR, is fixed in this PR. `phase.complete 12` then advanced ROADMAP.md / REQUIREMENTS.md / STATE.md: Phase 12 marked
+`[x]` complete, STATE.md moved to Phase 13 "Ready to plan", and the Phase 12 `.continue-here.md` was deleted as
+a stale handoff. Landed via docs PR #404. See
+`.planning/phases/12-ownership-last-known-foreman-as-of-the-week/12-06-SUMMARY.md` (Task 4),
+`12-VERIFICATION.md`, and `memory-bank/living-ledger.md` `[2026-09-10 23:30]` / `[2026-09-11 02:10]`.
+
 ## 2026-08-27 — pipeline_memory client init fixed for supabase-py sync options (PR #356)
 First run after the `RUN_MEMORY_WRITE_ENABLED` flip wrote no run memory: the base
 `ClientOptions` passed by the WR-02 timeout wiring lacks `.storage`, which supabase-py

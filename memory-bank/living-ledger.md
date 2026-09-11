@@ -9566,3 +9566,54 @@ post-merge squash makes ancestry checks meaningless — verify by content which 
 front-matter `title:` containing `#` must be quoted or YAML truncates it at the comment; (3) expect one empty
 regeneration wave of the `_Helper2_` subcontractor shadows on the first run after `6e6e1e8` (fingerprint
 mix-in), no other variant's hash moves. Next: Phase 12 12-06 Task 4, resumed at Task 4 ONLY.
+
+[2026-09-10 23:30] 12-06 Task 4's seven observations recorded read-only (~23:15Z) against run 33974128574 (the
+first scheduled run after the 2026-09-05 attribution backfill), a live Smartsheet `TARGET_SHEET_ID` inventory,
+and Supabase reads; the first scheduled run after Phase 14's `6e6e1e8` (run 34530899488) was also observed.
+Results: run 33974128574 generated 74 files / removed 64 `_User_Unknown_Foreman` placeholders (0 remain on the
+76 backfilled pairs), sample WR 89746993 (substitute for the unresolvable ROADMAP SC3 sample) plus 4 spot-checks
+regenerated under the real claimer name with the matching placeholder removed, no PPP or real-name-history
+attachment touched, Python step 47:51 (well under the 165-min budget), run `success`, no new Sentry issue. Run
+34530899488 (head `3fb81c7`) is clean: no Helper #2 shadow groups exist in `group_state` yet, so the expected
+empty regeneration wave produced nothing to act on. The 13 `_User_Unknown_Foreman` placeholders still on
+backfilled WRs at non-backfilled weeks all have `backfilled = 0` / `frozen_primary = 'Unknown Foreman'` — they
+are among the 4,071 genuinely evidence-less rows routed to source 5, not a gap. Filed for `/gsd-verify-work 12`:
+no `sentinel_claimers_ignored` counter in production output, and the ROADMAP SC3 sample substitution
+(19073866 → 89746993). This was recorded as an observation-only record, the human-verify checkpoint held open
+pending Juan's literal reply — and at ~23:45Z the same day Juan replied verbatim: `Approved` / `2. Adopt 89746993`
+/ `3. Yes drop them using our supabase connector`. That reply closes 12-06: `12-06-SUMMARY.md`'s frontmatter is
+now a completion record (Tasks 1-4), ROADMAP success criterion 3 names decision **D-12-E** (WR 89746993,
+superseding D-12-D's unresolvable 89829163 substitute), and the three `attribution_snapshot_backup_20260903` /
+`_20260904` / `_20260905` tables were dropped via the Supabase connector as migration
+`drop_attribution_snapshot_backups_20260903_04_05` on project `poeyztlmsawfoqlanucc` — pre-check live
+`billing_audit.attribution_snapshot` 224,371 rows / 1,758 with `backfill_provenance`, no dependent views, backups
+220,010 / 220,621 / 221,276 rows; post-check 0 `attribution_snapshot_backup_%` tables remain, live table
+unchanged at 224,371 / 1,758. Next: `/gsd-verify-work 12` → `phase.complete 12`. RULES: (1) `sentinel_claimers_ignored` is a plan-level
+name, not a production counter — verify sentinel churn via the `Sentinel-superseded` / `Removed off-contract
+variant` log lines and the target-sheet inventory instead; (2) the sentinel-superseded gate deletes the
+attachment but leaves the `group_state` row behind — filter by attachment existence, not `group_state`, when
+auditing placeholders; (3) a human-verify checkpoint stays open until the literal resume-signal, even when every
+observation passes — and closes the instant that signal (here, `Approved`) arrives.
+
+[2026-09-11 02:10] Phase 12 (Ownership — last known foreman as of the week) CLOSED via the standard verify-work
+path: `12-UAT.md` reconciled its open G-12-3 gap ids against the four gap-closure plans (12-07..12-10) and the
+consolidated owner confirmation on 12-06 Task 4 (`Approved` / `Adopt 89746993` / backups dropped, 2026-09-10
+~23:45Z), landing `status: complete` at 34/34 pass; a fresh `12-VERIFICATION.md` regenerated against the
+covered-input fingerprint passed 77/77 must-haves with 6 advisory items (no `sentinel_claimers_ignored` production
+counter, `backfill_run_id=''` on local-operator runs, stale `Unknown_Foreman` `group_state` rows surviving a
+supersede-delete, the CR-01 6-hex-vs-16-hex hash-suffix regex being latent rather than live, the WR-01 test
+pinning the newest ledger heading literally, and one runbook example WR — the last one fixed in this same pass).
+`phase.complete 12` then advanced `.planning/ROADMAP.md` / `.planning/REQUIREMENTS.md` / `.planning/STATE.md`
+and deleted the Phase 12 `.continue-here.md` as a stale handoff, landed via docs PR #404. Five of the six advisory
+items are parked as owner follow-ups, not re-opened work; the sixth (WR-09) is fixed in the same PR. RULES: (1) a `VERIFICATION.md` that declares
+`covered_files` goes `stale` the instant any covered file changes (REQUIREMENTS.md, the runbook, ledgers
+included) — recompute `covered_digest` with the in-process reader (`computeCoveredDigest`) after the LAST doc
+edit in a pass, because on this Windows checkout the CLI `verification.fingerprint` verb produced a different
+digest than the in-process reader for the same file set; (2) `gsd frontmatter.set` inserted a blank line inside
+a YAML block list and the status reader then read the list as empty — check the frontmatter by eye after any
+tool-driven frontmatter edit, don't trust the tool's own success return; (3) the claude-mem plugin updater can
+gut a versioned plugin cache directory down to only `hooks/`, `modes/`, and `node_modules/` — if hook capture
+stops, restore `package.json`, `scripts/`, `skills/`, `sqlite/`, `ui/` from the marketplace checkout at
+`~/.claude/plugins/marketplaces/thedotmack/plugin` rather than reinstalling.
+
+[2026-09-11 03:55] PR #404 (Phase 12 closure docs) went through three bot review rounds before it was clean. Round 1 caught real claimer names written into five tracked records (ROADMAP SC3 + D-12-E, 12-06-SUMMARY, 12-VERIFICATION, PROJECT.md, the public runbook) — a T-12-28 breach that the pre-existing `_User_<real resolved name>` alias convention already forbade; the fix was redaction plus collapsing the branch into one commit (`b84bd6f`) so the names left branch history. Round 2 was pure record drift: the six-advisory count in five summaries still counted WR-09 although the same PR fixed it, REQUIREMENTS OWN-01..03 still described the unbuilt `wr_week_ownership` table while marked Complete, HANDOFF.json and the Phase 14 handoff pointed at the deleted Phase 12 `.continue-here.md` and at PR #403, and `state_head` pointed at the collapsed commit. RULES: (1) before opening ANY docs PR run `git diff origin/master...HEAD | grep -E '^\+' | grep -oE '_User_[A-Z][a-z]+_[A-Z][a-z]+' | grep -v Unknown_Foreman` and expect zero hits — bots find names in minutes, and squash-merge does not scrub the PR branch; (2) when a closure PR fixes one of the advisories it also records, state the resolved/open split everywhere the count appears (project-state, STATE.md, HANDOFF.json, CHANGELOG_CONTEXT, VERIFICATION gaps table) in the same commit; (3) when a requirement is marked Complete under a re-scope decision, re-word the requirement to what shipped and keep the original as a quoted note — a `[x]` on stale text is a contradiction, not a record; (4) after a branch-history rewrite grep every planning file for the abandoned SHAs (`state_head`, PR bodies, handoffs) before pushing; (5) when a transition deletes a `.continue-here.md`, grep for its path in HANDOFF.json and sibling handoffs in the same commit.
