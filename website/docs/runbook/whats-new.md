@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: September 10, 2026 (updated automatically)_
+_Last updated: September 11, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,8 +14,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 10, 2026
+### 📋 Changelog — September 11, 2026
 
+- 📄 Help guides updated: close Phase 12 — 12-06 Task 4, D-12-E, verify-work
 - 📄 Help guides updated: post-merge write-back for PR
 - ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
 - • wip(14): pause handoff, decision-first (#HLP-06)
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: Phase 14 code review report (#HLP-06)
 - 📄 Help guides updated: close O-14-E and Phase 14 on observed runs (#HLP-06)
 - 📄 Help guides updated: align status files with plan 14-14 merge (#HLP-06)
-- ✅ Problem fixed: frequent runs adopt validated mapping, clear O-14-E now
 
 <!-- /runbook-repo -->
 
