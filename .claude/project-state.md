@@ -14,8 +14,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 - **Phase 12 (Ownership)**: **COMPLETE 2026-09-10** — 10/10 plans (incl. 4 gap-closure plans). `/gsd-verify-work 12`
   passed: `12-UAT.md` 34/34, `12-VERIFICATION.md` 77/77 must-haves; 5 open advisory gaps for owner follow-up, the 6th — runbook WR-09 — fixed in the PR; docs PR #404
   MERGED 2026-09-11 03:39Z → `9ba7eb7`. Live attribution backfill applied 2026-09-05 (1,758 rows); 12-06 Task 4 approved 2026-09-10 ~23:45Z
-  (`Adopt 89746993` for D-12-E; snapshot backups dropped). Phase 13 (Audit Memory) not started — plan only when Juan asks;
-  `wr_week_ownership` is deferred per D-12-A and still needs a place on the Phase 13 contract.
+  (`Adopt 89746993` for D-12-E; snapshot backups dropped). Phase 13 (Audit Memory) DISCUSSED 2026-09-11 (`13-CONTEXT.md` on branch
+  `plan/phase-13`, commit `80a79b9`): spec §8 #6 LOCKED (per-check natural finding key; three WR-scoped checks;
+  owner-only SQL acknowledge) and D-12-A CLOSED (`wr_week_ownership` dropped for good → D-13-A, docs-only). Next: `/gsd:plan-phase 13`.
 - **Phase 14 (Foreman Helper #2)**: COMPLETE 2026-09-10 — 14/14 plans executed and observed; O-14-E RESOLVED.
   PR #389 → `ba6eeaf`, #390 → `661d6d3`, #394 → `7ded60c`, #395 → `d079e81`, #396 → `736141a`, #397 → `92c9ed6`,
   closure PR #398 → `45bdbbf`; code review report PR #399 → `94f2636` (`14-REVIEW.md`, standard depth, 71 files: 2 Critical / 3 Warning / 1 Info — **CR-01** Helper #2 subcontractor shadow files fall outside the rate-matrix gate in `pipeline/pricing.py`, **CR-02** `EXCLUDE_WRS` / `WR_FILTER` matchers in `pipeline/grouping.py` do not recognise `_HELPER2_` group keys). **Owner decision 2026-09-10: `--fix`.** All 5 Critical/Warning findings fixed on local branch `fix/phase-14-cr01-cr02-wr03` (`0e10891`..`7e9c56e`, `14-REVIEW-FIX.md` all_fixed; six gates, rubric + production-risk passes; bot-review follow-ups through `c7544b4`, incl. the `SUB_RATES_FP` hash gate widened to the Helper #2 shadows, suite 2333/1 skipped) — **PR #402 MERGED 2026-09-10 20:25Z → `6e6e1e8`** (review rounds: Copilot ×3, Greptile ×4, Codex, Cursor; follow-ups through `dc484f2`; synthesized operator changelog `website/blog/2026-09-10-pr402-phase-14-review-fixes.md`; local fix branch deleted, remote branch still on origin); IN-01 self-resolved with CR-02. PR #402 owner follow-ups DECIDED 2026-09-11 (D-14-FOLLOWUPS; record `.planning/todos/done/2026-09-10-pr402-review-followups.md`): breaker half-open IMPLEMENTED on PR #407 (`close_circuit()` closes a stale `freeze_attribution` breaker on a successful Helper #2 probe; review round 1 serialised every breaker transition under one `_breaker_lock` and added a trip-generation check so a trip that happens while the probe is in flight survives — follow-up: mirror `_breaker_lock` into the `pipeline_memory` twin breaker); `keep_historical` cleanup DEFERRED behind the `RUN_MEMORY_INCREMENTAL_ENABLED` rollout gate (no code until incremental read is ever enabled).
@@ -97,7 +98,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 1. PR #404 merged (`9ba7eb7`) and the post-merge write-back PR #405 merged (`6fd676a`); Phase 12 records final.
 2. PR #402 follow-ups DECIDED 2026-09-11 (D-14-FOLLOWUPS): breaker half-open = clear on probe success (PR open,
    branch `fix/breaker-half-open-on-probe`); `keep_historical` DEFERRED — gate before `RUN_MEMORY_INCREMENTAL_ENABLED`.
-3. Phase 13 (Audit Memory) — plan only when Juan asks; put `wr_week_ownership` (D-12-A) on its contract then.
+3. Phase 13 (Audit Memory) — CONTEXT captured 2026-09-11; next `/gsd:plan-phase 13` (research-first) on `plan/phase-13`.
 4. Owner: Codex threads (PR #399/#400/#402), Dependabot triage.
 
 ## Risks and guardrails
