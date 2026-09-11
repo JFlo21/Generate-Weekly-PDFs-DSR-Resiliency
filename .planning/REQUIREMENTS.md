@@ -284,7 +284,8 @@ CU pricing, rate recalculation, and billing formulas do not change.
   > `wr_week_ownership`" — see D-12-A.
 
 - [x] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
-  non-sentinel `attribution_snapshot`, and the 2025 `hash_history.json` foreman field;
+  non-sentinel `attribution_snapshot`, and the Supabase hash store (`group_content_hash`
+  + `group_state` identifier tokens — never a JSON file, D-12-B);
   the `Unknown Foreman` rows with recoverable evidence are remediated and their
   `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
   (WR 89746993 WE 082425/083125/090725/091425 → a real name via `backfill_artifacts`,

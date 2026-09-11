@@ -42,7 +42,7 @@ covered_files:
   - "tests/test_sentinel_never_a_claimer.py"
   - "website/docs/runbook/ownership-attribution.md"
   - "website/sidebars.ts"
-covered_digest: "v1:sha256:3013ca608d81168a9f0a98c20129a0c580044f19b2b16754d3098e2d22c93d96"
+covered_digest: "v1:sha256:6672c05c6902a2fc244430de8ce549e842622d743e9acfcd31712c1aed311c0b"
 behavior_unverified: 0 # Every behavior-dependent truth (live apply, post-apply scheduled run) has recorded owner-observed evidence in 12-06-SUMMARY.md / 12-UAT.md; nothing is "present but unexercised"
 overrides_applied: 6 # PASSED (override) items included in the score — carried forward from the 2026-09-03 report; each shipped shape was the one Juan approved through 12-03 T3, 12-04 re-decision and the 12-06 apply
 overrides:
@@ -223,7 +223,7 @@ Status key: ✓ VERIFIED · ✓ (override) PASSED via recorded override · ✓ (
 | --- | --- | --- | --- |
 | D1 | STEP 4 raises on an extension-bearing proposed value | ✓ VERIFIED | SQL 332-344; contract test passes; UAT 28. |
 | D2 | schema.sql documents the two-ground refusal | ✓ VERIFIED | UAT 29. |
-| D3 | Amended RPC deployed live | ✓ (owner) | 12-09-SUMMARY: STEP 4+5 re-applied, four live read-back answers (apply timestamp, EXECUTE holders) reviewed by Juan; UAT 26 pending in the file but superseded by the recorded review and the successful 12-06 apply through the amended RPC. |
+| D3 | Amended RPC deployed live | ✓ (owner) | 12-09-SUMMARY: STEP 4+5 re-applied, four live read-back answers (apply timestamp, EXECUTE holders) reviewed by Juan; UAT 26 marked pass at the consolidated owner checkpoint (12-UAT.md 34/34), backed by the recorded review and the successful 12-06 apply through the amended RPC. |
 
 **12-10 — review, backup, dry-run, re-entry (4)**
 
@@ -232,7 +232,7 @@ Status key: ✓ VERIFIED · ✓ (override) PASSED via recorded override · ✓ (
 | D1 | Independent production-risk verdict on the 12-07 + 12-09 delta | ✓ VERIFIED | Verdict pass, 8-point rubric, 2 LOW; UAT 33 pass. |
 | D2 | Same-UTC-day backup `_20260904` existed and was readable | ✓ (owner) | 12-10-SUMMARY T2 (superseded by `_20260905` for the actual apply). |
 | D3 | Scoped dry-run: 0 extension-bearing / 0 sentinel proposals (was 235/235) | ✓ (owner) | 12-10-SUMMARY T3, WR 89732091 x 7 weeks. |
-| D4 | 12-06 re-entrant from Task 1, then completed | ✓ VERIFIED | ROADMAP plan list; commits 7ce962a, 9fab1ab … 2b0ffb9. |
+| D4 | 12-06 re-entrant from Task 1, then completed | ✓ VERIFIED | ROADMAP plan list; commits 7ce962a, 9fab1ab … and the closure squash 9ba7eb7 (PR #404). |
 
 **Score:** 77/77 truths verified (4 roadmap SCs + 73 plan-level; 6 by recorded override, 13 by recorded owner evidence; 0 present-but-behavior-unverified)
 

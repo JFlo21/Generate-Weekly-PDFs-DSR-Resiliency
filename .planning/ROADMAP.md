@@ -117,7 +117,8 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 - [x] **Phase 12: Ownership — last known foreman as of the week** (completed 2026-09-10) — claim-time
   ownership ladder in `resolve_claimer` over `attribution_snapshot` (observed_in_week →
   backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel, with provenance
-  columns; no `wr_week_ownership` table — deferred to Phase 13 per D-12-A), sentinel-never-a-name
+  columns; no `wr_week_ownership` table — deferred per D-12-A, which names Phase 13; it is not
+  yet on the Phase 13 contract), sentinel-never-a-name
   fix in `freeze_row`/`resolve_claimer` (shipped 2026-09-01, owner policy A), dry-run-first
   backfill applied live 2026-09-05 (1,758 rows / 30 WRs / 76 pairs; `#NO MATCH` deferred per
   D-12-C) and the amended Foundation A contract documented. (OWN-01..04 complete)
@@ -783,7 +784,7 @@ Plans:
   `billing_audit.attribution_snapshot` + `resolve_claimer` plus the new `backfill_source` /
   `backfill_run_id` provenance columns; the table is deferred to Phase 13. The ladder as
   implemented is `observed_in_week → backfill_artifacts → backfill_hash_history → operator
-  → sentinel`, with no cross-week rung (REQUIREMENTS.md OWN-01's wording is stale).
+  → sentinel`, with no cross-week rung (REQUIREMENTS.md OWN-01 re-worded to match, 2026-09-11).
 
 - **D-12-B** — source 4 (`backfill_hash_history`) reads the Supabase hash store
   (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), NOT a JSON file. No
