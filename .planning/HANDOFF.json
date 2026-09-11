@@ -37,7 +37,7 @@
   "decisions": [
     {"decision": "O-14-E closed on two observed frequent runs instead of waiting for the Monday deep run (plan 14-14 adoption path); SQL marker backfill REJECTED", "rationale": "0/121 stored mappings carried Helper #2 keys, so a SQL stamp would have silently disabled Helper #2 detection on 114 sheets", "phase": "14"},
     {"decision": "Code-review Criticals reported first, then fixed on the owner decision --fix (2026-09-10) and merged via PR #402", "rationale": "Billing formula and WR hold controls are owner-decision areas under production-guardrails; validated against Helper #1 parity as the known-good sample", "phase": "14"},
-    {"decision": "Next-step ordering: the CR-01/CR-02 owner decision preceded Phase 12 12-06 Task 4 and is now recorded; resume pointers go straight to 12-06 Task 4 (resume at Task 4 ONLY)", "rationale": "Greptile on PR #400: a resumed session must not bypass the required owner decision; PR #402 satisfied it", "phase": "14"},
+    {"decision": "Next-step ordering: the CR-01/CR-02 owner decision preceded Phase 12 12-06 Task 4; both are recorded and DONE (Task 4 approved 2026-09-10, Phase 12 closed 2026-09-11) - resume pointers go to the PR #402 owner follow-ups, then Phase 13 when Juan asks; never re-run Phase 12 tasks", "rationale": "Greptile on PR #400: a resumed session must not bypass the required owner decision; PR #402 satisfied it", "phase": "14"},
     {"decision": "Standalone docs PRs (#397, #398, #400) replaced the earlier 'docs ride the next code PR' habit for phase closeout", "rationale": "Never push to master; records must land on master before the next phase opens", "phase": "14"}
   ],
   "uncommitted_files": ["?? .agents/", "?? .planning/state.json", "?? .serena/", "?? website/.claude/"],
