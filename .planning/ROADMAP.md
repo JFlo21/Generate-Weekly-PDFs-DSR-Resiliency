@@ -783,8 +783,9 @@ Plans:
 - **D-12-A** — Phase 12 ships NO `wr_week_ownership` table. OWN-01's ladder is satisfied by
   `billing_audit.attribution_snapshot` + `resolve_claimer` plus the new `backfill_source` /
   `backfill_run_id` provenance columns; the table is deferred to Phase 13. The ladder as
-  implemented is `observed_in_week → backfill_artifacts → backfill_hash_history → operator
-  → sentinel`, with no cross-week rung (REQUIREMENTS.md OWN-01 re-worded to match, 2026-09-11).
+  implemented is `observed_in_week → backfill_artifacts → backfill_hash_history →
+  backfill_cell_history → sentinel`, with no cross-week rung; `operator` is a provenance tag
+  for manual overrides, not a rung (REQUIREMENTS.md OWN-01 re-worded to match, 2026-09-11).
 
 - **D-12-B** — source 4 (`backfill_hash_history`) reads the Supabase hash store
   (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), NOT a JSON file. No
