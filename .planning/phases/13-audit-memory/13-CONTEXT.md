@@ -24,7 +24,7 @@ default-OFF, fail-open, additive — the billing pipeline's behavior and outputs
 ## Implementation Decisions
 
 ### Finding identity (spec §8 #6a — owner decision 2026-09-11)
-- **D-01 [owner]: Per-check natural key.** `finding_key = sha256` of the canonical
+- **D-01: [owner] Per-check natural key.** `finding_key = sha256` of the canonical
   `|`-joined, normalized identity fields for that check: `check_id` + the identity fields the
   check ALREADY emits + `week_ending` joined from the source row at persist time. The spec's
   draft template `sha(check_id|wr|week|cu|pole)` is superseded: no check emits `week` or
@@ -38,7 +38,7 @@ default-OFF, fail-open, additive — the billing pipeline's behavior and outputs
   columns so history is queryable without unhashing. — **Reversibility:** one-way — a
   recipe change later requires a key-migration of every open finding (rehash + event rows);
   the planner gets a `checkpoint:decision` before the task that fixes the recipe in code.
-- **D-02 [owner]: No edits to the four check-emission functions** in
+- **D-02: [owner] No edits to the four check-emission functions** in
   `audit_billing_changes.py` to satisfy the key. A new mapping (check_id → identity-field
   list) in the owning `billing_audit/` or `pipeline_memory/` module derives the key from the
   existing finding dicts + the source row. Adding a new check type in future MUST add a recipe
@@ -46,17 +46,17 @@ default-OFF, fail-open, additive — the billing pipeline's behavior and outputs
   in tests, never silently in production).
 
 ### Check scope and severity (spec §8 #6b — owner decision 2026-09-11)
-- **D-03 [owner]: Three WR-scoped checks are memory-backed:** `price_variance_anomaly`,
+- **D-03: [owner] Three WR-scoped checks are memory-backed.** `price_variance_anomaly`,
   `data_consistency_issue`, `rate_sanity_mismatch`. `recent_discussion` (sheet-level, no
   `(wr, week_ending)`) keeps today's run-only behavior untouched and is NOT persisted.
-- **D-04 [owner]: `audit_finding.severity` = the check's own emitted `low|medium|high`.**
+- **D-04: [owner] `audit_finding.severity` = the check's own emitted `low|medium|high`.**
   Never derived from, and never feeding back into, the run-level `_risk_level_for` ladder
   (a count rollup with price-variance excluded by default). Any rolled-up risk indicator for
   the SQL views is computed at query time over open + resurfaced findings; the existing
   `summary.risk_level` behavior and its Sentry/log output are unchanged.
 
 ### Acknowledge / suppress authority (spec §8 #6c — owner decision 2026-09-11)
-- **D-05 [owner]: Owner-only via direct SQL with the service-role, v1.** Juan sets
+- **D-05: [owner] Owner-only via direct SQL with the service-role, v1.** Juan sets
   `acknowledged` / `suppressed` (`acknowledged_by`, `acknowledged_at`) by SQL; every manual
   transition is recorded as an `audit_finding_event` row (planner: provide a small SQL
   helper function `pipeline_memory.acknowledge_finding(finding_key, actor, transition, note)`
@@ -65,7 +65,7 @@ default-OFF, fail-open, additive — the billing pipeline's behavior and outputs
   reversible — later surfaces (workflow_dispatch input, portal page) are additive on top.
 
 ### `wr_week_ownership` placement (D-12-A carry-forward — owner decision 2026-09-11)
-- **D-06 [owner]: Dropped for good.** OWN-01 is satisfied by the `resolve_claimer` ladder over
+- **D-06: [owner] Dropped for good.** OWN-01 is satisfied by the `resolve_claimer` ladder over
   `billing_audit.attribution_snapshot` plus the `backfill_source` / `backfill_run_id`
   provenance columns (validated live 2026-09-05). No `wr_week_ownership` table, view, or
   `last_known_before_week` rung will be built. Phase 13 records this as **D-13-A** in the
@@ -75,7 +75,7 @@ default-OFF, fail-open, additive — the billing pipeline's behavior and outputs
   future consumer can add a derived read-only view in its own phase.
 
 ### Audit surface (AUD-03 — owner decision 2026-09-11)
-- **D-07 [owner]: SQL views now; visual surface is a tracked follow-up.** Phase 13 ships
+- **D-07: [owner] SQL views now; visual surface is a tracked follow-up.** Phase 13 ships
   `pipeline_memory.open_findings` (status IN ('open','resurfaced'), ordered by severity /
   last_seen_run) and `pipeline_memory.finding_history_by_wr` (every finding + its events per
   WR). The Excel workbook / portal-v2 page / audit-sheet summary row is NOT built in Phase 13;
@@ -84,26 +84,26 @@ default-OFF, fail-open, additive — the billing pipeline's behavior and outputs
   `_log_to_audit_sheet` stays a placeholder. — **Reversibility:** reversible.
 
 ### Lifecycle and run semantics (from spec §6, clarified for the planner)
-- **D-08 [spec]: Transitions.** New key → `open` (+ event `opened`). Seen again → bump
+- **D-08: [spec] Transitions.** New key → `open` (+ event `opened`). Seen again → bump
   `last_seen_run` (+ event `seen`); if status was `acknowledged` → `resurfaced`
   (+ event `resurfaced`). An `open` or `resurfaced` finding whose group WAS re-audited this
   run and was not produced → `fixed`, `fixed_run = run_id` (+ event `fixed`). Findings whose
   group was NOT re-audited are untouched. `suppressed` and `fixed` findings seen again:
   `fixed` → `open` again (event `reopened`, `fixed_run` cleared); `suppressed` never changes
   status and never surfaces (last_seen_run still bumps) — see Claude's discretion.
-- **D-09 [carried, Phase 10/11]: Rollout = shadow-first, default-OFF, fail-open.** New env
+- **D-09: [carried, Phase 10/11] Rollout = shadow-first, default-OFF, fail-open.** New env
   flag `AUDIT_MEMORY_ENABLED` (default `0`), the direct analog of
   `RUN_MEMORY_WRITE_ENABLED`; every Supabase call goes through the existing
   `with_retry(op=...)` + per-op circuit breaker pattern; any failure logs + Sentry breadcrumb
   and the run continues with today's audit output. Never block billing on audit memory.
-- **D-10 [carried, Phase 11]: "Re-audited group" = the set of `(wr, week_ending)` pairs whose
+- **D-10: [carried, Phase 11] "Re-audited group" = the set of `(wr, week_ending)` pairs whose
   rows were in this run's audited row set.** With `RUN_MEMORY_INCREMENTAL_ENABLED=0` (today)
   the audit sees `all_rows`, so every group present is re-audited; when incremental read is on,
   the audit input is rows for the Phase 11 affected set ∪ rows for the groups of all
   `open`/`resurfaced` findings. The weekly deep run (`mode='full'`) re-audits everything.
   `run_ledger.mode` / `run_id` are the provenance for `first_seen_run` / `last_seen_run` /
   `fixed_run`.
-- **D-11 [carried]: Schema lives in `pipeline_memory`** (spec §8 #2), service-role only,
+- **D-11: [carried] Schema lives in `pipeline_memory`** (spec §8 #2), service-role only,
   reapply-safe DDL appended to `pipeline_memory/schema.sql` (`CREATE TABLE IF NOT EXISTS`,
   `CREATE OR REPLACE FUNCTION`). Applying DDL to the live project is a protected-area step
   Juan performs (Supabase connector) after the PR is reviewed — the plan carries a
