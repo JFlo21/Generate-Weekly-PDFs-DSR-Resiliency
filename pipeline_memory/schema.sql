@@ -667,6 +667,160 @@ SELECT cron.schedule(
     $$SELECT pipeline_memory.purge_row_event_slice();$$
 );
 
+-- ── audit_finding / audit_finding_event ──────────────────────
+-- Phase 13 (AUD-01, plan 13-01 vertical slice): persists findings
+-- emitted by ``audit_billing_changes.py`` across runs so a fixed issue
+-- can be observed to transition, not just re-detected from scratch
+-- every 2 hours. NEW, INDEPENDENT of ``run_ledger`` -- no foreign key
+-- to it (audit_finding rows exist regardless of whether
+-- RUN_MEMORY_WRITE_ENABLED is on; the two flags gate independently,
+-- D-01/prohibitions).
+--
+-- finding_key arrives PRE-COMPUTED from Python
+-- (``pipeline_memory.audit_findings.compute_finding_key``, D-01's
+-- versioned sha256 recipe) and is NEVER recomputed or re-derived here
+-- (ASVS V6 -- one authoritative hashing side, so a Python-computed key
+-- can never disagree with a SQL-computed one).
+CREATE TABLE IF NOT EXISTS pipeline_memory.audit_finding (
+    finding_key      TEXT        PRIMARY KEY,
+    recipe_version   TEXT        NOT NULL,
+    check_id         TEXT        NOT NULL,
+    wr               TEXT,
+    week_ending      DATE,
+    cu               TEXT,
+    work_type        TEXT,
+    issue_codes      TEXT[],
+    severity         TEXT,
+    status           TEXT        NOT NULL
+        CHECK (status IN ('open', 'fixed', 'acknowledged', 'suppressed',
+                           'resurfaced')),
+    evidence         JSONB,
+    first_seen_run   TEXT,
+    last_seen_run    TEXT,
+    fixed_run        TEXT,
+    acknowledged_by  TEXT,
+    acknowledged_at  TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Append-only, mirrors row_event's shape: one row per observed
+-- transition, never updated or deleted by application code.
+CREATE TABLE IF NOT EXISTS pipeline_memory.audit_finding_event (
+    event_id     BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    finding_key  TEXT        NOT NULL,
+    run_id       TEXT        NOT NULL,
+    observed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    transition   TEXT        NOT NULL
+        CHECK (transition IN ('opened', 'seen', 'fixed', 'reopened',
+                               'resurfaced', 'acknowledged', 'suppressed')),
+    actor        TEXT,
+    note         TEXT,
+    after_image  JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_finding_status
+    ON pipeline_memory.audit_finding (status);
+CREATE INDEX IF NOT EXISTS idx_audit_finding_wr_week
+    ON pipeline_memory.audit_finding (wr, week_ending);
+CREATE INDEX IF NOT EXISTS idx_audit_finding_event_key_observed
+    ON pipeline_memory.audit_finding_event (finding_key, observed_at);
+
+-- ── upsert_audit_findings (RPC) ───────────────────────────────
+-- Skeleton this task (13-01): only the insert-new-key-as-'open' (plus
+-- an 'opened' event) and bump-last_seen_run-on-existing-key (plus a
+-- 'seen' event) branches are implemented. The 'fixed' / 'resurfaced' /
+-- 'reopened' transitions -- driven by ``p_reaudited_pairs``, the set of
+-- (wr, week_ending) pairs this run re-audited but found no matching
+-- open finding for -- are finished in plan 13-04 (AUD-02); until then
+-- an empty ``p_reaudited_pairs`` is always the safe caller value (it
+-- means "nothing was re-audited", never "everything was fixed").
+--
+-- SECURITY (T-13-01/T-13-02, ASVS V5/V6): explicit typed
+-- jsonb_to_recordset(...) column lists for BOTH jsonb parameters, never
+-- dynamic SQL and never trusting client-shaped jsonb structurally
+-- (mirrors upsert_rows_bulk's T-10-03 precedent). LANGUAGE plpgsql with
+-- SET search_path = '' -- every object reference below is therefore
+-- schema-qualified. VOLATILE (the default; this RPC writes).
+CREATE OR REPLACE FUNCTION pipeline_memory.upsert_audit_findings(
+    p_run_id          TEXT,
+    p_findings        JSONB,
+    p_reaudited_pairs JSONB
+)
+RETURNS TABLE (opened INT, seen INT, fixed INT, resurfaced INT, reopened INT)
+LANGUAGE plpgsql
+VOLATILE
+SET search_path = ''
+AS $$
+DECLARE
+    _opened INT := 0;
+    _seen   INT := 0;
+BEGIN
+    -- p_reaudited_pairs is validated (typed recordset) but not yet
+    -- consumed -- plan 13-04 computes fixed/resurfaced/reopened from
+    -- it. An unused CTE reference keeps the typed-recordset parse
+    -- itself a validation gate on the shape of every caller's payload,
+    -- even before that plan lands.
+    PERFORM 1
+    FROM jsonb_to_recordset(p_reaudited_pairs) AS r(
+        wr TEXT, week_ending DATE
+    )
+    LIMIT 0;
+
+    WITH incoming AS (
+        SELECT
+            q.finding_key, q.recipe_version, q.check_id, q.wr,
+            q.week_ending, q.cu, q.work_type, q.severity, q.evidence
+        FROM jsonb_to_recordset(p_findings) AS q(
+            finding_key     TEXT,
+            recipe_version  TEXT,
+            check_id        TEXT,
+            wr              TEXT,
+            week_ending     DATE,
+            cu              TEXT,
+            work_type       TEXT,
+            severity        TEXT,
+            evidence        JSONB
+        )
+    ),
+    upserted AS (
+        INSERT INTO pipeline_memory.audit_finding (
+            finding_key, recipe_version, check_id, wr, week_ending, cu,
+            work_type, severity, status, evidence, first_seen_run,
+            last_seen_run
+        )
+        SELECT
+            i.finding_key, i.recipe_version, i.check_id, i.wr,
+            i.week_ending, i.cu, i.work_type, i.severity, 'open',
+            i.evidence, p_run_id, p_run_id
+        FROM incoming AS i
+        ON CONFLICT (finding_key) DO UPDATE SET
+            last_seen_run = p_run_id,
+            updated_at = NOW()
+        RETURNING
+            pipeline_memory.audit_finding.finding_key,
+            (xmax = 0) AS is_new
+    ),
+    logged AS (
+        INSERT INTO pipeline_memory.audit_finding_event (
+            finding_key, run_id, transition
+        )
+        SELECT
+            u.finding_key, p_run_id,
+            CASE WHEN u.is_new THEN 'opened' ELSE 'seen' END
+        FROM upserted AS u
+        RETURNING 1
+    )
+    SELECT
+        COUNT(*) FILTER (WHERE u.is_new)     AS opened_count,
+        COUNT(*) FILTER (WHERE NOT u.is_new) AS seen_count
+    INTO _opened, _seen
+    FROM upserted AS u;
+
+    RETURN QUERY SELECT _opened, _seen, 0, 0, 0;
+END;
+$$;
+
 -- ============================================================
 -- Python <-> SQL contract (D-03): adding or renaming a column here
 -- requires updating pipeline_memory/writer.py in the SAME PR. The DDL
