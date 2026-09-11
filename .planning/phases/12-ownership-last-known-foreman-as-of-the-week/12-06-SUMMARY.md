@@ -249,10 +249,12 @@ None - no external service configuration required.
 
 Plan 12-06 (Ownership Attribution Live Remediation, OWN-03) is COMPLETE: Tasks 1-3 landed the live apply
 (2026-09-05, 1,758 rows), Task 4's seven observations are on record (2026-09-10, all pass), and Juan approved
-Task 4 plus D-12-E (sample WR 89746993) and the backup drop on 2026-09-10 ~23:45Z. Next, in order: (1)
-`/gsd-verify-work 12`, reconciling the gap list from Task 4 — no `sentinel_claimers_ignored` counter in
-production output, `backfill_run_id=''` on local runs, stale `Unknown_Foreman` `group_state` rows after the
-sentinel-superseded delete, CR-01, WR-01 — → `phase.complete 12`; (2) Phase 13 (`wr_week_ownership`, D-12-A)
+Task 4 plus D-12-E (sample WR 89746993) and the backup drop on 2026-09-10 ~23:45Z. `/gsd-verify-work 12`
+passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves; the Task 4 gap list — no
+`sentinel_claimers_ignored` counter in production output, `backfill_run_id=''` on local runs, stale
+`Unknown_Foreman` `group_state` rows after the sentinel-superseded delete, CR-01, WR-01 — is parked as owner
+follow-ups) and `phase.complete 12` closed the phase. Next, in order: (1) the PR #402 owner follow-ups
+(`.planning/todos/pending/2026-09-10-pr402-review-followups.md`); (2) Phase 13 (`wr_week_ownership`, D-12-A)
 only when Juan asks.
 
 ---

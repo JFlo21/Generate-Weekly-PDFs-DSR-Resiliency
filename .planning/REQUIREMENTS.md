@@ -269,25 +269,29 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 ### Ownership — last known foreman as of the week (Phase 12)
 
-- [x] **OWN-01**: `wr_week_ownership` decides each (WR, week, variant, role) owner by the
-  ladder observed_in_week → last_known_before_week → backfill → Unknown; sentinels
-  (`Unknown Foreman`, `#NO MATCH`) are never stored as names.
-  > Satisfied by the `resolve_claimer` ladder — no `wr_week_ownership` table was built
-  > (D-12-A).
+- [x] **OWN-01**: `resolve_claimer` decides each (WR, week, variant, role) owner by the
+  ladder observed_in_week → backfill_artifacts → backfill_hash_history →
+  backfill_cell_history → sentinel, recorded with provenance columns on
+  `attribution_snapshot`; sentinels (`Unknown Foreman`, `#NO MATCH`) are never stored
+  as names.
+  > Re-scoped per D-12-A: the originally specified `wr_week_ownership` table and its
+  > `last_known_before_week` rung were not built; the table is deferred to Phase 13.
 
 - [x] **OWN-02**: `freeze_row` / `resolve_claimer` treat the sentinel as no-claimer (the
-  2026-08-24 defect) and Subproject B/C/D partition by `wr_week_ownership`.
-  > Shipped 2026-09-01 (policy A).
+  2026-08-24 defect) and Subproject B/C/D partition by the frozen `attribution_snapshot`
+  claimer.
+  > Shipped 2026-09-01 (policy A); originally written as "partition by
+  > `wr_week_ownership`" — see D-12-A.
 
 - [x] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
   non-sentinel `attribution_snapshot`, and the 2025 `hash_history.json` foreman field;
-  the 93 WRs / 5,824 rows frozen as `Unknown Foreman` are remediated and their
+  the `Unknown Foreman` rows with recoverable evidence are remediated and their
   `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
-  (WR 89829163 WE 082425/083125/091425/092125 → a real name via `backfill_artifacts`;
-  D-12-D replaced the placeholder WR 19073866, which has no rows in any Supabase store).
-  > Live remediation ran 2026-09-05 (1,758 rows / 30 WRs / 76 pairs); the 945
-  > `#NO MATCH` rows deferred per D-12-C; 4,071 evidence-less rows route to source 5
-  > later; SC3 sample WR 89746993 per D-12-E.
+  (WR 89746993 WE 082425/083125/090725/091425 → a real name via `backfill_artifacts`,
+  D-12-E; D-12-D's WR 89829163 and the original placeholder WR 19073866 are superseded).
+  > Live remediation ran 2026-09-05 (1,758 rows / 30 WRs / 76 pairs of the originally
+  > scoped 93 WRs / 5,824 rows); the 945 `#NO MATCH` rows deferred per D-12-C; 4,071
+  > evidence-less rows route to source 5 later.
 
 - [x] **OWN-04**: The change to Foundation A's first-write-wins contract is documented in
   the Living Ledger and the runbook; helper/VAC roles follow the same ladder.

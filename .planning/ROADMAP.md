@@ -114,12 +114,13 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
   weekly deep run = full reconciliation, `RUN_MEMORY_INCREMENTAL_ENABLED` kill switch,
   parity proof, then retire local JSON caches + attachment pre-fetch. (INC-01..05)
 
-- [x] **Phase 12: Ownership — last known foreman as of the week** — `wr_week_ownership` (completed 2026-09-10)
-  ladder, sentinel-never-a-name fix in `freeze_row`/`resolve_claimer`, dry-run-first
-  backfill (artifacts filenames, attribution_snapshot, 2025 hash_history) and remediation
-  of the 93 `Unknown Foreman` WRs; amends Foundation A first-write-wins. (OWN-01..04)
-  **First slice shipped 2026-09-01 (OWN-02, owner policy A):** frozen sentinels read as
-  no-history and are never stored; OWN-01 / OWN-03 / OWN-04 ladder + backfill still open.
+- [x] **Phase 12: Ownership — last known foreman as of the week** (completed 2026-09-10) — claim-time
+  ownership ladder in `resolve_claimer` over `attribution_snapshot` (observed_in_week →
+  backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel, with provenance
+  columns; no `wr_week_ownership` table — deferred to Phase 13 per D-12-A), sentinel-never-a-name
+  fix in `freeze_row`/`resolve_claimer` (shipped 2026-09-01, owner policy A), dry-run-first
+  backfill applied live 2026-09-05 (1,758 rows / 30 WRs / 76 pairs; `#NO MATCH` deferred per
+  D-12-C) and the amended Foundation A contract documented. (OWN-01..04 complete)
 
 - [ ] **Phase 13: Audit Memory** — `audit_finding` lifecycle (open → fixed / resurfaced /
   acknowledged), incremental audits over affected groups + open findings. (AUD-01..03)
@@ -148,7 +149,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
 | 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | ✅ Complete | 2026-08-31 |
 | 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 4/4 | ✅ Complete | 2026-09-02 |
-| 12. Ownership — last known foreman as of the week | v1.4 | 9/10 (12-06 blocked at Task 4) | Complete    | 2026-09-10 |
+| 12. Ownership — last known foreman as of the week | v1.4 | 10/10 | ✅ Complete | 2026-09-10 |
 | 13. Audit Memory | v1.4 | 0/? | Draft |  |
 | 14. Foreman Helper #2 | v1.4 | 14/14 | ✅ Complete | 2026-09-10 |
 
@@ -736,10 +737,11 @@ approved as the next small PR.
 4. Living Ledger + runbook document the amended Foundation A contract.
 
 **Plans:** 10/10 plans complete
-1,758 rows / 30 WRs / 76 pairs) and Task 4 was observed on run 33974128574 and `Approved` (D-12-E; backups
-dropped). History: 12-06 HALTED at Task 1 on 2026-09-03 (dry-run REJECTED — source-3 filename parser
-defect); gap-closure plans 12-07 through 12-10 closed G-12-3 on 2026-09-04 and 12-06 re-entered at Task 1.
-Next: `/gsd-verify-work 12`.
+12-06 Tasks 1-3 landed the live apply (2026-09-05, 1,758 rows / 30 WRs / 76 pairs) and Task 4 was observed on
+run 33974128574 and `Approved` (D-12-E; backups dropped). History: 12-06 HALTED at Task 1 on 2026-09-03
+(dry-run REJECTED — source-3 filename parser defect); gap-closure plans 12-07 through 12-10 closed G-12-3 on
+2026-09-04 and 12-06 re-entered at Task 1. `/gsd-verify-work 12` passed 2026-09-11 (12-UAT.md 34/34,
+12-VERIFICATION.md 77/77 must-haves) and `phase.complete 12` closed the phase.
 
 Plans:
 **Wave 1**

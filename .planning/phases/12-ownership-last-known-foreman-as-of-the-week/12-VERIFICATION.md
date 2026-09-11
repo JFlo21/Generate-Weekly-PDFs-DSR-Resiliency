@@ -42,7 +42,7 @@ covered_files:
   - "tests/test_sentinel_never_a_claimer.py"
   - "website/docs/runbook/ownership-attribution.md"
   - "website/sidebars.ts"
-covered_digest: "v1:sha256:80e21c1ed590856bbade6d62946e658cedab250087a3b212f82cdf19a4e689b7"
+covered_digest: "v1:sha256:2e912d46e67848ff953c26f2400bfe42c6a5d0d85ef3b87e2c8aa4de31581b19"
 behavior_unverified: 0 # Every behavior-dependent truth (live apply, post-apply scheduled run) has recorded owner-observed evidence in 12-06-SUMMARY.md / 12-UAT.md; nothing is "present but unexercised"
 overrides_applied: 6 # PASSED (override) items included in the score — carried forward from the 2026-09-03 report; each shipped shape was the one Juan approved through 12-03 T3, 12-04 re-decision and the 12-06 apply
 overrides:
@@ -104,10 +104,10 @@ advisory: # Known, non-blocking findings — filed with status and owner in § G
     category: other
     reason: "Guaranteed to fail on the next mandated ledger append (CLAUDE.md requires one per architectural change). Resolve by searching all headings or a specific dated heading."
     evidence_status: "grep of memory-bank/living-ledger.md headings 2026-09-11; not fixed in this phase by design"
-  - finding: "WR-09 (12-REVIEW): website/docs/runbook/ownership-attribution.md lines 247 and 276 still show `--wr 19073866 --weeks 082425,083125,091425,092125` as the copy-pasteable dry-run/apply command while the same page (214-219) says that WR has zero rows and D-12-E names WR 89746993"
+  - finding: "WR-09 (12-REVIEW): website/docs/runbook/ownership-attribution.md lines 247 and 276 showed, at verification time, `--wr 19073866 --weeks 082425,083125,091425,092125` as the copy-pasteable dry-run/apply command while the same page (214-219) says that WR has zero rows and D-12-E names WR 89746993"
     category: other
-    reason: "Documentation drift; the command is harmless (dry-run default, zero rows) but misleads an operator. Update the example to the D-12-E sample."
-    evidence_status: "grep of the runbook 2026-09-11"
+    reason: "Documentation drift; the command is harmless (dry-run default, zero rows) but misleads an operator. RESOLVED in the same docs PR (#404): both example commands now read --wr 89746993 --weeks 082425,083125,090725,091425."
+    evidence_status: "grep of the runbook 2026-09-11; fixed in PR #404 — not an open follow-up"
 ---
 
 # Phase 12: Ownership — last known foreman as of the week — Verification Report
@@ -245,7 +245,7 @@ Status key: ✓ VERIFIED · ✓ (override) PASSED via recorded override · ✓ (
 | `scripts/backfill_cell_history_attribution.py` + `.github/workflows/cell-history-backfill.yml` | source 5, isolated dispatch-only job | ✓ VERIFIED | Tests pass; workflow static check (UAT 2). Not yet run live (152 placeholders remain on non-backfilled pairs — future source-5 work). |
 | `billing_audit/own03_backfill_attribution.sql` / `schema.sql` | owner-applied RPC + provenance columns + extension guard | ✓ VERIFIED | Applied live (UAT 1, 12-09). |
 | `pipeline/cleanup.py` | sentinel-superseded gate with CR-01 fail-safe | ✓ VERIFIED | 116-195, 582-622; observed acting on run 33974128574. |
-| `website/docs/runbook/ownership-attribution.md`, `website/sidebars.ts`, `memory-bank/living-ledger.md` | OWN-04 docs | ✓ VERIFIED | See SC4; WR-09 stale example command noted (advisory #6). |
+| `website/docs/runbook/ownership-attribution.md`, `website/sidebars.ts`, `memory-bank/living-ledger.md` | OWN-04 docs | ✓ VERIFIED | See SC4; WR-09 stale example command (advisory #6) fixed in PR #404. |
 | Six test files | TDD coverage | ✓ VERIFIED | 403 passed. |
 
 ### Key Link Verification
@@ -284,10 +284,10 @@ No `scripts/*/tests/probe-*.sh` probes are declared by the plans or present in t
 
 | Requirement | Source plans | Status | Evidence |
 | --- | --- | --- | --- |
-| OWN-01 | 12-03, 12-05 (D-12-A) | ✓ SATISFIED as re-scoped | No `wr_week_ownership` table (deferred to Phase 13 per D-12-A); ladder observed_in_week → backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel with provenance columns. REQUIREMENTS.md wording (`last_known_before_week`) is stale; still marked Pending in the tracker. |
-| OWN-02 | 12-02, 12-06 | ✓ SATISFIED | SC1 + SC3. Tracker still Pending — mark complete. |
-| OWN-03 | 12-01, 12-03, 12-04, 12-06..12-10 | ✓ SATISFIED (scope as decided) | 1,758 rows / 30 WRs / 76 pairs remediated and attachments replaced; 945 #NO MATCH rows deferred (D-12-C); 4,071 evidence-less rows routed to source 5 (152 placeholders remain sheet-wide). The "93 WRs / 5,824 rows" wording in REQUIREMENTS.md predates D-12-C/D-12-E. Tracker still Pending — mark complete with the scope note. |
-| OWN-04 | 12-05, 12-08 | ✓ SATISFIED | SC4. Tracker still Pending — mark complete. |
+| OWN-01 | 12-03, 12-05 (D-12-A) | ✓ SATISFIED as re-scoped | No `wr_week_ownership` table (deferred to Phase 13 per D-12-A); ladder observed_in_week → backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel with provenance columns. REQUIREMENTS.md OWN-01 re-worded to the shipped ladder and marked Complete with the D-12-A note (PR #404). |
+| OWN-02 | 12-02, 12-06 | ✓ SATISFIED | SC1 + SC3. Tracker marked Complete (PR #404). |
+| OWN-03 | 12-01, 12-03, 12-04, 12-06..12-10 | ✓ SATISFIED (scope as decided) | 1,758 rows / 30 WRs / 76 pairs remediated and attachments replaced; 945 #NO MATCH rows deferred (D-12-C); 4,071 evidence-less rows routed to source 5 (152 placeholders remain sheet-wide). REQUIREMENTS.md OWN-03 re-scoped and marked Complete with the D-12-C / D-12-E note (PR #404). |
+| OWN-04 | 12-05, 12-08 | ✓ SATISFIED | SC4. Tracker marked Complete (PR #404). |
 
 No orphaned requirement IDs: REQUIREMENTS.md maps exactly OWN-01..04 to Phase 12.
 
@@ -298,7 +298,7 @@ No orphaned requirement IDs: REQUIREMENTS.md maps exactly OWN-01..04 to Phase 12
 | `scripts/backfill_claim_time_attribution.py` | 161 | 6-hex hash-suffix regex vs 16-hex production hash (CR-01) | ⚠️ Warning (latent) | Advisory #4 |
 | `scripts/backfill_claim_time_attribution.py` | 500-509 | `_compute_run_id()` returns `''` locally | ⚠️ Warning | Advisory #2 |
 | `tests/test_own04_documentation.py` | 95-100, 179-186 | newest-ledger-heading pin (WR-01) | ⚠️ Warning | Advisory #5 |
-| `website/docs/runbook/ownership-attribution.md` | 247, 276 | stale sample WR in example command (WR-09) | ℹ️ Info | Advisory #6 |
+| `website/docs/runbook/ownership-attribution.md` | 247, 276 | stale sample WR in example command (WR-09) | ℹ️ Info | Advisory #6 — fixed in PR #404 |
 | `pipeline/cleanup.py` | 582-622 | gate leaves the superseded `group_state` row | ⚠️ Warning | Advisory #3 |
 
 No `TBD` / `FIXME` / `XXX` markers found in the phase-modified files.
@@ -320,11 +320,11 @@ These were resolved at the end-of-phase human checkpoint (12-UAT.md, 34 tests) r
 
 ### Human Verification Required
 
-None outstanding. Every previously pending owner step (12-03 T4, 12-06 T1-T4, Docusaurus build, override confirmation) now carries recorded evidence in 12-06-SUMMARY.md / 12-UAT.md. UAT tests 26, 30, 31, 32 still read `[pending]` in the file although their evidence is recorded in 12-09-SUMMARY / 12-10-SUMMARY — the orchestrator should mark them to match.
+None outstanding. Every previously pending owner step (12-03 T4, 12-06 T1-T4, Docusaurus build, override confirmation) now carries recorded evidence in 12-06-SUMMARY.md / 12-UAT.md. UAT tests 26, 30, 31, 32 were marked `pass` at the consolidated owner checkpoint (12-UAT.md 34/34).
 
 ### Gaps Summary
 
-The phase goal is achieved: sentinels are never claimers (SC1), the dry-run report was approved before the apply (SC2), the backfilled pairs regenerate under real names with the placeholder counterpart removed and zero churn on the scheduled run (SC3, D-12-E), and the amended Foundation A contract is documented (SC4). Six known, non-blocking items are filed for follow-up (all listed in `advisory:` above):
+The phase goal is achieved: sentinels are never claimers (SC1), the dry-run report was approved before the apply (SC2), the backfilled pairs regenerate under real names with the placeholder counterpart removed and zero churn on the scheduled run (SC3, D-12-E), and the amended Foundation A contract is documented (SC4). Six non-blocking items were filed (all listed in `advisory:` above); five remain open as owner follow-ups and #6 (WR-09) was fixed in the same docs PR (#404):
 
 | # | Item | Status | Owner |
 | --- | --- | --- | --- |
@@ -333,9 +333,9 @@ The phase goal is achieved: sentinels are never claimers (SC1), the dry-run repo
 | 3 | Sentinel-superseded gate leaves the stale `Unknown_Foreman` `group_state` row | open — hygiene | Phase 13 (memory) or cleanup follow-up |
 | 4 | CR-01 `_FILENAME_HASH_SUFFIX_RE` 6-hex vs 16-hex (latent, 0 live filenames affected while `SUPABASE_HASH_STORE_AUTHORITATIVE=1`) | open — must fix before any future `--apply` | backfill-script PR (from 12-REVIEW) |
 | 5 | WR-01 newest-`## [` ledger-heading pin in `tests/test_own04_documentation.py` | open — will break on the next ledger append | test follow-up (from 12-REVIEW) |
-| 6 | WR-09 runbook example still names WR 19073866 | open — docs | runbook follow-up |
+| 6 | WR-09 runbook example named WR 19073866 | resolved — fixed in PR #404 (both example commands now name WR 89746993) | none |
 
-Also for the tracker: `.planning/REQUIREMENTS.md` still shows OWN-01..04 as Pending; they should be marked complete with the D-12-A / D-12-C / D-12-E scope notes.
+Tracker: `.planning/REQUIREMENTS.md` OWN-01..04 are marked Complete with the D-12-A / D-12-C / D-12-E scope notes (PR #404).
 
 ---
 

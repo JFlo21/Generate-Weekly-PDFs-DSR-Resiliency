@@ -228,7 +228,7 @@ blocked: 0
 
 <!-- YAML format for plan-phase --gaps consumption -->
 - gap_id: G-12-3
-  truth: "Live OWN-03 dry-run proposes only real claimer names (no sentinel, no filename-derived placeholder), source-3 candidates carry the extension-stripped real name, the known-good sample resolves via backfill_hash_history, and Juan approves the report before any --apply"
+  truth: "Live OWN-03 dry-run proposes only real claimer names (no sentinel, no filename-derived placeholder), source-3 candidates carry the extension-stripped real name, the known-good sample resolves via a non-sentinel provenance source (backfill_artifacts for the D-12-E sample WR 89746993; the originally named backfill_hash_history path has 0 resolvable rows in Supabase), and Juan approves the report before any --apply"
   status: resolved        # was: failed
   resolved_by: 12-07-PLAN.md, 12-08-PLAN.md, 12-09-PLAN.md, 12-10-PLAN.md (gap_ids: [G-12-3], all with SUMMARYs, executed 2026-09-04); re-tested 2026-09-05 (test 3 pass)
   resolved_at: 2026-09-11

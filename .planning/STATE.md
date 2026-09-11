@@ -46,8 +46,8 @@ G-12-3). Live OWN-03 remediation applied 2026-09-05 (1,758 rows / 30 WRs /
 and Juan replied `Approved` 2026-09-10 ~23:45Z (plus `Adopt 89746993` for
 D-12-E and `Yes drop them using our supabase connector` for the three
 snapshot backups, now dropped). `/gsd-verify-work 12` passed (12-UAT.md
-34/34, 12-VERIFICATION.md 77/77 must-haves, 6 advisory gaps — see
-Blockers/Concerns) and `phase.complete 12` advanced this file to the
+34/34, 12-VERIFICATION.md 77/77 must-haves, 5 open advisory gaps — see
+Blockers/Concerns; a 6th, the runbook sample WR-09, was fixed in PR #404) and `phase.complete 12` advanced this file to the
 position above; the Phase 12 `.continue-here.md` was deleted as a stale
 handoff.
 
@@ -526,7 +526,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 **Last session:** 2026-09-11T02:10:00.000Z
 **Stopped at:** Phase 12 COMPLETE via PR #404 (docs). `/gsd-verify-work 12`
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
-6 advisory gaps recorded in the Gaps Summary); `phase.complete 12` advanced
+5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
 ROADMAP.md; the Phase 12 `.continue-here.md` was deleted as a stale
 handoff. 12-06 Task 4's seven observations (run 33974128574) all passed and

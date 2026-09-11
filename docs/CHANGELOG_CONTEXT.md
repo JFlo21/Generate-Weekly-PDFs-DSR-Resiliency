@@ -29,10 +29,10 @@ Supabase connector as migration `drop_attribution_snapshot_backups_20260903_04_0
 views, backups 220,010 / 220,621 / 221,276 rows; post-check 0 `attribution_snapshot_backup_%` tables remain,
 live table unchanged. `/gsd-verify-work 12` then ran 2026-09-11: `12-UAT.md` reconciled the four G-12-3 gap
 items and closed `status: complete` at 34/34 pass; `12-VERIFICATION.md` regenerated `status: passed` at 77/77
-must-haves, with 6 advisory gaps recorded in its Gaps Summary (no production `sentinel_claimers_ignored`
-counter, `backfill_run_id=''` on local runs, stale `Unknown_Foreman` `group_state` rows after supersede-delete,
-the CR-01 6-hex-vs-16-hex regex latency, the WR-01 newest-ledger-heading test pin, and a runbook example WR —
-fixed in this PR). `phase.complete 12` then advanced ROADMAP.md / REQUIREMENTS.md / STATE.md: Phase 12 marked
+must-haves, with 6 advisory items in its Gaps Summary — 5 stay open for owner follow-up (no production
+`sentinel_claimers_ignored` counter, `backfill_run_id=''` on local runs, stale `Unknown_Foreman` `group_state`
+rows after supersede-delete, the CR-01 latent 6-hex-vs-16-hex regex-width mismatch, the WR-01
+newest-ledger-heading test pin) and the 6th, a runbook example WR, is fixed in this PR. `phase.complete 12` then advanced ROADMAP.md / REQUIREMENTS.md / STATE.md: Phase 12 marked
 `[x]` complete, STATE.md moved to Phase 13 "Ready to plan", and the Phase 12 `.continue-here.md` was deleted as
 a stale handoff. Landed via docs PR #404. See
 `.planning/phases/12-ownership-last-known-foreman-as-of-the-week/12-06-SUMMARY.md` (Task 4),

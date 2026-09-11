@@ -9599,13 +9599,13 @@ observation passes — and closes the instant that signal (here, `Approved`) arr
 path: `12-UAT.md` reconciled its open G-12-3 gap ids against the four gap-closure plans (12-07..12-10) and the
 consolidated owner confirmation on 12-06 Task 4 (`Approved` / `Adopt 89746993` / backups dropped, 2026-09-10
 ~23:45Z), landing `status: complete` at 34/34 pass; a fresh `12-VERIFICATION.md` regenerated against the
-covered-input fingerprint passed 77/77 must-haves with 6 advisory gaps (no `sentinel_claimers_ignored` production
+covered-input fingerprint passed 77/77 must-haves with 6 advisory items (no `sentinel_claimers_ignored` production
 counter, `backfill_run_id=''` on local-operator runs, stale `Unknown_Foreman` `group_state` rows surviving a
 supersede-delete, the CR-01 6-hex-vs-16-hex hash-suffix regex being latent rather than live, the WR-01 test
 pinning the newest ledger heading literally, and one runbook example WR — the last one fixed in this same pass).
 `phase.complete 12` then advanced `.planning/ROADMAP.md` / `.planning/REQUIREMENTS.md` / `.planning/STATE.md`
-and deleted the Phase 12 `.continue-here.md` as a stale handoff, landed via docs PR #404. The six advisory gaps
-are non-blocking and parked as owner follow-ups, not re-opened work. RULES: (1) a `VERIFICATION.md` that declares
+and deleted the Phase 12 `.continue-here.md` as a stale handoff, landed via docs PR #404. Five of the six advisory
+items are parked as owner follow-ups, not re-opened work; the sixth (WR-09) is fixed in the same PR. RULES: (1) a `VERIFICATION.md` that declares
 `covered_files` goes `stale` the instant any covered file changes (REQUIREMENTS.md, the runbook, ledgers
 included) — recompute `covered_digest` with the in-process reader (`computeCoveredDigest`) after the LAST doc
 edit in a pass, because on this Windows checkout the CLI `verification.fingerprint` verb produced a different
