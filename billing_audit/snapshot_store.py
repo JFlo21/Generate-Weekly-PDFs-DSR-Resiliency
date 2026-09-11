@@ -366,8 +366,12 @@ def fetch_snapshot_provenance(
         for row in data or []:
             if not isinstance(row, dict):
                 continue
+            sheet_id = row.get("sheet_id")
+            row_id = row.get("row_id")
+            if sheet_id is None or row_id is None:
+                continue
             try:
-                key = (int(row.get("sheet_id")), int(row.get("row_id")))
+                key = (int(sheet_id), int(row_id))
             except (TypeError, ValueError):
                 continue
             if key in wanted:
