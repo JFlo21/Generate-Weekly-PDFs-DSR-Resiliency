@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import threading
 from typing import Any, Iterable, Sequence
 
@@ -492,6 +493,106 @@ def build_finding_payloads(
     return payloads
 
 
+# ── executed_checks / build_reaudited_pairs (AUD-02, D-10) ───────────────
+
+def executed_checks() -> frozenset[str]:
+    """Return the subset of ``MEMORY_BACKED_CHECKS`` that actually ran
+    this run.
+
+    ``price_variance_anomaly`` and ``data_consistency_issue`` always run
+    inside ``audit_financial_data`` -- no kill switch gates either one.
+    ``rate_sanity_mismatch`` is gated by ``RATE_SANITY_AUDIT_ENABLED``: this
+    is a DELIBERATE, read-only mirror of ``_detect_rate_sanity_mismatches``'s
+    own gate in ``audit_billing_changes.py`` (same env var, same default
+    ``"true"``, same case-insensitive ``!= "true"`` comparison) so the two
+    can never silently disagree about whether the check ran. D-02 forbids
+    editing ``audit_billing_changes.py`` to expose this as a shared
+    constant -- the two literal gates must be changed together BY HAND if
+    the check's own gate ever changes (pinned character-for-character by
+    ``tests/test_audit_findings.py``).
+
+    Per Pitfall 5 (13-RESEARCH.md): a check that did not run this run must
+    never be treated as having "re-audited" any group, or a temporarily
+    disabled check's findings would be closed as a side effect of the
+    OTHER two checks' groups being re-audited.
+    """
+    checks = set(MEMORY_BACKED_CHECKS)
+    if os.getenv("RATE_SANITY_AUDIT_ENABLED", "true").lower() != "true":
+        checks.discard("rate_sanity_mismatch")
+    return frozenset(checks)
+
+
+def build_reaudited_pairs(
+    rows: Sequence[dict] | None, executed_checks_: Iterable[str],
+) -> list[dict[str, Any]]:
+    """Return one ``{check_id, wr, week_ending}`` triple per distinct
+    ``(wr, week)`` pair in *rows*, for every check id in
+    *executed_checks_* (D-10: "re-audited group" = the set of (wr,
+    week_ending) pairs whose rows were in this run's audited row set).
+
+    Never drops a row for an unparseable week -- it still contributes a
+    triple with ``week_ending=None`` (serialized as JSON ``null``), so a
+    finding persisted with ``week_ending IS NULL`` (D-CD-01's
+    price_variance_anomaly pooled-week rule) remains eligible to close.
+    ``week_ending`` is serialized as an ISO ``YYYY-MM-DD`` string or
+    ``None``.
+
+    Returns ``[]`` for empty *rows* OR an empty *executed_checks_* --
+    per AUD-02/Pitfall 5, an unexecuted check can never close a finding,
+    so there is nothing to compute for it.
+
+    Deterministic output: sorted by ``check_id``, then ``wr``, then
+    ``week_ending`` (``None`` last) -- the RPC's own transition result
+    must not depend on this order (it is expressed as a set-based SQL
+    join), but a stable payload is cheap to produce and aids debugging.
+    """
+    rows = rows or []
+    executed = list(executed_checks_ or [])
+    if not rows or not executed:
+        return []
+
+    distinct_pairs: set[tuple[str, str | None]] = set()
+    for row in rows:
+        wr = str(row.get("Work Request #") or "").strip()
+        week_ending = _week_ending_iso(row.get("Weekly Reference Logged Date"))
+        distinct_pairs.add((wr, week_ending))
+
+    pairs = [
+        {"check_id": check_id, "wr": wr, "week_ending": week_ending}
+        for check_id in executed
+        for (wr, week_ending) in distinct_pairs
+    ]
+    pairs.sort(
+        key=lambda p: (
+            p["check_id"], p["wr"],
+            p["week_ending"] is None, p["week_ending"] or "",
+        )
+    )
+    return pairs
+
+
+# ── summarize_upsert_result ───────────────────────────────────────────────
+
+_SUMMARY_COUNT_KEYS: tuple[str, ...] = (
+    "opened", "seen", "fixed", "resurfaced", "reopened",
+)
+
+
+def summarize_upsert_result(rpc_data: Any) -> dict[str, int]:
+    """Extract the opened/seen/fixed/resurfaced/reopened summary counts
+    from an ``upsert_audit_findings`` RPC response's ``.data`` payload.
+
+    Defensive -- returns all-zero counts for any unexpected shape
+    (missing rows, a test double's minimal fake response, etc.). Never
+    raises. Counts only, no identifiers -- safe for the INFO log line and
+    the Sentry breadcrumb.
+    """
+    if isinstance(rpc_data, list) and rpc_data and isinstance(rpc_data[0], dict):
+        row = rpc_data[0]
+        return {k: int(row.get(k) or 0) for k in _SUMMARY_COUNT_KEYS}
+    return {k: 0 for k in _SUMMARY_COUNT_KEYS}
+
+
 # ── upsert_audit_findings ────────────────────────────────────────────────
 
 def upsert_audit_findings(
@@ -537,8 +638,13 @@ def upsert_audit_findings(
         return None
 
     _bump_counter("upsert_written")
+    data = getattr(result, "data", None)
+    summary = summarize_upsert_result(data)
     logging.info(
-        "🧾 Audit-memory upsert: findings_sent=%d reaudited_pairs_sent=%d",
+        "🧾 Audit-memory upsert: findings_sent=%d reaudited_pairs_sent=%d "
+        "opened=%d seen=%d fixed=%d resurfaced=%d reopened=%d",
         len(findings), len(reaudited_pairs),
+        summary["opened"], summary["seen"], summary["fixed"],
+        summary["resurfaced"], summary["reopened"],
     )
-    return getattr(result, "data", None)
+    return data

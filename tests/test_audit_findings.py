@@ -521,6 +521,113 @@ def test_data_consistency_issue_literals_match_validate_data_consistency():
     assert observed_issues == audit_findings.DATA_CONSISTENCY_ISSUE_LITERALS
 
 
+# ── executed_checks / build_reaudited_pairs (Plan 13-04, Task 2, AUD-02) ─
+
+def test_executed_checks_returns_all_three_by_default(monkeypatch):
+    monkeypatch.delenv("RATE_SANITY_AUDIT_ENABLED", raising=False)
+    assert audit_findings.executed_checks() == audit_findings.MEMORY_BACKED_CHECKS
+
+
+def test_executed_checks_omits_rate_sanity_when_disabled(monkeypatch):
+    monkeypatch.setenv("RATE_SANITY_AUDIT_ENABLED", "false")
+    checks = audit_findings.executed_checks()
+    assert "rate_sanity_mismatch" not in checks
+    assert "price_variance_anomaly" in checks
+    assert "data_consistency_issue" in checks
+
+
+def test_executed_checks_mirrors_rate_sanity_gate_literal_and_default():
+    """Acceptance criterion: the comparison literal and default match
+    audit_billing_changes.py's own gate character for character."""
+    import inspect
+    audit_source = inspect.getsource(audit_billing_changes)
+    findings_source = inspect.getsource(audit_findings)
+    assert 'os.getenv("RATE_SANITY_AUDIT_ENABLED", "true").lower() != "true"' \
+        in audit_source
+    assert 'os.getenv("RATE_SANITY_AUDIT_ENABLED", "true").lower() != "true"' \
+        in findings_source
+
+
+def test_build_reaudited_pairs_empty_rows_returns_empty_list():
+    assert audit_findings.build_reaudited_pairs(
+        [], audit_findings.MEMORY_BACKED_CHECKS,
+    ) == []
+
+
+def test_build_reaudited_pairs_empty_executed_checks_returns_empty_list():
+    """Acceptance criterion: a non-empty row set with an empty
+    executed-check list returns an empty list."""
+    rows = [_matching_row()]
+    assert audit_findings.build_reaudited_pairs(rows, []) == []
+
+
+def test_build_reaudited_pairs_returns_one_triple_per_check_per_distinct_pair():
+    rows = [
+        _matching_row(**{"Work Request #": "111", "Weekly Reference Logged Date": "2026-09-07"}),
+        _matching_row(**{"Work Request #": "222", "Weekly Reference Logged Date": "2026-09-14"}),
+        # duplicate (wr, week) -- must collapse to one distinct pair
+        _matching_row(**{"Work Request #": "111", "Weekly Reference Logged Date": "2026-09-07"}),
+    ]
+    executed = frozenset({"rate_sanity_mismatch", "price_variance_anomaly"})
+
+    pairs = audit_findings.build_reaudited_pairs(rows, executed)
+
+    assert len(pairs) == 4  # 2 distinct (wr, week) pairs x 2 executed checks
+    seen = {(p["check_id"], p["wr"], p["week_ending"]) for p in pairs}
+    assert seen == {
+        ("rate_sanity_mismatch", "111", "2026-09-07"),
+        ("rate_sanity_mismatch", "222", "2026-09-14"),
+        ("price_variance_anomaly", "111", "2026-09-07"),
+        ("price_variance_anomaly", "222", "2026-09-14"),
+    }
+
+
+def test_build_reaudited_pairs_omits_check_ids_not_in_executed_set():
+    rows = [_matching_row()]
+    pairs = audit_findings.build_reaudited_pairs(
+        rows, frozenset({"price_variance_anomaly"}),
+    )
+    assert all(p["check_id"] == "price_variance_anomaly" for p in pairs)
+    assert not any(p["check_id"] == "rate_sanity_mismatch" for p in pairs)
+
+
+def test_build_reaudited_pairs_unparseable_week_contributes_none_not_dropped():
+    rows = [_matching_row(**{"Weekly Reference Logged Date": "not-a-date"})]
+    pairs = audit_findings.build_reaudited_pairs(
+        rows, frozenset({"rate_sanity_mismatch"}),
+    )
+    assert len(pairs) == 1
+    assert pairs[0]["week_ending"] is None
+    assert pairs[0]["wr"] == "12345"
+
+
+def test_build_reaudited_pairs_order_independent_across_row_order():
+    row_a = _matching_row(**{"Work Request #": "111", "Weekly Reference Logged Date": "2026-09-07"})
+    row_b = _matching_row(**{"Work Request #": "222", "Weekly Reference Logged Date": "2026-09-14"})
+    executed = frozenset({"rate_sanity_mismatch"})
+
+    pairs_forward = audit_findings.build_reaudited_pairs([row_a, row_b], executed)
+    pairs_reversed = audit_findings.build_reaudited_pairs([row_b, row_a], executed)
+
+    assert pairs_forward == pairs_reversed
+
+
+# ── summarize_upsert_result ──────────────────────────────────────────────
+
+def test_summarize_upsert_result_extracts_counts_from_rpc_response():
+    data = [{"opened": 3, "seen": 2, "fixed": 1, "resurfaced": 0, "reopened": 0}]
+    assert audit_findings.summarize_upsert_result(data) == {
+        "opened": 3, "seen": 2, "fixed": 1, "resurfaced": 0, "reopened": 0,
+    }
+
+
+def test_summarize_upsert_result_defaults_to_zero_on_unexpected_shape():
+    for bad in (None, [], {}, [{}], "not-a-list"):
+        assert audit_findings.summarize_upsert_result(bad) == {
+            "opened": 0, "seen": 0, "fixed": 0, "resurfaced": 0, "reopened": 0,
+        }
+
+
 # ── upsert_audit_findings ────────────────────────────────────────────────
 
 def test_upsert_audit_findings_flag_off_makes_zero_client_calls(monkeypatch):
@@ -610,6 +717,8 @@ def test_orchestrate_hook_flag_off_never_calls_upsert_audit_findings():
     with mock.patch.object(
         orchestrate._mem_audit_findings, "build_finding_payloads",
     ) as mock_build, mock.patch.object(
+        orchestrate._mem_audit_findings, "build_reaudited_pairs",
+    ) as mock_pairs, mock.patch.object(
         orchestrate._mem_audit_findings, "upsert_audit_findings",
     ) as mock_upsert:
         result = orchestrate._run_audit_memory_phase(
@@ -618,13 +727,25 @@ def test_orchestrate_hook_flag_off_never_calls_upsert_audit_findings():
             "run-123",
         )
     mock_build.assert_not_called()
+    mock_pairs.assert_not_called()
     mock_upsert.assert_not_called()
     assert result == {"findings_emitted": 0, "rpc_result": None}
 
 
-def test_orchestrate_hook_flag_on_calls_build_and_upsert_once_with_run_id():
+def test_orchestrate_hook_flag_on_calls_build_pairs_and_upsert_once_with_run_id():
+    """Wiring test (plan 13-04, Task 2): the hook computes the
+    re-audited-pair set via ``executed_checks()`` +
+    ``build_reaudited_pairs`` and passes it through to
+    ``upsert_audit_findings`` -- ``build_reaudited_pairs`` and
+    ``executed_checks`` are mocked here so this test asserts the WIRING
+    only; the pairs' actual content is covered by the dedicated
+    ``build_reaudited_pairs`` tests below."""
     audit_results = {"rate_sanity_mismatches": [_rate_sanity_finding()]}
     rows = [_matching_row()]
+    fake_pairs = [
+        {"check_id": "rate_sanity_mismatch", "wr": "12345",
+         "week_ending": "2026-09-07"},
+    ]
 
     with mock.patch.object(orchestrate, "AUDIT_MEMORY_ENABLED", True), \
          mock.patch.object(
@@ -632,17 +753,80 @@ def test_orchestrate_hook_flag_on_calls_build_and_upsert_once_with_run_id():
              return_value=[{"finding_key": "abc"}],
          ) as mock_build, \
          mock.patch.object(
+             orchestrate._mem_audit_findings, "executed_checks",
+             return_value=frozenset({"rate_sanity_mismatch"}),
+         ) as mock_executed, \
+         mock.patch.object(
+             orchestrate._mem_audit_findings, "build_reaudited_pairs",
+             return_value=fake_pairs,
+         ) as mock_pairs, \
+         mock.patch.object(
              orchestrate._mem_audit_findings, "upsert_audit_findings",
-             return_value={"opened": 1},
+             return_value=[{"opened": 1, "seen": 0, "fixed": 0,
+                             "resurfaced": 0, "reopened": 0}],
          ) as mock_upsert:
         result = orchestrate._run_audit_memory_phase(
             audit_results, rows, "run-123",
         )
 
     mock_build.assert_called_once_with(audit_results, rows, "run-123")
-    mock_upsert.assert_called_once_with("run-123", [{"finding_key": "abc"}], [])
+    mock_executed.assert_called_once_with()
+    mock_pairs.assert_called_once_with(rows, frozenset({"rate_sanity_mismatch"}))
+    mock_upsert.assert_called_once_with(
+        "run-123", [{"finding_key": "abc"}], fake_pairs,
+    )
     assert result["findings_emitted"] == 1
-    assert result["rpc_result"] == {"opened": 1}
+    assert result["rpc_result"] == [{"opened": 1, "seen": 0, "fixed": 0,
+                                      "resurfaced": 0, "reopened": 0}]
+
+
+def test_orchestrate_breadcrumb_carries_summary_counts_only():
+    """Task 2: the success breadcrumb carries the RPC's summary counts
+    (integers only, no WR/CU/identifiers)."""
+    audit_results = {"rate_sanity_mismatches": [_rate_sanity_finding()]}
+    rows = [_matching_row()]
+    rpc_summary_row = [{"opened": 2, "seen": 1, "fixed": 3,
+                         "resurfaced": 0, "reopened": 1}]
+
+    captured_breadcrumbs = []
+
+    def _fake_breadcrumb(category, message, data=None):
+        captured_breadcrumbs.append((category, message, data))
+
+    with mock.patch.object(orchestrate, "AUDIT_MEMORY_ENABLED", True), \
+         mock.patch.object(orchestrate, "sentry_add_breadcrumb", _fake_breadcrumb), \
+         mock.patch.object(
+             orchestrate._mem_audit_findings, "build_finding_payloads",
+             return_value=[{"finding_key": "abc"}],
+         ), \
+         mock.patch.object(
+             orchestrate._mem_audit_findings, "build_reaudited_pairs",
+             return_value=[],
+         ), \
+         mock.patch.object(
+             orchestrate._mem_audit_findings, "upsert_audit_findings",
+             return_value=rpc_summary_row,
+         ):
+        _audit_mem_result = orchestrate._run_audit_memory_phase(
+            audit_results, rows, "run-123",
+        )
+        _audit_mem_summary = orchestrate._mem_audit_findings.summarize_upsert_result(
+            _audit_mem_result["rpc_result"]
+        )
+        orchestrate.sentry_add_breadcrumb(
+            "audit_memory", "Audit-memory upsert completed",
+            data={
+                "findings_emitted": _audit_mem_result["findings_emitted"],
+                **_audit_mem_summary,
+            },
+        )
+
+    assert len(captured_breadcrumbs) == 1
+    _, _, data = captured_breadcrumbs[0]
+    assert data == {
+        "findings_emitted": 1, "opened": 2, "seen": 1, "fixed": 3,
+        "resurfaced": 0, "reopened": 1,
+    }
 
 
 def test_orchestrate_hook_exception_is_caught_and_logged(caplog):

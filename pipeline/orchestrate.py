@@ -2093,13 +2093,14 @@ def _run_audit_memory_phase(
     import nothing from ``billing_audit``).
 
     Builds payloads for every memory-backed finding in *audit_results*
-    (``pipeline_memory.audit_findings.build_finding_payloads``) and
-    upserts them via a single ``upsert_audit_findings`` RPC call. Passes
-    an empty ``reaudited_pairs`` list in this task -- the real
-    re-audited-pair computation (AUD-02) lands in plan 13-04; an empty
-    set here is the safe caller value, since the RPC's eventual
-    fixed-transition branch must treat an empty set as "nothing was
-    re-audited this run", never as "everything was fixed".
+    (``pipeline_memory.audit_findings.build_finding_payloads``), computes
+    this run's per-check re-audited-pair set (AUD-02, D-10 --
+    ``pipeline_memory.audit_findings.build_reaudited_pairs`` over
+    *all_rows* and ``executed_checks()``), and upserts both via a single
+    ``upsert_audit_findings`` RPC call. The re-audited-pair set is the
+    SOLE authority for which findings may transition to ``fixed`` this
+    run (plan 13-04) -- an empty set (e.g. an empty *all_rows*) closes
+    nothing, never "everything was fixed".
 
     Self-gated on ``AUDIT_MEMORY_ENABLED`` and a truthy *audit_results*
     (the same module-level constant + condition ``main()``'s call site
@@ -2123,7 +2124,9 @@ def _run_audit_memory_phase(
     payloads = _mem_audit_findings.build_finding_payloads(
         audit_results, all_rows, run_id,
     )
-    reaudited_pairs: list[dict[str, Any]] = []
+    reaudited_pairs = _mem_audit_findings.build_reaudited_pairs(
+        all_rows, _mem_audit_findings.executed_checks(),
+    )
     rpc_result = _mem_audit_findings.upsert_audit_findings(
         run_id, payloads, reaudited_pairs,
     )
@@ -3002,12 +3005,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _audit_mem_result = _run_audit_memory_phase(
                     audit_results, all_rows, _mem_run_id,
                 )
+                _audit_mem_summary = _mem_audit_findings.summarize_upsert_result(
+                    _audit_mem_result["rpc_result"]
+                )
                 sentry_add_breadcrumb(
                     "audit_memory", "Audit-memory upsert completed",
                     data={
                         "findings_emitted": _audit_mem_result[
                             "findings_emitted"
                         ],
+                        **_audit_mem_summary,
                     },
                 )
             except Exception as e:
