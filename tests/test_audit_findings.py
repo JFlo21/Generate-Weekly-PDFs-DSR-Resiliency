@@ -16,6 +16,7 @@ from unittest import mock
 
 import pytest
 
+import pipeline.orchestrate as orchestrate
 import pipeline_memory.audit_findings as audit_findings
 import pipeline_memory.client as pm_client
 
@@ -301,3 +302,97 @@ def test_upsert_audit_findings_never_raises_on_client_none(monkeypatch):
             "run-123", [{"finding_key": "abc"}], [],
         )
     assert result is None
+
+
+# ── pipeline.orchestrate._run_audit_memory_phase hook wiring (Task 3) ────
+#
+# Patches ``pipeline.orchestrate``'s reference to the audit-findings
+# module rather than driving a full ``main()`` run. ``AUDIT_MEMORY_ENABLED``
+# is a module-level constant frozen at ``pipeline.orchestrate`` import
+# time (mirrors ``RUN_MEMORY_WRITE_ENABLED``/``_run_memory_write_phase``),
+# so the flag-off test below monkeypatches the ORCHESTRATE module's
+# already-imported name directly rather than the environment variable
+# (setting the env var post-import would have zero effect on it).
+
+def test_orchestrate_hook_flag_off_never_calls_upsert_audit_findings():
+    """With AUDIT_MEMORY_ENABLED unset (the shipped default), the hook
+    self-gates before calling anything on the audit-findings module."""
+    assert orchestrate.AUDIT_MEMORY_ENABLED is False  # shipped default
+    with mock.patch.object(
+        orchestrate._mem_audit_findings, "build_finding_payloads",
+    ) as mock_build, mock.patch.object(
+        orchestrate._mem_audit_findings, "upsert_audit_findings",
+    ) as mock_upsert:
+        result = orchestrate._run_audit_memory_phase(
+            {"rate_sanity_mismatches": [_rate_sanity_finding()]},
+            [_matching_row()],
+            "run-123",
+        )
+    mock_build.assert_not_called()
+    mock_upsert.assert_not_called()
+    assert result == {"findings_emitted": 0, "rpc_result": None}
+
+
+def test_orchestrate_hook_flag_on_calls_build_and_upsert_once_with_run_id():
+    audit_results = {"rate_sanity_mismatches": [_rate_sanity_finding()]}
+    rows = [_matching_row()]
+
+    with mock.patch.object(orchestrate, "AUDIT_MEMORY_ENABLED", True), \
+         mock.patch.object(
+             orchestrate._mem_audit_findings, "build_finding_payloads",
+             return_value=[{"finding_key": "abc"}],
+         ) as mock_build, \
+         mock.patch.object(
+             orchestrate._mem_audit_findings, "upsert_audit_findings",
+             return_value={"opened": 1},
+         ) as mock_upsert:
+        result = orchestrate._run_audit_memory_phase(
+            audit_results, rows, "run-123",
+        )
+
+    mock_build.assert_called_once_with(audit_results, rows, "run-123")
+    mock_upsert.assert_called_once_with("run-123", [{"finding_key": "abc"}], [])
+    assert result["findings_emitted"] == 1
+    assert result["rpc_result"] == {"opened": 1}
+
+
+def test_orchestrate_hook_exception_is_caught_and_logged(caplog):
+    """An exception anywhere inside the hook is caught by main()'s outer
+    try/except; this test exercises the hook function raising, proving
+    the exception propagates OUT of the self-gated function (so main()'s
+    own try/except -- not this function -- is the actual boundary)."""
+    with mock.patch.object(orchestrate, "AUDIT_MEMORY_ENABLED", True), \
+         mock.patch.object(
+             orchestrate._mem_audit_findings, "build_finding_payloads",
+             side_effect=RuntimeError("boom"),
+         ):
+        with pytest.raises(RuntimeError):
+            orchestrate._run_audit_memory_phase(
+                {"rate_sanity_mismatches": [_rate_sanity_finding()]},
+                [_matching_row()],
+                "run-123",
+            )
+
+
+def test_orchestrate_hook_never_mutates_audit_results():
+    audit_results = {"rate_sanity_mismatches": [_rate_sanity_finding()]}
+    original_snapshot = {
+        "rate_sanity_mismatches": [dict(_rate_sanity_finding())],
+    }
+    rows = [_matching_row()]
+
+    with mock.patch.object(orchestrate, "AUDIT_MEMORY_ENABLED", True):
+        orchestrate._run_audit_memory_phase(audit_results, rows, "run-123")
+
+    assert audit_results == original_snapshot
+
+
+def test_orchestrate_audit_memory_error_fingerprint_distinct_from_audit_system():
+    """T-13-03/deviation-avoidance: the audit-memory Sentry fingerprint
+    must never collide with the existing audit-engine one."""
+    import inspect
+    source = inspect.getsource(orchestrate)
+    assert 'fingerprint=["audit-memory"' in source
+    assert 'fingerprint=["audit-system"' in source
+    assert 'context_name="audit_memory_error"' in source
+    assert 'context_name="audit_system_error"' in source

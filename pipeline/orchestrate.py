@@ -62,6 +62,10 @@ from pipeline.retry import smartsheet_call_with_retry
 # rule's scope; see pipeline_memory/__init__.py). Off by default via
 # RUN_MEMORY_WRITE_ENABLED; every call site below is fail-open.
 from pipeline_memory import writer as _mem_writer
+# Phase 13 (AUD-01): audit-memory write path -- independent of _mem_writer
+# above (own kill switch, own flag AUDIT_MEMORY_ENABLED). Off by default;
+# every call site below is fail-open.
+from pipeline_memory import audit_findings as _mem_audit_findings
 # Phase 11 Plan 02 (INC-01): the package's first READ surface, used by
 # resolve_run_mode() below. Same independence rationale as _mem_writer.
 from pipeline_memory import reader as _mem_reader
@@ -80,6 +84,7 @@ from pipeline.config import (  # noqa: E402
     ATTACHMENT_REQUIRED_FOR_SKIP,
     NO_TARGET_ROW_MAX_MISS_RATIO,
     ATTRIBUTION_BULK_PREFETCH_FALLBACK,
+    AUDIT_MEMORY_ENABLED,
     AUDIT_SHEET_ID,
     DEBUG_ESSENTIAL_ROWS,
     DEBUG_SAMPLE_ROWS,
@@ -2075,6 +2080,58 @@ def _reconcile_deep_run_deletions(
     return result
 
 
+def _run_audit_memory_phase(
+    audit_results: dict[str, Any],
+    all_rows: list[dict[str, Any]],
+    run_id: str,
+) -> dict[str, Any]:
+    """Phase 13 (AUD-01): persist audit-billing-changes findings to
+    ``pipeline_memory.audit_finding`` -- OBSERVABILITY only, entirely
+    additive to today's audit run. Independent of ``RUN_MEMORY_WRITE_
+    ENABLED`` / ``_mem_writer`` -- own flag (``AUDIT_MEMORY_ENABLED``),
+    own kill switch (``pipeline_memory.audit_findings``/``client.py``
+    import nothing from ``billing_audit``).
+
+    Builds payloads for every memory-backed finding in *audit_results*
+    (``pipeline_memory.audit_findings.build_finding_payloads``) and
+    upserts them via a single ``upsert_audit_findings`` RPC call. Passes
+    an empty ``reaudited_pairs`` list in this task -- the real
+    re-audited-pair computation (AUD-02) lands in plan 13-04; an empty
+    set here is the safe caller value, since the RPC's eventual
+    fixed-transition branch must treat an empty set as "nothing was
+    re-audited this run", never as "everything was fixed".
+
+    Self-gated on ``AUDIT_MEMORY_ENABLED`` and a truthy *audit_results*
+    (the same module-level constant + condition ``main()``'s call site
+    already checks -- defense-in-depth, mirrors ``_run_memory_write_
+    phase``'s self-gate) so this function is directly callable -- and
+    testable -- with zero ``pipeline_memory.audit_findings`` calls when
+    the flag is off, independent of how ``main()`` itself is invoked.
+
+    NEVER raises -- the caller (``main()``) wraps this call in its own
+    outer try/except, mirroring every other ``pipeline_memory`` hook in
+    this module (e.g. ``_reconcile_deep_run_deletions`` above).
+
+    Returns a dict of summary counts for the caller's breadcrumb
+    (``findings_emitted``, ``rpc_result`` when the RPC ran).
+    """
+    result: dict[str, Any] = {"findings_emitted": 0, "rpc_result": None}
+
+    if not (AUDIT_MEMORY_ENABLED and audit_results):
+        return result
+
+    payloads = _mem_audit_findings.build_finding_payloads(
+        audit_results, all_rows, run_id,
+    )
+    reaudited_pairs: list[dict[str, Any]] = []
+    rpc_result = _mem_audit_findings.upsert_audit_findings(
+        run_id, payloads, reaudited_pairs,
+    )
+    result["findings_emitted"] = len(payloads)
+    result["rpc_result"] = rpc_result
+    return result
+
+
 def _repair_group_state_for_affected_pairs(
     affected_pairs: set,
     deferred_group_state: list[dict[str, Any]],
@@ -2932,6 +2989,40 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
         else:
             logging.info("🚀 Audit system disabled for testing")
+
+        # ── Audit-memory write path (Phase 13, AUD-01) ──────────────
+        # Own try/except, placed AFTER the audit-engine block above (not
+        # inside it) -- entirely additive, never alters audit_results or
+        # the risk-level computation. Gated on AUDIT_MEMORY_ENABLED
+        # (independent of RUN_MEMORY_WRITE_ENABLED) and a truthy
+        # audit_results, mirroring the AUDIT_SYSTEM_AVAILABLE gate style
+        # above.
+        if AUDIT_MEMORY_ENABLED and audit_results:
+            try:
+                _audit_mem_result = _run_audit_memory_phase(
+                    audit_results, all_rows, _mem_run_id,
+                )
+                sentry_add_breadcrumb(
+                    "audit_memory", "Audit-memory upsert completed",
+                    data={
+                        "findings_emitted": _audit_mem_result[
+                            "findings_emitted"
+                        ],
+                    },
+                )
+            except Exception as e:
+                logging.warning(f"⚠️ Audit-memory write failed: {e}")
+                sentry_capture_with_context(
+                    exception=e,
+                    context_name="audit_memory_error",
+                    context_data={
+                        "total_rows": len(all_rows),
+                        "error_type": type(e).__name__,
+                        "error_message": _redact_exception_message(e),
+                    },
+                    tags={"error_location": "audit_memory", "subsystem": "pipeline_memory"},
+                    fingerprint=["audit-memory", type(e).__name__]
+                )
 
         # ── Snapshot-date drift audit (260812-jqx) ──────────────────
         # Pre-grouping seam: runs upstream of every Weekly Reference
