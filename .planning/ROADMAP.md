@@ -838,7 +838,7 @@ on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
    > Excel/portal visual surface is a tracked backlog item (see below), decided after observing
    > real finding volume in shadow.
 
-**Plans:** 1/6 plans executed (5 waves)
+**Plans:** 3/6 plans executed (5 waves)
 
 Plans:
 **Wave 1**
@@ -848,7 +848,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 13-03-PLAN.md — Check-type expansion: the `price_variance_anomaly` multi-week rule (D-CD-01), the `data_consistency_issue` sorted-set rule (D-CD-02), exhaustive recipe dispatch, and the load-bearing message-string pin *(wave 2)*
+- [x] 13-03-PLAN.md — Check-type expansion: the `price_variance_anomaly` multi-week rule (D-CD-01), the `data_consistency_issue` sorted-set rule (D-CD-02), exhaustive recipe dispatch, and the load-bearing message-string pin *(wave 2)*
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -998,10 +998,12 @@ Plans:
   `sheet_registry.mapping_schema` DDLs are applied to production alongside the RPC and read back on
   synthetic rows; `HELPER2_ENABLED` is wired into the scheduled workflow as a repo-variable flip;
   HLP-06 is Complete (7/7)
+
 - [x] 14-13-PLAN.md — O-14-E fix: `discovery` exposes the last discovery skip sids; `orchestrate`
   derives the `mapping_schema` marker per sheet (fully validated this run AND mapping written this
   call) and passes `mapping_schema_by_sheet` on both `sheet_registry` upserts — the caller pin that
   14-07's writer contract lacked (PR #395 → `d079e81`)
+
 - [x] 14-14-PLAN.md — O-14-E closure without the Monday deep run: frequent runs adopt the freshly
   validated `column_mapping` (+ marker) for every sheet fully validated this run, drift logged with
   the `Frequent-run full-validation` label BEFORE the first registry write; skip-admitted sheets

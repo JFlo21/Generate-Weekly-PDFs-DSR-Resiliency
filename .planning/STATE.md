@@ -1,21 +1,21 @@
 ---
-gsd_state_version: "1.0"
+gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
+milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 13
 current_phase_name: Audit Memory
 status: executing
-stopped_at: Completed 13-01-PLAN.md
-last_updated: "2026-09-11T23:18:23.947Z"
+stopped_at: Completed 13-03-PLAN.md
+last_updated: "2026-09-11T23:35:48.838Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 13 execution started
-state_head: ca2db60fd88d1fe76766bca49b36a3b25bf90a73
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 80
-  completed_plans: 76
+  completed_plans: 77
   percent: 93
+state_head: ca2db60fd88d1fe76766bca49b36a3b25bf90a73
 ---
 
 # Project State
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 13 (Audit Memory) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 
 Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
@@ -92,7 +92,7 @@ Last activity: 2026-09-11 — Phase 13 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans ([█████████░] 93%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([██████████] 96%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -169,6 +169,7 @@ Progress: [████████████████████] 74/74 p
 | Phase 14 P12 | executed by prior session (gap closure); closeout ~10min | 3 tasks | 10 files |
 | Phase 13 P02 | 14min | 3 tasks | 8 files |
 | Phase 13-audit-memory P01 | ~25min | 3 tasks | 7 files |
+| Phase 13 P03 | ~35min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -336,6 +337,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 13]: 13-02: provenance key guard is a static-typing narrowing only, not a behavior fix -- runtime skip already held via the pre-existing except (TypeError, ValueError)
 - [Phase 13]: 13-02: AUD-01 not marked complete -- requirements.ready-ids confirmed 0/1 ready (shared with sibling Phase 13 plans still in progress)
 - [Phase 13]: 13-01: D-01 finding-key recipe owner-confirmed (versioned-recipe, v1 sha256, Python-authoritative hashing); _run_audit_memory_phase self-gates internally (mirrors _run_memory_write_phase) for direct testability
+- [Phase ?]: 13-03: price_variance_anomaly and data_consistency_issue key branches implemented; recipe-coverage CI gate + collapse observability added; DATA_CONSISTENCY_ISSUE_LITERALS pins the check's 8 issue strings as durable identity via a bidirectional contract test
 
 ### Roadmap Evolution
 
@@ -370,6 +372,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   `unknown`, ≤ 5 re-probes, one monotonic waiter deadline) and the degraded call
   shared the tripped circuit-breaker op (now `freeze_attribution_degraded`).
   IN-01 self-resolves with CR-02 (runbook untouched). Report: `14-REVIEW-FIX.md`.
+
 - ✅ Bot-review follow-up `c7544b4` (Copilot, post-review): `calculate_data_hash()`
   mixed `SUB_RATES_FP` (D-20) in only for the four Phase 01 variants, so after
   CR-01 the Helper #2 shadows priced from the matrix but a rates-CSV edit never
@@ -377,6 +380,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   both shadows; per-member fingerprint tests, plain-`helper2` byte-identical guard,
   and a cross-file `ast` pin that `_resolve_row_price` and `calculate_data_hash`
   name the same rate-matrix consumer set. Ledger `[2026-09-10 20:15]`.
+
 - ⚠️ Residuals (accepted, no change): `except BaseException` in the probe also
   swallows `SystemExit`/`KeyboardInterrupt` inside a worker thread; the prose op
   list in `billing_audit/client.py` ~566 does not name the new degraded op; WR-01
@@ -456,6 +460,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - Phase 12 advisory gaps (see 12-VERIFICATION.md § Gaps Summary) — owner follow-ups.
 - Incremental-mode gate (D-14-FOLLOWUPS, 2026-09-11): `RUN_MEMORY_INCREMENTAL_ENABLED` stays unset until the
   SUB-09 off-contract gate honours `keep_historical` (fixture + dry run in the same PR).
+
 - ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: ~~O-14-C~~ RESOLVED 2026-09-08 (plan 14-11) -- Juan chose apply-delegated; the per-role fill was applied and verified on synthetic rows (see the O-14-C decision entry above). Real-row post-merge confirmation of the fill counter and degrade-warning check stays PENDING until a live Helper #2 row exists. Second successor: ~~O-14-B~~ RESOLVED 2026-09-09 (plan 14-12) -- `pipeline_memory.upsert_rows_bulk` now carries all four Helper #2 fields; D-14-13-DDL-APPLIED/D-14-13-VERIFIED recorded; HLP-06 now Complete 7/7 in both REQUIREMENTS.md and the 14-VERIFICATION.md addendum. Phase 14 fully executed (14/14 plans; closed 2026-09-10). Post-merge step DONE: PR #390 merged as `661d6d3` (2026-09-09 02:49Z) and `HELPER2_ENABLED=1` set 02:49:58Z (D-14-14-ENABLE addendum). First enabled scheduled run `34356004448` OBSERVED 2026-09-09: counters present, no degrade warning, 0 Helper #2 groups -- verified. New gap O-14-E (mapping_schema marker never written by the caller; registry skip defeated, slower but correct) FIXED by plans 14-13 (PR #395 `d079e81`) + 14-14 (PR #396 `736141a`) and RESOLVED 2026-09-10 on observed runs `34411958861` (121/121 marked) and `34415980363` (112/121 registry skips) -- see the O-14-E decision entry above; closure PR #398. Flag-off = emergency disable, not a billing-safe rollback (O-14-D, RESOLVED 2026-09-09: accepted, flag stays on indefinitely).
 
 ### Quick Tasks Completed
@@ -533,8 +538,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-11T23:18:22.775Z
-**Stopped at:** Completed 13-01-PLAN.md
+**Last session:** 2026-09-11T23:35:48.803Z
+**Stopped at:** Completed 13-03-PLAN.md
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
