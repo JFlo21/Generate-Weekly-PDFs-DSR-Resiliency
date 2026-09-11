@@ -11,6 +11,9 @@
 
 ## 2026-09-10 — 12-06 Task 4 observed and APPROVED (post-apply run 33974128574); D-12-E sample; backups dropped; Phase 12 closed
 
+PR #404 merged 2026-09-11 03:39Z → `9ba7eb7` after four bot review rounds (names redacted + branch collapsed;
+records reconciled — details in the ledger `[2026-09-11 03:55]`); the round-4 items landed in the post-merge docs PR.
+
 Read-only, ~23:15Z: transcribed all seven of 12-06 Task 4's post-apply observations against run 33974128574 (the
 first scheduled run after the 2026-09-05 attribution backfill) plus a live Smartsheet target-sheet inventory and
 Supabase reads. All seven pass: 74 files regenerated / 64 `_User_Unknown_Foreman` placeholders removed, sample

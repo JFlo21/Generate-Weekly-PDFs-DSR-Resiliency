@@ -232,9 +232,10 @@ reads current Smartsheet row state and needs no Smartsheet token.
 Prerequisite for `--apply` only: the owner-applied SQL in
 `billing_audit/own03_backfill_attribution.sql` (backup table, provenance
 columns, `is_sentinel_value`, the `backfill_attribution` RPC) must be live in
-the Supabase project. As of 2026-09-03 the apply was authorized (12-03 Task 3,
-`approve`) but the live schema has not yet been confirmed; until it is,
-`--apply` stops at exit 3 and the dry run is the only step available. The RPC is
+the Supabase project. It was applied live on 2026-09-03 and re-applied with the
+amended STEP 4+5 on 2026-09-04 (12-09); the 2026-09-05 live apply ran through
+it. In a project where the schema is missing, `--apply` stops at exit 3 and the
+dry run is the only step available. The RPC is
 `SECURITY INVOKER` with `EXECUTE` granted to `service_role` only, so the
 applying role must also hold `UPDATE` on `billing_audit.attribution_snapshot`.
 

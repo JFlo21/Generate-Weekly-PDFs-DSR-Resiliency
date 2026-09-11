@@ -60,10 +60,11 @@ scheduled run after `6e6e1e8` (run `34530899488`) was observed clean — no
 Helper #2 shadow groups exist yet, so the expected empty regeneration wave
 produced nothing to act on.
 
-Next, in order: (1) merge PR #404 (this docs pass); (2) PR #402 owner
-follow-ups (breaker half-open, `keep_historical` in the SUB-09 off-contract
-gate); (3) Phase 13 (Audit Memory) only when Juan asks; (4) owner: Codex
-threads, Dependabot triage.
+PR #404 merged 2026-09-11 03:39Z → `9ba7eb7`. Next, in order: (1) PR #402
+owner follow-ups (breaker half-open, `keep_historical` in the SUB-09
+off-contract gate); (2) Phase 13 (Audit Memory) only when Juan asks — place
+`wr_week_ownership` (D-12-A) on its contract then; (3) owner: Codex threads,
+Dependabot triage.
 Last activity: 2026-09-10 — Phase 12 complete, transitioned to Phase 13
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
