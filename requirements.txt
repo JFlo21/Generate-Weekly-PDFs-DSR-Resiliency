@@ -13,7 +13,7 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 
 # Data Processing and Validation
-pandas==2.2.2
+pandas==3.0.5
 pandera==0.32.1
 
 # Performance Monitoring
