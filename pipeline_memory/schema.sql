@@ -727,21 +727,77 @@ CREATE INDEX IF NOT EXISTS idx_audit_finding_event_key_observed
     ON pipeline_memory.audit_finding_event (finding_key, observed_at);
 
 -- ── upsert_audit_findings (RPC) ───────────────────────────────
--- Skeleton this task (13-01): only the insert-new-key-as-'open' (plus
--- an 'opened' event) and bump-last_seen_run-on-existing-key (plus a
--- 'seen' event) branches are implemented. The 'fixed' / 'resurfaced' /
--- 'reopened' transitions -- driven by ``p_reaudited_pairs``, the set of
--- (wr, week_ending) pairs this run re-audited but found no matching
--- open finding for -- are finished in plan 13-04 (AUD-02); until then
--- an empty ``p_reaudited_pairs`` is always the safe caller value (it
--- means "nothing was re-audited", never "everything was fixed").
+-- Plan 13-04 (AUD-02): the COMPLETE D-08 transition table, applied
+-- atomically in one plpgsql invocation (mirrors upsert_rows_bulk,
+-- D-CD-03). Every transition below writes exactly one
+-- audit_finding_event row; first_seen_run is set on INSERT only and
+-- appears in NO update set list anywhere in this function.
 --
--- SECURITY (T-13-01/T-13-02, ASVS V5/V6): explicit typed
+-- finding_key arrives PRE-COMPUTED from Python
+-- (pipeline_memory.audit_findings.compute_finding_key, D-01's versioned
+-- sha256 recipe) and is NEVER recomputed or re-derived here (ASVS V6 --
+-- one authoritative hashing side, so a Python-computed key can never
+-- disagree with a SQL-computed one).
+--
+-- An empty p_reaudited_pairs array closes nothing BY CONSTRUCTION: the
+-- 'fixed' branch (the to_fix/fixed_upd/fixed_logged CTEs below) is
+-- expressed as a JOIN against the jsonb_to_recordset(p_reaudited_pairs)
+-- recordset, so an empty array produces an empty join result -- never a
+-- NOT EXISTS over the whole table, which could vacuously match rows an
+-- empty caller payload never intended to touch.
+--
+-- Per-check scoping (Pitfall 5, 13-RESEARCH.md): p_reaudited_pairs is
+-- keyed by (check_id, wr, week_ending), never merely (wr, week_ending)
+-- -- RATE_SANITY_AUDIT_ENABLED can disable rate_sanity_mismatch for an
+-- entire run while the other two checks still run, so a
+-- rate_sanity_mismatch finding must never transition to 'fixed' off a
+-- pair whose check_id names a DIFFERENT check that happened to re-audit
+-- the same (wr, week_ending).
+--
+-- Transition table (D-08), by branch below:
+--   new finding_key                       -> INSERT status='open',
+--                                             event 'opened'
+--   existing key, prior status acknowledged -> 'resurfaced', event
+--                                             'resurfaced'
+--   existing key, prior status fixed        -> 'open' (fixed_run
+--                                             cleared), event 'reopened'
+--   existing key, prior status suppressed   -> unchanged, event 'seen'
+--   existing key, prior status open/
+--     resurfaced                            -> unchanged, event 'seen'
+--   (every "existing key" row above also sets last_seen_run = p_run_id,
+--    updated_at = NOW(), and refreshes the mutable non-identity columns
+--    severity/evidence from the payload -- identity columns and
+--    first_seen_run are never overwritten)
+--   key ABSENT from p_findings, status open/resurfaced, its check_id
+--     ran this run (present in p_reaudited_pairs) AND its (wr,
+--     week_ending) group was re-audited -- with a stored NULL
+--     week_ending matching on check_id + wr alone (D-CD-01 pooled-week
+--     rule) -- -> 'fixed', fixed_run = p_run_id, event 'fixed'.
+--     last_seen_run is deliberately NOT bumped here: the finding was
+--     not seen this run, it was concluded absent.
+--   everything else (including any finding whose check_id never
+--     appears in p_reaudited_pairs at all)  -> untouched: no status
+--     change, no last_seen_run bump, no event row.
+--
+-- SECURITY (T-13-04-01/T-13-04-02, ASVS V5/V6): explicit typed
 -- jsonb_to_recordset(...) column lists for BOTH jsonb parameters, never
 -- dynamic SQL and never trusting client-shaped jsonb structurally
 -- (mirrors upsert_rows_bulk's T-10-03 precedent). LANGUAGE plpgsql with
 -- SET search_path = '' -- every object reference below is therefore
 -- schema-qualified. VOLATILE (the default; this RPC writes).
+--
+-- Order-independence: every transition is expressed as a set-based CTE
+-- over the whole incoming/pairs recordsets, never a per-row loop or an
+-- ORDER BY, so the result is independent of the order of the findings
+-- and pairs arrays in the caller's payload (must-have truth).
+--
+-- Concurrency/idempotency: the whole transition set runs inside this
+-- one plpgsql function invocation (one transaction), so a retried or
+-- interrupted call leaves either the pre-call state or the fully
+-- applied state; finding_key's PRIMARY KEY makes a duplicate finding
+-- row impossible even under concurrent calls (T-13-04-08, accepted --
+-- pipeline_memory/client.py's breaker still lacks the PR #407 lock
+-- fix, a separately tracked follow-up, not this plan's scope).
 CREATE OR REPLACE FUNCTION pipeline_memory.upsert_audit_findings(
     p_run_id          TEXT,
     p_findings        JSONB,
@@ -753,24 +809,17 @@ VOLATILE
 SET search_path = ''
 AS $$
 DECLARE
-    _opened INT := 0;
-    _seen   INT := 0;
+    _opened     INT := 0;
+    _seen       INT := 0;
+    _fixed      INT := 0;
+    _resurfaced INT := 0;
+    _reopened   INT := 0;
 BEGIN
-    -- p_reaudited_pairs is validated (typed recordset) but not yet
-    -- consumed -- plan 13-04 computes fixed/resurfaced/reopened from
-    -- it. An unused CTE reference keeps the typed-recordset parse
-    -- itself a validation gate on the shape of every caller's payload,
-    -- even before that plan lands.
-    PERFORM 1
-    FROM jsonb_to_recordset(p_reaudited_pairs) AS r(
-        wr TEXT, week_ending DATE
-    )
-    LIMIT 0;
-
     WITH incoming AS (
         SELECT
             q.finding_key, q.recipe_version, q.check_id, q.wr,
-            q.week_ending, q.cu, q.work_type, q.severity, q.evidence
+            q.week_ending, q.cu, q.work_type, q.issue_codes, q.severity,
+            q.evidence
         FROM jsonb_to_recordset(p_findings) AS q(
             finding_key     TEXT,
             recipe_version  TEXT,
@@ -779,26 +828,52 @@ BEGIN
             week_ending     DATE,
             cu              TEXT,
             work_type       TEXT,
+            issue_codes     TEXT[],
             severity        TEXT,
             evidence        JSONB
         )
     ),
+    pairs AS (
+        SELECT r.check_id, r.wr, r.week_ending
+        FROM jsonb_to_recordset(p_reaudited_pairs) AS r(
+            check_id    TEXT,
+            wr          TEXT,
+            week_ending DATE
+        )
+    ),
+    existing AS (
+        SELECT af.finding_key, af.status AS prior_status
+        FROM pipeline_memory.audit_finding AS af
+        WHERE af.finding_key IN (SELECT i.finding_key FROM incoming AS i)
+    ),
     upserted AS (
         INSERT INTO pipeline_memory.audit_finding (
             finding_key, recipe_version, check_id, wr, week_ending, cu,
-            work_type, severity, status, evidence, first_seen_run,
-            last_seen_run
+            work_type, issue_codes, severity, status, evidence,
+            first_seen_run, last_seen_run
         )
         SELECT
             i.finding_key, i.recipe_version, i.check_id, i.wr,
-            i.week_ending, i.cu, i.work_type, i.severity, 'open',
-            i.evidence, p_run_id, p_run_id
+            i.week_ending, i.cu, i.work_type, i.issue_codes, i.severity,
+            'open', i.evidence, p_run_id, p_run_id
         FROM incoming AS i
         ON CONFLICT (finding_key) DO UPDATE SET
+            severity = EXCLUDED.severity,
+            evidence = EXCLUDED.evidence,
+            status = CASE pipeline_memory.audit_finding.status
+                         WHEN 'acknowledged' THEN 'resurfaced'
+                         WHEN 'fixed'        THEN 'open'
+                         ELSE pipeline_memory.audit_finding.status
+                     END,
+            fixed_run = CASE
+                            WHEN pipeline_memory.audit_finding.status = 'fixed'
+                            THEN NULL
+                            ELSE pipeline_memory.audit_finding.fixed_run
+                        END,
             last_seen_run = p_run_id,
             updated_at = NOW()
         RETURNING
-            pipeline_memory.audit_finding.finding_key,
+            pipeline_memory.audit_finding.finding_key AS finding_key,
             (xmax = 0) AS is_new
     ),
     logged AS (
@@ -806,18 +881,60 @@ BEGIN
             finding_key, run_id, transition
         )
         SELECT
-            u.finding_key, p_run_id,
-            CASE WHEN u.is_new THEN 'opened' ELSE 'seen' END
+            u.finding_key,
+            p_run_id,
+            CASE
+                WHEN u.is_new THEN 'opened'
+                WHEN e.prior_status = 'acknowledged' THEN 'resurfaced'
+                WHEN e.prior_status = 'fixed' THEN 'reopened'
+                ELSE 'seen'
+            END
         FROM upserted AS u
+        LEFT JOIN existing AS e ON e.finding_key = u.finding_key
+        RETURNING transition
+    ),
+    -- 'fixed' branch: a JOIN against the p_reaudited_pairs recordset,
+    -- never a NOT EXISTS over the whole table -- an empty
+    -- p_reaudited_pairs array therefore joins to nothing and closes
+    -- nothing (see the header comment above).
+    to_fix AS (
+        SELECT DISTINCT af.finding_key
+        FROM pipeline_memory.audit_finding AS af
+        JOIN pairs AS p
+            ON p.check_id = af.check_id
+           AND p.wr = af.wr
+           AND (af.week_ending IS NULL OR p.week_ending = af.week_ending)
+        WHERE af.status IN ('open', 'resurfaced')
+          AND NOT EXISTS (
+              SELECT 1 FROM incoming AS i WHERE i.finding_key = af.finding_key
+          )
+    ),
+    fixed_upd AS (
+        UPDATE pipeline_memory.audit_finding AS af
+        SET status = 'fixed',
+            fixed_run = p_run_id,
+            updated_at = NOW()
+        FROM to_fix AS tf
+        WHERE af.finding_key = tf.finding_key
+        RETURNING af.finding_key
+    ),
+    fixed_logged AS (
+        INSERT INTO pipeline_memory.audit_finding_event (
+            finding_key, run_id, transition
+        )
+        SELECT fu.finding_key, p_run_id, 'fixed'
+        FROM fixed_upd AS fu
         RETURNING 1
     )
     SELECT
-        COUNT(*) FILTER (WHERE u.is_new)     AS opened_count,
-        COUNT(*) FILTER (WHERE NOT u.is_new) AS seen_count
-    INTO _opened, _seen
-    FROM upserted AS u;
+        (SELECT COUNT(*) FROM logged WHERE transition = 'opened'),
+        (SELECT COUNT(*) FROM logged WHERE transition = 'seen'),
+        (SELECT COUNT(*) FROM fixed_logged),
+        (SELECT COUNT(*) FROM logged WHERE transition = 'resurfaced'),
+        (SELECT COUNT(*) FROM logged WHERE transition = 'reopened')
+    INTO _opened, _seen, _fixed, _resurfaced, _reopened;
 
-    RETURN QUERY SELECT _opened, _seen, 0, 0, 0;
+    RETURN QUERY SELECT _opened, _seen, _fixed, _resurfaced, _reopened;
 END;
 $$;
 
@@ -836,4 +953,23 @@ $$;
 --     groups_generated, notes (finish). on_conflict="run_id".
 --   upsert_rows_bulk RPC parameters: p_sheet_id, p_run_id, p_rows
 --     (wired against real row payloads starting plan 10-02).
+--   upsert_audit_findings RPC parameters (plan 13-04, verified against
+--     pipeline_memory/audit_findings.py and
+--     tests/test_audit_findings_sql_contract.py): p_run_id, p_findings,
+--     p_reaudited_pairs.
+--   p_findings jsonb_to_recordset column list: finding_key,
+--     recipe_version, check_id, wr, week_ending, cu, work_type,
+--     issue_codes, severity, evidence -- matches
+--     pipeline_memory.audit_findings.build_finding_payloads' emitted
+--     dict keys one for one (a given check's payload omits whichever of
+--     cu/work_type/issue_codes it does not use; jsonb_to_recordset
+--     fills the absent key as NULL).
+--   p_reaudited_pairs jsonb_to_recordset element shape: check_id, wr,
+--     week_ending -- matches
+--     pipeline_memory.audit_findings.build_reaudited_pairs' emitted
+--     dict keys one for one.
+--   audit_finding.status CHECK set: open, fixed, acknowledged,
+--     suppressed, resurfaced.
+--   audit_finding_event.transition CHECK set: opened, seen, fixed,
+--     reopened, resurfaced, acknowledged, suppressed.
 -- ============================================================
