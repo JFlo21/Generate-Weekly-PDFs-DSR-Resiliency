@@ -5,16 +5,16 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 13
 current_phase_name: Audit Memory
 status: executing
-stopped_at: Completed 13-02-PLAN.md
-last_updated: "2026-09-11T22:59:43.941Z"
+stopped_at: Completed 13-01-PLAN.md
+last_updated: "2026-09-11T23:18:23.947Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 13 execution started
-state_head: ea128c46ae2cefaa1d1384293517f37c343b303d
+state_head: ca2db60fd88d1fe76766bca49b36a3b25bf90a73
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 80
-  completed_plans: 75
+  completed_plans: 76
   percent: 93
 ---
 
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 13 (Audit Memory) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 
 Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
@@ -168,6 +168,7 @@ Progress: [████████████████████] 74/74 p
 | Phase 14 P10 | ~12min active (2 stretches, 1 gate wait) | 3 tasks | 9 files |
 | Phase 14 P12 | executed by prior session (gap closure); closeout ~10min | 3 tasks | 10 files |
 | Phase 13 P02 | 14min | 3 tasks | 8 files |
+| Phase 13-audit-memory P01 | ~25min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -334,6 +335,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 14]: D-14-CR-FIX (2026-09-10, Juan): fix the `14-REVIEW.md` Critical/Warning findings via `/gsd-code-review 14 --fix` rather than accept-as-is or a hand-written PR — protected areas (`pipeline/pricing.py` rate-matrix gate, `pipeline/grouping.py` WR hold matchers, `billing_audit/writer.py`) touched only with TDD, Helper #1 parity as the known-good sample, and a read-only production-risk pass before the PR. Round 1 of WR-03 was rejected by that pass (terminal `supported` on an inconclusive probe); the accepted design is tri-valued probe outcome, `inconclusive` → state `unknown`, bounded re-probes, isolated degraded op label.
 - [Phase 13]: 13-02: provenance key guard is a static-typing narrowing only, not a behavior fix -- runtime skip already held via the pre-existing except (TypeError, ValueError)
 - [Phase 13]: 13-02: AUD-01 not marked complete -- requirements.ready-ids confirmed 0/1 ready (shared with sibling Phase 13 plans still in progress)
+- [Phase 13]: 13-01: D-01 finding-key recipe owner-confirmed (versioned-recipe, v1 sha256, Python-authoritative hashing); _run_audit_memory_phase self-gates internally (mirrors _run_memory_write_phase) for direct testability
 
 ### Roadmap Evolution
 
@@ -531,8 +533,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-11T22:59:42.931Z
-**Stopped at:** Completed 13-02-PLAN.md
+**Last session:** 2026-09-11T23:18:22.775Z
+**Stopped at:** Completed 13-01-PLAN.md
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /

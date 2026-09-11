@@ -843,7 +843,7 @@ on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
 Plans:
 **Wave 1**
 
-- [ ] 13-01-PLAN.md — Tracer: one check type end-to-end (flag, client gate, `pipeline_memory/audit_findings.py`, the two tables and the RPC skeleton, the orchestrate hook) behind an owner `checkpoint:decision` on the finding-key recipe *(wave 1)*
+- [x] 13-01-PLAN.md — Tracer: one check type end-to-end (flag, client gate, `pipeline_memory/audit_findings.py`, the two tables and the RPC skeleton, the orchestrate hook) behind an owner `checkpoint:decision` on the finding-key recipe *(wave 1)*
 - [x] 13-02-PLAN.md — Folded-todo hygiene: the `snapshot_store` Class-A arg-type fix, an exact one-line mypy re-baseline with its ledger entry, and closure of the Phase 10 review todos *(wave 1, parallel)*
 
 **Wave 2** *(blocked on Wave 1 completion)*
