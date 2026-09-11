@@ -63,6 +63,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Literal, NamedTuple
 
 from billing_audit.client import (
+    close_circuit,
     get_client,
     get_flag,
     is_flag_resolved,
@@ -1032,6 +1033,17 @@ def freeze_row(row: dict, release: str | None,
                 # later row kept sending full params, kept hitting the
                 # REAL PGRST202 rejection, and never degraded.
                 return 'inconclusive'
+            # Owner decision 2026-09-11 (PR #402 follow-up, half-open
+            # breaker): the bare invoke above just round-tripped the
+            # real RPC, so a 'freeze_attribution' breaker opened earlier
+            # this run (which is what fast-failed this row's own attempt
+            # and sent it here) is provably stale — close it so the
+            # remaining rows stop fast-failing. This row still returns
+            # its failure (one failed freeze == one counted error).
+            close_circuit(
+                "freeze_attribution",
+                reason="Helper #2 capability probe succeeded",
+            )
             return 'supported'
 
         try:

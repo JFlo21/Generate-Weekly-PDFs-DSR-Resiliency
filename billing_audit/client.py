@@ -533,6 +533,39 @@ def get_flag(key: str, default: bool = False) -> bool:
     return value
 
 
+def close_circuit(op: str, *, reason: str = "") -> bool:
+    """Close an OPEN per-op breaker after independent proof of health.
+
+    Half-open policy (owner decision 2026-09-11, PR #402 follow-up):
+    ``with_retry`` never re-closes a breaker on its own so a flapping
+    endpoint cannot oscillate, but a caller that has just made a
+    successful DIRECT call to the same endpoint outside ``with_retry``
+    — today only ``billing_audit.writer``'s Helper #2 capability probe,
+    which is fast-failed by the very breaker it then proves stale —
+    may close it so the remaining rows of the run stop fast-failing.
+
+    Resets the op's consecutive-failure counter either way. Returns
+    ``True`` only when an open breaker was actually closed. Never call
+    this from an ordinary ``with_retry`` success path.
+    """
+    _consecutive_failures[op] = 0
+    if op not in _open_circuits:
+        return False
+    _open_circuits.discard(op)
+    logging.warning(
+        f"🔌 billing_audit[{op}] circuit breaker CLOSED — "
+        f"{reason or 'direct probe succeeded'}; {op!r} RPC calls "
+        "resume for the rest of this run."
+    )
+    _sentry_breadcrumb(
+        "billing_audit",
+        "Circuit breaker closed",
+        level="info",
+        data={"op": op, "reason": reason or "direct probe succeeded"},
+    )
+    return True
+
+
 def with_retry(fn: Callable[..., Any], *args: Any,
                op: str = "default", **kwargs: Any) -> Any:
     """Run ``fn`` with exponential backoff on transient errors.
@@ -557,7 +590,11 @@ def with_retry(fn: Callable[..., Any], *args: Any,
     and every subsequent call for that op returns ``None``
     immediately. A single successful call resets that op's failure
     counter (but not an open breaker — the breaker is per-run by
-    design so we don't oscillate).
+    design so we don't oscillate). The one sanctioned exception is
+    ``close_circuit()``: a caller that has independently round-tripped
+    the endpoint OUTSIDE ``with_retry`` (today only the writer's direct
+    Helper #2 capability probe) may close a stale open breaker
+    (half-open policy, owner decision 2026-09-11).
 
     Callers in ``billing_audit.writer`` should pass a stable ``op``
     identifier matching the endpoint being called. Current values

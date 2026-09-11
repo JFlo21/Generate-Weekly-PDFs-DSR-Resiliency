@@ -1547,6 +1547,77 @@ class FreezeRowHelper2ProbeConcurrencyTests(unittest.TestCase):
             "freeze_attribution_degraded", ba_client._open_circuits,
         )
 
+    def test_successful_probe_closes_open_freeze_attribution_breaker(self):
+        """Owner decision 2026-09-11 (PR #402 follow-up, breaker
+        half-open): a direct capability probe that SUCCEEDS has just
+        round-tripped the real ``freeze_attribution`` RPC, so an
+        already-open per-run breaker for that op is provably stale and
+        is closed (policy: clear on probe success). Before this, the
+        probe bypassed ``with_retry`` and could never clear the breaker
+        that fast-failed it, so every later row of the run fast-failed
+        too. The probing row itself still fails ("one failed freeze ==
+        one counted error"); the NEXT row goes through normally."""
+        from billing_audit import writer as ba_writer
+        from billing_audit import client as ba_client
+
+        def _always_fails():
+            raise self._api_error("23505", "duplicate key")
+
+        with mock.patch("billing_audit.client.time.sleep"):
+            for _ in range(ba_client._CIRCUIT_BREAKER_THRESHOLD):
+                self.assertIsNone(
+                    ba_client.with_retry(
+                        _always_fails, op="freeze_attribution",
+                    )
+                )
+        self.assertIn("freeze_attribution", ba_client._open_circuits)
+
+        client = _make_fake_supabase_client()
+        execute = client.schema.return_value.rpc.return_value.execute
+        execute.side_effect = None
+        execute.return_value = _fake_rpc_response("run-half-open")
+        with mock.patch(
+            "billing_audit.writer.get_client", return_value=client
+        ), mock.patch(
+            "billing_audit.writer.get_flag", return_value=True
+        ), mock.patch("billing_audit.client.time.sleep"):
+            first = ba_writer.freeze_row(
+                self._row(0), release="r", run_id="run-ho",
+            )
+            second = ba_writer.freeze_row(
+                self._row(1), release="r", run_id="run-ho",
+            )
+
+        self.assertFalse(
+            first,
+            "the probing row keeps the one-failed-freeze == one-counted-"
+            "error contract; its own attempt was fast-failed",
+        )
+        self.assertEqual(ba_writer._helper2_probe_state, 'supported')
+        self.assertNotIn(
+            "freeze_attribution", ba_client._open_circuits,
+            "a successful direct probe must close the stale breaker",
+        )
+        self.assertEqual(
+            ba_client._consecutive_failures.get("freeze_attribution", 0), 0,
+        )
+        self.assertTrue(
+            second, "the next row must go through with_retry normally",
+        )
+        # Exactly two RPC round trips: the probe and the second row's
+        # own call (the first row's attempt was fast-failed, no RPC).
+        self.assertEqual(execute.call_count, 2)
+
+    def test_close_circuit_is_a_noop_on_a_closed_breaker(self):
+        from billing_audit import client as ba_client
+
+        ba_client._consecutive_failures["freeze_attribution"] = 2
+        self.assertFalse(ba_client.close_circuit("freeze_attribution"))
+        self.assertEqual(
+            ba_client._consecutive_failures["freeze_attribution"], 0,
+        )
+        self.assertNotIn("freeze_attribution", ba_client._open_circuits)
+
     def test_already_unsupported_row_survives_freeze_attribution_breaker(
         self,
     ):

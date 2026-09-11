@@ -55,16 +55,17 @@ Phase 14 (Foreman Helper #2) closed 2026-09-10 via PR #402 (`6e6e1e8`) —
 CR-01/CR-02/WR-01/WR-02/WR-03 fixed; suite 2333 passed / 1 skipped;
 operator changelog `website/blog/2026-09-10-pr402-phase-14-review-fixes.md`.
 Owner follow-ups parked in
-`.planning/todos/pending/2026-09-10-pr402-review-followups.md`. The first
+`.planning/todos/done/2026-09-10-pr402-review-followups.md`. The first
 scheduled run after `6e6e1e8` (run `34530899488`) was observed clean — no
 Helper #2 shadow groups exist yet, so the expected empty regeneration wave
 produced nothing to act on.
 
-PR #404 merged 2026-09-11 03:39Z → `9ba7eb7`. Next, in order: (1) PR #402
-owner follow-ups (breaker half-open, `keep_historical` in the SUB-09
-off-contract gate); (2) Phase 13 (Audit Memory) only when Juan asks — place
-`wr_week_ownership` (D-12-A) on its contract then; (3) owner: Codex threads,
-Dependabot triage.
+PR #404 merged 2026-09-11 03:39Z → `9ba7eb7`. PR #402 follow-ups DECIDED 2026-09-11
+(D-14-FOLLOWUPS): breaker half-open shipped on branch
+`fix/breaker-half-open-on-probe` (PR open); `keep_historical` deferred behind
+the incremental-mode gate. Next, in order: (1) merge the breaker PR; (2) Phase
+13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A) on
+its contract then; (3) owner: Codex threads, Dependabot triage.
 Last activity: 2026-09-10 — Phase 12 complete, transitioned to Phase 13
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
@@ -447,6 +448,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
   isolation before Phase 04 ships.
 
 - Phase 12 advisory gaps (see 12-VERIFICATION.md § Gaps Summary) — owner follow-ups.
+- Incremental-mode gate (D-14-FOLLOWUPS, 2026-09-11): `RUN_MEMORY_INCREMENTAL_ENABLED` stays unset until the
+  SUB-09 off-contract gate honours `keep_historical` (fixture + dry run in the same PR).
 - ~~Phase 14 / 14-09 Task 2~~ RESOLVED 2026-09-08: Juan chose sql-first and delegated the apply; D-14-07-APPLIED and D-14-07-VERIFIED both recorded; HLP-06 complete. Successor: ~~O-14-C~~ RESOLVED 2026-09-08 (plan 14-11) -- Juan chose apply-delegated; the per-role fill was applied and verified on synthetic rows (see the O-14-C decision entry above). Real-row post-merge confirmation of the fill counter and degrade-warning check stays PENDING until a live Helper #2 row exists. Second successor: ~~O-14-B~~ RESOLVED 2026-09-09 (plan 14-12) -- `pipeline_memory.upsert_rows_bulk` now carries all four Helper #2 fields; D-14-13-DDL-APPLIED/D-14-13-VERIFIED recorded; HLP-06 now Complete 7/7 in both REQUIREMENTS.md and the 14-VERIFICATION.md addendum. Phase 14 fully executed (14/14 plans; closed 2026-09-10). Post-merge step DONE: PR #390 merged as `661d6d3` (2026-09-09 02:49Z) and `HELPER2_ENABLED=1` set 02:49:58Z (D-14-14-ENABLE addendum). First enabled scheduled run `34356004448` OBSERVED 2026-09-09: counters present, no degrade warning, 0 Helper #2 groups -- verified. New gap O-14-E (mapping_schema marker never written by the caller; registry skip defeated, slower but correct) FIXED by plans 14-13 (PR #395 `d079e81`) + 14-14 (PR #396 `736141a`) and RESOLVED 2026-09-10 on observed runs `34411958861` (121/121 marked) and `34415980363` (112/121 registry skips) -- see the O-14-E decision entry above; closure PR #398. Flag-off = emergency disable, not a billing-safe rollback (O-14-D, RESOLVED 2026-09-09: accepted, flag stays on indefinitely).
 
 ### Quick Tasks Completed
@@ -537,7 +540,7 @@ backups dropped via the Supabase connector). The first scheduled run after
 groups exist yet, so the expected empty regeneration wave produced nothing
 to act on.
 Next: (1) PR #402 owner follow-ups
-(`.planning/todos/pending/2026-09-10-pr402-review-followups.md`); (2) Phase
+(`.planning/todos/done/2026-09-10-pr402-review-followups.md`); (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A)
 on its contract then; (3) owner: Dependabot triage / Codex threads.
 **Resume file:** None

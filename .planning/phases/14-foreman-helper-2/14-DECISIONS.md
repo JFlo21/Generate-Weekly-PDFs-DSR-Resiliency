@@ -707,3 +707,25 @@ over synthetic data**. Neither **controlled upload verified** nor
   `RUN_MEMORY_INCREMENTAL_ENABLED`, unset in production). Both remain owner decisions.
 - Expected on the first scheduled run after `6e6e1e8`: one empty regeneration wave of the
   `_AEPBillable_Helper2_` / `_ReducedSub_Helper2_` shadows; no other variant's hash moves.
+
+## D-14-FOLLOWUPS — owner decisions 2026-09-11: the two PR #402 review follow-ups
+
+- **Breaker half-open → "clear on probe success"** (`billing_audit/client.py`, `billing_audit/writer.py`).
+  Decision: when the writer's direct Helper #2 capability probe succeeds (it bypasses `with_retry`
+  and is fast-failed by the very breaker it then proves stale), close an open `freeze_attribution`
+  breaker so the remaining rows of the run stop fast-failing. Implemented as
+  `billing_audit.client.close_circuit(op, reason=...)` called from the probe's `'supported'` path;
+  `with_retry` itself still never re-closes a breaker (no oscillation). The probing row keeps the
+  "one failed freeze == one counted error" contract. Scope: heals a trip-before-probe only — once the
+  process is `'supported'` no further probe runs, so a later trip stays per-run as before. Tests:
+  `test_successful_probe_closes_open_freeze_attribution_breaker`, `test_close_circuit_is_a_noop_on_a_closed_breaker`
+  (TDD, RED first). Alternatives declined: time-based half-open (more code, timing tests); leave as-is.
+- **SUB-09 off-contract gate vs `keep_historical` → DEFERRED to the incremental-read rollout.**
+  Decision: no attachment-deletion change now. HARD GATE recorded: `RUN_MEMORY_INCREMENTAL_ENABLED`
+  stays unset in production until the gate at `pipeline/cleanup.py` (scope set at
+  `pipeline/attribution.py:119`) honours `KEEP_HISTORICAL_WEEKS` for subcontractor-active WRs — or
+  legacy cleanup is scoped to the run's affected set — with a known-good attachment fixture and a
+  dry run in the same PR. Rationale: the defect is unreachable with incremental read OFF; changing a
+  deletion path for no production benefit is risk without return. Owner: Juan, at incremental-rollout
+  planning time. Todo moved to `.planning/todos/done/2026-09-10-pr402-review-followups.md`.
+
