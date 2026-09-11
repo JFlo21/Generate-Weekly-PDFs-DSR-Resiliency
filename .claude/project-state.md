@@ -12,7 +12,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   change detection and attachment identity are `group_state`-backed; `TIME_BUDGET_MINUTES=165` under
   `timeout-minutes: 180`.
 - **Phase 12 (Ownership)**: **COMPLETE 2026-09-10** — 10/10 plans (incl. 4 gap-closure plans). `/gsd-verify-work 12`
-  passed: `12-UAT.md` 34/34, `12-VERIFICATION.md` 77/77 must-haves; 5 open advisory gaps for owner follow-up, the 6th — runbook WR-09 — fixed in the PR); PR #404
+  passed: `12-UAT.md` 34/34, `12-VERIFICATION.md` 77/77 must-haves; 5 open advisory gaps for owner follow-up, the 6th — runbook WR-09 — fixed in the PR; PR #404
   (docs). Live attribution backfill applied 2026-09-05 (1,758 rows); 12-06 Task 4 approved 2026-09-10 ~23:45Z
   (`Adopt 89746993` for D-12-E; snapshot backups dropped). Phase 13 (`wr_week_ownership`, D-12-A) not started —
   plan only when Juan asks.
