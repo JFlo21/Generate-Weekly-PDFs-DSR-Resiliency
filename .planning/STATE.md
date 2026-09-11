@@ -5,11 +5,11 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 13
 current_phase_name: Audit Memory
 status: planning
-stopped_at: Phase 12 complete, ready to plan Phase 13
-last_updated: "2026-09-11T04:05:00.000Z"
+stopped_at: Phase 13 context gathered
+last_updated: "2026-09-11T18:50:45.821Z"
 last_activity: 2026-09-11
-last_activity_desc: Phase 12 complete, transitioned to Phase 13; closure docs PRs #404 / #405 merged
-state_head: 5d0aaf71b1970807b989fdacd6ea2551066ccf1b
+last_activity_desc: Phase 12 complete, transitioned to Phase 13; closure docs PRs
+state_head: 80a79b9acf0f5a2e48c51726c8d2a50f50813eff
 progress:
   total_phases: 14
   completed_phases: 13
@@ -92,7 +92,7 @@ Last activity: 2026-09-10 — Phase 12 complete, transitioned to Phase 13
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans (100%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([█████████░] 93%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -528,8 +528,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-11T04:05:00.000Z
-**Stopped at:** Phase 12 COMPLETE via PR #404 → `9ba7eb7` and PR #405 → `6fd676a` (docs, both merged 2026-09-11). `/gsd-verify-work 12`
+**Last session:** 2026-09-11T18:50:44.915Z
+**Stopped at:** Phase 13 context gathered
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
@@ -547,7 +547,7 @@ breaker); `keep_historical` deferred behind the incremental-mode gate
 (record `.planning/todos/done/2026-09-10-pr402-review-followups.md`); (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A)
 on its contract then; (3) owner: Dependabot triage / Codex threads.
-**Resume file:** None
+**Resume file:** .planning/phases/13-audit-memory/13-CONTEXT.md
 
 ## Session Continuity
 
