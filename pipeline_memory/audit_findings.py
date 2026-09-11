@@ -312,6 +312,31 @@ def _build_price_variance_payload(
 
 # ── data_consistency_issue payload building ──────────────────────────────
 
+# This constant exists ONLY to make a reword of _validate_data_consistency's
+# message text a CI failure rather than a silent orphaning of every open
+# data_consistency_issue finding (RESEARCH.md Pitfall 2). It mirrors --
+# verbatim, character for character -- every string audit_billing_changes.py's
+# _validate_data_consistency() can put into a finding's ``issues`` list,
+# including the four "Missing {field}" strings its per-field loop builds
+# from ['Work Request #', 'Units Total Price', 'Quantity', 'CU']. These
+# strings are part of the durable ``data_consistency_issue`` identity
+# (D-01 / D-CD-02, sorted-and-joined into the hash input) -- a wording
+# change on either side is caught by
+# tests/test_audit_findings.py's contract test, which asserts set equality
+# in both directions. A DELIBERATE change to any of these strings is a key
+# migration requiring a FINDING_KEY_RECIPE_VERSION bump, never a plain edit.
+DATA_CONSISTENCY_ISSUE_LITERALS: frozenset[str] = frozenset({
+    "Missing Work Request #",
+    "Missing Units Total Price",
+    "Missing Quantity",
+    "Missing CU",
+    "Negative price detected",
+    "Invalid price format",
+    "Zero or negative quantity",
+    "Invalid quantity format",
+})
+
+
 def _build_data_consistency_payload(
     finding: dict, rows: Sequence[dict],
 ) -> dict | None:

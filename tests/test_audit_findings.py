@@ -16,6 +16,7 @@ from unittest import mock
 
 import pytest
 
+import audit_billing_changes
 import pipeline.orchestrate as orchestrate
 import pipeline_memory.audit_findings as audit_findings
 import pipeline_memory.client as pm_client
@@ -479,6 +480,45 @@ def test_build_finding_payloads_only_recent_discussion_returns_empty_list():
         "unauthorized_changes": [{"type": "recent_discussion", "sheet_id": 1}],
     }
     assert audit_findings.build_finding_payloads(audit_results, [], "run-123") == []
+
+
+# ── DATA_CONSISTENCY_ISSUE_LITERALS contract (Task 3) ────────────────────
+
+def test_data_consistency_issue_literals_match_validate_data_consistency():
+    """Bidirectional contract (RESEARCH.md Pitfall 2): every issue string
+    ``_validate_data_consistency`` can emit -- including the four
+    "Missing {field}" strings its per-field loop builds -- must exactly
+    match ``DATA_CONSISTENCY_ISSUE_LITERALS``. A string added on either
+    side without the other, or a single reworded character, fails this
+    test before it can silently orphan an open finding in production."""
+    audit = audit_billing_changes.BillingAudit(client=None, skip_cell_history=True)
+    rows = [
+        # Missing Work Request #
+        {"Units Total Price": "100", "Quantity": "5", "CU": "ABC"},
+        # Missing Units Total Price
+        {"Work Request #": "1", "Quantity": "5", "CU": "ABC"},
+        # Missing Quantity (also triggers "Zero or negative quantity"
+        # via the '0' default -- both land in the union, which is fine)
+        {"Work Request #": "1", "Units Total Price": "100", "CU": "ABC"},
+        # Missing CU
+        {"Work Request #": "1", "Units Total Price": "100", "Quantity": "5"},
+        # Negative price detected
+        {"Work Request #": "1", "Units Total Price": "-50",
+         "Quantity": "5", "CU": "ABC"},
+        # Invalid price format
+        {"Work Request #": "1", "Units Total Price": "abc",
+         "Quantity": "5", "CU": "ABC"},
+        # Invalid quantity format
+        {"Work Request #": "1", "Units Total Price": "100",
+         "Quantity": "abc", "CU": "ABC"},
+    ]
+
+    findings = audit._validate_data_consistency(rows)
+    observed_issues: set[str] = set()
+    for finding in findings:
+        observed_issues.update(finding["issues"])
+
+    assert observed_issues == audit_findings.DATA_CONSISTENCY_ISSUE_LITERALS
 
 
 # ── upsert_audit_findings ────────────────────────────────────────────────

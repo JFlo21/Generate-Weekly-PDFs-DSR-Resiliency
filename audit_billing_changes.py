@@ -436,6 +436,13 @@ class BillingAudit:
     
     def _detect_price_anomalies(self, rows: List[Dict]) -> List[Dict]:
         """Detect unusual pricing patterns that might indicate unauthorized changes."""
+        # Phase 13 (pipeline_memory/audit_findings.py, D-CD-01): this pools
+        # Units Total Price per Work Request with NO week scoping at all,
+        # so a WR's row pool routinely spans multiple week_ending values
+        # within one run. That is why the persisted week_ending for a
+        # price_variance_anomaly finding can be NULL (more than one
+        # distinct week resolved from the pool) -- see
+        # audit_findings._resolve_price_variance_week_ending.
         anomalies = []
         
         try:
@@ -481,6 +488,15 @@ class BillingAudit:
         issues = []
         
         try:
+            # Phase 13 (pipeline_memory/audit_findings.py, D-01/D-CD-02):
+            # every literal string appended to row_issues below is
+            # load-bearing for a data_consistency_issue finding's durable
+            # identity (sorted and hashed into finding_key) -- NOT just
+            # display text. The complete set is mirrored verbatim in
+            # audit_findings.DATA_CONSISTENCY_ISSUE_LITERALS and pinned by
+            # a bidirectional contract test in tests/test_audit_findings.py.
+            # Rewording any string here without updating both sides
+            # silently orphans every open finding keyed on the old wording.
             for i, row in enumerate(rows):
                 row_issues = []
                 
