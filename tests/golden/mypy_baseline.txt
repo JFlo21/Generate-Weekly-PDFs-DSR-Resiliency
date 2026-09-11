@@ -6,7 +6,6 @@ billing_audit\writer.py:919: error: Cannot assign to a type  [misc]
 billing_audit\writer.py:919: error: Incompatible types in assignment (expression has type "tuple[()]", variable has type "type[APIError]")  [assignment]
 billing_audit\snapshot_store.py:113: error: Cannot assign to a type  [misc]
 billing_audit\snapshot_store.py:113: note: Error code "misc" not covered by "type: ignore" comment
-billing_audit\snapshot_store.py:370: error: Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"  [arg-type]
 pipeline\snapshot_drift.py:50: error: Library stubs not installed for "dateutil"  [import-untyped]
 pipeline\upload.py:73: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
 pipeline\upload.py:115: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
