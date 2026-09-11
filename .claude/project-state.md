@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-10 21:10 CDT (2026-09-11 02:10Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-10 23:05 CDT (2026-09-11 04:05Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -94,7 +94,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 
 ## Next actions
 
-1. PR #404 merged (`9ba7eb7`); round-4 bot items folded into the post-merge docs PR.
+1. PR #404 merged (`9ba7eb7`) and the post-merge write-back PR #405 merged (`6fd676a`); Phase 12 records final.
 2. PR #402 owner follow-ups (`.planning/todos/pending/2026-09-10-pr402-review-followups.md`): breaker half-open
    policy (client feature), `keep_historical` in the SUB-09 off-contract gate (attachment deletion — owner decision).
 3. Phase 13 (Audit Memory) — plan only when Juan asks; put `wr_week_ownership` (D-12-A) on its contract then.
