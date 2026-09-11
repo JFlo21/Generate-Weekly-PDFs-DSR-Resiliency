@@ -98,7 +98,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 1. PR #404 merged (`9ba7eb7`) and the post-merge write-back PR #405 merged (`6fd676a`); Phase 12 records final.
 2. PR #402 follow-ups DECIDED 2026-09-11 (D-14-FOLLOWUPS): breaker half-open = clear on probe success (PR open,
    branch `fix/breaker-half-open-on-probe`); `keep_historical` DEFERRED — gate before `RUN_MEMORY_INCREMENTAL_ENABLED`.
-3. Phase 13 (Audit Memory) — `/gsd:plan-phase 13` IN PROGRESS 2026-09-11 on `plan/phase-13`: `13-RESEARCH.md` (`d265800`, HIGH confidence — `_detect_price_anomalies` pools per-WR across weeks so the D-CD-01 NULL-week fallback is routine; `data_consistency_issue` emits literal English strings, needs a pinning test) and `13-VALIDATION.md` (`46dda31`) committed; pattern map → planner (opus) → plan checker next. PLAN.md not yet written.
+3. Phase 13 (Audit Memory) — **PLANNED 2026-09-11** on `plan/phase-13` (`2c53d32`, `96cebea`): 6 plans / 5 waves (`13-01` tracer on `rate_sanity_mismatch` with a blocking `checkpoint:decision` on the one-way finding-key recipe — planner proposes a `FINDING_KEY_RECIPE_VERSION='v1'` token; `13-02` folded todos; `13-03` other two checks + message-string pin; `13-04` D-08 transitions + AUD-02 scoping; `13-05` views/acknowledge/RLS with owner DDL-apply checkpoint; `13-06` docs/ledger). Checker PASSED (0 blockers/0 warnings/1 advisory); coverage 3/3 REQ, 11/11 decisions, gap analysis 19/19. Research `d265800`, validation `46dda31`. Next: `/gsd:execute-phase 13` (wave 1 stops at 13-01 Task 1 for the recipe decision).
 4. Owner: Codex threads (PR #399/#400/#402), Dependabot triage.
 
 ## Risks and guardrails

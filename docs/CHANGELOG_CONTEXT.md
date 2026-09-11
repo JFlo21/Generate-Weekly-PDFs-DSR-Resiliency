@@ -20,7 +20,12 @@ stable literal English sentences (not slug codes), so the key contract needs a w
 kill switch, reapply-safe DDL in `pipeline_memory/schema.sql`) exist — net-new work is the finding-key
 derivation and the D-08 transition RPC. `13-VALIDATION.md` (`46dda31`) seeds the Nyquist contract
 (Wave 0: `tests/test_audit_findings.py`; AUD-03 view content is an owner SQL checkpoint after DDL apply,
-D-11). No production code touched. Planner/checker output pending.
+D-11). Planning then completed the same day: `13-PATTERNS.md` (5/5 analogs), six PLAN.md files across five waves
+(`2c53d32`), plan checker PASSED with one informational advisory (full-suite runs kept per CLAUDE.md), requirements
+3/3, decision coverage 11/11 (after a format-only fix to the D-03 bullet so the GSD parser reads it), post-planning
+gap analysis 19/19. Notable planner choices for the owner: a versioned finding-key recipe token (decision checkpoint
+at 13-01 Task 1); the Gate-4 mypy hardening todo deferred to a named backlog entry; WR-04 found already landed and
+planned as verify-and-archive. No production code touched. Next: `/gsd:execute-phase 13`.
 
 ## 2026-09-11 — PR #402 follow-ups decided (D-14-FOLLOWUPS): breaker half-open shipped, keep_historical deferred
 
