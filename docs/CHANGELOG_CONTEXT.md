@@ -9,6 +9,21 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-12 — Phase 13 (Audit Memory) Nyquist validation closed: `13-VALIDATION.md` compliant, 0 gaps
+
+`/gsd:validate-phase 13` (State A: the plan-time `13-VALIDATION.md` existed in `draft` with all 14 per-task rows
+pending). Every automated command in the Per-Task Verification Map was re-run in-session rather than inherited
+from SUMMARY claims: `test_audit_findings.py` 59 passed, `test_audit_findings_sql_contract.py` 15 passed, the
+`-k key_derivation` (7) and `-k lifecycle` (5) selectors match real tests, `test_snapshot_store.py` 42 passed,
+the schema.sql dynamic-SQL grep gate has no matches, `scripts/run_6_gates.sh` reports ALL 6 GATES PASSED with the
+synthetic dry run emitting zero `audit_memory_error`, and `npm --prefix website run build` succeeds with no broken
+links. AUD-01/AUD-02/AUD-03 all classify COVERED; the two owner-executed manual rows (live DDL apply and the
+7-run synthetic view read-back, 13-05) are recorded as complete in the Manual-Only table. No gaps, so the
+user gate and the `gsd-nyquist-auditor` spawn were skipped per the workflow and no test files were added.
+Frontmatter now `status: validated`, `nyquist_compliant: true`, `wave_0_complete: true`; audit trail appended.
+Commit `e320155`; nothing pushed. The verify:post Nyquist step is satisfied; Phase 13 still waits on the
+release build for UAT test 1 and the live wall-clock observation.
+
 ## 2026-09-12 — Phase 13 (Audit Memory) security gate closed: `13-SECURITY.md`, 41/41 threats closed
 
 `/gsd:secure-phase 13` (State B: no prior SECURITY.md, all six PLAN.md files carried a `<threat_model>`

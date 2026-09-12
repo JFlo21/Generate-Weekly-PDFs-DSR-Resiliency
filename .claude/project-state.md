@@ -22,6 +22,10 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   transition table, `open_findings` / `finding_history_by_wr` views + `acknowledge_finding` (service_role
   only). **DDL applied live** to `poeyztlmsawfoqlanucc` by owner delegation as migration
   `audit_memory_findings_lifecycle_views` (v`20260912023008`); lifecycle read-back verified and rows cleaned.
+  **Nyquist validated 2026-09-12** (`/gsd:validate-phase 13`, `e320155`): 14/14 per-task rows green, 0 gaps,
+  `nyquist_compliant: true`; evidence re-run in-session (59+15+42 targeted tests, 6-gate harness, website build).
+  Security gate closed `2047a67`. Remaining open: UAT test 1 (blocked on release build) and the VERIFICATION
+  wall-clock observation — both need the code on `master` and `AUDIT_MEMORY_ENABLED=1` live.
   Suite 2416/1 skipped, 6 gates green. `13-REVIEW.md` 0 Critical / 3 Warning / 1 Info (WR-01 explicit
   `GRANT EXECUTE` for the RPC; WR-02 skip counters not surfaced to `run_summary`; WR-03 `IDENTITY_RECIPES`
   unread by code). `13-VERIFICATION.md` = `human_needed` 13/14 — only success criterion 2 (wall clock
