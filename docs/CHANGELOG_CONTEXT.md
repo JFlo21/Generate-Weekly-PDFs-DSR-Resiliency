@@ -9,6 +9,19 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-12 — Milestone v1.4 audit: `gaps_found` (Phase 11 unverified), integration 5/5 clean
+
+`/gsd:audit-milestone` over v1.4 (phases 10, 11, 11.1, 12, 13, 14; 23 requirements). Three-source cross-reference
+(VERIFICATION.md × SUMMARY frontmatter × REQUIREMENTS.md traceability): 19/23 satisfied, 4 partial — all four
+are Phase 11's INC-01..04 because that phase never produced a VERIFICATION.md (INC-02 is also the D-05
+owner-approved partial). No requirement is unsatisfied and none is orphaned. A Sonnet integration checker
+traced the five E2E flows read-only and found no cross-phase wiring breaks; it confirmed Helper #2 rows ride the
+Phase 12 ownership ladder, the `upsert_rows_bulk` RPC carries all four `helper2_*` columns, the audit-memory
+RPC contract matches `schema.sql`, and the retired JSON caches have no live references. Nyquist: 10 and 13
+compliant, 11/11.1/12/14 still `draft`; SECURITY.md present only for 10 and 13. Eighteen tech-debt items
+aggregated (the actionable two: wire `AUDIT_MEMORY_ENABLED` into the workflow with approval; fix the stale
+ROADMAP Phase 13 progress row). Reports committed at `b6053bd`; nothing pushed.
+
 ## 2026-09-12 — Phase 13 (Audit Memory) Nyquist validation closed: `13-VALIDATION.md` compliant, 0 gaps
 
 `/gsd:validate-phase 13` (State A: the plan-time `13-VALIDATION.md` existed in `draft` with all 14 per-task rows

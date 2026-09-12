@@ -26,6 +26,10 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `nyquist_compliant: true`; evidence re-run in-session (59+15+42 targeted tests, 6-gate harness, website build).
   Security gate closed `2047a67`. Remaining open: UAT test 1 (blocked on release build) and the VERIFICATION
   wall-clock observation — both need the code on `master` and `AUDIT_MEMORY_ENABLED=1` live.
+- **Milestone v1.4 audit (2026-09-12, `b6053bd`)**: `gaps_found` — 19/23 requirements satisfied, integration 5/5
+  flows wired (`.planning/v1.4-INTEGRATION-CHECK.md`), no code gaps. Blocker is structural: Phase 11 has no
+  VERIFICATION.md (INC-01..04 partial; INC-02 D-05 approved-partial). Nyquist compliant only for 10 and 13;
+  SECURITY.md missing for 11, 11.1, 12, 14. Report: `.planning/v1.4-MILESTONE-AUDIT.md` (closure order inside).
   Suite 2416/1 skipped, 6 gates green. `13-REVIEW.md` 0 Critical / 3 Warning / 1 Info (WR-01 explicit
   `GRANT EXECUTE` for the RPC; WR-02 skip counters not surfaced to `run_summary`; WR-03 `IDENTITY_RECIPES`
   unread by code). `13-VERIFICATION.md` = `human_needed` 13/14 — only success criterion 2 (wall clock
