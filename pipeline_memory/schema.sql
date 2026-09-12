@@ -36,16 +36,27 @@
 -- schema and the Python code share an implicit contract that this
 -- file documents. See the closing comment block for the full list.
 --
--- SCOPE (Phase 10 / MEM-01..03 only -- see .planning/phases/
+-- SCOPE (Phase 10 / MEM-01..03 -- see .planning/phases/
 -- 10-run-memory-foundation-shadow-writes/COVERAGE.md): this file ships
 -- the five MEM-01 tables (sheet_registry, row_state, row_event,
 -- group_state, run_ledger) and the upsert_rows_bulk write RPC. It does
--- NOT ship ``wr_week_ownership`` or ``audit_finding`` /
--- ``audit_finding_event`` from the design-spec draft -- those are
--- scoped to Phases 12/13 by CONTEXT.md <domain>. It does NOT modify
--- ``billing_audit/schema.sql`` or ``billing_audit.group_content_hash``
--- (D-03) -- retiring the existing hash store is explicitly deferred to
--- Phase 11+ after parity.
+-- NOT modify ``billing_audit/schema.sql`` or
+-- ``billing_audit.group_content_hash`` (D-03) -- retiring the existing
+-- hash store is explicitly deferred to Phase 11+ after parity.
+--
+-- SCOPE (Phase 13 / AUD-01..03 -- see .planning/phases/
+-- 13-audit-memory/13-CONTEXT.md): this file ALSO ships
+-- ``audit_finding`` and ``audit_finding_event`` (findings persisted
+-- from ``audit_billing_changes.py`` across runs), the
+-- ``upsert_audit_findings`` and ``acknowledge_finding`` functions, and
+-- the ``open_findings`` / ``finding_history_by_wr`` views.
+-- ``wr_week_ownership`` from the design-spec draft is PERMANENTLY
+-- DROPPED as decision **D-13-A** -- not deferred to a later phase.
+-- OWN-01 is satisfied instead by the ``resolve_claimer`` ladder over
+-- ``billing_audit.attribution_snapshot`` plus its ``backfill_source`` /
+-- ``backfill_run_id`` provenance columns (validated live 2026-09-05).
+-- No ``wr_week_ownership`` table, view, or ``last_known_before_week``
+-- rung will ever be built under that name.
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS pipeline_memory;
@@ -937,6 +948,186 @@ BEGIN
     RETURN QUERY SELECT _opened, _seen, _fixed, _resurfaced, _reopened;
 END;
 $$;
+
+-- ── RLS -- service-role only, audit_finding / audit_finding_event ────
+-- Plan 13-05. Mirrors the RLS block above (the five MEM-01 tables,
+-- schema.sql:577-605) exactly: ENABLE ROW LEVEL SECURITY, then a
+-- drop-then-create service_role_all policy so this section stays
+-- reapply-safe like every other statement in this file.
+--
+-- No per-table REVOKE is duplicated here for these two tables: the
+-- schema-wide `REVOKE ALL ... FROM anon, authenticated` and the
+-- `ALTER DEFAULT PRIVILEGES IN SCHEMA pipeline_memory REVOKE ALL ON
+-- TABLES FROM anon, authenticated` statements above already cover
+-- every table created afterward in this file (audit_finding and
+-- audit_finding_event both are), by the same belt-and-suspenders
+-- default-privileges mechanism documented there.
+ALTER TABLE pipeline_memory.audit_finding       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_memory.audit_finding_event ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS service_role_all ON pipeline_memory.audit_finding;
+CREATE POLICY service_role_all ON pipeline_memory.audit_finding
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS service_role_all ON pipeline_memory.audit_finding_event;
+CREATE POLICY service_role_all ON pipeline_memory.audit_finding_event
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ── open_findings / finding_history_by_wr (views, AUD-03) ────────────
+-- Plan 13-05. Both declared as invoker-rights views (see each CREATE
+-- VIEW's own WITH clause below) so each view evaluates under the
+-- CALLER's privileges rather than the view owner's -- combined with
+-- the service_role-only RLS policy above, a
+-- caller without service_role reads zero rows even if it somehow
+-- reached the view (T-13-05-01). Views are NOT covered by the
+-- `ALTER DEFAULT PRIVILEGES ... ON TABLES` REVOKE statement above for
+-- any object that already existed before that statement last ran, so
+-- both REVOKEs below are stated explicitly rather than relied on via
+-- statement ordering.
+--
+-- open_findings: status IN ('open', 'resurfaced') only -- a fixed,
+-- acknowledged, or suppressed finding never appears here. The ORDER BY
+-- is TOTAL: severity rank, then last_seen_run DESC, then finding_key as
+-- the tiebreak, so two rows that compare equal on the first two keys
+-- still order identically across calls.
+CREATE OR REPLACE VIEW pipeline_memory.open_findings
+WITH (security_invoker = true) AS
+SELECT
+    af.finding_key,
+    af.recipe_version,
+    af.check_id,
+    af.wr,
+    af.week_ending,
+    af.cu,
+    af.work_type,
+    af.issue_codes,
+    af.severity,
+    CASE af.severity
+        WHEN 'high'   THEN 1
+        WHEN 'medium' THEN 2
+        WHEN 'low'    THEN 3
+        ELSE 4
+    END AS severity_rank,
+    af.status,
+    af.evidence,
+    af.first_seen_run,
+    af.last_seen_run,
+    af.created_at,
+    af.updated_at
+FROM pipeline_memory.audit_finding AS af
+WHERE af.status IN ('open', 'resurfaced')
+ORDER BY severity_rank, af.last_seen_run DESC, af.finding_key;
+
+REVOKE ALL ON pipeline_memory.open_findings FROM anon, authenticated;
+
+-- finding_history_by_wr: every finding LEFT JOINed to its events, so a
+-- finding with zero audit_finding_event rows (nothing has happened to
+-- it since it opened) still appears, with NULL event columns -- an
+-- INNER JOIN would silently drop it. The view carries no WR filter;
+-- callers filter with `WHERE wr = '...'` at query time.
+CREATE OR REPLACE VIEW pipeline_memory.finding_history_by_wr
+WITH (security_invoker = true) AS
+SELECT
+    af.finding_key,
+    af.recipe_version,
+    af.check_id,
+    af.wr,
+    af.week_ending,
+    af.cu,
+    af.work_type,
+    af.issue_codes,
+    af.severity,
+    af.status,
+    af.evidence,
+    af.first_seen_run,
+    af.last_seen_run,
+    af.fixed_run,
+    af.acknowledged_by,
+    af.acknowledged_at,
+    af.created_at,
+    af.updated_at,
+    afe.event_id,
+    afe.run_id      AS event_run_id,
+    afe.transition,
+    afe.observed_at,
+    afe.actor,
+    afe.note
+FROM pipeline_memory.audit_finding AS af
+LEFT JOIN pipeline_memory.audit_finding_event AS afe
+    ON afe.finding_key = af.finding_key;
+
+REVOKE ALL ON pipeline_memory.finding_history_by_wr FROM anon, authenticated;
+
+-- ── acknowledge_finding (RPC, D-05) ───────────────────────────────────
+-- The ONLY manual-transition path for a finding: sets status to
+-- 'acknowledged' or 'suppressed' and writes the matching
+-- audit_finding_event row in the SAME call, so a manual transition can
+-- never be recorded without its event -- D-05's whole reason for this
+-- helper existing. service_role only: no portal page, no
+-- workflow_dispatch input, and no Smartsheet surface exists for this
+-- in Phase 13 -- Juan calls it directly from the Supabase SQL editor.
+--
+-- Raises (never silently no-ops) when p_transition is outside the
+-- acknowledged/suppressed set, or when no audit_finding row matches
+-- p_finding_key -- an owner typo must surface immediately, not vanish.
+--
+-- run_id stored on the written audit_finding_event row is a manual-
+-- transition sentinel ('manual:' || actor), never a real pipeline
+-- run_id, so a manual acknowledge/suppress is always distinguishable
+-- from a pipeline-driven transition in finding_history_by_wr.
+--
+-- SECURITY (T-13-05-02, ASVS V5/V6): SET search_path = '', every
+-- object reference schema-qualified, no dynamic SQL. EXECUTE is
+-- explicitly revoked from PUBLIC below -- Postgres auto-grants EXECUTE
+-- on a new function to PUBLIC by default (unlike tables/views), which
+-- would otherwise leave this owner-only helper callable by anon/
+-- authenticated via PostgREST even though the RLS policy above would
+-- still block the actual row mutation.
+CREATE OR REPLACE FUNCTION pipeline_memory.acknowledge_finding(
+    p_finding_key TEXT,
+    p_actor       TEXT,
+    p_transition  TEXT,
+    p_note        TEXT
+)
+RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SET search_path = ''
+AS $$
+BEGIN
+    IF p_transition NOT IN ('acknowledged', 'suppressed') THEN
+        RAISE EXCEPTION
+            'acknowledge_finding: p_transition must be acknowledged or suppressed, got %',
+            p_transition;
+    END IF;
+
+    UPDATE pipeline_memory.audit_finding
+    SET status          = p_transition,
+        acknowledged_by = p_actor,
+        acknowledged_at = NOW(),
+        updated_at      = NOW()
+    WHERE finding_key = p_finding_key;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION
+            'acknowledge_finding: no audit_finding row for finding_key %',
+            p_finding_key;
+    END IF;
+
+    INSERT INTO pipeline_memory.audit_finding_event (
+        finding_key, run_id, transition, actor, note
+    ) VALUES (
+        p_finding_key,
+        'manual:' || COALESCE(p_actor, 'unknown'),
+        p_transition,
+        p_actor,
+        p_note
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pipeline_memory.acknowledge_finding(TEXT, TEXT, TEXT, TEXT)
+    FROM PUBLIC;
 
 -- ============================================================
 -- Python <-> SQL contract (D-03): adding or renaming a column here

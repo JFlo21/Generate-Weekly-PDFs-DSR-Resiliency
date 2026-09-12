@@ -71,6 +71,26 @@ def _table_block(table_name: str) -> str:
     return sql[start:end]
 
 
+def _view_block(view_name: str) -> str:
+    """A ``CREATE OR REPLACE VIEW <view_name> ... ;`` block (through its
+    own trailing semicolon), comments stripped."""
+    sql = _strip_sql_comments(_read_source(_SCHEMA_RELPATH))
+    marker = f"CREATE OR REPLACE VIEW {view_name}\n"
+    start = sql.index(marker)
+    end = sql.index(";", start) + 1
+    return sql[start:end]
+
+
+def _function_block(function_name: str) -> str:
+    """A ``CREATE OR REPLACE FUNCTION <function_name>(...) ... $$;``
+    block, comments stripped."""
+    sql = _strip_sql_comments(_read_source(_SCHEMA_RELPATH))
+    marker = f"CREATE OR REPLACE FUNCTION {function_name}("
+    start = sql.index(marker)
+    end = sql.index("$$;", start) + 3
+    return sql[start:end]
+
+
 def _section(block: str, pattern: str) -> str:
     m = re.search(pattern, block, re.S)
     if m is None:
@@ -220,6 +240,89 @@ class FixedBranchStructuralContractTests(unittest.TestCase):
         self.assertIn(
             "af.status IN ('open', 'resurfaced')", to_fix,
         )
+
+
+class ViewsSecurityInvokerContractTests(unittest.TestCase):
+    """Both AUD-03 views (plan 13-05) must exist and be declared as
+    invoker-rights views."""
+
+    def test_open_findings_view_exists_with_security_invoker(self):
+        block = _view_block("pipeline_memory.open_findings")
+        self.assertIn("security_invoker = true", block)
+
+    def test_finding_history_by_wr_view_exists_with_security_invoker(self):
+        block = _view_block("pipeline_memory.finding_history_by_wr")
+        self.assertIn("security_invoker = true", block)
+
+
+class OpenFindingsViewContractTests(unittest.TestCase):
+    def setUp(self):
+        self.view = _view_block("pipeline_memory.open_findings")
+
+    def test_where_clause_names_only_open_and_resurfaced(self):
+        where_clause = _section(self.view, r"WHERE (af\.status IN \([^)]*\))")
+        statuses = set(re.findall(r"'([a-z_]+)'", where_clause))
+        self.assertEqual(statuses, {"open", "resurfaced"})
+
+    def test_order_by_has_three_keys_ending_in_finding_key(self):
+        order_by = _section(self.view, r"ORDER BY (.*?);")
+        keys = [k.strip() for k in order_by.split(",")]
+        self.assertEqual(
+            len(keys), 3,
+            "open_findings ORDER BY must have exactly three keys "
+            "(severity rank, last_seen_run DESC, finding_key tiebreak)",
+        )
+        self.assertTrue(keys[-1].endswith("finding_key"))
+
+
+class FindingHistoryByWrViewContractTests(unittest.TestCase):
+    def test_uses_left_join_not_inner_join(self):
+        block = _view_block("pipeline_memory.finding_history_by_wr")
+        self.assertIn("LEFT JOIN pipeline_memory.audit_finding_event", block)
+        # Every JOIN keyword in this view must be part of a LEFT JOIN --
+        # an event-less finding must never be dropped by an inner join.
+        bare_joins = re.findall(r"(?<!LEFT )\bJOIN\b", block)
+        self.assertEqual(len(bare_joins), 0)
+
+
+class AcknowledgeFindingContractTests(unittest.TestCase):
+    def test_search_path_pin_present(self):
+        block = _function_block("pipeline_memory.acknowledge_finding")
+        self.assertIn("SET search_path = ''", block)
+
+    def test_no_grant_to_public_or_anon_or_authenticated(self):
+        block = _function_block("pipeline_memory.acknowledge_finding")
+        self.assertNotIn("GRANT", block)
+
+
+class AuditTablesRlsContractTests(unittest.TestCase):
+    """Both new tables (plan 13-01/13-05) must carry RLS enable +
+    service_role_all policy, mirroring the five existing tables."""
+
+    def test_both_new_tables_have_rls_enabled_and_service_role_policy(self):
+        sql = _strip_sql_comments(_read_source(_SCHEMA_RELPATH))
+        for table in (
+            "pipeline_memory.audit_finding",
+            "pipeline_memory.audit_finding_event",
+        ):
+            self.assertIn(
+                f"ALTER TABLE {table} ", sql,
+                f"{table} missing ALTER TABLE ... ENABLE ROW LEVEL SECURITY",
+            )
+            self.assertIn(
+                f"DROP POLICY IF EXISTS service_role_all ON {table};", sql,
+            )
+            self.assertIn(
+                f"CREATE POLICY service_role_all ON {table}\n", sql,
+            )
+
+
+class HeaderScopeContractTests(unittest.TestCase):
+    def test_header_names_d13a_and_no_longer_says_not_shipped(self):
+        sql = _read_source(_SCHEMA_RELPATH)
+        header = sql[: sql.index("CREATE SCHEMA")]
+        self.assertIn("D-13-A", header)
+        self.assertNotIn("NOT ship ``audit_finding``", header)
 
 
 if __name__ == "__main__":
