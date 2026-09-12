@@ -9,6 +9,23 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-12 — Phase 13 (Audit Memory) security gate closed: `13-SECURITY.md`, 41/41 threats closed
+
+`/gsd:secure-phase 13` (State B: no prior SECURITY.md, all six PLAN.md files carried a `<threat_model>`
+block, no SUMMARY.md threat flags). ASVS level 1 with `block_on: high`, so the plan-time register was
+verified at grep depth against `plan/phase-13` @ `e6c5b1c` and the auditor subagent was skipped per the
+short-circuit rule. All 41 STRIDE threats closed: 33 mitigated with code/test evidence (typed
+`jsonb_to_recordset` lists and no dynamic SQL; `SET search_path = ''` on `upsert_audit_findings` and
+`acknowledge_finding`; RLS + `service_role_all` on both new tables; `security_invoker` views with
+`anon`/`authenticated` revoked; fail-open writer on the dedicated `audit_finding_upsert` breaker inside the
+orchestrator's own `try/except`; 15-test Python↔SQL contract suite; recipe/literal lockstep tests) and 8
+accepted as AR-13-01..03 (six no-install supply-chain rows, retry idempotency via the `finding_key` PK,
+the unbounded `finding_history_by_wr` scan deferred to D-CD-05). `threats_open: 0`, `status: verified`;
+one non-blocking residual note recorded (the orchestrator's audit-memory failure log line prints the raw
+exception text while only the Sentry context is redacted — matches the existing audit block; revisit only if
+`SENTRY_ENABLE_LOGS` is enabled). Commit `2047a67`; nothing pushed. The verify:post security step is now
+satisfied; Phase 13 remains `partial` on UAT until the code ships and the flag is observed live.
+
 ## 2026-09-11 — Phase 13 (Audit Memory) executed: 6/6 plans, DDL live, pending human verification
 
 `/gsd:execute-phase 13` on `plan/phase-13` ran all five waves sequentially on the main tree (worktree isolation

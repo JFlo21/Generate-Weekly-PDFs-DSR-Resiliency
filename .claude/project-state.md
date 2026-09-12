@@ -25,12 +25,15 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   Suite 2416/1 skipped, 6 gates green. `13-REVIEW.md` 0 Critical / 3 Warning / 1 Info (WR-01 explicit
   `GRANT EXECUTE` for the RPC; WR-02 skip counters not surfaced to `run_summary`; WR-03 `IDENTITY_RECIPES`
   unread by code). `13-VERIFICATION.md` = `human_needed` 13/14 — only success criterion 2 (wall clock
-  proportional to affected groups) is production-observed; `13-UAT.md` holds it. No `13-SECURITY.md` yet
-  (secure-phase hook active). **`/gsd-verify-work 13` run 2026-09-12 → `13-UAT.md` = `partial`**: the one
+  proportional to affected groups) is production-observed; `13-UAT.md` holds it. **`13-SECURITY.md`
+  written 2026-09-12 (`2047a67`): 41/41 plan-time STRIDE threats closed (33 mitigated with L1 grep evidence,
+  8 accepted → AR-13-01..03), `threats_open: 0`, verify:post security gate satisfied; one non-blocking
+  residual note (raw exception text in the orchestrator's audit-memory failure log line).**
+  **`/gsd-verify-work 13` run 2026-09-12 → `13-UAT.md` = `partial`**: the one
   test is `blocked` (`release-build`) — code not on `origin/master` (branch 38 ahead), flag not wired into
   `weekly-excel-generation.yml`, run 34657240194 shows 0 `Audit-memory` log lines; unblock steps recorded in
   the UAT file. `13-COVERAGE.md` added (no-external-API declaration) to clear the `api-coverage` verify:pre
-  gate (commit `b4e7a15`). Next: `/gsd:secure-phase 13` → open PR `plan/phase-13` → master → wire + flip
+  gate (commit `b4e7a15`). Next: open PR `plan/phase-13` → master → wire + flip
   `AUDIT_MEMORY_ENABLED` (shadow-first) → observe ≥2 runs → re-run `/gsd-verify-work 13`.
   Discussed 2026-09-11 (`13-CONTEXT.md`, commit `80a79b9`): spec §8 #6 LOCKED (per-check natural finding key; three WR-scoped checks;
   owner-only SQL acknowledge) and D-12-A CLOSED (`wr_week_ownership` dropped for good → D-13-A, docs-only). Next: `/gsd:plan-phase 13`.
