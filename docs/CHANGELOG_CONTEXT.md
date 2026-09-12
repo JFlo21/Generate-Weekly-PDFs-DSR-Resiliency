@@ -9,6 +9,21 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-12 — Phase 11 (Incremental Read) Nyquist validation closed: `11-VALIDATION.md` compliant, 0 gaps
+
+`/gsd:validate-phase 11` (State A: the plan-time `11-VALIDATION.md` had sat in `draft` since 2026-08-26 with a
+placeholder Per-Task map, which is why the v1.4 milestone audit listed Phase 11 as NOT-VALIDATED). The map was
+rebuilt from the eight SUMMARY `coverage` blocks (30 rows keyed D1..D6 / T-11-xx) and every referenced test
+class was confirmed to exist and run: the four Phase 11 modules (`test_incremental_read.py`,
+`test_parity_shadow.py`, `test_deep_run_reconciliation.py`, `test_pipeline_memory_shadow.py`) pass 383 tests in
+~3 s, the full suite is 2416 passed / 1 skipped / 595 subtests, and `py_compile` is clean. INC-01..05 all
+classify COVERED, so the user gate and `gsd-nyquist-auditor` spawn were skipped and no test files were added.
+INC-02's D-05 owner-approved partial (≥5 production incremental runs) and the parity-streak / deep-run /
+wall-clock observations stay in the Manual-Only table. Frontmatter now `status: validated`,
+`nyquist_compliant: true`, `wave_0_complete: true`. Commit `ccdaa08`; nothing pushed. This closes the audit's
+Nyquist gap for Phase 11 only — the phase still has no SECURITY.md (`/gsd:secure-phase 11` next) and no
+goal-backward VERIFICATION.md, which the audit accepted as a documentation-coverage gap rather than a code gap.
+
 ## 2026-09-12 — Milestone v1.4 audit: `gaps_found` (Phase 11 unverified), integration 5/5 clean
 
 `/gsd:audit-milestone` over v1.4 (phases 10, 11, 11.1, 12, 13, 14; 23 requirements). Three-source cross-reference

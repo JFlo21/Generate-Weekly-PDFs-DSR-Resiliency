@@ -30,6 +30,10 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   flows wired (`.planning/v1.4-INTEGRATION-CHECK.md`), no code gaps. Blocker is structural: Phase 11 has no
   VERIFICATION.md (INC-01..04 partial; INC-02 D-05 approved-partial). Nyquist compliant only for 10 and 13;
   SECURITY.md missing for 11, 11.1, 12, 14. Report: `.planning/v1.4-MILESTONE-AUDIT.md` (closure order inside).
+  **Phase 11 Nyquist closed 2026-09-12** (`/gsd:validate-phase 11`, `ccdaa08`): 30 per-task rows green, INC-01..05
+  all COVERED, 0 gaps, `nyquist_compliant: true`; quick set 383 passed, full suite 2416/1 skipped re-run in-session.
+  INC-02 stays D-05 approved-partial (production observation, Manual-Only). Still open for 11: SECURITY.md
+  (`/gsd:secure-phase 11`); no VERIFICATION.md exists and none was created.
   Suite 2416/1 skipped, 6 gates green. `13-REVIEW.md` 0 Critical / 3 Warning / 1 Info (WR-01 explicit
   `GRANT EXECUTE` for the RPC; WR-02 skip counters not surfaced to `run_summary`; WR-03 `IDENTITY_RECIPES`
   unread by code). `13-VERIFICATION.md` = `human_needed` 13/14 — only success criterion 2 (wall clock
