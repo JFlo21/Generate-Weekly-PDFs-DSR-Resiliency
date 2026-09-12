@@ -9,6 +9,25 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-12 — Phase 11 (Incremental Read) security gate closed: `11-SECURITY.md`, 45/45 threats closed
+
+`/gsd:secure-phase 11` (State B: no prior SECURITY.md; all eight PLAN.md files carried a `<threat_model>`
+block, so `register_authored_at_plan_time: true`). The register unions T-11-01..T-11-44 across plans 01-08
+(45 entries — the ID `T-11-06` was assigned twice at plan time, ledger-append in plan 01 and watermark
+integrity in plan 02; both kept, disambiguated by plan) plus the SUMMARY `## Threat Flags` sections of
+11-04..11-08, none of which raised a new surface. L1 grep-level classification found every mitigation present
+in the implementation or pinned by a named test (watermark capture-time subtraction, fail-open-to-full-mode
+with `fallback_reason`, `keep_historical=True` on incremental cleanup, `.in_()` bound parameters, the
+never-vacuous parity pass, read-only shadow, zero-row deletion guard, on-demand streak derivation, workflow
+invariants `timeout-minutes: 180` > `TIME_BUDGET_MINUTES: 165`, secret-pattern scans of the flip checklist and
+Living Ledger clean). Five low-severity `accept` dispositions (T-11-04/09/21/22/34, all "same `service_role`
+client, Phase 10 RLS + REVOKE posture unchanged") became AR-11-01..05. T-11-13's prune surface was retired
+outright by plan 08 and T-11-43 closes on the owner's cited 2026-08-31 `retire-now` re-authorisation with a
+real 5/5 `get_parity_streak()` reading (`human_judgment`, not re-derived live). `threats_open: 0` at ASVS L1
+with `block_on: high`, so the short-circuit rule applied and no `gsd-security-auditor` subagent was spawned.
+Frontmatter `status: verified`. Commit `7965507`; nothing pushed. Phase 11 now has VALIDATION + SECURITY;
+still no goal-backward VERIFICATION.md. Remaining v1.4 SECURITY.md gaps: phases 11.1, 12, 14.
+
 ## 2026-09-12 — Phase 11 (Incremental Read) Nyquist validation closed: `11-VALIDATION.md` compliant, 0 gaps
 
 `/gsd:validate-phase 11` (State A: the plan-time `11-VALIDATION.md` had sat in `draft` since 2026-08-26 with a
