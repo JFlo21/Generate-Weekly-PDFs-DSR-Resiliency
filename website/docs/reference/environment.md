@@ -846,6 +846,47 @@ All sub-budgets sit inside `TIME_BUDGET_MINUTES` (165) under the runner's
 180-minute ceiling; a guard that fires logs `⏩ Skipping …` and records
 `skipped` — it never fails the run.
 
+## Phase 13 — Audit memory
+
+*(Added 2026-09-11 — audit findings persist across runs instead of
+being recomputed from scratch every time.)*
+
+**Component owner:** Python billing pipeline (`generate_weekly_pdfs.py`
+via `pipeline/orchestrate.py`) plus the `pipeline_memory` Supabase
+schema. Neither the portal nor the Notion sync consumes this flag.
+Operator procedure — reading open findings, per-WR history, and
+acknowledging a finding — is on
+[Operations → Audit-memory findings](../runbook/operations.md).
+
+### `AUDIT_MEMORY_ENABLED`
+
+**Default:** `'0'` (off, ships dormant). Truthy values (case-insensitive):
+`1`, `true`, `yes`, `on`. Anything else, including unset, is off.
+
+**Purpose:** Gates only whether the three WR-scoped findings
+`audit_billing_changes.py` already computes (`rate_sanity_mismatch`,
+`price_variance_anomaly`, `data_consistency_issue`) are additionally
+persisted into `pipeline_memory.audit_finding` /
+`pipeline_memory.audit_finding_event` via
+`pipeline_memory.upsert_audit_findings`, after the existing audit block
+runs. It does **not** change the audit engine's own output, the
+run-level `risk_level` the existing audit summary computes, Excel
+generation, uploads, or the process exit code — with the flag off or on,
+`audit_billing_changes.py` behaves identically.
+
+**Independent of run-memory:** this flag is unrelated to
+`RUN_MEMORY_WRITE_ENABLED` and `RUN_MEMORY_INCREMENTAL_ENABLED` above —
+neither of those implies `AUDIT_MEMORY_ENABLED`, and `AUDIT_MEMORY_ENABLED`
+implies neither of them. All three are read and gated independently.
+
+**Failure mode:** fail-open on its own dedicated circuit-breaker op
+(`audit_finding_upsert`, distinct from every `pipeline_memory` op above)
+via the existing `with_retry(op=...)` pattern — a Supabase outage logs a
+warning and a Sentry breadcrumb (`audit_memory_error`) and the run
+continues with today's audit output unchanged. Re-read live in
+`pipeline_memory.client._audit_write_enabled()` as defence in depth: both
+the env var and that live re-read must be true for a write to happen.
+
 ## Phase 14 — Foreman Helper #2
 
 *(Added 2026-09-08, Phase 14 — second helping-foreman slot.)*

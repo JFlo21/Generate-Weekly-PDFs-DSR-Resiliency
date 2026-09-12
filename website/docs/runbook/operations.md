@@ -183,6 +183,7 @@ than ~26 weeks self-heals on the next natural edit; no action needed.
 | Revert bulk-prefetch wiring | Set `BILLING_AUDIT_AVAILABLE=false` to disable all attribution; pipeline falls back to current-foreman for all variants. |
 | Turn off run-memory writes (Phase 11) | Delete the `RUN_MEMORY_WRITE_ENABLED: '1'` line from the `Generate reports` step (or set it to `'0'`). No code change; rows already in `pipeline_memory` are harmless. See the section below. |
 | Revert the local-cache retirement (PR #373, Phase 11 Plan 08 / INC-05) | Revert PR #373. There is no local JSON cache to restore or reset — the retirement removed the cache files and their GitHub Actions restore/save steps outright, so rollback is a code revert, not a cache operation. |
+| Turn off audit-memory writes (Phase 13) | Leave `AUDIT_MEMORY_ENABLED` unset, or set it to `'0'`, in the workflow env (not set today — code default off). No code change; rows already written to `pipeline_memory.audit_finding` / `audit_finding_event` are harmless. See [Audit-memory findings](#audit-memory-findings-phase-13) below. |
 
 ## Run-memory writes and the incremental-read rollout (Phase 11)
 
@@ -251,3 +252,61 @@ self-gates on this flag plus `TEST_MODE`, so no code change is needed.
 Data already written to `pipeline_memory` stays and is harmless. Full
 operator checklist: `docs/run-memory-write-flip-checklist.md` in the
 repository.
+
+## Audit-memory findings (Phase 13) {#audit-memory-findings-phase-13}
+
+**Owned by:** the Python billing pipeline (`generate_weekly_pdfs.py` →
+`pipeline/orchestrate.py`) plus the `pipeline_memory` Supabase schema.
+Neither the `portal-v2` web app nor the Notion sync is involved — there
+is no Excel workbook, portal page, or Smartsheet row for audit findings
+in this version.
+
+`audit_billing_changes.py` already computes three WR-scoped checks every
+run (`rate_sanity_mismatch`, `price_variance_anomaly`,
+`data_consistency_issue`). Phase 13 adds an optional second step: when
+enabled, each finding is also persisted into `pipeline_memory.audit_finding`
+/ `pipeline_memory.audit_finding_event` so a finding survives across runs
+like a task list — open while unresolved, `fixed` once a re-audited group
+stops reproducing it, `resurfaced` if it comes back after acknowledgement.
+
+| Flag | Where | State | What it turns on |
+|---|---|---|---|
+| `AUDIT_MEMORY_ENABLED` | `Generate reports` step env | **not set today** (code default `'0'`, off) | Persisting the three findings above into `pipeline_memory.audit_finding` / `audit_finding_event`. Does not change what `audit_billing_changes.py` computes, the run's `risk_level`, Excel generation, uploads, or the process exit code. |
+
+**With the flag off, `pipeline_memory.audit_finding` and
+`audit_finding_event` stay empty.** If you query the views below and see
+zero rows, check this flag first before suspecting a defect — it does not
+mean nothing was found, it means nothing was written.
+
+### Reading open findings and per-WR history
+
+Both are plain SQL views, service-role only (no anon/authenticated
+access) — query them from the Supabase SQL editor:
+
+- `pipeline_memory.open_findings` — every finding currently `open` or
+  `resurfaced` (a `fixed`, `acknowledged`, or `suppressed` finding never
+  appears here), ordered by severity then most-recently-seen run first.
+- `pipeline_memory.finding_history_by_wr` — every finding and every
+  transition event it has ever had, joined so a brand-new finding with no
+  events yet still appears. Filter with `WHERE wr = '...'` at query time.
+
+### Acknowledging or suppressing a finding
+
+The only manual-transition path is the
+`pipeline_memory.acknowledge_finding(p_finding_key, p_actor, p_transition, p_note)`
+SQL helper, called directly from the Supabase SQL editor with the
+service-role connection — the helper exists precisely so the transition's
+`audit_finding_event` row is never forgotten. Parameters, in order:
+
+1. `p_finding_key` — the finding's `finding_key` (from either view above).
+2. `p_actor` — who is acknowledging it (free text, recorded on the event).
+3. `p_transition` — `'acknowledged'` or `'suppressed'`; any other value
+   raises rather than silently doing nothing.
+4. `p_note` — free-text note recorded on the event.
+
+**Acknowledgement is service-role SQL only in this version.** There is no
+portal page, no `workflow_dispatch` input, and no Smartsheet surface for
+this — Juan runs the SQL directly. A `suppressed` finding never appears
+in `open_findings` again and its status never changes on its own; an
+`acknowledged` finding returns to `open_findings` as `resurfaced` if the
+same finding key reproduces on a later run.
