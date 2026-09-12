@@ -9,6 +9,23 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-12 — Phase 11.1 (Post-INC-05 Remediation) security gate closed: `11.1-SECURITY.md`, 18/18 closed
+
+`/gsd:secure-phase 11.1` (State B). Plans 01, 02 and 04 carried plan-time `<threat_model>` blocks (16 entries;
+IDs T-11.1-06..09 were assigned twice, attachment pre-seed vs bounded discovery read, both kept and
+disambiguated by plan). Plan 03 — the PR #378 frozen-row cache warm start — was a gap-closure plan authored
+without a threat model, so two retroactive entries were derived from `pipeline/grouping.py`,
+`pipeline/attribution.py` and `tests/test_freeze_row_cache_warm_start.py` (success-only key publication,
+seeded rows never freeze candidates, canary run 33634833356) rather than leaving that surface unregistered.
+L1 grep-level evidence found every mitigation present: registry-version skip requires exact version equality
+plus the `Weekly Reference Logged Date` marker; the skip-index builder never raises and never touches
+`_failed_validation_sids`; attachment pre-seed seeds only from a this-run listing, empty-seeds only on a fully
+successful listing, buckets on the real `AttachmentParentType.ROW` enum, honours a `total_count` ceiling, and
+sits inside an outer try/except; the bounded discovery read uses `row_numbers=[1,2,3]` with no `column_ids`;
+worker caps unchanged at 8; no dependency-manifest commits since 2026-08-31 (supply-chain entry). Two low
+`accept` dispositions became AR-11.1-01..02. `threats_open: 0`, `status: verified`, short-circuit applied (no
+`gsd-security-auditor` spawn). Commit `ad24b01`; nothing pushed. Remaining v1.4 SECURITY.md gaps: 12, 14.
+
 ## 2026-09-12 — Phase 11 (Incremental Read) security gate closed: `11-SECURITY.md`, 45/45 threats closed
 
 `/gsd:secure-phase 11` (State B: no prior SECURITY.md; all eight PLAN.md files carried a `<threat_model>`

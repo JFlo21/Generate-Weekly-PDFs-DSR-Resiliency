@@ -37,7 +37,10 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `<threat_model>` registers — 45 threats (40 mitigated, 5 accepted → AR-11-01..05), `threats_open: 0`, ASVS L1
   grep-level; short-circuit rule applied (no auditor subagent). T-11-43 closes on the owner's documented 5/5
   streak re-authorisation citation, not a live re-derivation. Still open for 11: no VERIFICATION.md exists and
-  none was created (audit accepted as a doc-coverage gap). Remaining v1.4 security gaps: 11.1, 12, 14.
+  none was created (audit accepted as a doc-coverage gap). **Phase 11.1 security gate closed 2026-09-12**
+  (`/gsd:secure-phase 11.1`, `ad24b01`): `11.1-SECURITY.md` — 18 threats (16 plan-time from plans 01/02/04 +
+  2 retroactive for plan 03's PR #378 warm start, which had no threat model), 16 mitigated, 2 accepted
+  (AR-11.1-01..02), `threats_open: 0`, ASVS L1, short-circuit (no auditor). Remaining v1.4 security gaps: 12, 14.
   Suite 2416/1 skipped, 6 gates green. `13-REVIEW.md` 0 Critical / 3 Warning / 1 Info (WR-01 explicit
   `GRANT EXECUTE` for the RPC; WR-02 skip counters not surfaced to `run_summary`; WR-03 `IDENTITY_RECIPES`
   unread by code). `13-VERIFICATION.md` = `human_needed` 13/14 — only success criterion 2 (wall clock
