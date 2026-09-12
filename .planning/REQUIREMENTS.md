@@ -311,7 +311,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
   not reproduced on a re-audited group transition to `fixed` with the fixing run id.
 
-- [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
+- [x] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
   queryable per WR.
 
 ### Foreman Helper #2 (Phase 14)
@@ -451,7 +451,7 @@ Which phases cover which requirements.
 | OWN-04 | Phase 12 | Complete |
 | AUD-01 | Phase 13 | Complete |
 | AUD-02 | Phase 13 | Complete |
-| AUD-03 | Phase 13 | Pending |
+| AUD-03 | Phase 13 | Complete |
 | HLP-01 | Phase 14 | Complete |
 | HLP-02 | Phase 14 | Complete |
 | HLP-03 | Phase 14 | Complete |

@@ -856,7 +856,7 @@ permanently dropped, not deferred; OWN-01 stays satisfied by the `resolve_claime
   Folded-Todos authorization, scoped to `scripts/` and `tests/test_facade_harness.py` only;
   tracked by `.planning/todos/pending/2026-08-25-harden-check-mypy-delta-followups.md`.
 
-**Plans:** 5/6 plans executed (5 waves)
+**Plans:** 6/6 plans executed (5 waves)
 
 Plans:
 **Wave 1**
@@ -878,7 +878,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 13-06-PLAN.md — Docs: D-13-A closure across the spec/REQUIREMENTS/ROADMAP, the two backlog entries, operator documentation for `AUDIT_MEMORY_ENABLED` and the SQL surface, and the finding-key ledger entry *(wave 5)*
+- [x] 13-06-PLAN.md — Docs: D-13-A closure across the spec/REQUIREMENTS/ROADMAP, the two backlog entries, operator documentation for `AUDIT_MEMORY_ENABLED` and the SQL surface, and the finding-key ledger entry *(wave 5)*
 
 ---
 
