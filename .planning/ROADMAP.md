@@ -117,8 +117,8 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 - [x] **Phase 12: Ownership — last known foreman as of the week** (completed 2026-09-10) — claim-time
   ownership ladder in `resolve_claimer` over `attribution_snapshot` (observed_in_week →
   backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel, with provenance
-  columns; no `wr_week_ownership` table — deferred per D-12-A, which names Phase 13; it is not
-  yet on the Phase 13 contract), sentinel-never-a-name
+  columns; no `wr_week_ownership` table — permanently dropped per D-13-A, Phase 13 built no
+  table, view, or cross-week rung), sentinel-never-a-name
   fix in `freeze_row`/`resolve_claimer` (shipped 2026-09-01, owner policy A), dry-run-first
   backfill applied live 2026-09-05 (1,758 rows / 30 WRs / 76 pairs; `#NO MATCH` deferred per
   D-12-C) and the amended Foundation A contract documented. (OWN-01..04 complete)
@@ -782,10 +782,13 @@ Plans:
 
 - **D-12-A** — Phase 12 ships NO `wr_week_ownership` table. OWN-01's ladder is satisfied by
   `billing_audit.attribution_snapshot` + `resolve_claimer` plus the new `backfill_source` /
-  `backfill_run_id` provenance columns; the table is deferred to Phase 13. The ladder as
+  `backfill_run_id` provenance columns. The ladder as
   implemented is `observed_in_week → backfill_artifacts → backfill_hash_history →
   backfill_cell_history → sentinel`, with no cross-week rung; `operator` is a provenance tag
   for manual overrides, not a rung (REQUIREMENTS.md OWN-01 re-worded to match, 2026-09-11).
+  **Closed by D-13-A (2026-09-11):** the table originally deferred here is permanently
+  dropped, not built by Phase 13 or any later phase — Phase 13 built no table, view, or
+  cross-week rung; a future consumer would add a derived read-only view in its own phase.
 
 - **D-12-B** — source 4 (`backfill_hash_history`) reads the Supabase hash store
   (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), NOT a JSON file. No
@@ -837,6 +840,21 @@ on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
    > `pipeline_memory.open_findings` and `pipeline_memory.finding_history_by_wr` views. The
    > Excel/portal visual surface is a tracked backlog item (see below), decided after observing
    > real finding volume in shadow.
+
+**Decisions:** D-13-A (2026-09-11) — `wr_week_ownership` (carried forward from D-12-A) is
+permanently dropped, not deferred; OWN-01 stays satisfied by the `resolve_claimer` ladder.
+
+**Backlog (deferred from Phase 13):**
+
+- **AUD-03 visual surface** — the generated audit workbook, a read-only portal-v2 page, or
+  the `_log_to_audit_sheet` summary row (D-07, 2026-09-11). Decision trigger: observed real
+  finding volume in shadow. The two SQL views (`pipeline_memory.open_findings`,
+  `pipeline_memory.finding_history_by_wr`) are the Phase 13 surface; no automated harness for
+  live Supabase view content exists in this repository today, so a future visual-surface
+  phase should bring one.
+- **Gate-4 mypy hardening follow-up** — split out of Phase 13 under the 13-CONTEXT.md
+  Folded-Todos authorization, scoped to `scripts/` and `tests/test_facade_harness.py` only;
+  tracked by `.planning/todos/pending/2026-08-25-harden-check-mypy-delta-followups.md`.
 
 **Plans:** 5/6 plans executed (5 waves)
 

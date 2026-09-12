@@ -274,14 +274,18 @@ CU pricing, rate recalculation, and billing formulas do not change.
   backfill_cell_history → sentinel, recorded with provenance columns on
   `attribution_snapshot`; sentinels (`Unknown Foreman`, `#NO MATCH`) are never stored
   as names.
-  > Re-scoped per D-12-A: the originally specified `wr_week_ownership` table and its
-  > `last_known_before_week` rung were not built; the table is deferred to Phase 13.
+  > Closed per D-13-A (2026-09-11): the `wr_week_ownership` table, its view, and the
+  > `last_known_before_week` rung are permanently dropped, not deferred. OWN-01 is
+  > satisfied by the `resolve_claimer` ladder over `billing_audit.attribution_snapshot`
+  > plus the `backfill_source` / `backfill_run_id` provenance columns, validated live
+  > 2026-09-05. A future consumer would add a derived read-only view in its own phase.
 
 - [x] **OWN-02**: `freeze_row` / `resolve_claimer` treat the sentinel as no-claimer (the
   2026-08-24 defect) and Subproject B/C/D partition by the frozen `attribution_snapshot`
   claimer.
   > Shipped 2026-09-01 (policy A); originally written as "partition by
-  > `wr_week_ownership`" — see D-12-A.
+  > `wr_week_ownership`" — superseded by D-13-A (2026-09-11): no such table was built;
+  > Subproject B/C/D partition directly by the frozen `attribution_snapshot` claimer.
 
 - [x] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
   non-sentinel `attribution_snapshot`, and the Supabase hash store (`group_content_hash`
