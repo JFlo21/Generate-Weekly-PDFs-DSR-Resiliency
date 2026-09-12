@@ -285,6 +285,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 - [x] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
   non-sentinel `attribution_snapshot`, and the Supabase hash store (`group_content_hash`
+
   + `group_state` identifier tokens — never a JSON file, D-12-B);
   the `Unknown Foreman` rows with recoverable evidence are remediated and their
   `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
@@ -300,7 +301,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 ### Audit memory (Phase 13)
 
-- [ ] **AUD-01**: `audit_finding` / `audit_finding_event` persist every finding with a
+- [x] **AUD-01**: `audit_finding` / `audit_finding_event` persist every finding with a
   stable key and lifecycle open → fixed | resurfaced | acknowledged | suppressed.
 
 - [x] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
@@ -444,7 +445,7 @@ Which phases cover which requirements.
 | OWN-02 | Phase 12 | Complete |
 | OWN-03 | Phase 12 | Complete |
 | OWN-04 | Phase 12 | Complete |
-| AUD-01 | Phase 13 | Pending |
+| AUD-01 | Phase 13 | Complete |
 | AUD-02 | Phase 13 | Complete |
 | AUD-03 | Phase 13 | Pending |
 | HLP-01 | Phase 14 | Complete |

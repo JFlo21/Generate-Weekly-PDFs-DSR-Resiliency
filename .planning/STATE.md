@@ -1,21 +1,21 @@
 ---
-gsd_state_version: "1.0"
+gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
+milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 13
 current_phase_name: Audit Memory
 status: executing
-stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-09-12T00:24:15.797Z"
+stopped_at: Completed 13-05-PLAN.md (Tasks 2-3 owner-resolved, apply-delegated)
+last_updated: "2026-09-12T03:00:06.104Z"
 last_activity: 2026-09-11
 last_activity_desc: Phase 13 execution started
-state_head: ab5ffaf400b4e69697da22d76b465a21118e3490
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 80
-  completed_plans: 78
+  completed_plans: 79
   percent: 93
+state_head: ab5ffaf400b4e69697da22d76b465a21118e3490
 ---
 
 # Project State
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 13 (Audit Memory) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 
 Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
@@ -92,7 +92,7 @@ Last activity: 2026-09-11 — Phase 13 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans ([█████████░] 93%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([██████████] 99%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -171,6 +171,7 @@ Progress: [████████████████████] 74/74 p
 | Phase 13-audit-memory P01 | ~25min | 3 tasks | 7 files |
 | Phase 13 P03 | ~35min | 3 tasks | 3 files |
 | Phase 13 P04 | 50min | 3 tasks | 5 files |
+| Phase 13 P05 | ~10min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -341,6 +342,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: 13-03: price_variance_anomaly and data_consistency_issue key branches implemented; recipe-coverage CI gate + collapse observability added; DATA_CONSISTENCY_ISSUE_LITERALS pins the check's 8 issue strings as durable identity via a bidirectional contract test
 - [Phase 13]: 13-04: complete D-08 transition table server-side in upsert_audit_findings (fixed branch is a JOIN against p_reaudited_pairs, never NOT EXISTS) — Prevents an empty or per-check-scoped-out re-audited set from ever closing a finding by construction
 - [Phase 13]: 13-04: build_reaudited_pairs scopes per check_id (not just wr/week) so RATE_SANITY_AUDIT_ENABLED=false never closes rate_sanity_mismatch findings off another check's re-audit — Pitfall 5 (13-RESEARCH.md): a disabled check must never be treated as having re-audited anything
+- [Phase ?]: 13-05: Owner instruction 2026-09-11 (verbatim) apply the supabase edits yourself using our supbase connector and do this for me -- Task 2/Task 3 checkpoints resolved via owner-delegated apply of the audit-memory DDL (migration audit_memory_findings_lifecycle_views, 20260912023008) and live read-back to project poeyztlmsawfoqlanucc; mirrors D-12-E/D-14-07-APPLIED apply-delegated precedent
+- [Phase ?]: 13-05: AUD-01 marked complete (shared-ID gate cleared); AUD-03 stays blocked pending sibling plan 13-06
 
 ### Roadmap Evolution
 
@@ -541,8 +544,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-12T00:24:14.808Z
-**Stopped at:** Completed 13-04-PLAN.md
+**Last session:** 2026-09-12T03:00:06.069Z
+**Stopped at:** Completed 13-05-PLAN.md (Tasks 2-3 owner-resolved, apply-delegated)
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
