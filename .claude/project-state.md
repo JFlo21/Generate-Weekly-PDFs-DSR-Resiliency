@@ -40,7 +40,12 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   none was created (audit accepted as a doc-coverage gap). **Phase 11.1 security gate closed 2026-09-12**
   (`/gsd:secure-phase 11.1`, `ad24b01`): `11.1-SECURITY.md` — 18 threats (16 plan-time from plans 01/02/04 +
   2 retroactive for plan 03's PR #378 warm start, which had no threat model), 16 mitigated, 2 accepted
-  (AR-11.1-01..02), `threats_open: 0`, ASVS L1, short-circuit (no auditor). Remaining v1.4 security gaps: 12, 14.
+  (AR-11.1-01..02), `threats_open: 0`, ASVS L1, short-circuit (no auditor). **Phase 12 security gate closed
+  2026-09-12** (`/gsd:secure-phase 12`, `61b40d3`): `12-SECURITY.md` — 61 plan-time STRIDE entries from all ten
+  plans (52 unique + 10× T-12-SC collapsed; reused IDs T-12-20..28/30 disambiguated by `(Pnn)` suffix), 59
+  mitigated with L1 grep / pinned-test / SUMMARY live-confirmation evidence, 2 accepted (AR-12-01 cell-history
+  artifact names, AR-12-02 regeneration-burst budget), `threats_open: 0`, short-circuit (no auditor).
+  Remaining v1.4 security gap: 14.
   Suite 2416/1 skipped, 6 gates green. `13-REVIEW.md` 0 Critical / 3 Warning / 1 Info (WR-01 explicit
   `GRANT EXECUTE` for the RPC; WR-02 skip counters not surfaced to `run_summary`; WR-03 `IDENTITY_RECIPES`
   unread by code). `13-VERIFICATION.md` = `human_needed` 13/14 — only success criterion 2 (wall clock

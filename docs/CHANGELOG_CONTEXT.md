@@ -9,6 +9,27 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-12 — Phase 12 (Ownership / OWN-01..04) security gate closed: `12-SECURITY.md`, 61/61 closed
+
+`/gsd:secure-phase 12` (State B). All ten plans carried plan-time `<threat_model>` blocks — 61 entries, of which
+the ten identical `T-12-SC` supply-chain rows collapse to one and the reused IDs (T-12-20..28 in plans 04/07/08,
+T-12-30 in 06/09) are disambiguated with a `(Pnn)` suffix rather than renumbered. L1 grep-level evidence found
+every mitigation present: the `--apply` path filters `current_value` and `proposed_value` through
+`is_sentinel_claimer` plus the extension regex, refuses to run without a same-day
+`attribution_snapshot_backup_<YYYYMMDD>` (exit 3), chunks reads and the RPC at 500, and stamps
+`backfill_source` / `backfill_run_id`; the RPC keeps `is_sentinel_value` in all three UPDATE WHERE clauses,
+raises on invalid role / sentinel / extension-bearing values, uses a typed `jsonb_to_recordset` list with zero
+`EXECUTE format`, `SET search_path = ''`, and `REVOKE ... FROM PUBLIC, anon, authenticated` +
+`GRANT EXECUTE ... TO service_role` (live ACL `{postgres, service_role}` per 12-09); the CR-01 cleanup gate is
+narrowed to the sanitized-error allowlist with the `_O_Brien` / `_Contractor__Smith` regression table; the
+enums import is lazy inside `_is_row_attachment`; the cell-history workflow is `contents: read`, isolated
+concurrency group, every dispatch input env-bound with zero `${{` in `run:` blocks, 3,000-request cap; source 5
+is fenced out of production by the allowlist structural test; `generated_docs/own03_*` is git-ignored; docs
+tests forbid real names and stale flags. Two medium `accept` dispositions became AR-12-01 (artifact carries
+names, 30-day retention) and AR-12-02 (post-apply regeneration burst bounded by `TIME_BUDGET_MINUTES`).
+`threats_open: 0`, `status: verified`, short-circuit applied (no `gsd-security-auditor` spawn). Commit
+`61b40d3`; nothing pushed. Remaining v1.4 SECURITY.md gap: 14.
+
 ## 2026-09-12 — Phase 11.1 (Post-INC-05 Remediation) security gate closed: `11.1-SECURITY.md`, 18/18 closed
 
 `/gsd:secure-phase 11.1` (State B). Plans 01, 02 and 04 carried plan-time `<threat_model>` blocks (16 entries;
