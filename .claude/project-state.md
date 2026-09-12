@@ -26,8 +26,12 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `GRANT EXECUTE` for the RPC; WR-02 skip counters not surfaced to `run_summary`; WR-03 `IDENTITY_RECIPES`
   unread by code). `13-VERIFICATION.md` = `human_needed` 13/14 — only success criterion 2 (wall clock
   proportional to affected groups) is production-observed; `13-UAT.md` holds it. No `13-SECURITY.md` yet
-  (secure-phase hook active). Next: `/gsd-verify-work 13` → open PR `plan/phase-13` → master → decide when to
-  flip `AUDIT_MEMORY_ENABLED=1` (shadow-first).
+  (secure-phase hook active). **`/gsd-verify-work 13` run 2026-09-12 → `13-UAT.md` = `partial`**: the one
+  test is `blocked` (`release-build`) — code not on `origin/master` (branch 38 ahead), flag not wired into
+  `weekly-excel-generation.yml`, run 34657240194 shows 0 `Audit-memory` log lines; unblock steps recorded in
+  the UAT file. `13-COVERAGE.md` added (no-external-API declaration) to clear the `api-coverage` verify:pre
+  gate (commit `b4e7a15`). Next: `/gsd:secure-phase 13` → open PR `plan/phase-13` → master → wire + flip
+  `AUDIT_MEMORY_ENABLED` (shadow-first) → observe ≥2 runs → re-run `/gsd-verify-work 13`.
   Discussed 2026-09-11 (`13-CONTEXT.md`, commit `80a79b9`): spec §8 #6 LOCKED (per-check natural finding key; three WR-scoped checks;
   owner-only SQL acknowledge) and D-12-A CLOSED (`wr_week_ownership` dropped for good → D-13-A, docs-only). Next: `/gsd:plan-phase 13`.
 - **Phase 14 (Foreman Helper #2)**: COMPLETE 2026-09-10 — 14/14 plans executed and observed; O-14-E RESOLVED.
