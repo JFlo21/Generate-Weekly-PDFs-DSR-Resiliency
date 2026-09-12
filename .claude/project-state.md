@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-11 16:40 CDT (2026-09-11 21:40Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-11 22:35 CDT (2026-09-12 03:35Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -14,8 +14,21 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
 - **Phase 12 (Ownership)**: **COMPLETE 2026-09-10** — 10/10 plans (incl. 4 gap-closure plans). `/gsd-verify-work 12`
   passed: `12-UAT.md` 34/34, `12-VERIFICATION.md` 77/77 must-haves; 5 open advisory gaps for owner follow-up, the 6th — runbook WR-09 — fixed in the PR; docs PR #404
   MERGED 2026-09-11 03:39Z → `9ba7eb7`. Live attribution backfill applied 2026-09-05 (1,758 rows); 12-06 Task 4 approved 2026-09-10 ~23:45Z
-  (`Adopt 89746993` for D-12-E; snapshot backups dropped). Phase 13 (Audit Memory) DISCUSSED 2026-09-11 (`13-CONTEXT.md` on branch
-  `plan/phase-13`, commit `80a79b9`): spec §8 #6 LOCKED (per-check natural finding key; three WR-scoped checks;
+  (`Adopt 89746993` for D-12-E; snapshot backups dropped).
+- **Phase 13 (Audit Memory)**: **EXECUTED 2026-09-11, pending `/gsd-verify-work 13`** — 6/6 plans on branch
+  `plan/phase-13` (sequential executors, 27 commits `5adebb0`..`e13a6ba`; nothing pushed, no PR yet). Shipped:
+  `pipeline_memory/audit_findings.py` (owner-confirmed `v1` finding-key recipe, all three checks, fail-open
+  writer behind `AUDIT_MEMORY_ENABLED` — default OFF, D-09), `upsert_audit_findings` RPC with the full D-08
+  transition table, `open_findings` / `finding_history_by_wr` views + `acknowledge_finding` (service_role
+  only). **DDL applied live** to `poeyztlmsawfoqlanucc` by owner delegation as migration
+  `audit_memory_findings_lifecycle_views` (v`20260912023008`); lifecycle read-back verified and rows cleaned.
+  Suite 2416/1 skipped, 6 gates green. `13-REVIEW.md` 0 Critical / 3 Warning / 1 Info (WR-01 explicit
+  `GRANT EXECUTE` for the RPC; WR-02 skip counters not surfaced to `run_summary`; WR-03 `IDENTITY_RECIPES`
+  unread by code). `13-VERIFICATION.md` = `human_needed` 13/14 — only success criterion 2 (wall clock
+  proportional to affected groups) is production-observed; `13-UAT.md` holds it. No `13-SECURITY.md` yet
+  (secure-phase hook active). Next: `/gsd-verify-work 13` → open PR `plan/phase-13` → master → decide when to
+  flip `AUDIT_MEMORY_ENABLED=1` (shadow-first).
+  Discussed 2026-09-11 (`13-CONTEXT.md`, commit `80a79b9`): spec §8 #6 LOCKED (per-check natural finding key; three WR-scoped checks;
   owner-only SQL acknowledge) and D-12-A CLOSED (`wr_week_ownership` dropped for good → D-13-A, docs-only). Next: `/gsd:plan-phase 13`.
 - **Phase 14 (Foreman Helper #2)**: COMPLETE 2026-09-10 — 14/14 plans executed and observed; O-14-E RESOLVED.
   PR #389 → `ba6eeaf`, #390 → `661d6d3`, #394 → `7ded60c`, #395 → `d079e81`, #396 → `736141a`, #397 → `92c9ed6`,

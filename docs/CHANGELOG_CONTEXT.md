@@ -9,6 +9,23 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-11 — Phase 13 (Audit Memory) executed: 6/6 plans, DDL live, pending human verification
+
+`/gsd:execute-phase 13` on `plan/phase-13` ran all five waves sequentially on the main tree (worktree isolation
+auto-degraded because HEAD had diverged from `origin/HEAD`). Two owner checkpoints resolved in-session: the
+finding-key recipe (`versioned-recipe, recipe confirmed` — leading `v1` token, D-01 field order, Python-only
+hashing) and the 13-05 DDL apply, which the owner delegated to the Supabase connector: migration
+`audit_memory_findings_lifecycle_views` (v`20260912023008`) on `poeyztlmsawfoqlanucc`, then a live
+opened→seen→fixed→reopened→acknowledged→resurfaced read-back with the smoke rows deleted (0 residual).
+Net code: `pipeline_memory/audit_findings.py` + 74 tests, the D-08 `upsert_audit_findings` RPC, the two
+AUD-03 views and `acknowledge_finding`, `AUDIT_MEMORY_ENABLED` (default off) wired into `orchestrate.py`;
+side fixes from folded todos (`snapshot_store.py` None-guard, mypy baseline 71→70). Gates after every wave:
+full suite green (final 2416 passed / 1 skipped), schema-drift and UI gates clear. `13-REVIEW.md` (`5505228`):
+3 Warning / 1 Info, none blocking. `13-VERIFICATION.md` (`e13a6ba`): `human_needed` 13/14 — success
+criterion 2 (wall clock proportional to affected groups + open findings) needs live observation once the flag
+is on; persisted to `13-UAT.md`. Phase NOT marked complete; next `/gsd-verify-work 13`. Lesson: a
+Sonnet executor lost uncommitted work to `git checkout -- <file>` mid-task (13-04) — later prompts forbid it.
+
 ## 2026-09-11 — Phase 13 (Audit Memory) planning started: research + validation strategy committed
 
 `/gsd:plan-phase 13` on `plan/phase-13`: `13-RESEARCH.md` (`d265800`) verified the two code facts flagged at
