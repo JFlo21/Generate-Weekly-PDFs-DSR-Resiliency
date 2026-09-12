@@ -1,4 +1,4 @@
-"""Tests for pipeline_memory.audit_findings (Phase 13, AUD-01).
+"""Tests for pipeline_memory.audit_findings (Phase 13, AUD-01/AUD-02).
 
 Wave 0 scaffold: this file is the extension point for every later plan
 in Phase 13. Task 2 covers the ``rate_sanity_mismatch`` vertical slice
@@ -7,6 +7,19 @@ extends this file with the ``pipeline/orchestrate.py`` hook-wiring tests.
 
 Mirrors tests/test_billing_audit_shadow.py's fake Supabase client shape:
 ``client.schema('pipeline_memory').rpc(name, params).execute()``.
+
+LIFECYCLE TESTS (plan 13-04, Task 3, selected by ``-k lifecycle``): these
+tests drive ``build_finding_payloads`` / ``build_reaudited_pairs`` /
+``upsert_audit_findings`` across a simulated multi-run sequence against a
+STATEFUL FAKE RPC double. That double records each call's
+``p_findings``/``p_reaudited_pairs`` payload and returns a canned
+summary-count response -- it verifies ONLY the Python CALLER's contract
+(which findings and which pairs are sent on each run, and how the
+returned counts are logged). It does NOT execute
+``pipeline_memory.upsert_audit_findings``'s plpgsql transition table --
+that is verified against the live database by the owner read-back
+checkpoint in plan 13-05. This file must never be cited as evidence that
+the SQL transitions themselves are correct.
 """
 
 from __future__ import annotations
@@ -869,3 +882,143 @@ def test_orchestrate_audit_memory_error_fingerprint_distinct_from_audit_system()
     assert 'fingerprint=["audit-system"' in source
     assert 'context_name="audit_memory_error"' in source
     assert 'context_name="audit_system_error"' in source
+
+
+# ── Lifecycle caller-contract tests (Plan 13-04, Task 3, -k lifecycle) ───
+#
+# See the module docstring above: this section verifies the Python
+# CALLER's per-run payload contract against a stateful fake RPC double.
+# It NEVER executes the plpgsql transition table -- the SQL transitions
+# are verified against the live database by plan 13-05's owner read-back.
+
+class _StatefulFakeRpc:
+    """Records every ``upsert_audit_findings`` call's params and returns
+    a canned summary-count response.
+
+    "Stateful" = it accumulates a call log across a simulated multi-run
+    sequence, so a test can assert what was sent on EACH run -- not just
+    the last one.
+    """
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def __call__(self, run_id, findings, reaudited_pairs):
+        self.calls.append({
+            "run_id": run_id,
+            "findings": list(findings),
+            "reaudited_pairs": list(reaudited_pairs),
+        })
+        return [{"opened": 0, "seen": 0, "fixed": 0, "resurfaced": 0,
+                  "reopened": 0}]
+
+
+def _lifecycle_run(monkeypatch, fake_rpc, audit_results, rows, run_id):
+    """Drive one simulated run through build_finding_payloads +
+    build_reaudited_pairs + upsert_audit_findings, wired to *fake_rpc*
+    instead of a real Supabase client -- the CALLER's own composition,
+    exactly as ``pipeline.orchestrate._run_audit_memory_phase`` does it."""
+    monkeypatch.setattr(audit_findings, "upsert_audit_findings", fake_rpc)
+    payloads = audit_findings.build_finding_payloads(audit_results, rows, run_id)
+    pairs = audit_findings.build_reaudited_pairs(
+        rows, audit_findings.executed_checks(),
+    )
+    audit_findings.upsert_audit_findings(run_id, payloads, pairs)
+
+
+def test_lifecycle_reproducing_run_sends_finding_in_p_findings(monkeypatch):
+    fake_rpc = _StatefulFakeRpc()
+    audit_results = {"rate_sanity_mismatches": [_rate_sanity_finding()]}
+    rows = [_matching_row()]
+
+    _lifecycle_run(monkeypatch, fake_rpc, audit_results, rows, "run-1")
+
+    assert len(fake_rpc.calls) == 1
+    assert len(fake_rpc.calls[0]["findings"]) == 1
+    assert fake_rpc.calls[0]["findings"][0]["check_id"] == "rate_sanity_mismatch"
+
+
+def test_lifecycle_reaudited_without_reproduction_sends_pair_and_omits_finding(
+    monkeypatch,
+):
+    """A run that re-audits the group (rows present) but the check no
+    longer reproduces the finding: p_findings is empty, but the group's
+    pair is still sent in p_reaudited_pairs -- that pair is the RPC's
+    signal to consider closing any previously stored open finding for
+    this (check_id, wr, week_ending)."""
+    fake_rpc = _StatefulFakeRpc()
+    audit_results: dict = {}  # no findings this run -- the mismatch is gone
+    rows = [_matching_row()]  # but the group WAS audited
+
+    _lifecycle_run(monkeypatch, fake_rpc, audit_results, rows, "run-2")
+
+    assert len(fake_rpc.calls) == 1
+    assert fake_rpc.calls[0]["findings"] == []
+    assert any(
+        p["check_id"] == "rate_sanity_mismatch" and p["wr"] == "12345"
+        for p in fake_rpc.calls[0]["reaudited_pairs"]
+    )
+
+
+def test_lifecycle_group_absent_from_audited_rows_sends_neither(monkeypatch):
+    """A run whose audited row set never included this WR/week at all:
+    neither a finding nor a reaudited pair for it is sent."""
+    fake_rpc = _StatefulFakeRpc()
+    audit_results: dict = {}
+    rows = [_matching_row(**{"Work Request #": "OTHER"})]
+
+    _lifecycle_run(monkeypatch, fake_rpc, audit_results, rows, "run-3")
+
+    assert fake_rpc.calls[0]["findings"] == []
+    assert not any(
+        p["wr"] == "12345" for p in fake_rpc.calls[0]["reaudited_pairs"]
+    )
+
+
+def test_lifecycle_empty_audited_row_set_sends_empty_pairs(monkeypatch):
+    fake_rpc = _StatefulFakeRpc()
+    _lifecycle_run(monkeypatch, fake_rpc, {}, [], "run-4")
+
+    assert fake_rpc.calls[0]["findings"] == []
+    assert fake_rpc.calls[0]["reaudited_pairs"] == []
+
+
+def test_lifecycle_success_criterion_1_sequence_sends_correct_payload_each_run(
+    monkeypatch,
+):
+    """Drives the CONTEXT.md success-criterion-1 sequence: three
+    reproducing runs, one run that re-audits the group without
+    reproducing it, one owner acknowledge (out of band, via direct SQL
+    per D-05 -- invisible to the Python caller, nothing for this fake to
+    see), and one reproducing run again. Asserts the caller sends the
+    right payload shape on EACH run -- it does not (and cannot) assert
+    the server-side status the finding ends up in; that is plan 13-05's
+    owner read-back, per this module's docstring."""
+    fake_rpc = _StatefulFakeRpc()
+    reproducing_results = {"rate_sanity_mismatches": [_rate_sanity_finding()]}
+    fixed_results: dict = {}
+    rows = [_matching_row()]
+
+    # Runs 1-3: reproducing.
+    for i in range(1, 4):
+        _lifecycle_run(monkeypatch, fake_rpc, reproducing_results, rows, f"run-{i}")
+
+    # Run 4: re-audits the group (rows still present), no longer reproduces.
+    _lifecycle_run(monkeypatch, fake_rpc, fixed_results, rows, "run-4")
+
+    # (Owner acknowledges the finding directly via SQL here, per D-05 --
+    # no Python call is ever made for an acknowledge; nothing to record.)
+
+    # Run 5: reproduces again.
+    _lifecycle_run(monkeypatch, fake_rpc, reproducing_results, rows, "run-5")
+
+    assert len(fake_rpc.calls) == 5
+    for i in (0, 1, 2, 4):  # runs 1, 2, 3, 5 -- reproducing
+        assert len(fake_rpc.calls[i]["findings"]) == 1
+        assert fake_rpc.calls[i]["findings"][0]["check_id"] == "rate_sanity_mismatch"
+    # Run 4 (index 3) -- re-audited, not reproduced.
+    assert fake_rpc.calls[3]["findings"] == []
+    assert any(
+        p["check_id"] == "rate_sanity_mismatch" and p["wr"] == "12345"
+        for p in fake_rpc.calls[3]["reaudited_pairs"]
+    )

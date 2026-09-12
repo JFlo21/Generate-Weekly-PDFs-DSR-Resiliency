@@ -67,6 +67,29 @@ IDENTITY_RECIPES: dict[str, tuple[str, ...]] = {
     "data_consistency_issue": ("wr", "week_ending", "issues"),
 }
 
+# ── Python <-> SQL contract constants (plan 13-04, Task 3) ───────────────
+# Declared here (not just as literals inside a test) so there is ONE
+# Python-side name to grep, per tests/test_audit_findings_sql_contract.py's
+# lockstep assertions against pipeline_memory/schema.sql's
+# upsert_audit_findings RPC. Renaming a value here or in schema.sql without
+# updating the other fails that test.
+
+# The upsert_audit_findings RPC's positional parameter names, verbatim,
+# in the order this module's params dict builds them.
+RPC_PARAM_KEYS: tuple[str, ...] = ("p_run_id", "p_findings", "p_reaudited_pairs")
+
+# pipeline_memory.audit_finding.status CHECK value set (schema.sql).
+FINDING_STATUS_VALUES: frozenset[str] = frozenset({
+    "open", "fixed", "acknowledged", "suppressed", "resurfaced",
+})
+
+# pipeline_memory.audit_finding_event.transition CHECK value set
+# (schema.sql).
+FINDING_EVENT_TRANSITIONS: frozenset[str] = frozenset({
+    "opened", "seen", "fixed", "reopened", "resurfaced", "acknowledged",
+    "suppressed",
+})
+
 # ── Module-level counters (mirrors pipeline_memory/writer.py) ────────────
 
 _counters_lock = threading.Lock()
@@ -619,11 +642,10 @@ def upsert_audit_findings(
     if not findings and not reaudited_pairs:
         return None
 
-    params = {
-        "p_run_id": run_id,
-        "p_findings": findings,
-        "p_reaudited_pairs": reaudited_pairs,
-    }
+    # Built from RPC_PARAM_KEYS (never re-typed as literals) so the
+    # caller's params dict can never drift from the module constant
+    # tests/test_audit_findings_sql_contract.py pins against the DDL.
+    params = dict(zip(RPC_PARAM_KEYS, (run_id, findings, reaudited_pairs)))
 
     def _invoke():
         return (
