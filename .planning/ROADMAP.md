@@ -838,7 +838,7 @@ on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
    > Excel/portal visual surface is a tracked backlog item (see below), decided after observing
    > real finding volume in shadow.
 
-**Plans:** 3/6 plans executed (5 waves)
+**Plans:** 4/6 plans executed (5 waves)
 
 Plans:
 **Wave 1**
@@ -852,7 +852,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 13-04-PLAN.md — Full D-08 transition table in the `upsert_audit_findings` RPC plus the per-check re-audited-pair scoping that gates closing (AUD-02), with a lockstep Python-to-SQL contract test *(wave 3)*
+- [x] 13-04-PLAN.md — Full D-08 transition table in the `upsert_audit_findings` RPC plus the per-check re-audited-pair scoping that gates closing (AUD-02), with a lockstep Python-to-SQL contract test *(wave 3)*
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

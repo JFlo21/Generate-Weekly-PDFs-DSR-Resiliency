@@ -303,7 +303,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [ ] **AUD-01**: `audit_finding` / `audit_finding_event` persist every finding with a
   stable key and lifecycle open → fixed | resurfaced | acknowledged | suppressed.
 
-- [ ] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
+- [x] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
   not reproduced on a re-audited group transition to `fixed` with the fixing run id.
 
 - [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
@@ -445,7 +445,7 @@ Which phases cover which requirements.
 | OWN-03 | Phase 12 | Complete |
 | OWN-04 | Phase 12 | Complete |
 | AUD-01 | Phase 13 | Pending |
-| AUD-02 | Phase 13 | Pending |
+| AUD-02 | Phase 13 | Complete |
 | AUD-03 | Phase 13 | Pending |
 | HLP-01 | Phase 14 | Complete |
 | HLP-02 | Phase 14 | Complete |
