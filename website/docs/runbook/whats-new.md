@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: September 12, 2026 (updated automatically)_
+_Last updated: September 13, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -23,7 +23,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — September 12, 2026
+### 📋 Changelog — September 13, 2026
 
 - 📄 Help guides updated: Phase 33 close-out -- live, re-unlock proven across three ticks, verify-work + transition, BUG-038 registered
 - ✅ Problem fixed: BUG-037 Register lookups by Manifest Version + BUG-035 round 8 (Phase 33 close-out bug PR)
@@ -41,7 +41,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 12, 2026
+### 📋 Changelog — September 13, 2026
 
 - ✅ Problem fixed: breaker half-open on probe success; keep&#95;historical deferred (D-14-FOLLOWUPS)
 - 📄 Help guides updated: post-merge write-back for PR
@@ -59,7 +59,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 12, 2026
+### 📋 Changelog — September 13, 2026
 
 - • 📊 Audit: 2026-09-07T07:04:39Z
 
@@ -448,7 +448,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 12, 2026
+### 📋 Changelog — September 13, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
