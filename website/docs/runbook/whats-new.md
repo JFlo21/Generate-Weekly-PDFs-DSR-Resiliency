@@ -9,6 +9,24 @@ _Last updated: September 13, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — September 13, 2026
+
+- ✅ Problem fixed: breaker half-open on probe success; keep&#95;historical deferred (D-14-FOLLOWUPS)
+- 📄 Help guides updated: post-merge write-back for PR
+- 📄 Help guides updated: final state pointers after PR
+- 📄 Help guides updated: close Phase 12 — 12-06 Task 4, D-12-E, verify-work
+- 📄 Help guides updated: post-merge write-back for PR
+- ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
+- • wip(14): pause handoff, decision-first (#HLP-06)
+- 📄 Help guides updated: record code review outcome (#HLP-06)
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
 
@@ -33,24 +51,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - ✅ Problem fixed: BUG-036 -- staging pass is write-free when nothing changed, real work first, soft budget so decision sync always runs
 - 📄 Help guides updated: close-out ledger pass -- task 4 done, README refresh, BUG-034 learning
 - 📄 Help guides updated: post-merge ledger pass -- PR merged, migration 0019 amended and still unapplied, next steps
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — September 13, 2026
-
-- ✅ Problem fixed: breaker half-open on probe success; keep&#95;historical deferred (D-14-FOLLOWUPS)
-- 📄 Help guides updated: post-merge write-back for PR
-- 📄 Help guides updated: final state pointers after PR
-- 📄 Help guides updated: close Phase 12 — 12-06 Task 4, D-12-E, verify-work
-- 📄 Help guides updated: post-merge write-back for PR
-- ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
-- • wip(14): pause handoff, decision-first (#HLP-06)
-- 📄 Help guides updated: record code review outcome (#HLP-06)
 
 <!-- /runbook-repo -->
 
