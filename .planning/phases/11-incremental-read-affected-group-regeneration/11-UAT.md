@@ -1,14 +1,20 @@
 ---
-status: complete
+status: testing
 phase: 11-incremental-read-affected-group-regeneration
-source: 11-01-SUMMARY.md, 11-02-SUMMARY.md, 11-03-SUMMARY.md, 11-04-SUMMARY.md, 11-05-SUMMARY.md, 11-06-SUMMARY.md, 11-07-SUMMARY.md, 11-08-SUMMARY.md
+source: 11-01-SUMMARY.md, 11-02-SUMMARY.md, 11-03-SUMMARY.md, 11-04-SUMMARY.md, 11-05-SUMMARY.md, 11-06-SUMMARY.md, 11-07-SUMMARY.md, 11-08-SUMMARY.md, 11-VERIFICATION.md
 started: 2026-09-14T01:45:56Z
-updated: 2026-09-14T07:02:20Z
+updated: 2026-09-14T18:20:00Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 37
+name: Fresh post-fix production_frequent parity streak (re-verification 2026-09-14)
+expected: |
+  ≥5 consecutive clean `production_frequent` parity passes observed via an owner-taken
+  `get_parity_streak()` reading AFTER commit `04c618a` reaches the branch the cron executes.
+awaiting: user response (tests 1–36 passed 2026-09-14T07:02:20Z; this item was added by the
+  post-gap-closure re-verification and cannot be observed until the fix ships)
 
 ## Tests
 
@@ -235,12 +241,23 @@ result: pass
 source: automated
 coverage_id: 11-08/T-11-44
 
+### 37. Fresh post-fix production_frequent parity streak (re-verification 2026-09-14, human_needed)
+expected: |
+  After commit `04c618a` (plan 11-09's selector fix) reaches the branch the scheduled
+  `production_frequent` workflow executes and ≥5 consecutive runs complete, an owner-taken
+  `pipeline_memory.reader.get_parity_streak()` reading shows ≥5 consecutive pass verdicts with
+  zero divergence (no `actual_not_in_candidate` or other mismatch), re-establishing the
+  ROADMAP SC2 / INC-04 gate condition. Owner recorded "not yet observable — 0 eligible runs"
+  at 2026-09-14T18:00:54Z; this item stays open until a genuine post-fix reading exists.
+result: [pending]
+source: 11-VERIFICATION.md (2026-09-14T18:15:32Z) human_verification item 1
+
 ## Summary
 
-total: 36
+total: 37
 passed: 36
 issues: 0
-pending: 0
+pending: 1
 skipped: 0
 blocked: 0
 
