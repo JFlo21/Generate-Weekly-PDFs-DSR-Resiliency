@@ -93,11 +93,35 @@ def _phase_12_section() -> str:
 
 
 def _newest_ledger_entry() -> str:
-    """Text after the LAST '## [' dated heading in living-ledger.md."""
+    """Text of the ``## [`` dated ledger entry that records the Gap
+    G-12-3 (12-08) decisions -- located by content (the ``D-12-C``
+    marker), NOT by literal file position.
+
+    Phase 11-09 (2026-09-14): the living-ledger.md is append-only and
+    accumulates entries from every later phase/plan, including plans
+    that postdate Phase 12's closure. Locating "the newest entry" by
+    position alone made this test silently start checking an unrelated
+    later entry the instant one more ``## [`` heading was appended --
+    exactly the kind of drift a structural test exists to catch, not
+    cause. Searching by the ``D-12-C`` content marker keeps the
+    assertion pinned to the SAME Phase 12 entry regardless of what gets
+    appended after it.
+    """
     text = _LEDGER.read_text(encoding="utf-8")
     headings = list(_LEDGER_ENTRY_HEADING.finditer(text))
     assert headings, "no dated entries found in living-ledger.md"
-    return text[headings[-1].start():]
+    for i, heading in enumerate(headings):
+        end = (
+            headings[i + 1].start()
+            if i + 1 < len(headings) else len(text)
+        )
+        entry = text[heading.start():end]
+        if "D-12-C" in entry:
+            return entry
+    raise AssertionError(
+        "no ledger entry recording Gap G-12-3 (12-08) decisions "
+        "(D-12-C) found in living-ledger.md"
+    )
 
 
 def _slice_bullet(section: str, label: str) -> str:

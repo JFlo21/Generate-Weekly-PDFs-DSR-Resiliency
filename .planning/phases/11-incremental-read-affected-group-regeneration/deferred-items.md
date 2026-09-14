@@ -32,3 +32,27 @@ Out-of-scope discoveries logged per the executor's SCOPE BOUNDARY rule
   11-08's `files_modified`. Follow-up: rewrite as a `test_..._retired`
   assertion (same pattern as the 31 tests 11-08 Task 3 did rewrite) or delete
   with a note, in a plan that actually touches this file.
+
+## 11-09 (Gap 2 — INC-02 candidate divergence)
+
+- **Confirmed cause and fix.** `_resolve_row_wr_week` (`pipeline/orchestrate.py`)
+  derived its WR component as `str(wr).split('.')[0]` with no `_WR_SANITIZE`
+  substitution and no 50-character truncation, while
+  `pipeline_memory.writer._sanitized_wr` applies both before a value reaches
+  `row_state.wr` — the affected set this pair is compared against. A raw WR
+  containing a sanitizer-affected character (the live class: an embedded space)
+  resolved to two different strings on the two sides, so the pair never matched
+  and a genuine, uploadable USER-variant group was dropped from the D-04
+  incremental candidate set. Fix: `_resolve_row_wr_week` now delegates its WR
+  component to `pipeline_memory.writer._sanitized_wr` directly — one shared
+  derivation instead of two parallel re-implementations.
+- **Accepted residual: WR-normalization collisions widen, never narrow.**
+  `_sanitized_wr` is not injective — two distinct raw WR values can normalize to
+  one key. This can only WIDEN the candidate (safe under T-11-18), because the
+  unmodified hash-skip gate still skips the unchanged ones exactly as the full
+  run does. No billing effect. Recorded here rather than remediated.
+- **`11-REVIEW.md` WR-01 stays open, out of this plan's scope.** WR-01
+  (`_is_abbreviated_response` treating a zero-row full response as an unchanged
+  delta probe, `pipeline/fetch.py`) is a different code path (the read-side
+  delta probe, not the group-side candidate selector) and was deliberately left
+  out of this plan's `files_modified`.
