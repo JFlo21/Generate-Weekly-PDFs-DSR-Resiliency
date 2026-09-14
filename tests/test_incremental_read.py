@@ -2024,6 +2024,148 @@ class AffectedSetMappingTests(unittest.TestCase):
         self.assertTrue(result["fallback_reason"])
 
 
+# ── Phase 11 gap-closure (plan 11-09, 11-VERIFICATION.md Gap 2): the
+# group-side affected-pair key MUST equal what row_state stores for the
+# same row -- a bidirectional contract pinning ``_resolve_row_wr_week``
+# to ``pipeline_memory.writer._sanitized_wr`` / ``_coerce_date`` so a
+# future edit to either side fails this test rather than silently
+# dropping a group from the D-04 incremental candidate set again ──────
+
+class AffectedPairKeyContractTests(unittest.TestCase):
+    """Plan 11-09 Task 2: ``_resolve_row_wr_week``'s WR/week components
+    are byte-identical to what ``pipeline_memory.writer`` derives for the
+    same row, ``_filter_groups_to_affected`` output is always a subset of
+    its input, an affected set matching no group yields an empty
+    candidate, and a genuinely unaffected group is still dropped.
+    """
+
+    def setUp(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def tearDown(self):
+        _reset_pipeline_memory()
+        _pop_env()
+
+    def test_wr_component_matches_sanitized_wr_across_shapes(self):
+        # Test 1 (bidirectional contract): eight WR shapes -- a bare
+        # digit string, a float-suffixed value, a value with a space, a
+        # value with a parenthesis, a value with a slash, a value longer
+        # than 50 characters, a falsy value, and a missing key.
+        import pipeline.orchestrate as orch
+        from pipeline_memory import writer as mem_writer
+
+        long_wr = "9" * 60
+        shapes = [
+            {"Work Request #": "90001"},
+            {"Work Request #": "90001.0"},
+            {"Work Request #": "90001 REV2"},
+            {"Work Request #": "90001(2)"},
+            {"Work Request #": "90001/A"},
+            {"Work Request #": long_wr},
+            {"Work Request #": 0},
+            {},
+        ]
+        for row in shapes:
+            with self.subTest(row=row):
+                group_side, _week = orch._resolve_row_wr_week(row)
+                writer_side = mem_writer._sanitized_wr(row)
+                self.assertEqual(group_side, writer_side)
+
+    def test_week_component_matches_coerce_date_across_shapes(self):
+        # Test 2 (week component): a serial number, a date string, a
+        # datetime.date, and an unparseable value.
+        import pipeline.orchestrate as orch
+        from pipeline import utils as pipeline_utils
+        from pipeline_memory import writer as mem_writer
+
+        shapes = [
+            {"Weekly Reference Logged Date": 46600},
+            {"Weekly Reference Logged Date": "2026-08-30"},
+            {
+                "Weekly Reference Logged Date": datetime.date(
+                    2026, 8, 30,
+                ),
+            },
+            {"Weekly Reference Logged Date": "not-a-date"},
+        ]
+        for row in shapes:
+            with self.subTest(row=row):
+                _wr, group_side = orch._resolve_row_wr_week(row)
+                writer_side = mem_writer._coerce_date(
+                    pipeline_utils.excel_serial_to_date(
+                        row.get("Weekly Reference Logged Date")
+                    )
+                )
+                self.assertEqual(group_side, writer_side)
+
+    def test_filter_output_is_always_a_subset_of_input(self):
+        # Test 3 (subset-only property): a non-empty affected set, an
+        # empty affected set, and an affected set matching nothing.
+        import pipeline.orchestrate as orch
+
+        groups = {
+            "g1": [{
+                "Work Request #": "90001",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }],
+            "g2": [{
+                "Work Request #": "90002",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }],
+        }
+        for affected in (
+            {("90001", "2026-08-30")},
+            set(),
+            {("99999", "2099-01-01")},
+        ):
+            with self.subTest(affected=affected):
+                filtered = orch._filter_groups_to_affected(
+                    groups, affected,
+                )
+                self.assertLessEqual(
+                    set(filtered.keys()), set(groups.keys()),
+                )
+
+    def test_unmatched_affected_set_yields_empty_candidate(self):
+        # Test 4 (no admit-everything): an affected set that matches no
+        # group's pair must yield an EMPTY candidate, not every group.
+        import pipeline.orchestrate as orch
+
+        groups = {
+            "g1": [{
+                "Work Request #": "90001",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }],
+        }
+        filtered = orch._filter_groups_to_affected(
+            groups, {("no-such-wr", "2099-01-01")},
+        )
+        self.assertEqual(filtered, {})
+
+    def test_genuinely_unaffected_group_is_still_dropped(self):
+        # Test 5 (regression guard): the fix must not widen the
+        # candidate to every group -- an unaffected group stays dropped
+        # even when a sibling affected group is present.
+        import pipeline.orchestrate as orch
+
+        groups = {
+            "affected": [{
+                "Work Request #": "90001",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }],
+            "unaffected": [{
+                "Work Request #": "90002",
+                "Weekly Reference Logged Date": "2026-08-30",
+            }],
+        }
+        filtered = orch._filter_groups_to_affected(
+            groups, {("90001", "2026-08-30")},
+        )
+        self.assertIn("affected", filtered)
+        self.assertNotIn("unaffected", filtered)
+
+
 # ── 11-04 Task 3: D-05 REQUIREMENTS.md note + scoped run_ledger
 # counters ────────────────────────────────────────────────────────────
 
