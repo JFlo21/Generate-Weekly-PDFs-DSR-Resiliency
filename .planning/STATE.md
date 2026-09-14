@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11
-current_phase_name: incremental-read-affected-group-regeneration
+current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 13-06-PLAN.md
-last_updated: "2026-09-14T16:46:40.557Z"
-last_activity: 2026-09-11
-last_activity_desc: Phase 13 execution started
-state_head: 44efdfc1e880f26add17d03248fbe8b967588b16
+stopped_at: Completed 11-09-PLAN.md
+last_updated: "2026-09-14T17:30:05.727Z"
+last_activity: 2026-09-14
+last_activity_desc: Phase 11 execution started
+state_head: 623a9956f96445aef7273601926010cc3ee33d48
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 82
-  completed_plans: 80
-  percent: 90
+  completed_plans: 81
+  percent: 93
 ---
 
 # Project State
@@ -31,13 +31,13 @@ right generated Excel billing artifact fast, from a secure, auth-gated,
 beautiful web portal — with zero change to the production Python billing
 pipeline.
 
-**Current focus:** Phase 13 — Audit Memory
+**Current focus:** Phase 11 — Incremental Read + Affected-Group Regeneration
 
 ## Current Position
 
-Phase: 11 (incremental-read-affected-group-regeneration) — READY TO EXECUTE
-Plan: 6 of 6
-Status: Ready to execute — Phase 11 gap-closure plans 11-09/11-10 (`/gsd:execute-phase 11 --gaps-only`); Phase 13 stays EXECUTED, pending `/gsd:verify-work 13`
+Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
+Plan: 2 of 10
+Status: Ready to execute
 
 Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
 2026-09-10: 10/10 plans (incl. 4 gap-closure plans 12-07..12-10 that closed
@@ -67,7 +67,7 @@ breaker lock + trip-generation check); `keep_historical` deferred behind
 the incremental-mode gate. Next, in order: (1) merge the breaker PR; (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A) on
 its contract then; (3) owner: Codex threads, Dependabot triage.
-Last activity: 2026-09-11 — Phase 13 execution started
+Last activity: 2026-09-14 — Phase 11 execution started
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
   fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
@@ -96,7 +96,7 @@ Last activity: 2026-09-11 — Phase 13 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans ([█████████░] 90%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([█████████░] 93%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -177,6 +177,7 @@ Progress: [████████████████████] 74/74 p
 | Phase 13 P04 | 50min | 3 tasks | 5 files |
 | Phase 13 P05 | ~10min | 3 tasks | 2 files |
 | Phase 13 P06 | ~20min | 3 tasks | 7 files |
+| Phase 11 P09 | ~55min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -349,6 +350,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 13]: 13-04: build_reaudited_pairs scopes per check_id (not just wr/week) so RATE_SANITY_AUDIT_ENABLED=false never closes rate_sanity_mismatch findings off another check's re-audit — Pitfall 5 (13-RESEARCH.md): a disabled check must never be treated as having re-audited anything
 - [Phase ?]: 13-05: Owner instruction 2026-09-11 (verbatim) apply the supabase edits yourself using our supbase connector and do this for me -- Task 2/Task 3 checkpoints resolved via owner-delegated apply of the audit-memory DDL (migration audit_memory_findings_lifecycle_views, 20260912023008) and live read-back to project poeyztlmsawfoqlanucc; mirrors D-12-E/D-14-07-APPLIED apply-delegated precedent
 - [Phase ?]: 13-05: AUD-01 marked complete (shared-ID gate cleared); AUD-03 stays blocked pending sibling plan 13-06
+- [Phase 11]: Phase 11-09: confirmed cause (a) WR-form + (b) falsy-WR mismatch in _resolve_row_wr_week; fixed by delegating to pipeline_memory.writer._sanitized_wr (one shared derivation instead of two parallel re-implementations)
+- [Phase 11]: Phase 11-09: WR-normalization is not injective -- a collision only WIDENS the incremental candidate (T-11-18 safe direction), accepted residual, no billing effect
 
 ### Roadmap Evolution
 
@@ -549,8 +552,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-12T03:12:26.534Z
-**Stopped at:** Completed 13-06-PLAN.md
+**Last session:** 2026-09-14T17:30:04.648Z
+**Stopped at:** Completed 11-09-PLAN.md
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /

@@ -148,7 +148,7 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
-| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | ✅ Complete | 2026-08-31 |
+| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | In Progress|  |
 | 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 4/4 | ✅ Complete | 2026-09-02 |
 | 12. Ownership — last known foreman as of the week | v1.4 | 10/10 | ✅ Complete | 2026-09-10 |
 | 13. Audit Memory | v1.4 | 0/? | In Progress|  |
@@ -620,7 +620,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 10 plans (8/8 executed; 2 gap-closure plans added 2026-09-14 for `11-VERIFICATION.md` gaps 1-2)
+**Plans:** 9/10 plans executed (8/8 executed; 2 gap-closure plans added 2026-09-14 for `11-VERIFICATION.md` gaps 1-2)
 
 Plans:
 **Wave 1**
@@ -657,7 +657,7 @@ Plans:
 
 **Gap closure** *(added 2026-09-14 from `11-VERIFICATION.md` — status `gaps_found`, 5/8 must-haves; plans are additive, 11-01..11-08 untouched)*
 
-- [ ] 11-09-PLAN.md — Gap 2: reproduce, root-cause and surgically fix the live USER-variant candidate-set divergence in the D-04 affected-set selector (runs 34648318434.1 / 34541106039.1), plus the tracked-defect records (wave 1, gap_closure)
+- [x] 11-09-PLAN.md — Gap 2: reproduce, root-cause and surgically fix the live USER-variant candidate-set divergence in the D-04 affected-set selector (runs 34648318434.1 / 34541106039.1), plus the tracked-defect records (wave 1, gap_closure)
 - [ ] 11-10-PLAN.md — Gap 1: record the D-05 Option C override for INC-02's `row_state`-sourcing clause with owner sign-off, and transcribe the owner-run post-fix ≥5-run parity streak observation (D-09) (wave 2, gap_closure, autonomous:false)
 
 ### Phase 11.1: Post-INC-05 Runtime Remediation (INSERTED)
