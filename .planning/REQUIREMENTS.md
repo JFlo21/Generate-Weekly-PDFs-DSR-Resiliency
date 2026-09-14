@@ -255,6 +255,14 @@ CU pricing, rate recalculation, and billing formulas do not change.
   > alternative (Option B: raw-column schema extension + read-time enrichment) is
   > gated on this hybrid running clean for ≥5 consecutive `production_frequent` runs
   > (CONTEXT.md D-05).
+  > **[2026-09-14] ACCEPTED OVERRIDE (Phase 11 Plan 10):** Juan explicitly accepted the
+  > D-05 Option C deferral above as satisfying this clause's practical intent, recorded
+  > as an `overrides:` entry in `11-VERIFICATION.md`'s frontmatter (`accepted_by: "Juan
+  > Flores"`, `accepted_at: "2026-09-14T17:36:08Z"`). Option B (raw-column schema
+  > extension) remains deferred under D-05, gated on a clean ≥5-run
+  > `production_frequent` streak; `pipeline_memory/schema.sql` stays a protected area
+  > untouched by this override. Whether the accepted override ticks the checkbox above
+  > is left to the next re-verification pass.
 
 - [x] **INC-03**: The weekly deep run performs a full read + reconciliation (deletions,
   formula-only changes) and refreshes `sheet_registry.column_mapping`.
@@ -262,6 +270,18 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **INC-04**: Behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF) with parity
   proof: incremental output set == full-run output set for ≥5 consecutive scheduled
   runs before the flag defaults ON.
+  > **[2026-09-14] Streak reset, fix shipped, fresh reading pending (Phase 11 Plan
+  > 09/10):** two live `production_frequent` runs (34648318434.1, 34541106039.1)
+  > produced `actual_not_in_candidate` parity FAILs, resetting the D-09
+  > `get_parity_streak()` count to zero (`11-VERIFICATION.md` Gap 2). Plan 11-09 fixed
+  > the confirmed cause (`pipeline/orchestrate.py::_resolve_row_wr_week`, commit
+  > `04c618a`) with a passing reproduction test and a bidirectional contract test. A
+  > fresh, currently-held ≥5 consecutive-pass `production_frequent` streak taken AFTER
+  > the fix is required before the INC-04 / ROADMAP SC2 gate condition is considered
+  > held again (D-09 as amended); that owner-supplied reading is recorded in
+  > `11-VERIFICATION.md`'s `#### Post-Fix Parity Streak Observation` subsection.
+  > `RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF; the flip remains a separate
+  > operator-gated PR under D-11.
 
 - [x] **INC-05**: `hash_history.json`, `discovery_cache.json`,
   `billing_audit_frozen_rows.json` and the attachment pre-fetch phases are retired only

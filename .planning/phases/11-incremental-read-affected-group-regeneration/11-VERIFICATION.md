@@ -44,7 +44,12 @@ covered_files:
   - tests/test_pipeline_memory_shadow.py
 covered_digest: "unavailable: gsd-tools installation on this host (older CLI shape, no `runtime-identity`/`verification.fingerprint` verbs, no local gsd-core/bin/gsd-tools.cjs found) cannot produce a fingerprint; not hand-written per instructions"
 behavior_unverified: 0
-overrides_applied: 0
+overrides_applied: 1
+overrides:
+  - must_have: "reading group rows from row_state"
+    reason: "D-04 Option C (row_state decides regeneration membership; a scoped full Smartsheet re-fetch supplies content; the generation pipeline is unmodified) achieves the phase's practical intent — only touched groups are regenerated — without the billing-integrity risk of a row_state-sourced content path. Option B (raw-column schema extension) is deferred, gated on Option C running clean for >=5 consecutive production_frequent runs (11-CONTEXT.md D-05)."
+    accepted_by: "Juan Flores"
+    accepted_at: "2026-09-14T17:36:08Z"
 gaps:
   - truth: "Rows for touched groups are read from pipeline_memory.row_state, not re-fetched from Smartsheet (INC-02's explicit sourcing clause; part of the ROADMAP phase goal's literal wording)"
     status: failed
@@ -217,6 +222,50 @@ Everything else examined — the delta-read mechanism (INC-01), the deep-run rec
 (INC-04's mechanism), and the INC-05 cache/pre-fetch retirement — is solidly built, wired,
 tested (383 tests green in this pass), and in several cases backed by real production
 Supabase evidence, not just unit tests.
+
+### Gap Closure Record (2026-09-14)
+
+#### Gap 1 — Row-state sourcing: ACCEPTED OVERRIDE
+
+Juan explicitly accepted the D-05 Option C override at Plan 11-10 Task 1's blocking decision
+checkpoint (reply: `accept`; attribution: `Juan Flores`; acceptance timestamp:
+`2026-09-14T17:36:08Z`). The `overrides:` entry recorded in this file's frontmatter above
+reproduces the exact YAML this report's own "Suggested Override (Gap 1)" section prescribed.
+This does not implement Option B (still deferred under D-05, gated on a clean ≥5-run
+`production_frequent` streak, and `pipeline_memory/schema.sql` remains a protected area untouched
+by this closure) and does not authorize any change to `RUN_MEMORY_INCREMENTAL_ENABLED`. Whether
+the accepted override ticks INC-02's checkbox is a re-verification decision, not a records edit —
+this closure record leaves that checkbox state to the next verification pass.
+
+#### Gap 2 — USER-variant candidate-set divergence: CODE FIXED, streak pending
+
+Plan 11-09 confirmed the cause: `pipeline/orchestrate.py::_resolve_row_wr_week` derived its WR
+component independently of `pipeline_memory.writer._sanitized_wr` (the function that actually
+produces `row_state.wr`), so a raw WR containing a sanitizer-affected character (the live class:
+an embedded space) resolved to two different strings on the group side versus the row-state side,
+silently dropping a genuine USER-variant primary group from the D-04 incremental candidate set —
+exactly the symptom in the two live parity FAILs (runs 34648318434.1, 34541106039.1). The fix
+(commit `04c618a`) makes `_resolve_row_wr_week` call `pipeline_memory.writer._sanitized_wr`
+directly instead of re-implementing its contract, confined to that one function. The reproduction
+test `tests/test_parity_shadow.py::UserVariantCandidateParityTests` failed before the fix with the
+exact live symptom (`verdict: fail`, `reason: actual_not_in_candidate`) and passes after it; the
+bidirectional contract test `tests/test_incremental_read.py::AffectedPairKeyContractTests` pins
+the fix across 8 WR shapes and 4 week shapes. `RUN_MEMORY_INCREMENTAL_ENABLED` was not touched and
+stays OFF (D-11). The previously-untracked defect is now tracked in three places:
+`.planning/todos/pending/2026-09-14-inc02-user-variant-candidate-divergence.md`, this phase's
+`deferred-items.md` (`## 11-09` section), and a dated `memory-bank/living-ledger.md` entry.
+
+Only a fresh, currently-held ≥5 consecutive-pass `production_frequent` streak taken AFTER this fix
+shipped can re-establish that the ROADMAP SC2 / INC-04 gate condition is held — that observation
+is owner-supplied, not computed, and is recorded below.
+
+#### Post-Fix Parity Streak Observation
+
+PENDING — to be filled by Plan 11-10 Task 3 from an owner-supplied
+`pipeline_memory.reader.get_parity_streak()` reading taken after this fix (commit `04c618a`)
+reached the branch the scheduled `production_frequent` runs execute. This subsection records the
+reading verbatim and states explicitly what it does and does not authorize; the executor does not
+query, compute, or infer this value.
 
 ---
 
