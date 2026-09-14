@@ -26,10 +26,12 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `nyquist_compliant: true`; evidence re-run in-session (59+15+42 targeted tests, 6-gate harness, website build).
   Security gate closed `2047a67`. Remaining open: UAT test 1 (blocked on release build) and the VERIFICATION
   wall-clock observation — both need the code on `master` and `AUDIT_MEMORY_ENABLED=1` live.
-- **Milestone v1.4 audit (2026-09-12, `b6053bd`)**: `gaps_found` — 19/23 requirements satisfied, integration 5/5
-  flows wired (`.planning/v1.4-INTEGRATION-CHECK.md`), no code gaps. Blocker is structural: Phase 11 has no
-  VERIFICATION.md (INC-01..04 partial; INC-02 D-05 approved-partial). Nyquist compliant only for 10 and 13;
-  SECURITY.md missing for 11, 11.1, 12, 14. Report: `.planning/v1.4-MILESTONE-AUDIT.md` (closure order inside).
+- **Milestone v1.4 re-audit (2026-09-13, `859c98c`; supersedes `b6053bd`)**: still `gaps_found` — 19/23
+  requirements, integration 5/5, flows 5/5 re-traced at HEAD (no code changed since 09-12). SECURITY.md now
+  6/6 (0 open threats); Nyquist compliant 10, 11, 13 — 11.1, 12, 14 still `draft`. Sole blocker unchanged:
+  no `11-VERIFICATION.md` (INC-01..04 partial; INC-02 D-05 approved-partial). Deployment gap: `AUDIT_MEMORY_ENABLED`
+  absent from the workflow env. Closure order: verify-work 11 → validate-phase 11.1/12/14 → re-audit.
+  Report: `.planning/v1.4-MILESTONE-AUDIT.md`.
   **Phase 11 Nyquist closed 2026-09-12** (`/gsd:validate-phase 11`, `ccdaa08`): 30 per-task rows green, INC-01..05
   all COVERED, 0 gaps, `nyquist_compliant: true`; quick set 383 passed, full suite 2416/1 skipped re-run in-session.
   INC-02 stays D-05 approved-partial (production observation, Manual-Only). **Phase 11 security gate closed

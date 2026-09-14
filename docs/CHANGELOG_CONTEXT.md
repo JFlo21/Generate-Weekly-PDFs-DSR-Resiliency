@@ -9,6 +9,16 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-13 — Milestone v1.4 re-audit: still `gaps_found`, sole blocker is the missing 11-VERIFICATION.md
+
+`/gsd:audit-milestone` re-run at HEAD `b7b9853` (supersedes the 09-12 audit `b6053bd`). Integration checker
+re-confirmed all 5 E2E flows and every file:line anchor (only doc commits landed in between). What moved:
+SECURITY.md 2/6 → 6/6 (0 open threats); Nyquist 2/6 → 3/6 (10, 11, 13; 11.1/12/14 still `draft`). What did
+not: Phase 11 has no goal-backward VERIFICATION.md, so INC-01..04 stay `partial` (INC-02 also D-05
+approved-partial) and the score holds at 19/23. Operator item: `AUDIT_MEMORY_ENABLED` still absent from
+`weekly-excel-generation.yml` env — AUD-01..03 dormant in CI. Closure: `/gsd:verify-work 11`, then
+`/gsd:validate-phase 11.1`, `12`, `14`, then re-audit. Commit `859c98c`; nothing pushed.
+
 ## 2026-09-13 — Phase 14 (Foreman Helper #2 / HLP-01..06) security gate closed: `14-SECURITY.md`, 70/70 closed
 
 `/gsd:secure-phase 14` (State B). All fourteen plans carried plan-time `<threat_model>` blocks — 70 entries:
