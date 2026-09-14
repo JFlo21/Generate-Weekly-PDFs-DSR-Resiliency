@@ -9620,3 +9620,61 @@ stops, restore `package.json`, `scripts/`, `skills/`, `sqlite/`, `ui/` from the 
 
 [2026-09-11 04:40] PR #402 review follow-ups decided by Juan (D-14-FOLLOWUPS in `14-DECISIONS.md`). (a) Billing-audit breaker half-open = "clear on probe success": `billing_audit.client.close_circuit(op, reason=...)` closes an OPEN per-op breaker and resets its counter; the writer's direct Helper #2 capability probe calls it on its `'supported'` path because that probe bypasses `with_retry` and was being fast-failed by the very `freeze_attribution` breaker it then proved stale — before this, one trip before the first probe fast-failed every remaining row of the run. `with_retry` still never re-closes a breaker on its own (no oscillation), and the probing row still returns its failure (one failed freeze == one counted error). TDD RED→GREEN in `tests/test_billing_audit_shadow.py`. (b) SUB-09 off-contract gate vs `keep_historical`: DEFERRED — no deletion-path change while incremental read is OFF. RULES: (1) `RUN_MEMORY_INCREMENTAL_ENABLED` must not be set in production until the off-contract gate in `pipeline/cleanup.py` honours `KEEP_HISTORICAL_WEEKS` for subcontractor-active WRs (or legacy cleanup is scoped to the run's affected set), proven with a known-good attachment fixture AND a dry run in the same PR — treat this as a rollout gate item, not a backlog nicety; (2) a breaker may be closed mid-run only by `close_circuit()` from a caller that independently round-tripped the SAME endpoint outside `with_retry`; never from an ordinary success path, never for a different op. (3) PR #407 review round 1 (Copilot/Codex stale-count race, Greptile P1 newer-trip erasure): every breaker transition — the `with_retry` failure read-modify-write + trip, the success reset, and `close_circuit()` — runs under the single `_breaker_lock` (never log or do I/O inside it); a trip bumps `_breaker_generation[op]`, and an out-of-band prober captures `breaker_generation(op)` BEFORE its direct call and passes it as `observed_generation` so a trip that happened while the probe was in flight is preserved instead of erased (three regression tests, one threaded, in `tests/test_billing_audit_shadow.py`). Follow-up (Opus production-risk review, PR #407): `pipeline_memory/client.py` carries the pre-fix twin breaker with no lock — lost-update on concurrent increments only (no close path), so it trips late; mirror `_breaker_lock` there in its own PR.
 
+[2026-09-11 22:49] Phase 13 plan 13-02: closed the folded todo `.planning/todos/pending/2026-08-25-fix-snapshot-store-int-arg-type.md` by narrowing the provenance-row key construction in `billing_audit/snapshot_store.py`'s `fetch_snapshot_provenance` -- `sheet_id`/`row_id` are now read into locals and the loop `continue`s when either is `None` BEFORE the `int()` cast; the pre-existing `except (TypeError, ValueError): continue` stays for non-numeric values, so runtime behavior is unchanged (4 new regression tests plus the full suite: 2342 passed / 1 skipped, no regression). This removed the only Class-A finding accepted into the 2026-08-25 Gate-4 re-baseline: the `arg-type` diagnostic `billing_audit\snapshot_store.py:370: error: Argument 1 to "int" has incompatible type "Any | None"...`. Re-baseline: `tests/golden/mypy_baseline.txt` dropped exactly that one line (71 -> 70 lines, the removed line was line 9 as of this plan); `tests/golden/mypy_baseline_count.txt` moved `71` -> `70`; `bash scripts/run_6_gates.sh` green at the lowered baseline. The two `snapshot_store.py:113` `[misc]` entries are untouched -- a separate, still-baselined finding. Per the re-baseline hygiene rule (`[2026-08-25 00:02]`), no other baseline line changed.
+
+[2026-09-11 23:40] Phase 13 (Audit Memory) closed two durable architectural standards that outlive
+this phase's own summaries, plus D-13-A. **Finding-key contract (D-01, D-02):** every audit finding's
+`finding_key` is `sha256` of a `|`-joined canonical string whose FIRST segment is
+`FINDING_KEY_RECIPE_VERSION` (currently `'v1'`), then `check_id`, then that check's own identity
+fields in a fixed order -- `rate_sanity_mismatch` -> `wr | week_ending | cu | work_type`,
+`price_variance_anomaly` -> `wr | week_ending` (NULL when a WR's pooled rows span more than one
+week), `data_consistency_issue` -> `wr | week_ending | sorted(issue strings)`. Evidence values
+(prices, deltas, variance %) and the Smartsheet `row_id` are NEVER part of the key -- they live only
+in the `evidence jsonb` column. `pipeline_memory/audit_findings.py` is the single authoritative
+hashing side; no statement in `pipeline_memory/schema.sql` recomputes or re-derives a `finding_key`.
+**Cost of changing it:** a recipe change orphans every currently-open finding (their keys no longer
+match anything a new run computes), so it is never a cosmetic edit -- it requires bumping
+`FINDING_KEY_RECIPE_VERSION` and a deliberate key migration (rehash + carry-forward the event
+history), the same class of decision the original recipe got as an owner `checkpoint:decision`.
+**Message-string coupling (D-07):** the literal issue strings `audit_billing_changes.py`'s
+`_validate_data_consistency` emits are durable identity data for `data_consistency_issue` findings,
+not just log text -- they are mirrored verbatim in `pipeline_memory/audit_findings.py` and pinned by
+a bidirectional contract test (`tests/test_audit_findings_sql_contract.py`). Rewording one of those
+strings is the same class of change as a recipe change: it orphans every open finding keyed on the
+old wording. **Closing rule:** a finding may transition to `fixed` only when (a) its own check
+actually executed that run AND (b) its own `(wr, week_ending)` group was in this run's re-audited
+pair set -- an empty or per-check-scoped-out re-audited set structurally closes nothing (the `fixed`
+branch in `upsert_audit_findings` is an explicit JOIN against the pair set, never a `NOT EXISTS`
+over the whole table). `audit_billing_changes.py`'s `RATE_SANITY_AUDIT_ENABLED` gate is mirrored
+character-for-character by `pipeline_memory.audit_findings.executed_checks()`; the two must change
+in lockstep, or a disabled check could wrongly close findings another check's re-audit produced.
+**D-13-A:** the `wr_week_ownership` table (and its `last_known_before_week` cross-week rung),
+carried forward from D-12-A as "deferred to Phase 13", is permanently dropped, not built. OWN-01 is
+satisfied instead by the `resolve_claimer` ladder over `billing_audit.attribution_snapshot` plus the
+`backfill_source` / `backfill_run_id` provenance columns, already shipped in Phase 12 and validated
+live 2026-09-05; a future consumer wanting a derived view would add it in its own phase.
+**Rollout posture:** `AUDIT_MEMORY_ENABLED` defaults off (ships dormant); its write path is
+fail-open on its own dedicated `audit_finding_upsert` circuit-breaker op, distinct from every other
+`pipeline_memory` op; with the flag either off or on, `audit_billing_changes.py`'s own output, the
+run-level `risk_level`, Excel generation, uploads, and the process exit code are all unchanged.
+
+## [2026-09-14 18:00] Phase 11 gap-closure plan 11-09 closed `11-VERIFICATION.md` Gap 2 (the live
+`production_frequent` USER-variant candidate-set divergence, runs 34648318434.1 and 34541106039.1).
+**Durable rule:** when two subsystems must independently compare the SAME identity key, one side
+calls the OTHER's derivation — a parallel re-implementation of a sanitizer is a silent-divergence
+vector. Here, `pipeline/orchestrate.py`'s `_resolve_row_wr_week` re-derived a row's WR component as
+`str(wr).split('.')[0]` instead of calling `pipeline_memory.writer._sanitized_wr` (which additionally
+applies `_WR_SANITIZE` and a 50-character truncation before a value reaches `row_state.wr`). A raw WR
+containing a sanitizer-affected character resolved to two different strings on the two sides, the
+D-04 affected-pair comparison never matched, and a genuine, uploadable USER-variant group silently
+fell out of the incremental candidate set — exactly the class of defect the phase's own shadow-parity
+net was built to catch, and it caught it. Fix: `_resolve_row_wr_week` now delegates its WR component
+to `_sanitized_wr` directly, pinned by a bidirectional contract test
+(`AffectedPairKeyContractTests`) across eight WR shapes and four week shapes so a future edit to
+either derivation fails the test instead of drifting silently. `RUN_MEMORY_INCREMENTAL_ENABLED`
+stayed OFF throughout (D-11) — this closure ships no behavior change to production. Widen-never-narrow
+invariant (T-11-18) holds: WR-sanitizer normalization is not injective, so a collision can only widen
+the candidate, never narrow it, and the unmodified hash-skip gate then skips the unchanged ones
+exactly as the full run does. Full suite green (2426 passed / 1 skipped / 610 subtests, zero
+regressions). The fresh ≥5 consecutive-pass `production_frequent` streak this fix requires before any
+future flag-flip decision remains owner-gated in plan 11-10.
