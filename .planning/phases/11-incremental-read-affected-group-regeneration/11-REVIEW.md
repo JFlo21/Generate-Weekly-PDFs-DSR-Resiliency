@@ -1,266 +1,199 @@
 ---
 phase: 11-incremental-read-affected-group-regeneration
-reviewed: 2026-09-14T15:53:33Z
+reviewed: 2026-09-14T18:14:23Z
 depth: standard
-files_reviewed: 29
+files_reviewed: 8
 files_reviewed_list:
-  - CLAUDE.md
   - pipeline/orchestrate.py
-  - pipeline/fetch.py
-  - pipeline/parity.py
-  - pipeline/change_detection.py
-  - pipeline/cleanup.py
-  - pipeline/discovery.py
-  - pipeline/config.py
-  - pipeline/attribution.py
-  - pipeline/observability.py
-  - pipeline_memory/reader.py
-  - pipeline_memory/writer.py
-  - generate_weekly_pdfs.py
-  - billing_audit/schema.sql
-  - .github/workflows/weekly-excel-generation.yml
-  - .github/prompts/configuration-environment.md
-  - docs/run-memory-write-flip-checklist.md
-  - tests/golden/facade_allowlist.json
-  - tests/golden/baseline_names.json
-  - tests/golden/mypy_baseline.txt
-  - tests/golden/mypy_baseline_count.txt
-  - tests/fixtures/incremental/abbreviated_sheet_response.json
-  - tests/fixtures/incremental/deleted_row.json
-  - tests/fixtures/incremental/formula_only_change.json
-  - tests/test_incremental_read.py
-  - tests/test_deep_run_reconciliation.py
   - tests/test_parity_shadow.py
-  - tests/test_pipeline_memory_shadow.py
-  - tests/test_security_audit_followup.py
+  - tests/test_incremental_read.py
+  - tests/test_own04_documentation.py
+  - tests/fixtures/incremental/user_variant_candidate_miss.json
+  - memory-bank/living-ledger.md
+  - .claude/project-state.md
+  - docs/CHANGELOG_CONTEXT.md
 findings:
   critical: 0
-  warning: 1
+  warning: 2
   info: 2
-  total: 3
+  total: 4
 status: issues_found
 ---
 
 # Phase 11: Code Review Report
 
-**Reviewed:** 2026-09-14T15:53:33Z
+**Reviewed:** 2026-09-14T18:14:23Z
 **Depth:** standard
-**Files Reviewed:** 29
+**Files Reviewed:** 8
 **Status:** issues_found
 
 ## Summary
 
-Reviewed Phase 11 (Incremental Read + Affected-Group Regeneration, INC-01..INC-05) at
-HEAD, covering the delta-read primitives (`if_version_after` probe + `rows_modified_since`
-fetch), the 7-trigger `resolve_run_mode` escalation ladder, the PHASE 2a/2b incremental
-split, `pipeline_memory` reader/writer contracts, shadow-incremental parity proof,
-weekly deep-run deletion reconciliation, and the INC-05 local-cache/pre-fetch retirement,
-per the task's explicit scope (the stale `diff_base` was intentionally ignored in favor
-of reviewing the listed files as they exist at HEAD).
+This is an **incremental** review scoped to the diff between `697eda9` (the prior
+`11-REVIEW.md` commit) and `HEAD`: the Plan 11-09 gap-closure fix for
+`11-VERIFICATION.md` Gap 2 (INC-02 USER-variant candidate-set divergence) and its
+supporting tests/fixture/docs.
 
-This is an unusually defensive, heavily self-documented codebase: nearly every
-non-obvious branch carries an inline citation to the incident, PR, or design decision
-that produced it, and the fail-open/"too wide, never too narrow" (T-11-18) invariant is
-enforced consistently at every escalation point I traced (delta-probe exceptions,
-unconfirmed memory writes, identity-lost rows, empty sheet mappings, zero-row deep-run
-sheets). `pipeline_memory/reader.py` and `writer.py` (2,061 combined lines) show no
-confirmed defects — every Supabase read/write failure path degrades to "cannot confirm,
-escalate," matching the documented contract. `pipeline/cleanup.py`'s `keep_historical`
-call-boundary override, `pipeline/discovery.py`'s registry-version skip gate (including
-the Phase 14 `mapping_schema` marker check), and `pipeline/observability.py`'s PII
-scrubbing (log body, breadcrumb `data` keys, stack-frame vars) were all traced and are
-internally consistent with their own documentation and with the workflow YAML (the
-Sentry Crons monitor schedule literal was cross-checked byte-for-byte against the
-weekday `schedule.cron` value and matches).
+**The fix itself is correct and surgical.** `pipeline/orchestrate.py::_resolve_row_wr_week`
+now derives its WR component by calling `pipeline_memory.writer._sanitized_wr(row)`
+directly instead of re-implementing a parallel (and divergent) `str(wr).split('.')[0]`
+rule. I traced `_sanitized_wr` (`pipeline_memory/writer.py:706-719`) and confirmed:
+(1) it is byte-identical to what populates `row_state.wr`, so the affected-pair
+comparison in `_filter_groups_to_affected` is now a true equality check against the
+same key space `row_state` uses; (2) it is a pre-existing private helper already
+called from this exact call site for the week component (`_coerce_date`), so this is
+not a new cross-module private-access pattern, just an extension of one already in
+place; (3) the one behavior change flagged in the docstring (a falsy-but-not-`None`
+raw WR, e.g. `0`, now sanitizes to `"0"` instead of `''`) is the intended fix, not a
+regression — it makes the falsy-value rule match `_sanitized_wr`'s contract instead of
+diverging from it. `_mem_writer` was already imported at module scope; no new import
+cycle. The WR-normalization non-injectivity risk (two raw values collapsing to one
+sanitized key) is explicitly analyzed in the docstring and is the safe direction under
+the codebase's T-11-18 "widen never narrow" invariant.
 
-Three findings resulted, all traceable to the Phase 11 Plan 08 (INC-05) retirement of
-the local JSON caches: one genuine correctness gap in the delta-probe's
-abbreviated-response heuristic (a whole-sheet-emptied edge case is silently
-misclassified as "unchanged," narrowing this run's affected-group scope — self-healing
-only via the next weekly full/deep run, which does not depend on the version
-watermark), and two code-quality items where the INC-05 cleanup left dead imports/dead
-functions behind. No Critical/BLOCKER-level issues were found: no injection vectors, no
-hardcoded secrets, no unsafe deserialization, no auth bypasses, no data-loss paths, and
-no thread-safety defects (the two module-level mutable globals in `pipeline/fetch.py`,
-`_LAST_SHEET_VERSIONS` and `_LAST_FULL_READ_FAILED_SHEET_IDS`, are lock-protected at
-every mutation site, including the new `ThreadPoolExecutor`-driven delta-probe path).
+The new tests (`AffectedPairKeyContractTests` in `tests/test_incremental_read.py`,
+`UserVariantCandidateParityTests` in `tests/test_parity_shadow.py`) and the new fixture
+(`tests/fixtures/incremental/user_variant_candidate_miss.json`) were read in full and
+independently executed: `pytest tests/test_parity_shadow.py tests/test_incremental_read.py
+tests/test_own04_documentation.py -q` → 269 passed, 37 subtests passed, 0 failures.
+The `test_own04_documentation.py` change (locating the Phase 12 ledger entry by the
+`D-12-C` content marker instead of "last heading in the file") is a genuine robustness
+fix — I confirmed the marker occurs exactly once in `living-ledger.md`, so the new loop
+resolves unambiguously, and it correctly prevents the test from silently drifting onto
+a later, unrelated ledger entry as the append-only ledger grows (which is precisely
+what would have happened to the old position-based lookup once this same review's
+gap-closure entry was appended below the Phase 12 one).
+
+One caveat on the new test suite: `AffectedPairKeyContractTests`'s two "contract" tests
+(`test_wr_component_matches_sanitized_wr_across_shapes`,
+`test_week_component_matches_coerce_date_across_shapes`) compare
+`orch._resolve_row_wr_week`'s output against calling the exact same underlying
+functions a second time — since the fix makes `_resolve_row_wr_week` literally delegate
+to `_sanitized_wr`/`_coerce_date`, the comparison is tautological today and cannot by
+itself detect a bug *inside* `_sanitized_wr`/`_coerce_date`. This is intentional per
+the docstring ("a future edit to either derivation fails this test instead of drifting
+silently") — it is a wiring/regression-pin test, not a correctness proof — but it means
+the actual correctness proof for the WR-sanitizer behavior rests on
+`UserVariantCandidateParityTests`'s end-to-end reproduction (which does exercise real
+`group_source_rows` output and a real parity verdict) rather than on the contract test.
+Not a defect; noted for reviewer context only.
+
+Two new findings resulted, both Warning-level and both in the documentation/ledger
+files rather than the code fix. No Critical issues.
+
+## Prior Review Findings — Status
+
+The prior `11-REVIEW.md` (committed at `697eda9`, standard depth, 29 files) reported
+0 Critical / 1 Warning / 2 Info. None of the three are touched by this diff (the diff
+does not modify `pipeline/fetch.py` or `pipeline/attribution.py`) — I spot-checked all
+three against current `HEAD` and confirm they remain **OPEN**, unchanged:
+
+- **WR-01** (`pipeline/fetch.py:154-165`, `_is_abbreviated_response` cannot
+  distinguish a whole-sheet-deleted full response from a genuinely abbreviated/
+  unchanged probe response) — still present verbatim at `HEAD`. **Still open.**
+- **IN-01** (`pipeline/orchestrate.py:257-276`, 11 dead names imported from
+  `pipeline.attribution`) — the import block is byte-identical to the version
+  reviewed at `697eda9`; none of the 11 names were touched by this diff. **Still open.**
+- **IN-02** (`pipeline/attribution.py:231-605`, ~375 lines of hash-prune functions
+  with no production caller) — confirmed the four functions and their
+  `*_HASH_PRUNE_VERSION` constants are all still present, unarchived. **Still open.**
 
 ## Warnings
 
-### WR-01: Whole-sheet-emptied delta probe is indistinguishable from "unchanged," silently narrowing this run's affected-group scope
+### WR-02: `.claude/project-state.md` exceeds its own documented 120-line cap and grew further in this diff
 
-**File:** `pipeline/fetch.py:154-165`, `pipeline/fetch.py:244-261`, `pipeline/orchestrate.py:1788-1790`
+**File:** `.claude/project-state.md:2`
 
-**Issue:** `_is_abbreviated_response` classifies a probe response as "abbreviated / sheet
-unchanged" using pure falsy-truthiness on `.rows`:
+**Issue:** The file's own header states the hard constraint enforced by the
+`align-instruction-files` skill:
 
-```python
-def _is_abbreviated_response(sheet: Any) -> bool:
-    return not getattr(sheet, 'rows', None)
-```
+> Cap ≤ 120 lines (`align-instruction-files` skill); history goes to
+> `memory-bank/living-ledger.md`, never here.
 
-Per the documented Smartsheet `if_version_after` contract (and the real captured fixture
-`tests/fixtures/incremental/abbreviated_sheet_response.json`, whose `raw_response` is
-`{"version": 8}` with no `rows` key at all), a version that has *not* advanced yields a
-response with `rows` absent/`None`. But a version that *has* advanced yields the full,
-current sheet — which legitimately has `rows == []` when every row on that source sheet
-has been deleted (the probe call carries no `rows_modified_since` filter, so it returns
-the sheet's complete current row set, not a delta). `not []` is `True`, so this second,
-genuinely-changed case is indistinguishable from the first at this call site.
+At `diff_base` (`697eda9`) the file was already over cap at 178 lines. This diff adds
+a new bullet ("Phase 11 verification gate run…") that pushes it to **196 lines** — an
+18-line net increase in the wrong direction relative to the file's stated policy. The
+new content (regeneration-gate detail, gap descriptions, tooling notes) largely
+duplicates what the same diff already appended to `docs/CHANGELOG_CONTEXT.md` and
+`memory-bank/living-ledger.md` in more detail, which is exactly the kind of content
+the header says belongs in the ledger, "never here."
 
-The consequence in `fetch_sheet_delta` (`pipeline/fetch.py:244-261`): when
-`_is_abbreviated_response(probe)` is `True` and `probe.version` is present (which it
-always is on a full response), the function returns
-`{"escalate": False, "sheet": None, "version": version, "calls": 1}` — the exact same
-shape as a genuine no-op — and unconditionally advances the persisted
-`_LAST_SHEET_VERSIONS[source['id']]` watermark to the new version. The consuming loop in
-`pipeline/orchestrate.py::_run_phase2_incremental` treats this identically to "nothing
-changed":
+**Fix:** Trim `.claude/project-state.md` back under 120 lines by summarizing the new
+bullet to a one-line pointer (e.g. "Gap-closure plan 11-09 fixed INC-02 candidate-set
+divergence, see `living-ledger.md` 2026-09-14 18:00 entry") and moving the narrative
+detail (which is already duplicated in `CHANGELOG_CONTEXT.md`/`living-ledger.md`) out
+of this file, per the project's own `align-instruction-files` convention.
 
-```python
-sheet = probe_result.get("sheet")
-if sheet is None:
-    continue  # unchanged -- zero rows, nothing to add
-```
+### WR-03: `_resolve_row_wr_week`'s new WR contract test is tautological, not a correctness proof
 
-(`pipeline/orchestrate.py:1788-1790` — the comment itself conflates "unchanged" with
-"zero rows," which is precisely the bug.) A source sheet that goes from N rows to zero
-in one probe cycle therefore contributes nothing to `delta_rows`, so
-`_run_memory_write_phase` never diffs its rows against `row_state`, and the WR/week
-pairs it would have affected never enter this run's `affected` set — the opposite of the
-codebase's own repeatedly-stated T-11-18 invariant ("regeneration scope can only ever be
-too WIDE, never too narrow"). No escalation, warning log, or Sentry signal is raised for
-this specific case, unlike every other ambiguous/failure condition in this module (probe
-exceptions, missing version, memory-write non-confirmation all escalate loudly).
+**File:** `tests/test_incremental_read.py:2048-2064` (`test_wr_component_matches_sanitized_wr_across_shapes`)
 
-This is bounded, not unbounded data loss: the weekly `weekly_comprehensive` deep run
-(`_reconcile_deep_run_deletions`) performs a true full read via `get_all_source_rows`
-unconditionally — it does not consult `last_sheet_version`/the probe outcome at all — so
-a whole-sheet deletion missed by every `production_frequent` run in between is still
-caught and reconciled at the next Monday deep run. The practical impact is therefore a
-detection-latency gap (up to ~1 week) for the specific, comparatively rare event of an
-entire source sheet being emptied, rather than permanent data loss.
+**Issue:** The test calls `orch._resolve_row_wr_week(row)` and compares its WR output
+against `mem_writer._sanitized_wr(row)` called a second time on the same `row`. Because
+the fixed implementation is `wr_key = _mem_writer._sanitized_wr(row)` (a direct
+delegation, no transformation of its own), this assertion is `_sanitized_wr(row) ==
+_sanitized_wr(row)` — always true regardless of whether `_sanitized_wr` itself is
+correct. It protects against `_resolve_row_wr_week` regressing to a *different*
+derivation (its stated purpose, and a real regression it would catch), but it provides
+zero coverage of `_sanitized_wr`'s actual sanitization behavior (the truncation,
+substitution, and falsy-value rules the docstring describes across the eight WR
+shapes) — a bug introduced directly inside `_sanitized_wr` would pass this test.
+Correctness coverage for those shapes currently depends entirely on
+`pipeline_memory`'s own test suite (not reviewed in this pass) and on
+`UserVariantCandidateParityTests`'s single end-to-end fixture case.
 
-**Fix:** Disambiguate using a field that only exists on the full (non-abbreviated)
-response shape — e.g. require both `rows` and a full-response-only attribute (such as
-`columns` or `total_row_count`, which the abbreviated `{"version": 8}` shape never
-carries) to be absent before classifying as "abbreviated/unchanged":
-
-```python
-def _is_abbreviated_response(sheet: Any) -> bool:
-    """True only when the response is the genuinely abbreviated
-    {"version": N}-only shape (no rows AND no sheet-level metadata).
-    A full response with zero rows (e.g. every row deleted) must NOT
-    be classified as abbreviated.
-    """
-    has_rows = bool(getattr(sheet, 'rows', None))
-    if has_rows:
-        return False
-    # A full response always carries sheet-level metadata the
-    # abbreviated {"version": N}-only shape never does.
-    return getattr(sheet, 'columns', None) is None
-```
-
-At minimum, add a WARNING log (and widen `dropped_row_ids`/escalate to full mode) when a
-probe reports a version increase but zero rows, so this edge case is visible and
-correct, rather than silently absorbed into the "unchanged" path.
+**Fix:** Either (a) accept this test as a wiring/regression pin only (its documented
+intent) and rely on `pipeline_memory`'s own `_sanitized_wr` unit tests for behavioral
+coverage — in which case a one-line docstring note ("this is a wiring pin, not a
+sanitizer behavior proof; see `tests/test_pipeline_memory_shadow.py` for
+`_sanitized_wr` behavior coverage") would prevent a future reader from mistaking it for
+one — or (b) add expected-value assertions for at least the space/truncation/falsy
+cases directly in this test (e.g. `self.assertEqual(group_side, "90001_REV2")` for the
+space-containing shape) so a regression inside `_sanitized_wr` itself is also caught
+here.
 
 ## Info
 
-### IN-01: Eleven dead imports from `pipeline.attribution` in `pipeline/orchestrate.py`
+### IN-03: `_resolve_row_wr_week`'s week-component contract test is likewise tautological
 
-**File:** `pipeline/orchestrate.py:257-276`
+**File:** `tests/test_incremental_read.py:2066-2084` (`test_week_component_matches_coerce_date_across_shapes`)
 
-**Issue:** The `from pipeline.attribution import (...)` block imports 19 names; 11 are
-never referenced again anywhere in `orchestrate.py` (confirmed via repo-wide grep for
-both call-syntax and bare-name usage, and for any monkeypatch/attribute-access against
-`pipeline.orchestrate.<name>` — zero matches):
+**Issue:** Same pattern as WR-03 but for the week component: `orch._resolve_row_wr_week`
+internally computes `_mem_writer._coerce_date(_utils.excel_serial_to_date(...))`, and
+the test recomputes the identical two-call chain and asserts equality — a tautology
+with respect to `_coerce_date`/`excel_serial_to_date` correctness, useful only as a
+wiring pin against `_resolve_row_wr_week` reintroducing its own date-stringification
+logic.
 
-```python
-from pipeline.attribution import (  # noqa: E402
-    BILLING_AUDIT_ROW_CACHE_MAX_ENTRIES,      # unused
-    PHASE_1_1_HASH_PRUNE_VERSION,             # unused
-    SUBPROJECT_B_HASH_PRUNE_VERSION,          # unused
-    SUBPROJECT_D_HASH_PRUNE_VERSION,          # unused
-    VAC_CREW_HASH_PRUNE_VERSION,              # unused
-    _SUBCONTRACTOR_SCOPE_VARIANTS,
-    _build_primary_wr_scope,
-    _build_subcontractor_wr_scope,
-    _build_vac_crew_wr_scope,
-    _run_phase_1_1_hash_prune,                # unused
-    _run_subproject_b_hash_prune,             # unused
-    _run_subproject_d_hash_prune,             # unused
-    _run_vac_crew_hash_prune,                 # unused
-    build_helper2_fill_keys,
-    helper2_fill_admits,
-    load_billing_audit_row_cache,             # unused
-    run_claimer_remediation,
-    save_billing_audit_row_cache,             # unused
-    warm_billing_audit_row_cache,
-)
-```
+**Fix:** Same as WR-03(a)/(b) — either document it as a wiring pin, or assert concrete
+expected ISO strings for the four shapes (serial number, date string, `datetime.date`,
+unparseable) to also guard the underlying stringifiers.
 
-This is leftover from the Phase 11 Plan 08 (INC-05) retirement of the local
-`hash_history`/`billing_audit_row_cache` JSON caches — `orchestrate.py`'s own inline
-comment (~line 3350-3360) and `pipeline/attribution.py`'s module docstring both state
-explicitly that `pipeline.orchestrate.main()` no longer calls the four hash-prune
-runners or the load/save cache helpers. The separate, still-required re-export of these
-same names in `generate_weekly_pdfs.py` (confirmed present in
-`tests/golden/baseline_names.json` / `facade_allowlist.json`) is unaffected by this
-finding — that facade-level import serves the golden-file completeness contract and
-should stay.
+### IN-04: `UserVariantCandidateParityTests` skips the RED-before-fix step is unverifiable from the diff alone
 
-**Fix:** Remove the 11 unused names from this specific import statement:
+**File:** `tests/test_parity_shadow.py:762-843`
 
-```python
-from pipeline.attribution import (  # noqa: E402
-    _SUBCONTRACTOR_SCOPE_VARIANTS,
-    _build_primary_wr_scope,
-    _build_subcontractor_wr_scope,
-    _build_vac_crew_wr_scope,
-    build_helper2_fill_keys,
-    helper2_fill_admits,
-    run_claimer_remediation,
-    warm_billing_audit_row_cache,
-)
-```
+**Issue:** The test's own comment states "Test 1 (the reproduction, must be RED before
+the Task 2 fix)" and the ledger entry states the fix and its test landed together in
+plan 11-09. Since this review only has the post-fix `HEAD` state, I can confirm the
+test currently passes against the fixed code (verified via `pytest`, see Summary) but
+cannot independently confirm it was ever actually red against the pre-fix
+`_resolve_row_wr_week` (i.e., that it truly reproduces the Gap 2 defect rather than
+passing vacuously for an unrelated reason). This is a process/evidence gap rather than
+a code defect — the fixture's `sheet_id`/`Work Request #` values are plausible for
+triggering the divergence (the fix's own diff shows the exact `str(wr).split('.')[0]`
+vs `_sanitized_wr` mismatch this row would trigger: `"90201 REV2"` sanitizes to
+`"90201_REV2"` under `_sanitized_wr` but to `"90201 REV2"` under the old
+`str().split('.')[0]` rule), so the reproduction logic checks out by inspection.
 
-### IN-02: ~375 lines of one-time hash-history prune logic in `pipeline/attribution.py` have no production caller
-
-**File:** `pipeline/attribution.py:231-605`
-
-**Issue:** `_run_phase_1_1_hash_prune` (231-375), `_run_subproject_b_hash_prune`
-(378-441), `_run_vac_crew_hash_prune` (444-523), and `_run_subproject_d_hash_prune`
-(526-605) all mutate a `hash_history: dict` parameter that models the local JSON cache
-retired by Phase 11 Plan 08 (INC-05). The module's own docstring says so directly:
-"`pipeline.orchestrate.main()` no longer calls it" (line 78) and "are no longer called
-by `pipeline.orchestrate`" (line 108). These four functions (plus their four
-`*_HASH_PRUNE_VERSION` sentinel constants) are reachable today only from their own
-unit tests, not from any production entry point — this is confirmed dead code in the
-live call graph, distinct from IN-01 (which is a dead *import*, not a dead
-*function body*).
-
-This is flagged as Info rather than a request to delete: `CLAUDE.md`'s production-safety
-rules direct against removing production code "unless it is definitively broken or
-causing bugs," and these functions are still exercised by fixture-level tests that
-presumably the team wants to keep green as historical/regression coverage. The
-finding is for maintainability visibility — a future maintainer skimming
-`pipeline/attribution.py` has no signal (short of reading the docstrings closely) that
-this ~40% of the file's line count is unreachable in production, which risks
-bit-rotting logic around a data structure (`hash_history`) that no longer exists
-anywhere in the runtime path.
-
-**Fix:** Either (a) explicitly mark the four functions and their version constants as
-archival/retired in a section banner comment (e.g. `# RETIRED — Phase 11 Plan 08 /
-INC-05: kept for one-time-migration regression coverage only, no production caller`),
-or (b) relocate them out of the actively-maintained `pipeline/attribution.py` module
-into a dedicated `tests/`-adjacent or `scripts/archive/`-style location if the team
-agrees the migrations are permanently done and the fixture tests can be retired with
-them. No behavior change either way — this is a discoverability/documentation fix,
-not a functional one.
+**Fix:** No code change needed. For future gap-closure plans, consider having the
+plan's SUMMARY record the actual pre-fix RED test output (or a `git stash`-based
+verification step) as part of its evidence trail, so a later reviewer without access
+to the plan's execution transcript can confirm the red/green claim rather than
+inferring it by inspection.
 
 ---
 
-_Reviewed: 2026-09-14T15:53:33Z_
+_Reviewed: 2026-09-14T18:14:23Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
