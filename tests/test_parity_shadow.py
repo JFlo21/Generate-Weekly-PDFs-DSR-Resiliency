@@ -752,6 +752,13 @@ class UserVariantCandidateParityTests(unittest.TestCase):
     """
 
     def setUp(self):
+        # Snapshot the whole process environment so the pops below are
+        # undone on teardown -- otherwise inherited settings such as
+        # SMARTSHEET_API_TOKEN / TEST_MODE / run-memory config vanish
+        # for every later test in the process (order-dependence).
+        self._env_patch = mock.patch.dict(os.environ)
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
         _reset_pipeline_memory()
         _pop_env()
         os.environ.pop("SMARTSHEET_API_TOKEN", None)
@@ -777,7 +784,8 @@ class UserVariantCandidateParityTests(unittest.TestCase):
             self._saved["sub"]
         )
         _reset_pipeline_memory()
-        _pop_env()
+        # Environment restored by the patch.dict cleanup registered in
+        # setUp (runs after tearDown); no second _pop_env() here.
 
     @staticmethod
     def _load_cassette_rows():
