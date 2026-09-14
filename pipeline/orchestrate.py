@@ -1600,26 +1600,48 @@ def _shadow_parity_input_sets(
 
 
 def _resolve_row_wr_week(row: dict[str, Any]) -> tuple[str, str | None]:
-    """Resolve one source row's (WR, week-ending ISO string) using the
-    SAME resolution ``group_source_rows`` uses for its own WR/week keys
-    (Phase 11 Plan 04, D-04) -- never by re-parsing a group key string.
+    """Resolve one source row's (WR, week-ending ISO string) so it is
+    BYTE-IDENTICAL to the pair ``pipeline_memory.row_state`` stores for
+    the same row (Phase 11 Plan 09, gap-closure of 11-VERIFICATION.md
+    Gap 2 / D-04) -- the affected set this pair is compared against is
+    populated FROM ``row_state``, so the contract that matters is parity
+    with the WRITER's derivation, not with ``pipeline/grouping.py``'s own
+    (unsanitized, uncapped) group-key WR string.
 
-    WR: ``str(row['Work Request #']).split('.')[0]`` -- byte-identical to
-    ``pipeline/grouping.py``'s ``wr_key`` derivation. Week: the SAME
-    ``pipeline.utils.excel_serial_to_date`` parser ``_run_memory_write_
-    phase`` uses for ``__mem_week_ending``, stringified through
-    ``pipeline_memory.writer._coerce_date`` -- the SAME function the
-    write path uses to turn that value into the ISO string that ends up
-    in ``upsert_rows_bulk``'s returned affected set. Using the identical
-    stringifier on both sides is what makes the two sets directly
-    comparable by equality.
+    Confirmed divergence (11-09, causes (a) WR-form + (b) falsy-WR):
+    the prior derivation here was ``str(wr).split('.')[0] if wr else ''``
+    -- no ``_WR_SANITIZE`` substitution, no 50-character truncation, and
+    a different empty-value rule (any falsy raw value, not just a
+    missing one) than ``pipeline_memory.writer._sanitized_wr`` applies
+    before a value ever reaches ``row_state.wr``. A raw WR containing a
+    character the sanitizer replaces (a live example: a value with an
+    embedded space) therefore resolved to two different strings here and
+    in ``row_state``, the affected-pair comparison never matched, and a
+    genuine, uploadable USER-variant group silently dropped out of the
+    D-04 incremental candidate set (11-VERIFICATION.md Gap 2; live runs
+    34648318434.1, 34541106039.1).
+
+    WR: delegates to ``pipeline_memory.writer._sanitized_wr`` -- the SAME
+    function that produces ``row_state.wr`` -- rather than
+    re-implementing its sanitize-then-truncate contract a second time.
+    WR-normalization is NOT injective (two distinct raw values can
+    sanitize to one key); that only WIDENS the candidate, never narrows
+    it (T-11-18 safe direction), and the unmodified hash-skip gate then
+    skips the unchanged ones exactly as the full run does.
+
+    Week: the SAME ``pipeline.utils.excel_serial_to_date`` parser
+    ``_run_memory_write_phase`` uses for ``__mem_week_ending``,
+    stringified through ``pipeline_memory.writer._coerce_date`` -- the
+    SAME function the write path uses to turn that value into the ISO
+    string that ends up in ``upsert_rows_bulk``'s returned affected set.
+    Using the identical stringifier on both sides is what makes the two
+    sets directly comparable by equality.
 
     PURE (no I/O, never raises internally) -- directly unit-testable
     without invoking ``main()``, mirroring ``_build_group_state_flush``'s
     standalone-function testability pattern.
     """
-    wr_raw = row.get('Work Request #')
-    wr_key = str(wr_raw).split('.')[0] if wr_raw else ''
+    wr_key = _mem_writer._sanitized_wr(row)
     week_value = _utils.excel_serial_to_date(
         row.get('Weekly Reference Logged Date')
     )
