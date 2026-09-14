@@ -620,7 +620,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 9/10 plans executed (8/8 executed; 2 gap-closure plans added 2026-09-14 for `11-VERIFICATION.md` gaps 1-2)
+**Plans:** 10/10 plans executed (8/8 executed; 2 gap-closure plans added 2026-09-14 for `11-VERIFICATION.md` gaps 1-2)
 
 Plans:
 **Wave 1**
@@ -658,7 +658,7 @@ Plans:
 **Gap closure** *(added 2026-09-14 from `11-VERIFICATION.md` — status `gaps_found`, 5/8 must-haves; plans are additive, 11-01..11-08 untouched)*
 
 - [x] 11-09-PLAN.md — Gap 2: reproduce, root-cause and surgically fix the live USER-variant candidate-set divergence in the D-04 affected-set selector (runs 34648318434.1 / 34541106039.1), plus the tracked-defect records (wave 1, gap_closure)
-- [ ] 11-10-PLAN.md — Gap 1: record the D-05 Option C override for INC-02's `row_state`-sourcing clause with owner sign-off, and transcribe the owner-run post-fix ≥5-run parity streak observation (D-09) (wave 2, gap_closure, autonomous:false)
+- [x] 11-10-PLAN.md — Gap 1: record the D-05 Option C override for INC-02's `row_state`-sourcing clause with owner sign-off, and transcribe the owner-run post-fix ≥5-run parity streak observation (D-09) (wave 2, gap_closure, autonomous:false)
 
 ### Phase 11.1: Post-INC-05 Runtime Remediation (INSERTED)
 
@@ -857,6 +857,7 @@ permanently dropped, not deferred; OWN-01 stays satisfied by the `resolve_claime
   `pipeline_memory.finding_history_by_wr`) are the Phase 13 surface; no automated harness for
   live Supabase view content exists in this repository today, so a future visual-surface
   phase should bring one.
+
 - **Gate-4 mypy hardening follow-up** — split out of Phase 13 under the 13-CONTEXT.md
   Folded-Todos authorization, scoped to `scripts/` and `tests/test_facade_harness.py` only;
   tracked by `.planning/todos/pending/2026-08-25-harden-check-mypy-delta-followups.md`.

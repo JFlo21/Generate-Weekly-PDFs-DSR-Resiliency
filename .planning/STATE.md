@@ -1,21 +1,21 @@
 ---
-gsd_state_version: "1.0"
+gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
+milestone_name: Supabase Run Memory — incremental billing pipeline
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 11-09-PLAN.md
-last_updated: "2026-09-14T17:30:05.727Z"
+stopped_at: Completed 11-10-PLAN.md
+last_updated: "2026-09-14T18:06:16.659Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: 623a9956f96445aef7273601926010cc3ee33d48
 progress:
   total_phases: 14
-  completed_phases: 13
+  completed_phases: 14
   total_plans: 82
-  completed_plans: 81
-  percent: 93
+  completed_plans: 82
+  percent: 100
+state_head: 623a9956f96445aef7273601926010cc3ee33d48
 ---
 
 # Project State
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
-Plan: 2 of 10
+Plan: 3 of 10
 Status: Ready to execute
 
 Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
@@ -96,7 +96,7 @@ Last activity: 2026-09-14 — Phase 11 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans ([█████████░] 93%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([██████████] 100%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -178,6 +178,7 @@ Progress: [████████████████████] 74/74 p
 | Phase 13 P05 | ~10min | 3 tasks | 2 files |
 | Phase 13 P06 | ~20min | 3 tasks | 7 files |
 | Phase 11 P09 | ~55min | 3 tasks | 8 files |
+| Phase 11 P10 | ~15min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -352,6 +353,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase ?]: 13-05: AUD-01 marked complete (shared-ID gate cleared); AUD-03 stays blocked pending sibling plan 13-06
 - [Phase 11]: Phase 11-09: confirmed cause (a) WR-form + (b) falsy-WR mismatch in _resolve_row_wr_week; fixed by delegating to pipeline_memory.writer._sanitized_wr (one shared derivation instead of two parallel re-implementations)
 - [Phase 11]: Phase 11-09: WR-normalization is not injective -- a collision only WIDENS the incremental candidate (T-11-18 safe direction), accepted residual, no billing effect
+- [Phase ?]: Task 1: Juan accepted D-05/Option-C override for INC-02 row_state-sourcing clause (accepted_by: Juan Flores, accepted_at: 2026-09-14T17:36:08Z)
+- [Phase ?]: Task 3: Juan reported post-fix parity streak NOT YET OBSERVABLE -- 0 parity-evaluated production_frequent runs since 11-09's fix (04c618a unpushed/unmerged); INC-04 remains unticked
 
 ### Roadmap Evolution
 
@@ -552,8 +555,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-09-14T17:30:04.648Z
-**Stopped at:** Completed 11-09-PLAN.md
+**Last session:** 2026-09-14T18:06:16.621Z
+**Stopped at:** Completed 11-10-PLAN.md
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
