@@ -261,11 +261,30 @@ is owner-supplied, not computed, and is recorded below.
 
 #### Post-Fix Parity Streak Observation
 
-PENDING — to be filled by Plan 11-10 Task 3 from an owner-supplied
-`pipeline_memory.reader.get_parity_streak()` reading taken after this fix (commit `04c618a`)
-reached the branch the scheduled `production_frequent` runs execute. This subsection records the
-reading verbatim and states explicitly what it does and does not authorize; the executor does not
-query, compute, or infer this value.
+**Owner-supplied reading (2026-09-14T18:00:54Z), verbatim:** Not yet observable. 0
+parity-evaluated `production_frequent` runs have executed since plan 11-09's fix. The fix
+(commit `04c618a`, on branch `plan/phase-13`) is unpushed and unmerged; the scheduled workflow
+runs the default branch, so no post-fix run exists yet. No streak count is supplied. The D-09
+streak re-confirmation stays PENDING until ≥5 clean post-fix `production_frequent` runs exist;
+INC-04 remains unticked.
+
+**Outcome:** NOT YET OBSERVABLE — fewer than five parity-evaluated `production_frequent` runs
+exist since the fix (0 available). This is a valid PENDING outcome, not a shortfall count against
+the streak itself: no run has had the opportunity to evaluate parity against the fixed selector
+yet, because the fix has not reached the branch the scheduled workflow executes. Per D-09 (as
+amended 2026-08-29), this subsection stays explicitly PENDING with this reason, and plan 11-09's
+tracked todo (`.planning/todos/pending/2026-09-14-inc02-user-variant-candidate-divergence.md`)
+stays in `pending/` until a real `pipeline_memory.reader.get_parity_streak()` reading lands.
+
+**What this observation does and does not authorize:** This reading does not authorize any
+change to `RUN_MEMORY_INCREMENTAL_ENABLED`. The flip remains a separate operator-gated PR under
+D-11, requiring its own fresh ≥5-run streak re-check immediately before merge — not this reading,
+which reports zero eligible runs. The INC-04 / ROADMAP SC2 gate condition is NOT held as of this
+observation date.
+
+This section was filled by Plan 11-10 Task 3 by direct transcription of the owner-supplied reading
+above; the executor did not query, compute, simulate, or infer this value from Supabase, Actions
+history, or any earlier SUMMARY.
 
 ---
 
