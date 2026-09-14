@@ -43,6 +43,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 ### 📋 Changelog — September 14, 2026
 
+- 📄 Help guides updated: state pointers after PR merge
 - ✅ Problem fixed: breaker half-open on probe success; keep&#95;historical deferred (D-14-FOLLOWUPS)
 - 📄 Help guides updated: post-merge write-back for PR
 - 📄 Help guides updated: final state pointers after PR
@@ -50,7 +51,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - 📄 Help guides updated: post-merge write-back for PR
 - ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
 - • wip(14): pause handoff, decision-first (#HLP-06)
-- 📄 Help guides updated: record code review outcome (#HLP-06)
 
 <!-- /runbook-repo -->
 
@@ -480,4 +480,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
