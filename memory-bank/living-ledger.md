@@ -9657,3 +9657,24 @@ live 2026-09-05; a future consumer wanting a derived view would add it in its ow
 fail-open on its own dedicated `audit_finding_upsert` circuit-breaker op, distinct from every other
 `pipeline_memory` op; with the flag either off or on, `audit_billing_changes.py`'s own output, the
 run-level `risk_level`, Excel generation, uploads, and the process exit code are all unchanged.
+
+## [2026-09-14 18:00] Phase 11 gap-closure plan 11-09 closed `11-VERIFICATION.md` Gap 2 (the live
+`production_frequent` USER-variant candidate-set divergence, runs 34648318434.1 and 34541106039.1).
+**Durable rule:** when two subsystems must independently compare the SAME identity key, one side
+calls the OTHER's derivation — a parallel re-implementation of a sanitizer is a silent-divergence
+vector. Here, `pipeline/orchestrate.py`'s `_resolve_row_wr_week` re-derived a row's WR component as
+`str(wr).split('.')[0]` instead of calling `pipeline_memory.writer._sanitized_wr` (which additionally
+applies `_WR_SANITIZE` and a 50-character truncation before a value reaches `row_state.wr`). A raw WR
+containing a sanitizer-affected character resolved to two different strings on the two sides, the
+D-04 affected-pair comparison never matched, and a genuine, uploadable USER-variant group silently
+fell out of the incremental candidate set — exactly the class of defect the phase's own shadow-parity
+net was built to catch, and it caught it. Fix: `_resolve_row_wr_week` now delegates its WR component
+to `_sanitized_wr` directly, pinned by a bidirectional contract test
+(`AffectedPairKeyContractTests`) across eight WR shapes and four week shapes so a future edit to
+either derivation fails the test instead of drifting silently. `RUN_MEMORY_INCREMENTAL_ENABLED`
+stayed OFF throughout (D-11) — this closure ships no behavior change to production. Widen-never-narrow
+invariant (T-11-18) holds: WR-sanitizer normalization is not injective, so a collision can only widen
+the candidate, never narrow it, and the unmodified hash-skip gate then skips the unchanged ones
+exactly as the full run does. Full suite green (2426 passed / 1 skipped / 610 subtests, zero
+regressions). The fresh ≥5 consecutive-pass `production_frequent` streak this fix requires before any
+future flag-flip decision remains owner-gated in plan 11-10.
