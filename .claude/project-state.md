@@ -32,6 +32,12 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   no `11-VERIFICATION.md` (INC-01..04 partial; INC-02 D-05 approved-partial). Deployment gap: `AUDIT_MEMORY_ENABLED`
   absent from the workflow env. Closure order: verify-work 11 → validate-phase 11.1/12/14 → re-audit.
   Report: `.planning/v1.4-MILESTONE-AUDIT.md`.
+- **Phase 11 UAT complete (2026-09-14, `ea5a82f`)**: `/gsd:verify-work 11` — 36/36 pass, 0 issues (31 coverage
+  auto-passed, 5 owner-delegated checkpoints agent-validated against live `run_ledger`/`row_state`, Sentry issue
+  GENERATE-WEEKLY-EXCEL-AH, and the 11-07/11-08 decision record). Phase advancement still blocked by policy: no
+  `11-VERIFICATION.md`. Next: `/gsd:execute-phase 11` (resumes at the verification gate, re-runs no plans).
+  Observation: recent parity `fail` verdicts are group-side `actual_not_in_candidate` (USER-variant groups), which
+  resets the D-05 streak while INC-02 stays off.
   **Phase 11 Nyquist closed 2026-09-12** (`/gsd:validate-phase 11`, `ccdaa08`): 30 per-task rows green, INC-01..05
   all COVERED, 0 gaps, `nyquist_compliant: true`; quick set 383 passed, full suite 2416/1 skipped re-run in-session.
   INC-02 stays D-05 approved-partial (production observation, Manual-Only). **Phase 11 security gate closed

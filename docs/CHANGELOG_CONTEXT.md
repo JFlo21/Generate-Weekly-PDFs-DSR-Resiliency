@@ -1303,3 +1303,18 @@ variants on the first scheduled run after the merge, no other hash moves. Synthe
 `keep_historical` in the SUB-09 off-contract gate): `.planning/todos/pending/2026-09-10-pr402-review-followups.md`.
 Ledger `[2026-09-10 17:00]`, `[2026-09-10 20:15]`, `[2026-09-10 20:45]`. Records: PR #402 → `6e6e1e8`; write-back
 PR #403.
+
+## 2026-09-14 — Phase 11 UAT complete (`/gsd:verify-work 11`, `ea5a82f`)
+
+First conversational UAT for Phase 11 (incremental read / affected-group regeneration). All 8 SUMMARYs carry
+`coverage:` blocks, so 31 deliverables auto-passed on their pinned tests and 5 owner-judgment checkpoints were
+validated by the agent at Juan's direction: (1) flip-checklist content; (2) live `parity_verdict`/`parity_details`
+on production_frequent `run_ledger` rows plus the Sentry error-level fail emission (GENERATE-WEEKLY-EXCEL-AH, 9 events,
+counts + run id only); (3) weekly deep-run deletion reconciliation observed live (6 and 15 rows `deleted_at` inside the
+08-31 and 09-07 weekly windows; column_mapping refresh and group_state repair rest on pinned tests); (4) the INC-05
+`defer` → `retire-now` owner decision trail in 11-07/11-08 and PR #373; (5) the 5/5 streak re-derived from
+`run_ledger` as of the 08-31 reading, identical run ids, 54 min before 11-08's first commit. Fixed the malformed
+coverage `kind` on 11-08 T-11-43. Result: 36 pass / 0 issues; commit-claim fields absent on all 8 SUMMARYs
+(pre-#3968 legacy, warning only). Advancement remains policy-blocked on the missing `11-VERIFICATION.md` —
+`/gsd:execute-phase 11` resumes at that gate. Noted for the D-05 streak: two recent `fail` verdicts are group-side
+`actual_not_in_candidate` misses on USER-variant groups.
