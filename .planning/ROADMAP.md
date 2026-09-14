@@ -620,7 +620,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 8/8 plans executed
+**Plans:** 10 plans (8/8 executed; 2 gap-closure plans added 2026-09-14 for `11-VERIFICATION.md` gaps 1-2)
 
 Plans:
 **Wave 1**
@@ -654,6 +654,11 @@ Plans:
 **Wave 8** *(blocked on Wave 7's approved decision; its own PR, never bundled)*
 
 - [x] 11-08-PLAN.md — INC-05 retirement: local JSON caches, attachment pre-fetch, six workflow cache steps, before/after wall clock, Phase 11 Living Ledger entry (wave 8, autonomous:false)
+
+**Gap closure** *(added 2026-09-14 from `11-VERIFICATION.md` — status `gaps_found`, 5/8 must-haves; plans are additive, 11-01..11-08 untouched)*
+
+- [ ] 11-09-PLAN.md — Gap 2: reproduce, root-cause and surgically fix the live USER-variant candidate-set divergence in the D-04 affected-set selector (runs 34648318434.1 / 34541106039.1), plus the tracked-defect records (wave 1, gap_closure)
+- [ ] 11-10-PLAN.md — Gap 1: record the D-05 Option C override for INC-02's `row_state`-sourcing clause with owner sign-off, and transcribe the owner-run post-fix ≥5-run parity streak observation (D-09) (wave 2, gap_closure, autonomous:false)
 
 ### Phase 11.1: Post-INC-05 Runtime Remediation (INSERTED)
 
