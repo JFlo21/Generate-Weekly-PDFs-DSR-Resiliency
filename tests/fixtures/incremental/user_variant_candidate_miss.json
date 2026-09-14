@@ -1,0 +1,40 @@
+{
+  "provenance": "Synthetic scenario (not a live Smartsheet capture) reproducing 11-VERIFICATION.md Gap 2 (INC-02 candidate-set divergence): a Work Request # value containing a character _WR_SANITIZE replaces (a space) makes pipeline/orchestrate.py's pre-fix _resolve_row_wr_week resolve a DIFFERENT (WR, week_ending) pair than pipeline_memory.writer._sanitized_wr resolves for the SAME row, so a genuine, uploadable USER-variant primary group is dropped from the D-04 incremental candidate set. Modeled on the raw-mapped-row shape tests/test_primary_claim_attribution.py's _make_primary_row builds, plus the __source_sheet_id / __row_id provenance keys pipeline.fetch stamps -- deliberately NOT a raw Smartsheet SDK response capture. Mirrors the live evidence class from production_frequent runs 34648318434.1 and 34541106039.1 (group-side actual_not_in_candidate FAIL, USER-variant groups) with a synthetic, non-bare-digit Work Request # and synthetic foreman names -- no real Work Request number and no real person's name.",
+  "sheet_id": 4909062725521500,
+  "rows": [
+    {
+      "__row_id": 501001,
+      "__source_sheet_id": 88880001,
+      "__effective_user": "Alex Example",
+      "Work Request #": "90201 REV2",
+      "Weekly Reference Logged Date": "2026-08-30",
+      "Snapshot Date": "2026-08-30",
+      "Foreman": "Alex Example",
+      "Units Completed?": true,
+      "Quantity": 4,
+      "Units Total Price": 400.0,
+      "CU": "CU-100",
+      "Pole #": "P-1",
+      "Dept #": "500",
+      "Job #": "J-501",
+      "Work Type": "Install"
+    },
+    {
+      "__row_id": 501002,
+      "__source_sheet_id": 88880001,
+      "__effective_user": "Jordan Sample",
+      "Work Request #": "90201 REV2",
+      "Weekly Reference Logged Date": "2026-08-30",
+      "Snapshot Date": "2026-08-30",
+      "Foreman": "Jordan Sample",
+      "Units Completed?": true,
+      "Quantity": 2,
+      "Units Total Price": 200.0,
+      "CU": "CU-100",
+      "Pole #": "P-2",
+      "Dept #": "500",
+      "Job #": "J-502",
+      "Work Type": "Install"
+    }
+  ]
+}

@@ -24,6 +24,8 @@ the cleanup path / ``upsert_sheet_registry`` -- pinned directly below.
 from __future__ import annotations
 
 import datetime
+import json
+import os
 import sys
 import time
 import unittest
@@ -34,7 +36,19 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+import generate_weekly_pdfs  # noqa: E402
+import pipeline.orchestrate as orchestrate  # noqa: E402
+import pipeline_memory.writer as mem_writer  # noqa: E402
+from billing_audit.writer import ResolveOutcome  # noqa: E402
+from pipeline import change_detection  # noqa: E402
 from pipeline import parity  # noqa: E402
+from pipeline import utils as pipeline_utils  # noqa: E402
+from tests.test_incremental_read import (  # noqa: E402
+    _pop_env,
+    _reset_pipeline_memory,
+)
+
+_FIXTURES_DIR = _REPO_ROOT / "tests" / "fixtures" / "incremental"
 
 
 def _source(sheet_id):
@@ -703,6 +717,221 @@ class ReadSideEvidenceTests(unittest.TestCase):
         self.assertEqual(result["read_verdict"], "skipped")
         self.assertIn("rows_asserted", result)
         self.assertIn("changed_sheets_unprobed", result)
+
+
+# ── Phase 11 gap-closure (plan 11-09, 11-VERIFICATION.md Gap 2): a
+# USER-variant group of an affected pair must reach the D-04 incremental
+# candidate set ──────────────────────────────────────────────────────────
+
+def _no_history_resolve_claimer(variant, current, *, wr, week_ending,
+                                 row_id, enabled, prefetched_map=None):
+    """Mocked ``billing_audit.writer.resolve_claimer`` -- the ONLY
+    Supabase-backed boundary this test crosses. Returns the ``no_history``
+    outcome (empty prior-history map, exactly what a fresh claim looks
+    like) so each row's OWN ``current`` (its ``__effective_user``) becomes
+    the resolved claimer, with zero network calls."""
+    del variant, wr, week_ending, row_id, enabled, prefetched_map
+    return ResolveOutcome("use", current, "current", "no_history")
+
+
+class UserVariantCandidateParityTests(unittest.TestCase):
+    """Phase 11 gap-closure (plan 11-09, Task 1): end-to-end reproduction
+    that a USER-variant primary group of an affected (WR, week_ending)
+    pair reaches the D-04 incremental candidate set --
+    ``compare_shadow_parity`` must never report ``actual_not_in_candidate``
+    for it. Reproduces the live divergence from 11-VERIFICATION.md Gap 2
+    / 11-UAT.md (production_frequent runs 34648318434.1, 34541106039.1).
+
+    Walks the REAL path end to end -- real ``group_source_rows`` output,
+    the real ``_filter_groups_to_affected`` / ``_shadow_parity_input_sets``
+    reducers, the real ``compare_shadow_parity`` verdict -- with no
+    hand-written group keys. The only mocked boundary is
+    ``billing_audit.writer.resolve_claimer`` (Supabase-backed primary
+    claimer resolution); this test performs no live Smartsheet or
+    Supabase call.
+    """
+
+    def setUp(self):
+        _reset_pipeline_memory()
+        _pop_env()
+        os.environ.pop("SMARTSHEET_API_TOKEN", None)
+        self._saved = {
+            "attr": generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED,
+            "avail": generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE,
+            "mode": generate_weekly_pdfs.RES_GROUPING_MODE,
+            "sub": set(generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS),
+        }
+        generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = True
+        generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE = True
+        generate_weekly_pdfs.RES_GROUPING_MODE = "both"
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+
+    def tearDown(self):
+        generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED = (
+            self._saved["attr"]
+        )
+        generate_weekly_pdfs.BILLING_AUDIT_AVAILABLE = self._saved["avail"]
+        generate_weekly_pdfs.RES_GROUPING_MODE = self._saved["mode"]
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.clear()
+        generate_weekly_pdfs._FOLDER_DISCOVERED_SUB_IDS.update(
+            self._saved["sub"]
+        )
+        _reset_pipeline_memory()
+        _pop_env()
+
+    @staticmethod
+    def _load_cassette_rows():
+        path = _FIXTURES_DIR / "user_variant_candidate_miss.json"
+        with open(path, "r", encoding="utf-8") as fh:
+            cassette = json.load(fh)
+        return cassette["rows"]
+
+    @staticmethod
+    def _affected_pair_for_row(row):
+        # The SAME resolution row_state uses: the writer's own sanitizer
+        # for WR, and the writer's own date coercer over the SAME date
+        # parser group_source_rows/_run_memory_write_phase use for the
+        # week.
+        wr = mem_writer._sanitized_wr(row)
+        week_value = pipeline_utils.excel_serial_to_date(
+            row.get("Weekly Reference Logged Date")
+        )
+        week_iso = mem_writer._coerce_date(week_value)
+        return (wr, week_iso)
+
+    def _build_groups_and_affected(self, rows):
+        """Build REAL group keys via ``group_source_rows`` and the
+        affected (wr, week_ending) set the SAME way ``row_state`` derives
+        it, for the given cassette rows."""
+        affected = {self._affected_pair_for_row(row) for row in rows}
+        with mock.patch(
+            "billing_audit.writer.resolve_claimer",
+            side_effect=_no_history_resolve_claimer,
+        ):
+            groups = generate_weekly_pdfs.group_source_rows(rows)
+        return groups, affected
+
+    @staticmethod
+    def _candidate_and_actual(groups, affected):
+        """Reduce *groups* through the real D-04/D-07 pipeline: the
+        affected-pair filter, then ``_shadow_parity_input_sets`` with a
+        ``deferred_records`` + ``upload_tasks`` entry for EVERY generated
+        group, so every group counts as observable "actual" and none is
+        dropped as withheld."""
+        candidate_groups = orchestrate._filter_groups_to_affected(
+            groups, affected,
+        )
+        candidate_hashes = {
+            gk: change_detection.calculate_data_hash(rows)
+            for gk, rows in candidate_groups.items()
+        }
+        deferred_records = [
+            {
+                "group_key": gk,
+                "data_hash": change_detection.calculate_data_hash(rows),
+            }
+            for gk, rows in groups.items()
+        ]
+        upload_tasks = [{"group_key": gk} for gk in groups]
+        candidate, actual, _withheld = orchestrate._shadow_parity_input_sets(
+            candidate_hashes, deferred_records, upload_tasks,
+            unobservable=set(),
+        )
+        return candidate, actual
+
+    def test_user_variant_group_of_affected_pair_reaches_candidate(self):
+        # Test 1 (the reproduction, must be RED before the Task 2 fix).
+        rows = self._load_cassette_rows()
+        groups, affected = self._build_groups_and_affected(rows)
+        user_keys = [k for k in groups if "_USER_" in k]
+        self.assertTrue(
+            user_keys,
+            f"cassette did not produce a USER-variant group: "
+            f"{list(groups)}",
+        )
+        candidate, actual = self._candidate_and_actual(groups, affected)
+        result = parity.compare_shadow_parity(candidate, actual)
+        self.assertEqual(
+            result["verdict"],
+            "pass",
+            f"expected pass, got {result!r} "
+            f"(candidate={candidate!r}, actual={actual!r})",
+        )
+
+    def test_same_pair_different_foreman_both_admitted(self):
+        # Test 2 (adjacency, INC-02 probe): two groups sharing the same
+        # (WR, week_ending) pair but differing in foreman are BOTH in the
+        # candidate -- neither is dropped because the other matched.
+        rows = self._load_cassette_rows()
+        groups, affected = self._build_groups_and_affected(rows)
+        user_keys = sorted(k for k in groups if "_USER_" in k)
+        self.assertEqual(len(user_keys), 2, groups.keys())
+        filtered = orchestrate._filter_groups_to_affected(groups, affected)
+        for key in user_keys:
+            self.assertIn(key, filtered)
+
+    def test_empty_and_single_row_group_edges(self):
+        # Test 3 (empty, INC-02 probe): empty groups / empty affected_pairs
+        # each yield an empty candidate; an empty-row-list group is
+        # skipped, not admitted; a one-row group resolves its pair from
+        # that single row.
+        self.assertEqual(
+            orchestrate._filter_groups_to_affected({}, set()), {},
+        )
+        self.assertEqual(
+            orchestrate._filter_groups_to_affected(
+                {}, {("90201_REV2", "2026-08-30")},
+            ),
+            {},
+        )
+        single_row = {
+            "Work Request #": "90201_REV2",
+            "Weekly Reference Logged Date": "2026-08-30",
+        }
+        groups = {"g_empty": [], "g_single": [single_row]}
+        self.assertEqual(
+            orchestrate._filter_groups_to_affected(groups, set()), {},
+        )
+        filtered = orchestrate._filter_groups_to_affected(
+            groups, {("90201_REV2", "2026-08-30")},
+        )
+        self.assertNotIn("g_empty", filtered)
+        self.assertIn("g_single", filtered)
+
+    def test_reversed_group_insertion_order_yields_identical_verdict(self):
+        # Test 4 (ordering, INC-02 probe): running the comparison twice
+        # with the groups mapping built in reversed insertion order yields
+        # an identical verdict and identical groups_compared.
+        rows = self._load_cassette_rows()
+        groups, affected = self._build_groups_and_affected(rows)
+        reversed_groups = dict(reversed(list(groups.items())))
+
+        candidate_a, actual_a = self._candidate_and_actual(groups, affected)
+        candidate_b, actual_b = self._candidate_and_actual(
+            reversed_groups, affected,
+        )
+        result_a = parity.compare_shadow_parity(candidate_a, actual_a)
+        result_b = parity.compare_shadow_parity(candidate_b, actual_b)
+
+        self.assertEqual(result_a["verdict"], result_b["verdict"])
+        self.assertEqual(
+            result_a["groups_compared"], result_b["groups_compared"],
+        )
+
+    def test_hash_mismatch_and_both_sides_empty_never_pass(self):
+        # Test 5 (adjacency + empty, INC-04 probes): an exactly-equal
+        # candidate/actual key pair with differing hashes still yields
+        # fail/hash_mismatch; both-sides-empty still yields skipped, never
+        # pass.
+        mismatch = parity.compare_shadow_parity(
+            {"g1": "hashA"}, {"g1": "hashB"},
+        )
+        self.assertEqual(mismatch["verdict"], "fail")
+        self.assertEqual(mismatch["reason"], "hash_mismatch")
+
+        empty = parity.compare_shadow_parity({}, {})
+        self.assertEqual(empty["verdict"], "skipped")
+        self.assertNotEqual(empty["verdict"], "pass")
 
 
 if __name__ == "__main__":
