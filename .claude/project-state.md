@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-11 22:35 CDT (2026-09-12 03:35Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-14 11:05 CDT (2026-09-14 16:05Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -34,10 +34,21 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   Report: `.planning/v1.4-MILESTONE-AUDIT.md`.
 - **Phase 11 UAT complete (2026-09-14, `ea5a82f`)**: `/gsd:verify-work 11` — 36/36 pass, 0 issues (31 coverage
   auto-passed, 5 owner-delegated checkpoints agent-validated against live `run_ledger`/`row_state`, Sentry issue
-  GENERATE-WEEKLY-EXCEL-AH, and the 11-07/11-08 decision record). Phase advancement still blocked by policy: no
-  `11-VERIFICATION.md`. Next: `/gsd:execute-phase 11` (resumes at the verification gate, re-runs no plans).
-  Observation: recent parity `fail` verdicts are group-side `actual_not_in_candidate` (USER-variant groups), which
-  resets the D-05 streak while INC-02 stays off.
+  GENERATE-WEEKLY-EXCEL-AH, and the 11-07/11-08 decision record).
+- **Phase 11 verification gate run (2026-09-14, `1880362`)**: `/gsd:execute-phase 11` resumed at the gates (#2868
+  route, no plans re-run). Regression gate: pytest 2416 passed / 1 skipped / 595 subtests. `11-VERIFICATION.md` =
+  **`gaps_found` 5/8**: (1) group rows still re-fetched from Smartsheet, not `row_state` — the dated D-05
+  owner-approved deferral (INC-02 Pending); needs Option B or an explicit override in the frontmatter; (2) live
+  `actual_not_in_candidate` parity fails on USER-variant groups (runs 34648318434.1, 34541106039.1) — a real,
+  untracked D-04 candidate-selector gap that resets the ≥5-pass streak. Neither affects production today
+  (`RUN_MEMORY_INCREMENTAL_ENABLED` OFF). Phase 11 NOT re-marked complete. Code review (`11-REVIEW.md`,
+  `697eda9`, standard, 29 SUMMARY-scoped files): 0 Critical / 1 Warning / 2 Info — **WR-01** `pipeline/fetch.py`
+  `_is_abbreviated_response` treats a zero-row full response (whole sheet deleted) as an unchanged delta probe, so
+  the deletion adds nothing to the affected set that run and the watermark advances; bounded by the weekly deep
+  run (≤ ~1 week latency). Owner decision pending (`/gsd:code-review 11 --fix` or a todo).
+  Next: `/gsd:plan-phase 11 --gaps` (or record the D-05 override for gap 1 and file gap 2 as a todo), then
+  validate-phase 11.1/12/14 → v1.4 re-audit. Tooling note: the `gsd-core` plugin cache 1.14.0 is a partial
+  install (`lib/state.cjs` missing); this run used the intact 1.13.0 build explicitly.
   **Phase 11 Nyquist closed 2026-09-12** (`/gsd:validate-phase 11`, `ccdaa08`): 30 per-task rows green, INC-01..05
   all COVERED, 0 gaps, `nyquist_compliant: true`; quick set 383 passed, full suite 2416/1 skipped re-run in-session.
   INC-02 stays D-05 approved-partial (production observation, Manual-Only). **Phase 11 security gate closed

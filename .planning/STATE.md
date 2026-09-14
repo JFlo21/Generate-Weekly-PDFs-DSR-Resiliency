@@ -74,7 +74,11 @@ Last activity: 2026-09-11 — Phase 13 execution started
   retirement decision with a real 5/5 `get_parity_streak()` reading
   (option id `retire-now`); 11-08 executed that authorisation on its own
   branch `feat/11-08-inc05-retirement`, strictly after #371/#372 merged.
-  INC-01 through INC-05 are all complete. `group_state.content_hash` is
+  INC-01, INC-03, INC-04 and INC-05 are complete; INC-02 stays Pending
+  (D-05 approved partial: `row_state` is membership-only, content still
+  re-fetched from Smartsheet). `11-VERIFICATION.md` (2026-09-14,
+  `1880362`) is `gaps_found` 5/8 — see the 2026-09-14 handoff below.
+  `group_state.content_hash` is
   the sole change-detection skip gate; `sheet_registry` is the sole
   cross-run sheet-identity store; the three local JSON caches, the two
   attachment pre-fetch phases, and the six workflow cache steps are all

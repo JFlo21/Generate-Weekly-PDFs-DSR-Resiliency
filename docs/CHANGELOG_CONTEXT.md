@@ -1318,3 +1318,30 @@ coverage `kind` on 11-08 T-11-43. Result: 36 pass / 0 issues; commit-claim field
 (pre-#3968 legacy, warning only). Advancement remains policy-blocked on the missing `11-VERIFICATION.md` —
 `/gsd:execute-phase 11` resumes at that gate. Noted for the D-05 streak: two recent `fail` verdicts are group-side
 `actual_not_in_candidate` misses on USER-variant groups.
+
+## 2026-09-14 — Phase 11 verification gate (`/gsd:execute-phase 11`, `1880362`): gaps_found 5/8
+
+Resumed Phase 11 at the phase gates via the #2868 route (all 8 SUMMARYs present, no VERIFICATION.md, no plans
+re-run). Security gate already closed (`11-SECURITY.md`, 0 open). Regression gate: full `pytest tests/` at HEAD
+— 2416 passed, 1 skipped, 595 subtests, 43 s. gsd-verifier goal-backward check produced `11-VERIFICATION.md`
+with **gaps_found, 5/8 must-haves**. Verified: INC-01 delta read, INC-03 deep-run reconciliation (live deletions
+observed), the shadow-parity comparator (never-vacuous-pass proven), the INC-05 cache/pre-fetch retirement, and
+the wall-clock discipline. Gap 1: the ROADMAP goal's literal "reading group rows from `row_state`" is not
+implemented — CONTEXT.md D-05 (2026-08-26) shipped Option C (membership-only) and deferred Option B; REQUIREMENTS
+already carries INC-02 as Pending, so this is a documented owner deferral awaiting either Option B or an explicit
+override entry. Gap 2: two recent live `production_frequent` runs show `actual_not_in_candidate` parity fails on
+USER-variant groups, i.e. the D-04 candidate selector misses groups the full run produces; untracked in
+`.planning/`, resets the ≥5 consecutive-pass streak, no production impact while the incremental flag stays OFF.
+Phase 11 was therefore not re-marked complete; STATE.md's "INC-01 through INC-05 are all complete" line was
+corrected to INC-02 Pending. Code review was scoped to the 30 files the Phase 11 SUMMARYs declare (the git-diff
+base `82ce830^` predates phases 11.1/12/14 merged into the same history, which would have inflated scope to 222
+already-reviewed files); `11-REVIEW.md` (`697eda9`): 29 files, 0 Critical / 1 Warning / 2 Info — WR-01 in
+`pipeline/fetch.py` (`_is_abbreviated_response` cannot tell a zero-row full response from an abbreviated delta
+probe, so a whole-sheet deletion is missed by the frequent run until the weekly deep run's unconditional full
+read; fix sketch: disambiguate on a full-response-only attribute such as `columns`), IN-01 11 dead
+`pipeline.attribution` imports in `orchestrate.py` left by the INC-05 retirement, IN-02 ~375 test-only prune
+helpers in `attribution.py` (mark/archive, do not delete). Advisory; no source changed. Tooling: `~/.claude/gsd-core` resolves to the plugin cache 1.14.0, a partial install
+missing `lib/state.cjs`; the run used the intact 1.13.0 build. Side task: PR #408 Greptile issue fixed on
+`docs/post-407-pointers` (`60638d7`) — STATE/HANDOFF/continue-here/project-state stamps aligned to the PR #407
+merge time. Next: `/gsd:plan-phase 11 --gaps` (or override gap 1 + todo for gap 2), validate-phase 11.1/12/14,
+v1.4 re-audit.
