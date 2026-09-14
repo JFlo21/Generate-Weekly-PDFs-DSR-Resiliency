@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-14 12:10 CDT (2026-09-14 17:10Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-14 13:25 CDT (2026-09-14 18:25Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -52,10 +52,20 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `wr_key` without the `pipeline_memory/writer.py` `_sanitized_wr` sanitizer that `row_state.wr` carries; files
   the defect as tracked) and `11-10` (wave 2, `autonomous: false`: D-05 override recorded in
   `11-VERIFICATION.md` frontmatter only on Juan's explicit checkpoint decision; ≥5-run clean-streak reading is
-  owner-supplied, never computed by the executor). Plan checker verdict pending at write time.
-  Next: `/gsd:execute-phase 11 --gaps-only` (11-10 pauses twice for Juan), then re-verify 11, validate-phase
-  11.1/12/14 → v1.4 re-audit. Tooling note: the `gsd-core` plugin cache 1.14.0 is a partial
-  install (`lib/state.cjs` missing); this run used the intact 1.13.0 build explicitly.
+  owner-supplied, never computed by the executor).
+  **Gap-closure EXECUTED 2026-09-14 (`/gsd:execute-phase 11 --gaps-only`, sequential on `plan/phase-13`,
+  `1feedeb`..`1aa5f2a`)**: 11-09 confirmed the hypothesis — `_resolve_row_wr_week` now delegates to
+  `pipeline_memory.writer._sanitized_wr` (`04c618a`; fixture `tests/fixtures/incremental/user_variant_candidate_miss.json`,
+  +10 tests; suite 2426/1 skipped/610 subtests, 6-gate harness green; grouping/pricing/attribution/excel/workflows
+  byte-identical). 11-10: D-05 Option C override ACCEPTED by Juan Flores 2026-09-14T17:36:08Z and recorded in
+  `11-VERIFICATION.md` frontmatter (`overrides_applied: 1`, `5240d85`); post-fix streak recorded verbatim as
+  **not yet observable (0 post-fix runs — fix unpushed/unmerged, cron runs default branch)** (`5c8293d`).
+  Re-verification (`1aa5f2a`) = **`human_needed` 6/8** — no code gaps; one open live-data item (≥5 clean post-fix
+  `production_frequent` runs) persisted as `11-UAT.md` test 37. Incremental code review (`3e9dc0a`, 8 files):
+  0 Critical / 2 Warning / 2 Info — WR-02 this file over its 120-line cap; WR-03/IN-03 tautological contract
+  tests; WR-01/IN-01/IN-02 still open. Phase 11 NOT marked complete. `RUN_MEMORY_INCREMENTAL_ENABLED` still OFF.
+  Next: push/PR `plan/phase-13` so the fix reaches the cron branch → ≥5 clean runs → `/gsd-verify-work 11`
+  test 37 → re-verify → validate-phase 11.1/12/14 → v1.4 re-audit.
   **Phase 11 Nyquist closed 2026-09-12** (`/gsd:validate-phase 11`, `ccdaa08`): 30 per-task rows green, INC-01..05
   all COVERED, 0 gaps, `nyquist_compliant: true`; quick set 383 passed, full suite 2416/1 skipped re-run in-session.
   INC-02 stays D-05 approved-partial (production observation, Manual-Only). **Phase 11 security gate closed

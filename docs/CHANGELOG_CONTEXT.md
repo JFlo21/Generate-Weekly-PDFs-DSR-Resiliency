@@ -9,6 +9,28 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-14 — Phase 11 gap-closure executed (`/gsd:execute-phase 11 --gaps-only`) → re-verify `human_needed` 6/8
+
+Sequential executors on `plan/phase-13` (worktree base diverged from `origin/HEAD`, auto-degraded). **11-09 (Gap 2):**
+hypothesis confirmed — `pipeline/orchestrate.py::_resolve_row_wr_week` built its WR key with `str(wr).split('.')[0]`
+and no `_WR_SANITIZE` / 50-char truncation, so any WR the `row_state` writer sanitizes (embedded space, etc.) never
+matched its own affected pair and the USER-variant group silently left the D-04 candidate set. Fix delegates to
+`pipeline_memory.writer._sanitized_wr` (one shared derivation; `04c618a`, 37+/15− lines in that one function);
+RED fixture test first (`1feedeb`), defect filed as todo + deferred-items + ledger (`1ba2293`), one Rule-1
+deviation (`a604931`: a ledger test located "newest entry" by file position — pinned to its `D-12-C` marker).
+Suite 2426 passed / 1 skipped / 610 subtests (+10, zero regressions); 6-gate harness green; grouping / pricing /
+attribution / excel / workflows / schema byte-identical; `RUN_MEMORY_INCREMENTAL_ENABLED` untouched (OFF).
+**11-10 (records only):** Juan accepted the D-05 Option C override at a blocking-human checkpoint
+(`accepted_by: Juan Flores`, `accepted_at: 2026-09-14T17:36:08Z`) → `11-VERIFICATION.md` frontmatter
+`overrides_applied: 1` + matching INC-02/INC-04 notes in `REQUIREMENTS.md` (`5240d85`); the post-fix parity streak was
+recorded verbatim as **not yet observable — 0 post-fix `production_frequent` runs** because the fix is unpushed /
+unmerged and the cron runs the default branch (`5c8293d`); INC-02/INC-04 deliberately left unticked. Tail gates:
+wave-post drift/UI gates clear; incremental code review `3e9dc0a` (8 files, 0 Critical / 2 Warning / 2 Info —
+`.claude/project-state.md` over its 120-line cap; two tautological contract tests; WR-01/IN-01/IN-02 still open);
+regression = full suite green; verifier `1aa5f2a` = `human_needed` 6/8 (no code gaps; one live-data item persisted
+as `11-UAT.md` test 37). Phase 11 NOT marked complete. Next: push/PR the branch so the fix reaches the cron, wait
+for ≥5 clean runs, `/gsd-verify-work 11`.
+
 ## 2026-09-14 — Phase 11 gap-closure plans 11-09 / 11-10 created (`/gsd:plan-phase 11 --gaps`)
 
 `11-VERIFICATION.md` (`gaps_found` 5/8) drove two additive plans, committed `44efdfc`; plans 11-01..11-08 are
