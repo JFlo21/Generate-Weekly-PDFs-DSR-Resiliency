@@ -9,6 +9,20 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-14 — Phase 11 gap-closure plans 11-09 / 11-10 created (`/gsd:plan-phase 11 --gaps`)
+
+`11-VERIFICATION.md` (`gaps_found` 5/8) drove two additive plans, committed `44efdfc`; plans 11-01..11-08 are
+untouched. **11-09 (Gap 2, real defect):** a tracer task must reproduce the live `actual_not_in_candidate`
+USER-variant parity miss (runs 34648318434.1 / 34541106039.1) with a fixture-backed test that is RED against
+unfixed code before any production edit; the fix stays inside the D-04 selector (`_filter_groups_to_affected`
+/ `_resolve_row_wr_week`), keeps Option C (row_state = membership only), touches none of grouping/pricing/
+attribution/excel/schema/workflows, and files the defect as tracked. Leading hypothesis for the executor to
+confirm: the orchestrator's `wr_key` derivation skips the `_sanitized_wr` normalisation that `row_state.wr`
+stores. **11-10 (Gap 1, override-eligible):** the D-05 override is written into the VERIFICATION frontmatter
+only after a blocking human checkpoint; status/score/gaps are left for a real re-verification; the ≥5-run
+clean parity streak is transcribed from an owner reading, never computed. `RUN_MEMORY_INCREMENTAL_ENABLED`
+stays OFF throughout. Next: `/gsd:execute-phase 11 --gaps-only`.
+
 ## 2026-09-13 — Milestone v1.4 re-audit: still `gaps_found`, sole blocker is the missing 11-VERIFICATION.md
 
 `/gsd:audit-milestone` re-run at HEAD `b7b9853` (supersedes the 09-12 audit `b6053bd`). Integration checker

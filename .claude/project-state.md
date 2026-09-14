@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-14 11:05 CDT (2026-09-14 16:05Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-09-14 12:10 CDT (2026-09-14 17:10Z) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -46,8 +46,15 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `_is_abbreviated_response` treats a zero-row full response (whole sheet deleted) as an unchanged delta probe, so
   the deletion adds nothing to the affected set that run and the watermark advances; bounded by the weekly deep
   run (≤ ~1 week latency). Owner decision pending (`/gsd:code-review 11 --fix` or a todo).
-  Next: `/gsd:plan-phase 11 --gaps` (or record the D-05 override for gap 1 and file gap 2 as a todo), then
-  validate-phase 11.1/12/14 → v1.4 re-audit. Tooling note: the `gsd-core` plugin cache 1.14.0 is a partial
+  **Gap-closure planned 2026-09-14 (`/gsd:plan-phase 11 --gaps`, `44efdfc`)**: two additive plans — `11-09`
+  (wave 1, autonomous: fixture-backed RED reproduction of the USER-variant candidate miss, then a surgical
+  selector fix preserving D-04 Option C; leading hypothesis: `orchestrate.py` `_resolve_row_wr_week` derives
+  `wr_key` without the `pipeline_memory/writer.py` `_sanitized_wr` sanitizer that `row_state.wr` carries; files
+  the defect as tracked) and `11-10` (wave 2, `autonomous: false`: D-05 override recorded in
+  `11-VERIFICATION.md` frontmatter only on Juan's explicit checkpoint decision; ≥5-run clean-streak reading is
+  owner-supplied, never computed by the executor). Plan checker verdict pending at write time.
+  Next: `/gsd:execute-phase 11 --gaps-only` (11-10 pauses twice for Juan), then re-verify 11, validate-phase
+  11.1/12/14 → v1.4 re-audit. Tooling note: the `gsd-core` plugin cache 1.14.0 is a partial
   install (`lib/state.cjs` missing); this run used the intact 1.13.0 build explicitly.
   **Phase 11 Nyquist closed 2026-09-12** (`/gsd:validate-phase 11`, `ccdaa08`): 30 per-task rows green, INC-01..05
   all COVERED, 0 gaps, `nyquist_compliant: true`; quick set 383 passed, full suite 2416/1 skipped re-run in-session.
