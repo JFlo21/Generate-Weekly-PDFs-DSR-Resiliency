@@ -64,8 +64,10 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `production_frequent` runs) persisted as `11-UAT.md` test 37. Incremental code review (`3e9dc0a`, 8 files):
   0 Critical / 2 Warning / 2 Info — WR-02 this file over its 120-line cap; WR-03/IN-03 tautological contract
   tests; WR-01/IN-01/IN-02 still open. Phase 11 NOT marked complete. `RUN_MEMORY_INCREMENTAL_ENABLED` still OFF.
-  Next: push/PR `plan/phase-13` so the fix reaches the cron branch → ≥5 clean runs → `/gsd-verify-work 11`
-  test 37 → re-verify → validate-phase 11.1/12/14 → v1.4 re-audit.
+  **Fix shipped as PR #409** (`fix/phase-11-gap2-selector` off `origin/master`: cherry-picks `1feedeb` `04c618a`
+  `1ba2293` `a604931`; suite 2348 / 1 skipped / 610 green); 11-10 records stay on `plan/phase-13` for the Phase 13 PR.
+  Next: merge #409 → ≥5 clean `production_frequent` runs → `/gsd-verify-work 11` test 37 → re-verify →
+  validate-phase 11.1/12/14 → v1.4 re-audit.
   **Phase 11 Nyquist closed 2026-09-12** (`/gsd:validate-phase 11`, `ccdaa08`): 30 per-task rows green, INC-01..05
   all COVERED, 0 gaps, `nyquist_compliant: true`; quick set 383 passed, full suite 2416/1 skipped re-run in-session.
   INC-02 stays D-05 approved-partial (production observation, Manual-Only). **Phase 11 security gate closed

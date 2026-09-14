@@ -28,8 +28,9 @@ unmerged and the cron runs the default branch (`5c8293d`); INC-02/INC-04 deliber
 wave-post drift/UI gates clear; incremental code review `3e9dc0a` (8 files, 0 Critical / 2 Warning / 2 Info —
 `.claude/project-state.md` over its 120-line cap; two tautological contract tests; WR-01/IN-01/IN-02 still open);
 regression = full suite green; verifier `1aa5f2a` = `human_needed` 6/8 (no code gaps; one live-data item persisted
-as `11-UAT.md` test 37). Phase 11 NOT marked complete. Next: push/PR the branch so the fix reaches the cron, wait
-for ≥5 clean runs, `/gsd-verify-work 11`.
+as `11-UAT.md` test 37). Phase 11 NOT marked complete. **Fix shipped as PR #409** — `fix/phase-11-gap2-selector` off
+`origin/master` with the four 11-09 commits cherry-picked (one ledger-append conflict resolved; suite 2348 green);
+the 11-10 records ride the Phase 13 PR. Next: merge #409, wait for ≥5 clean runs, `/gsd-verify-work 11`.
 
 ## 2026-09-14 — Phase 11 gap-closure plans 11-09 / 11-10 created (`/gsd:plan-phase 11 --gaps`)
 
