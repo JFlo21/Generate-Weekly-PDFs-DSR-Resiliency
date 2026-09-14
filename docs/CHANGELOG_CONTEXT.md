@@ -9,6 +9,27 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-09-13 — Phase 14 (Foreman Helper #2 / HLP-01..06) security gate closed: `14-SECURITY.md`, 70/70 closed
+
+`/gsd:secure-phase 14` (State B). All fourteen plans carried plan-time `<threat_model>` blocks — 70 entries:
+62 tabular STRIDE rows in 14-01..14-11, four bulleted numbered threats in 14-12, and two unnumbered bullets
+each in 14-13 and 14-14 (assigned `T-14-13-0n` / `T-14-14-0n`; severities assigned and marked). L1 grep-level
+evidence found every mitigation present: helper2 identifiers pass through `_RE_SANITIZE_HELPER_NAME` before
+any filename or key; `normalize_helper_value` rejects blanks and formula-error tokens; `_null_if_named_sentinel`
+gates the `p_helper2` freeze parameter and the all-sentinel short-circuit; `_PII_LOG_MARKERS` covers the
+Helper #2 column family and new lines log reason codes only; the discovery `helper2-v1` marker is an additive
+sixth admission condition that can only reject and degrades toward full validation; the cleanup orphan gate
+and `normalize_variant` carry the three helper2 variants as a sibling family with a flag-off retention test;
+grouping emits subcontractor shadow keys only, excel dispatches on dedicated `elif` branches, upload routes
+`reduced_sub_helper2` to the second leg, change detection sub-buckets by helper2 identity; the O-14-A
+helper2-wins conflict rule is applied once per leg with a counter and no exception path; the freeze and fill
+RPCs write per-role columns with a `is_sentinel_value` WHERE gate and a contract-tested SET list, and all
+three production applies (14-09, 14-11, 14-12) were owner-delegated at `blocking-human` gates and proven by
+recorded read-backs; `HELPER2_ENABLED` defaults to `'0'` in code and in the workflow (wired later via
+owner-merged #390). Fourteen `accept` rows became AR-14-01..04. `threats_open: 0`, `status: verified`,
+short-circuit applied (no `gsd-security-auditor` spawn). Commit `c96a141`; nothing pushed. v1.4 SECURITY.md
+coverage is now complete across phases 11, 11.1, 12, 13, 14.
+
 ## 2026-09-12 — Phase 12 (Ownership / OWN-01..04) security gate closed: `12-SECURITY.md`, 61/61 closed
 
 `/gsd:secure-phase 12` (State B). All ten plans carried plan-time `<threat_model>` blocks — 61 entries, of which

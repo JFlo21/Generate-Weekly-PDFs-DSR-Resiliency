@@ -45,7 +45,13 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   plans (52 unique + 10× T-12-SC collapsed; reused IDs T-12-20..28/30 disambiguated by `(Pnn)` suffix), 59
   mitigated with L1 grep / pinned-test / SUMMARY live-confirmation evidence, 2 accepted (AR-12-01 cell-history
   artifact names, AR-12-02 regeneration-burst budget), `threats_open: 0`, short-circuit (no auditor).
-  Remaining v1.4 security gap: 14.
+  **Phase 14 security gate closed 2026-09-13** (`/gsd:secure-phase 14`, `c96a141`): `14-SECURITY.md` — 70
+  plan-time threats from all fourteen plans (62 tabular in 14-01..11, 4 bulleted in 14-12, 2+2 unnumbered in
+  14-13/14 assigned `T-14-13-0n`/`T-14-14-0n`), 56 mitigated with L1 grep / pinned-test / SUMMARY read-back
+  evidence, 14 accepted (AR-14-01..04: discovery synonyms, 11× no-packages SC rows, `helper2_observed` same
+  RLS class, portal label token), `threats_open: 0`, short-circuit (no auditor). The three owner-delegated
+  production applies (14-09/11/12) close their own T-*-05/T-*-03 EoP rows as recorded owner decisions, not
+  auto-mode. **v1.4 SECURITY.md coverage is now complete (11, 11.1, 12, 13, 14).**
   Suite 2416/1 skipped, 6 gates green. `13-REVIEW.md` 0 Critical / 3 Warning / 1 Info (WR-01 explicit
   `GRANT EXECUTE` for the RPC; WR-02 skip counters not surfaced to `run_summary`; WR-03 `IDENTITY_RECIPES`
   unread by code). `13-VERIFICATION.md` = `human_needed` 13/14 — only success criterion 2 (wall clock
