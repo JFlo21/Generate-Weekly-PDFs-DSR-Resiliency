@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: September 14, 2026 (updated automatically)_
+_Last updated: September 15, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — September 14, 2026
+### 📋 Changelog — September 15, 2026
 
+- 📄 Help guides updated: close the Deploy-Day Arming Bundle -- plans 24-07/24-08, ARM-08 closeout sweep, verifier 14/14
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: BUG-044 live Output Log version floor on every regen lane + BUG-045 lineage-wide Superseded flip on every delivery (WR 90842763 stuck-regen class)
+- ✅ Problem fixed: BUG-043 -- corrected inspector upload after approval is classified by content, never refused by an unarmed self-echo allowlist
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✨ New capability: Manifest As-Designed comparison + durable Duplicate decision projection (inspector 16-col, GF 19-col, Dup tab Resolution)
+- ✅ Problem fixed: BUG-039/041 review round 6 -- delivery reconciliation for already-routed Gen B, positive artifact proof, held-row UTC guard, status-aware freeze (follow-up to )
 - ✅ Problem fixed: BUG-039/040/041 -- GF approvals never reached the inspector (Decision Timestamp UTC written, watcher visibility, GF-derived Gen B idempotency)
-- 📄 Help guides updated: Phase 33 close-out -- live, re-unlock proven across three ticks, verify-work + transition, BUG-038 registered
-- ✅ Problem fixed: BUG-037 Register lookups by Manifest Version + BUG-035 round 8 (Phase 33 close-out bug PR)
-- ✅ Problem fixed: BUG-035 -- a pre-unlock inspector decision is consumed, not re-confirmed; the webapp unlock refreshes Unlock Authorized At
-- ✅ Problem fixed: BUG-036 follow-up -- fast path keeps the ledger leg and Sentry capture, cache-less callers unchanged, version GETs counted
-- ✅ Problem fixed: BUG-034 -- explicit --only-wr dispatch admits its named WR past the historical active-window cutoff (WR 90214790 never reached the GF Decision Register)
-- ✅ Problem fixed: BUG-036 -- staging pass is write-free when nothing changed, real work first, soft budget so decision sync always runs
-- 📄 Help guides updated: close-out ledger pass -- task 4 done, README refresh, BUG-034 learning
 
 <!-- /runbook-repo -->
 
@@ -41,7 +41,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 14, 2026
+### 📋 Changelog — September 15, 2026
 
 - ✅ Problem fixed: USER-variant groups dropped from incremental candidate set
 - 📄 Help guides updated: state pointers after PR merge
@@ -59,9 +59,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 14, 2026
+### 📋 Changelog — September 15, 2026
 
-- • 📊 Audit: 2026-09-07T07:04:39Z
+- • 📊 Audit: 2026-09-14T07:07:48Z
 
 <!-- /runbook-repo -->
 
@@ -448,7 +448,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 14, 2026
+### 📋 Changelog — September 15, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -480,3 +480,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
