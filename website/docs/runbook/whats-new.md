@@ -9,6 +9,24 @@ _Last updated: September 16, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — September 16, 2026
+
+- ✅ Problem fixed: USER-variant groups dropped from incremental candidate set
+- 📄 Help guides updated: state pointers after PR merge
+- ✅ Problem fixed: breaker half-open on probe success; keep&#95;historical deferred (D-14-FOLLOWUPS)
+- 📄 Help guides updated: post-merge write-back for PR
+- 📄 Help guides updated: final state pointers after PR
+- 📄 Help guides updated: close Phase 12 — 12-06 Task 4, D-12-E, verify-work
+- 📄 Help guides updated: post-merge write-back for PR
+- ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
@@ -33,24 +51,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 > ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — September 16, 2026
-
-- ✅ Problem fixed: USER-variant groups dropped from incremental candidate set
-- 📄 Help guides updated: state pointers after PR merge
-- ✅ Problem fixed: breaker half-open on probe success; keep&#95;historical deferred (D-14-FOLLOWUPS)
-- 📄 Help guides updated: post-merge write-back for PR
-- 📄 Help guides updated: final state pointers after PR
-- 📄 Help guides updated: close Phase 12 — 12-06 Task 4, D-12-E, verify-work
-- 📄 Help guides updated: post-merge write-back for PR
-- ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
 
 <!-- /runbook-repo -->
 
