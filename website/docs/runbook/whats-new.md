@@ -5,43 +5,25 @@ title: What's New
 
 # What's New
 
-_Last updated: September 16, 2026 (updated automatically)_
+_Last updated: September 17, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — September 16, 2026
-
-- ✅ Problem fixed: USER-variant groups dropped from incremental candidate set
-- 📄 Help guides updated: state pointers after PR merge
-- ✅ Problem fixed: breaker half-open on probe success; keep&#95;historical deferred (D-14-FOLLOWUPS)
-- 📄 Help guides updated: post-merge write-back for PR
-- 📄 Help guides updated: final state pointers after PR
-- 📄 Help guides updated: close Phase 12 — 12-06 Task 4, D-12-E, verify-work
-- 📄 Help guides updated: post-merge write-back for PR
-- ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — September 16, 2026
+### 📋 Changelog — September 17, 2026
 
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: grey As-Designed headers, full-width banner, DESIGN-ONLY label merge (GF + inspector)
-- 📄 Help guides updated: close the Deploy-Day Arming Bundle -- plans 24-07/24-08, ARM-08 closeout sweep, verifier 14/14
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: BUG-044 live Output Log version floor on every regen lane + BUG-045 lineage-wide Superseded flip on every delivery (WR 90842763 stuck-regen class)
-- ✅ Problem fixed: BUG-043 -- corrected inspector upload after approval is classified by content, never refused by an unarmed self-echo allowlist
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: Manifest As-Designed comparison + durable Duplicate decision projection (inspector 16-col, GF 19-col, Dup tab Resolution)
+- ✅ Problem fixed: BUG-055 -- never act on superseded Decision Register rows (+ BUG-056 registered)
+- 📄 Help guides updated: 2026-09-16 evening -- PR merged, round 1, BUG-053/, re-merge + test port
+- ✅ Problem fixed: BUG-053 -- the suite fails closed on any live Supabase client (scrub APP&#95;SUPABASE&#95;&#42;/dispatch&#95;claims.ENV&#95;&#42;, raise on dispatch&#95;claims.create&#95;client)
+- ✅ Problem fixed: BUG-052 -- inspector-return content classifier compares against the system's own delivered copy (Requests-row workbook, then oldest native version)
+- ✅ Problem fixed: ADC-2 -- As-Designed columns interleaved beside their claimed siblings, top-anchored summary block, row-fill extension
+- 📄 Help guides updated: post-merge alignment (CLAUDE.md, docs/ai, brief, context-map, .lattice, ledgers) + pause-work handoff
+- ✅ Problem fixed: ProMax-change detection baseline + native Smartsheet attachment versioning
+- • Phase 34: AEP Offer Queue (Jessica) + Gen C-AEP + Offer Report (8/8 plans; gates off)
 
 <!-- /runbook-repo -->
 
@@ -54,12 +36,30 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — September 17, 2026
+
+- ✅ Problem fixed: USER-variant groups dropped from incremental candidate set
+- 📄 Help guides updated: state pointers after PR merge
+- ✅ Problem fixed: breaker half-open on probe success; keep&#95;historical deferred (D-14-FOLLOWUPS)
+- 📄 Help guides updated: post-merge write-back for PR
+- 📄 Help guides updated: final state pointers after PR
+- 📄 Help guides updated: close Phase 12 — 12-06 Task 4, D-12-E, verify-work
+- 📄 Help guides updated: post-merge write-back for PR
+- ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 16, 2026
+### 📋 Changelog — September 17, 2026
 
 - • 📊 Audit: 2026-09-14T07:07:48Z
 
@@ -448,7 +448,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 16, 2026
+### 📋 Changelog — September 17, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -459,7 +459,10 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-_Running steadily — no meaningful changes were detected in this period._ ✅
+### 📋 Changelog — September 17, 2026
+
+- • Rebind control-source snapshot hash to current main
+- • Rebind control-source snapshot hash to current main ()
 
 <!-- /runbook-repo -->
 
