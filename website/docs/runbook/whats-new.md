@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: September 17, 2026 (updated automatically)_
+_Last updated: September 18, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -97,7 +97,13 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
 
-_Running steadily — no meaningful changes were detected in this period._ ✅
+### 📋 Changelog — September 18, 2026
+
+- • Retry transient Notion failures and isolate per-system errors in the runbook publish path
+- • Merge pull request from JFlo21/copilot/inspect-repository-issues
+- ✅ Problem fixed: retry gateway&#95;timeout and prove committed writes survive timed-out responses
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: retry transient Notion failures and isolate per-system publish errors
 
 <!-- /runbook-repo -->
 
@@ -483,4 +489,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
