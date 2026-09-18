@@ -99,7 +99,10 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 ### 📋 Changelog — September 18, 2026
 
+- • Update fast-uri to 3.1.8 to resolve high-severity audit advisories
 - • Retry transient Notion failures and isolate per-system errors in the runbook publish path
+- • Merge pull request from JFlo21/copilot/check-setup-running-status
+- • Update fast-uri to 3.1.8 to resolve high-severity audit advisories
 - • Merge pull request from JFlo21/copilot/inspect-repository-issues
 - ✅ Problem fixed: retry gateway&#95;timeout and prove committed writes survive timed-out responses
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
