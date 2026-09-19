@@ -5,25 +5,43 @@ title: What's New
 
 # What's New
 
-_Last updated: September 18, 2026 (updated automatically)_
+_Last updated: September 19, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
+## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
+
+> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — September 18, 2026
+### 📋 Changelog — September 19, 2026
 
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 📄 Help guides updated: plan revision round against the PR review findings; checker PASSED round 2; 34.2-04 T1a decided C
+- 📄 Help guides updated: Phase 34.3 closed to truth; Phase 34.2 planned, checker-verified, checkpoint decisions recorded
+- ✅ Problem fixed: Phase 34.3 publication repairs -- one immutable-row authority, superseded sources refused, fail-closed Requests read on both paths, unreadable-version + override-provenance refusals
 - ✅ Problem fixed: BUG-054 -- gf-layout-rerender --only-wr + post-regeneration GF review re-open (Option A)
 - ✅ Problem fixed: PR review round 3 -- successor key on Source Request Row ID; live re-check on every replacement delivery
 - • Phase 34.3: Option B replacement review row on the shared publication path; BUG-056 consumed-source identity; operational version floor (no Output Log)
 - 📄 Help guides updated: 2026-09-17 -- version-drift investigation, GSD Phase 34.3, PR / records
-- ✅ Problem fixed: BUG-052 -- inspector-return content classifier compares against the system's own delivered copy (Requests-row workbook, then oldest native version)
-- ✅ Problem fixed: BUG-055 -- never act on superseded Decision Register rows (+ BUG-056 registered)
-- 📄 Help guides updated: 2026-09-16 evening -- PR merged, round 1, BUG-053/, re-merge + test port
-- ✅ Problem fixed: BUG-053 -- the suite fails closed on any live Supabase client (scrub APP&#95;SUPABASE&#95;&#42;/dispatch&#95;claims.ENV&#95;&#42;, raise on dispatch&#95;claims.create&#95;client)
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/JFlo21 -->
+## JFlo21
+
+> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -32,11 +50,10 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 18, 2026
+### 📋 Changelog — September 19, 2026
 
 - ✅ Problem fixed: USER-variant groups dropped from incremental candidate set
 - 📄 Help guides updated: state pointers after PR merge
-- ✅ Problem fixed: breaker half-open on probe success; keep&#95;historical deferred (D-14-FOLLOWUPS)
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 - 📄 Help guides updated: log 1c52d10 &#91;skip ci&#93;
 - ✅ Problem fixed: USER-variant groups dropped from incremental candidate set ()
@@ -50,7 +67,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
 
-### 📋 Changelog — September 18, 2026
+### 📋 Changelog — September 19, 2026
 
 - • Update fast-uri to 3.1.8 to resolve high-severity audit advisories
 - • Retry transient Notion failures and isolate per-system errors in the runbook publish path
@@ -63,21 +80,12 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/JFlo21 -->
-## JFlo21
-
-> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 18, 2026
+### 📋 Changelog — September 19, 2026
 
 - • 📊 Audit: 2026-09-14T07:07:48Z
 
@@ -177,15 +185,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 ## Resiliency-pdf-restructure-ug-work
 
 > ℹ️ **What this system does:** A comprehensive Python web application that processes PDF point material sheets to validate, filter, and redact Compatible Unit (CU) codes against a valid Underground (UG) product catalog.
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
-## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
-
-> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
@@ -457,7 +456,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 18, 2026
+### 📋 Changelog — September 19, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -468,7 +467,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This template repository makes it easy for enterprise owners to get started with and establish settings for their agents by providing: The basic file structure necessary for custom agents An example agent profile in the agents directory An empty managed-settings.json file, which defines governance and extensibility settings in clients
 
-### 📋 Changelog — September 18, 2026
+### 📋 Changelog — September 19, 2026
 
 - • Initial commit
 
@@ -479,7 +478,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — September 18, 2026
+### 📋 Changelog — September 19, 2026
 
 - • Rebind control-source snapshot hash to current main
 - • Rebind control-source snapshot hash to current main ()
