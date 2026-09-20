@@ -5,25 +5,16 @@ title: What's New
 
 # What's New
 
-_Last updated: September 19, 2026 (updated automatically)_
+_Last updated: September 20, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
-## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
-
-> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — September 19, 2026
+### 📋 Changelog — September 20, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 📄 Help guides updated: plan revision round against the PR review findings; checker PASSED round 2; 34.2-04 T1a decided C
@@ -45,12 +36,30 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
+## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
+
+> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
+
+### 📋 Changelog — September 20, 2026
+
+- • Add read-only kpi schema; ProMax authoritative for claimed units
+- • Merge pull request from JFlo21/claude/project-thread-e2lw4y
+- ✅ Problem fixed: report every applicable reason in v&#95;wr&#95;billed&#95;without&#95;plan; fix doc helper count
+- ✅ Problem fixed: report every applicable exclusion reason, not just the first
+- ✅ Problem fixed: guard the canonical date key in the reconciliation view too
+- ✅ Problem fixed: guard the canonical WR key; exclude only when no spelling survived
+- ✅ Problem fixed: one canonical WR key; restore security&#95;invoker on two views
+- ✅ Problem fixed: re-aggregate normalized keys; order the replay-cleanup DROP
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 19, 2026
+### 📋 Changelog — September 20, 2026
 
 - ✅ Problem fixed: USER-variant groups dropped from incremental candidate set
 - 📄 Help guides updated: state pointers after PR merge
@@ -67,7 +76,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Notion Worker that turns GitHub activity into a professional, living operations runbook. It gives nontechnical readers a concise current-state summary while preserving source links and technical evidence for engineers.
 
-### 📋 Changelog — September 19, 2026
+### 📋 Changelog — September 20, 2026
 
 - • Update fast-uri to 3.1.8 to resolve high-severity audit advisories
 - • Retry transient Notion failures and isolate per-system errors in the runbook publish path
@@ -85,7 +94,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 19, 2026
+### 📋 Changelog — September 20, 2026
 
 - • 📊 Audit: 2026-09-14T07:07:48Z
 
@@ -456,7 +465,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 19, 2026
+### 📋 Changelog — September 20, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -467,7 +476,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This template repository makes it easy for enterprise owners to get started with and establish settings for their agents by providing: The basic file structure necessary for custom agents An example agent profile in the agents directory An empty managed-settings.json file, which defines governance and extensibility settings in clients
 
-### 📋 Changelog — September 19, 2026
+### 📋 Changelog — September 20, 2026
 
 - • Initial commit
 
@@ -478,7 +487,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — September 19, 2026
+### 📋 Changelog — September 20, 2026
 
 - • Rebind control-source snapshot hash to current main
 - • Rebind control-source snapshot hash to current main ()
