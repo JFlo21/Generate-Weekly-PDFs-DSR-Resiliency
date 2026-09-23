@@ -23,7 +23,7 @@ jobs:
     if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository with full history
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: true
