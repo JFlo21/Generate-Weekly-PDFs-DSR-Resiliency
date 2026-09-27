@@ -5,16 +5,36 @@ title: What's New
 
 # What's New
 
-_Last updated: September 26, 2026 (updated automatically)_
+_Last updated: September 27, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/JFlo21 -->
+## JFlo21
+
+> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — September 27, 2026
+
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — September 26, 2026
+### 📋 Changelog — September 27, 2026
 
 - ✅ Problem fixed: Gen B post-approval mint keeps the GF approval mirror (BUG-125, WR 91783054)
 - ✅ Problem fixed: addition-row Units Claimed mirror canonicalises Unicode whitespace (PR round 5)
@@ -27,21 +47,12 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/JFlo21 -->
-## JFlo21
-
-> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Destiny-Application-2 -->
 ## Destiny-Application-2
 
 > ℹ️ **What this system does:** A Node.js application that fetches build crafting data from the Bungie API for Destiny 2.
 
-### 📋 Changelog — September 26, 2026
+### 📋 Changelog — September 27, 2026
 
 - 🚀 New version released: Destiny 2 Buildcraft Data data-2026-09-25
 - • Transform Excel export into a Destiny 2 Buildcraft Compendium workbook
@@ -59,20 +70,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — September 26, 2026
+### 📋 Changelog — September 27, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — September 26, 2026
-
-- 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
 
@@ -81,7 +81,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Python script that automatically syncs data from multiple Smartsheet sheets to a Supabase database table. The script runs continuously and synchronizes data every 2 days (configurable).
 
-### 📋 Changelog — September 26, 2026
+### 📋 Changelog — September 27, 2026
 
 - ✨ New capability: gated delete propagation for rows removed in Smartsheet (prune, default off)
 - ✨ New capability: gated delete propagation for rows removed in Smartsheet (prune, default off) ()
@@ -93,7 +93,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — September 26, 2026
+### 📋 Changelog — September 27, 2026
 
 - • config(routing): Opus 5.5 worker adoption -- agent pins, policy text, gsd-graph registration fix ledger
 - 📄 Help guides updated: 2026-09-21 -- baseline pushed on approval; effort setting resolved to high; dispatch-path findings fixed on PR
@@ -111,7 +111,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 26, 2026
+### 📋 Changelog — September 27, 2026
 
 - • 📊 Audit: 2026-09-21T07:07:12Z
 
@@ -122,10 +122,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
 
-### 📋 Changelog — September 26, 2026
-
-- • Add read-only kpi schema; ProMax authoritative for claimed units
-- • Merge pull request from JFlo21/claude/project-thread-e2lw4y
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -467,7 +464,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 26, 2026
+### 📋 Changelog — September 27, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
