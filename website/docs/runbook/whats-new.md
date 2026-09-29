@@ -5,9 +5,27 @@ title: What's New
 
 # What's New
 
-_Last updated: September 28, 2026 (updated automatically)_
+_Last updated: September 29, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — September 29, 2026
+
+- ✅ Problem fixed: account access + Admin interface review, all fifteen findings
+- ✅ Problem fixed: Install-flipped rows read back, price and diff correctly (BUG-126)
+- 📄 Help guides updated: anchor and bound the gitnexus-pdg-query guard-clause example
+- ✅ Problem fixed: interface-audit remediation + download ownership after a WR switch
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: Gen B post-approval mint keeps the GF approval mirror (BUG-125, WR 91783054)
+- ✅ Problem fixed: addition-row Units Claimed mirror canonicalises Unicode whitespace (PR round 5)
+- ✅ Problem fixed: null-safety and type-narrowing guards across 17 control&#95;plane modules
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -18,32 +36,25 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/smartsheet-auditor -->
+## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
+
+> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
+
+### 📋 Changelog — September 29, 2026
+
+- • 📊 Audit: 2026-09-28T07:11:39Z
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 28, 2026
+### 📋 Changelog — September 29, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
-
-### 📋 Changelog — September 28, 2026
-
-- ✅ Problem fixed: Gen B post-approval mint keeps the GF approval mirror (BUG-125, WR 91783054)
-- ✅ Problem fixed: addition-row Units Claimed mirror canonicalises Unicode whitespace (PR round 5)
-- ✅ Problem fixed: null-safety and type-narrowing guards across 17 control&#95;plane modules
-- ✅ Problem fixed: BUG-064 follow-ups -- phase-2 deadline, admission rotation, derived budget
-- • Phase 35: Duplicate decisions -&gt; ProMax zero-out + Billing Dup Audit (gated OFF)
-- ✅ Problem fixed: ';' note delimiter in Inspector/GF Approved Qty (WR 90855336, BUG-123)
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 📄 Help guides updated: BUG-071 pre-tick dry-run evidence + BUG-053 live remediation record (no code change)
 
 <!-- /runbook-repo -->
 
@@ -52,7 +63,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Node.js application that fetches build crafting data from the Bungie API for Destiny 2.
 
-### 📋 Changelog — September 28, 2026
+### 📋 Changelog — September 29, 2026
 
 - 🚀 New version released: Destiny 2 Buildcraft Data data-2026-09-25
 - • Transform Excel export into a Destiny 2 Buildcraft Compendium workbook
@@ -70,7 +81,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — September 28, 2026
+### 📋 Changelog — September 29, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -81,7 +92,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Python script that automatically syncs data from multiple Smartsheet sheets to a Supabase database table. The script runs continuously and synchronizes data every 2 days (configurable).
 
-### 📋 Changelog — September 28, 2026
+### 📋 Changelog — September 29, 2026
 
 - ✨ New capability: gated delete propagation for rows removed in Smartsheet (prune, default off)
 - ✨ New capability: gated delete propagation for rows removed in Smartsheet (prune, default off) ()
@@ -93,20 +104,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — September 28, 2026
+### 📋 Changelog — September 29, 2026
 
 - • config(routing): Opus 5.5 worker adoption -- agent pins, policy text, gsd-graph registration fix ledger
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/smartsheet-auditor -->
-## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
-
-> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
-
-### 📋 Changelog — September 28, 2026
-
-- • 📊 Audit: 2026-09-21T07:07:12Z
 
 <!-- /runbook-repo -->
 
@@ -457,7 +457,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 28, 2026
+### 📋 Changelog — September 29, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
