@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: September 30, 2026 (updated automatically)_
+_Last updated: October 1, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,8 +14,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — September 30, 2026
+### 📋 Changelog — October 1, 2026
 
+- • BUG-129: decision-sync no longer overwrites the GF-edit watcher's inspector copy (gate wiring + already-routed recognition + Billers/lock guard)
 - ✅ Problem fixed: account access + Admin interface review, all fifteen findings
 - ✅ Problem fixed: Install-flipped rows read back, price and diff correctly (BUG-126)
 - 📄 Help guides updated: anchor and bound the gitnexus-pdg-query guard-clause example
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✅ Problem fixed: Gen B post-approval mint keeps the GF approval mirror (BUG-125, WR 91783054)
 - ✅ Problem fixed: addition-row Units Claimed mirror canonicalises Unicode whitespace (PR round 5)
-- ✅ Problem fixed: null-safety and type-narrowing guards across 17 control&#95;plane modules
 
 <!-- /runbook-repo -->
 
@@ -41,7 +41,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — September 30, 2026
+### 📋 Changelog — October 1, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
@@ -52,7 +52,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — September 30, 2026
+### 📋 Changelog — October 1, 2026
 
 - • 📊 Audit: 2026-09-28T07:11:39Z
 
@@ -63,16 +63,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Node.js application that fetches build crafting data from the Bungie API for Destiny 2.
 
-### 📋 Changelog — September 30, 2026
+### 📋 Changelog — October 1, 2026
 
 - 🚀 New version released: Destiny 2 Buildcraft Data data-2026-09-25
 - • Transform Excel export into a Destiny 2 Buildcraft Compendium workbook
 - • Merge pull request from JFlo21/copilot/transform-excel-export-again
 - • Union seasonHash and current-artifact signals in season mod selection
-- • Filter artifact/champion mods to current seasonal artifact plugs
-- ✅ Problem fixed: Fix greptile issues: season-filter champion mods, pin action SHAs, slot-restricted weapon dropdowns
-- • Update README with compendium tour, Build Planner guide, CLI flags
-- • Part 5: CI workflow, ESLint/Prettier, node --test suites, release upload
 
 <!-- /runbook-repo -->
 
@@ -81,7 +77,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — September 30, 2026
+### 📋 Changelog — October 1, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -92,10 +88,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Python script that automatically syncs data from multiple Smartsheet sheets to a Supabase database table. The script runs continuously and synchronizes data every 2 days (configurable).
 
-### 📋 Changelog — September 30, 2026
-
-- ✨ New capability: gated delete propagation for rows removed in Smartsheet (prune, default off)
-- ✨ New capability: gated delete propagation for rows removed in Smartsheet (prune, default off) ()
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -455,7 +448,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 30, 2026
+### 📋 Changelog — October 1, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
