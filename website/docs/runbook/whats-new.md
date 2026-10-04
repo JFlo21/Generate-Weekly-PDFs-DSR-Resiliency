@@ -5,27 +5,9 @@ title: What's New
 
 # What's New
 
-_Last updated: October 3, 2026 (updated automatically)_
+_Last updated: October 4, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
-
-### 📋 Changelog — October 3, 2026
-
-- 📄 Help guides updated: insert phase 35.3 -- decision router control sheet (planning only)
-- 📄 Help guides updated: weekly pass — ADC-2 contract, Approved Qty ';', Phase 35 on master
-- ✅ Problem fixed: older PR review findings 1-8 -- refused fan-out is an Error, lineage re-read, per-scope retire, replay preconditions
-- 📄 Help guides updated: Supabase password minimum raised to 8; PR merged
-- ✅ Problem fixed: bind GF webapp token line keys, refuse ambiguous rows (BUG-128)
-- 📄 Help guides updated: plant seed -- billing-team manifest notes tracker
-- ✅ Problem fixed: lineage-correct Register fan-out, replacement-row retire, hop Requests stamp, operator replay (arms MANIFEST&#95;REQUESTS&#95;STAGE&#95;LIVE&#95;WRITE mapping on merge)
-- ✅ Problem fixed: write WR # as a number on the audit sheets (BUG-138)
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -36,12 +18,30 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — October 4, 2026
+
+- ✨ New capability: Manifest Billing Board setup script + hourly refresh lane (gated, default off)
+- 📄 Help guides updated: insert phase 35.3 -- decision router control sheet (planning only)
+- 📄 Help guides updated: weekly pass — ADC-2 contract, Approved Qty ';', Phase 35 on master
+- ✅ Problem fixed: older PR review findings 1-8 -- refused fan-out is an Error, lineage re-read, per-scope retire, replay preconditions
+- 📄 Help guides updated: Supabase password minimum raised to 8; PR merged
+- ✅ Problem fixed: bind GF webapp token line keys, refuse ambiguous rows (BUG-128)
+- 📄 Help guides updated: plant seed -- billing-team manifest notes tracker
+- ✅ Problem fixed: lineage-correct Register fan-out, replacement-row retire, hop Requests stamp, operator replay (arms MANIFEST&#95;REQUESTS&#95;STAGE&#95;LIVE&#95;WRITE mapping on merge)
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — October 3, 2026
+### 📋 Changelog — October 4, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
@@ -61,7 +61,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — October 3, 2026
+### 📋 Changelog — October 4, 2026
 
 - • Initial commit
 
@@ -72,7 +72,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 3, 2026
+### 📋 Changelog — October 4, 2026
 
 - • 📊 Audit: 2026-09-28T07:11:39Z
 
@@ -452,7 +452,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 3, 2026
+### 📋 Changelog — October 4, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
