@@ -33,7 +33,7 @@ jobs:
         run: echo "SENTRY_RELEASE=${GITHUB_REPOSITORY//\//-}@${GITHUB_SHA}" >> "$GITHUB_ENV"
       
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       
