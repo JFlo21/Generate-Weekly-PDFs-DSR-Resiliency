@@ -5,9 +5,27 @@ title: What's New
 
 # What's New
 
-_Last updated: October 6, 2026 (updated automatically)_
+_Last updated: October 7, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — October 7, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 📄 Help guides updated: Phase 42 -- STB-06 mirror-invariant suite is a hard prerequisite
+- 📄 Help guides updated: line change detail -- a missing row can also be a writer refusal or error
+- ✅ Problem fixed: BUG-145 isolation re-pull of partition sheets lost in the parallel pass
+- 📄 Help guides updated: Web-Primary track, phases 39-44 (planning entries only)
+- ✨ New capability: Manifest Line Change Detail sheet -- one row per changed line (gate off)
+- 📄 Help guides updated: close out Phases 29, 34.3 and 35; Phase 25 verification recorded
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/Cognos-pdf-parser-workspace -->
 ## Cognos-pdf-parser-workspace
@@ -23,34 +41,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — October 6, 2026
+### 📋 Changelog — October 7, 2026
 
+- ✅ Problem fixed: UI Batch A - pager a11y, 320px pager, one name per page, push status labels
+- • Bound every requirement; /api/health returns 503 when the database did not initialise
 - ✅ Problem fixed: eight interface fixes from the 2026-10-04 review
 - ✅ Problem fixed: restore login on SQLAlchemy 2.1 (name the psycopg2 driver) and stop a failing reconcile
 - ✅ Problem fixed: require login on /api/upload and admin on /api/v2/backfill-cu
-- ✅ Problem fixed: eight interface fixes from the 2026-10-04 review ()
-- • Merge pull request from JFlo21/fix/sqlalchemy21-driver-and-reconcile-abort
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 📄 Help guides updated: say what Sentry still receives from the init failure log
-- ✅ Problem fixed: keep the init failure stack out of error events
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
-
-### 📋 Changelog — October 6, 2026
-
-- 📄 Help guides updated: close out Phases 29, 34.3 and 35; Phase 25 verification recorded
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: GF Review workbook repeats its header row when printed (BUG-144)
-- ✅ Problem fixed: Dispute Audit identity fields, Requests lock projection heal, per-line audit text (BUG-141, BUG-142)
-- ✨ New capability: who and what is holding up each work request
-- ✅ Problem fixed: three first-live-run fixes; wire hourly Sub-step 7 (flag off)
-- ✨ New capability: locked-return-regen -- owner-run re-render of a locked WR from the inspector's revised return (WR 90842763)
-- ✅ Problem fixed: Not Approved return goes back to the GF, never authorizes billing (BUG-139, BUG-140)
+- • Merge pull request from JFlo21/fix/ui-batch-a-pager-a11y-wording
+- ✅ Problem fixed: keep login error across a failed session check; label zero-row completed pushes "Already pushed"
+- • Merge master (PR ) into fix/ui-batch-a-pager-a11y-wording
 
 <!-- /runbook-repo -->
 
@@ -63,25 +63,25 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/smartsheet-auditor -->
-## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
-
-> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
-
-### 📋 Changelog — October 6, 2026
-
-- • 📊 Audit: 2026-10-05T07:20:10Z
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — October 6, 2026
+### 📋 Changelog — October 7, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/smartsheet-auditor -->
+## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
+
+> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
+
+### 📋 Changelog — October 7, 2026
+
+- • 📊 Audit: 2026-10-05T07:20:10Z
 
 <!-- /runbook-repo -->
 
@@ -99,7 +99,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — October 6, 2026
+### 📋 Changelog — October 7, 2026
 
 - • Initial commit
 
@@ -461,7 +461,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 6, 2026
+### 📋 Changelog — October 7, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
