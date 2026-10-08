@@ -5,44 +5,18 @@ title: What's New
 
 # What's New
 
-_Last updated: October 7, 2026 (updated automatically)_
+_Last updated: October 8, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
-
-### 📋 Changelog — October 7, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 📄 Help guides updated: Phase 42 -- STB-06 mirror-invariant suite is a hard prerequisite
-- 📄 Help guides updated: line change detail -- a missing row can also be a writer refusal or error
-- ✅ Problem fixed: BUG-145 isolation re-pull of partition sheets lost in the parallel pass
-- 📄 Help guides updated: Web-Primary track, phases 39-44 (planning entries only)
-- ✨ New capability: Manifest Line Change Detail sheet -- one row per changed line (gate off)
-- 📄 Help guides updated: close out Phases 29, 34.3 and 35; Phase 25 verification recorded
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser-workspace -->
-## Cognos-pdf-parser-workspace
-
-> ℹ️ **What this system does:** This private repo holds the AI/GSD planning context for the Linetec PDF Uploader project — the "where I left off" brain that lets work resume on any machine. It does not contain the application source code.
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
 ## Parser that will offload grid format information from work request completed packets
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — October 7, 2026
+### 📋 Changelog — October 8, 2026
 
+- ✨ New capability: UI Batch D - adopt Motion for React (LazyMotion strict, exits, row height, refetch crossfade, login error)
 - ✅ Problem fixed: UI Batch A - pager a11y, 320px pager, one name per page, push status labels
 - • Bound every requirement; /api/health returns 503 when the database did not initialise
 - ✅ Problem fixed: eight interface fixes from the 2026-10-04 review
@@ -50,7 +24,24 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - ✅ Problem fixed: require login on /api/upload and admin on /api/v2/backfill-cu
 - • Merge pull request from JFlo21/fix/ui-batch-a-pager-a11y-wording
 - ✅ Problem fixed: keep login error across a failed session check; label zero-row completed pushes "Already pushed"
-- • Merge master (PR ) into fix/ui-batch-a-pager-a11y-wording
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — October 8, 2026
+
+- ✅ Problem fixed: manifest of record per ledger row, generation must agree with origin; gf-genb-regen operator reset
+- ✅ Problem fixed: map the ledger gate into gf-edit-watcher, version-match the GF Gen B priced fallback, add priced-delivery-repair
+- • plan(35.2): Stabilization -- one authority per fact, gate-mapping contract, ProMax lease (planning only, 21 plans)
+- 📄 Help guides updated: close Phase 35.1 -- revision lane armed and proven live on WR 91016484
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 📄 Help guides updated: Phase 42 -- STB-06 mirror-invariant suite is a hard prerequisite
+- 📄 Help guides updated: line change detail -- a missing row can also be a writer refusal or error
+- ✅ Problem fixed: BUG-145 isolation re-pull of partition sheets lost in the parallel pass
 
 <!-- /runbook-repo -->
 
@@ -68,9 +59,18 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — October 7, 2026
+### 📋 Changelog — October 8, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser-workspace -->
+## Cognos-pdf-parser-workspace
+
+> ℹ️ **What this system does:** This private repo holds the AI/GSD planning context for the Linetec PDF Uploader project — the "where I left off" brain that lets work resume on any machine. It does not contain the application source code.
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -79,7 +79,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 7, 2026
+### 📋 Changelog — October 8, 2026
 
 - • 📊 Audit: 2026-10-05T07:20:10Z
 
@@ -99,7 +99,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — October 7, 2026
+### 📋 Changelog — October 8, 2026
 
 - • Initial commit
 
@@ -461,7 +461,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 7, 2026
+### 📋 Changelog — October 8, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
