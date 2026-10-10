@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: October 9, 2026 (updated automatically)_
+_Last updated: October 10, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,25 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — October 9, 2026
+### 📋 Changelog — October 10, 2026
 
+- ✅ Problem fixed: code-quality fix round + Greptile sixth-pass issue 1 (follow-up to )
+- • Phase 35.4: webapp workflow parity (checkpoint PR, wave 1 of 4 landed)
 - ✅ Problem fixed: --supersede-gf-derived names the version(s) it replaces (PR review fixes)
 - ✅ Problem fixed: Copilot follow-ups from PR (undelivered priced publish, fail-closed paging, STB wording)
 - • Phase 35.2 stabilization: one authority per fact, gate-mapping contract, Q7 owner policy (plans 01-17)
 - ✅ Problem fixed: carry gf&#95;addition line&#95;status on the inspector-return hop
 - ✨ New capability: --supersede-gf-derived operator override
 - ✅ Problem fixed: carry gf&#95;addition line&#95;status through the no-refresh GF regen hop
-- ✅ Problem fixed: map the Project List env into smartsheet-control-plane.yml
-- 📄 Help guides updated: apply the seven standalone 2026-10-07 audit findings
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/claudeos -->
-## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -45,12 +36,41 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/claudeos -->
+## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+### 📋 Changelog — October 10, 2026
+
+- • Prompt audit 2026-10-01: model routing text, policy conflicts, re-audit leftovers
+- • ClaudeOS runtime audit 2026-10-09 + prompt-audit apply / rubric v3 / usage levers
+- • Merge pull request from JFlo21/chore/claudeos-runtime-audit-2026-10-09
+- 📄 Help guides updated: record Greptile round 3 commits, push and live activation to 7f0f3c2
+- 📄 Help guides updated: retract F3 - the changelog/release-notes skills do exist
+- ✅ Problem fixed: Greptile round 3 - ownership decides hand-off ambiguity, sort order still picks (v1.2.4)
+- 📄 Help guides updated: record Greptile round 2 + prompt-audit push and live activation to c4dbcf9
+- • config(prompt-audit): apply 2026-10-09 audit hunks 1-3, 7, 8; track the audit report
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — October 10, 2026
+
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
 ## Parser that will offload grid format information from work request completed packets
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — October 9, 2026
+### 📋 Changelog — October 10, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: UI Batch D - adopt Motion for React (LazyMotion strict, exits, row height, refetch crossfade, login error)
@@ -68,21 +88,10 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Python script that automatically syncs data from multiple Smartsheet sheets to a Supabase database table. The script runs continuously and synchronizes data every 2 days (configurable).
 
-### 📋 Changelog — October 9, 2026
+### 📋 Changelog — October 10, 2026
 
 - • Draft: additive CU duplicate audit and snapshot comparison
 - • Draft: additive CU duplicate audit and snapshot comparison ()
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — October 9, 2026
-
-- 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
 
@@ -100,7 +109,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 9, 2026
+### 📋 Changelog — October 10, 2026
 
 - • 📊 Audit: 2026-10-05T07:20:10Z
 
@@ -462,7 +471,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 9, 2026
+### 📋 Changelog — October 10, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
