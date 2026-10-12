@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: October 11, 2026 (updated automatically)_
+_Last updated: October 12, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -18,12 +18,23 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — October 12, 2026
+
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — October 11, 2026
+### 📋 Changelog — October 12, 2026
 
 - 📄 Help guides updated: PR / merges, Render deploy verified, Impeccable enabled at project scope
 - 📄 Help guides updated: frontend-craft pipeline routing + Impeccable project-scope note
@@ -41,7 +52,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — October 11, 2026
+### 📋 Changelog — October 12, 2026
 
 - • Prompt audit 2026-10-01: model routing text, policy conflicts, re-audit leftovers
 - • ClaudeOS runtime audit 2026-10-09 + prompt-audit apply / rubric v3 / usage levers
@@ -54,23 +65,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — October 11, 2026
-
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
 ## Parser that will offload grid format information from work request completed packets
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — October 11, 2026
+### 📋 Changelog — October 12, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: UI Batch D - adopt Motion for React (LazyMotion strict, exits, row height, refetch crossfade, login error)
@@ -88,7 +88,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Python script that automatically syncs data from multiple Smartsheet sheets to a Supabase database table. The script runs continuously and synchronizes data every 2 days (configurable).
 
-### 📋 Changelog — October 11, 2026
+### 📋 Changelog — October 12, 2026
 
 - • Draft: additive CU duplicate audit and snapshot comparison
 - • Draft: additive CU duplicate audit and snapshot comparison ()
@@ -109,7 +109,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 11, 2026
+### 📋 Changelog — October 12, 2026
 
 - • 📊 Audit: 2026-10-05T07:20:10Z
 
@@ -466,23 +466,23 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: Linetec-Services-LLC/runlog-linetec -->
-## Workflow runlog that explains the workflows &amp; coding workflows and changes at a lower level for users to understand
-
-> ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
-
-### 📋 Changelog — October 11, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: Linetec-Services-LLC/Todoist-gtd-ci-automations -->
 ## Todoist-gtd-ci-automations
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: Linetec-Services-LLC/runlog-linetec -->
+## Workflow runlog that explains the workflows &amp; coding workflows and changes at a lower level for users to understand
+
+> ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
+
+### 📋 Changelog — October 12, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
