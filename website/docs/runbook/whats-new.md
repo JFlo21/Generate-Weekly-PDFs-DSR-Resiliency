@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: October 14, 2026 (updated automatically)_
+_Last updated: October 15, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — October 14, 2026
+### 📋 Changelog — October 15, 2026
 
+- ✅ Problem fixed: claimer(evidence=) — any stored counter proves a WR seeded for B/C lanes (BUG-167)
+- ✅ Problem fixed: approve dispatches sync-assignments; 4-hourly schedule (BUG-166)
+- ✅ Problem fixed: wait for the late ref bind instead of hot-requeueing a young return job
 - • Phase 35.4: webapp workflow parity (checkpoint PR, wave 1 of 4 landed)
 - ✅ Problem fixed: recovery link signed the user in — hold the recovery session on /reset-password, token-hash reset links (BUG-163)
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✅ Problem fixed: Manifest Table variant downloads open only when that workbook exists
 - ✅ Problem fixed: PR Copilot follow-ups -- variant gate authority, paged membership reads
-- ✨ New capability: one layout ambient canvas + server-derived manifest action-state matrix (BUG-159/160)
-- ✨ New capability: bell layers, requester-scoped build notices, portal-access lifecycle (BUG-157/158)
-- ✅ Problem fixed: re-verify management claims live in login&#95;required (BUG-156)
 
 <!-- /runbook-repo -->
 
@@ -41,7 +41,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — October 14, 2026
+### 📋 Changelog — October 15, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
@@ -52,7 +52,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 14, 2026
+### 📋 Changelog — October 15, 2026
 
 - • 📊 Audit: 2026-10-12T07:17:57Z
 
@@ -63,7 +63,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — October 14, 2026
+### 📋 Changelog — October 15, 2026
 
 - • Prompt audit 2026-10-01: model routing text, policy conflicts, re-audit leftovers
 - • ClaudeOS runtime audit 2026-10-09 + prompt-audit apply / rubric v3 / usage levers
@@ -81,10 +81,9 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — October 14, 2026
+### 📋 Changelog — October 15, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: UI Batch D - adopt Motion for React (LazyMotion strict, exits, row height, refetch crossfade, login error)
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
@@ -94,7 +93,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** A Python script that automatically syncs data from multiple Smartsheet sheets to a Supabase database table. The script runs continuously and synchronizes data every 2 days (configurable).
 
-### 📋 Changelog — October 14, 2026
+### 📋 Changelog — October 15, 2026
 
 - • Draft: additive CU duplicate audit and snapshot comparison
 - • Draft: additive CU duplicate audit and snapshot comparison ()
@@ -466,7 +465,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 14, 2026
+### 📋 Changelog — October 15, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
