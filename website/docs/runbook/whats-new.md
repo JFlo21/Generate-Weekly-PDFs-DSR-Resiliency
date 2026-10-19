@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: October 18, 2026 (updated automatically)_
+_Last updated: October 19, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -23,7 +23,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — October 18, 2026
+### 📋 Changelog — October 19, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
@@ -43,7 +43,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — October 18, 2026
+### 📋 Changelog — October 19, 2026
 
 - ✨ New capability: Manifest Portal closeout — unified GF Return, inspector approvals to billing, notifications bell, M2 multi-scope fix, connector-fix reconciliation
 - 📄 Help guides updated: 2026-10-15 ARM-35.2-05 attempt -- seed landed, flip aborted on 4 belief&#95;behind WRs
@@ -61,7 +61,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 18, 2026
+### 📋 Changelog — October 19, 2026
 
 - • 📊 Audit: 2026-10-12T07:17:57Z
 
@@ -450,7 +450,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 18, 2026
+### 📋 Changelog — October 19, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
