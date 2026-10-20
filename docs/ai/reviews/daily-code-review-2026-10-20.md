@@ -202,11 +202,59 @@ profile-fetch failure) and a real **test-coverage gap on the core auth hook**.
 
 ---
 
+## 7. Addendum — second-pass findings (verified against source)
+
+A deeper second pass surfaced genuine **functional and security bugs** in the auth flow that the
+first pass missed. Each was verified against the actual code/schema (not inferred):
+
+- **[High · functional] "Remember me" unchecked logs the user out on a same-tab refresh.**
+  `lib/supabase.ts` initializes the singleton with `localStorage` on every module load;
+  `setSessionStorage(true)` swaps it to `sessionStorage` only at login. After a reload the
+  singleton is `localStorage` again, so `getSession()` never reads the `sessionStorage`-stored
+  session and the user is signed out on refresh — defeating the point of `sessionStorage`
+  (which should survive reloads and die on tab close). *Fix:* persist the chosen backend (e.g.
+  a flag in `localStorage`) and re-create the client with it at startup, or initialize from
+  whichever store holds a session.
+- **[Medium · correctness] `logout()` ignores the `signOut()` error** (`useAuth.ts:113`:
+  `await supabase.auth.signOut();`). Supabase returns `{ error }`; on a failed revocation the
+  session stays active while `PendingApprovalPage`/navbar take the success path and "log out"
+  the user in the UI only. *Fix:* `const { error } = await supabase.auth.signOut(); if (error) throw error;`
+- **[Medium · security, defense-in-depth] Last admin can DELETE their own profile → zero admins.**
+  `prevent_last_admin_demotion` is a `BEFORE UPDATE` trigger only, but `profiles_admin_all`
+  grants admins `FOR ALL` (incl. DELETE). An admin deleting their own `profiles` row bypasses
+  both the UI guard and the trigger, leaving no administrator and no way to promote one. *Fix:*
+  add a `BEFORE DELETE` guard (concurrency-safe, as in §3), or deny DELETE on `profiles`.
+- **[Medium · setup/correctness] The README setup path cannot install the schema.**
+  `portal-v2/README.md:58` tells operators to open `portal-v2/supabase/schema.sql`, but that
+  directory does not exist — the actual file is `supabase/portal_schema.sql`. A new project set
+  up per the guide never creates the `profiles` table, trigger, or RLS policies. This makes the
+  RLS deployment caveat (§4) concrete: the documented path leaves the DB **unprotected**. *Fix:*
+  correct the README path to `supabase/portal_schema.sql`.
+- **[Medium · functional, needs-verification] Signup with "Confirm email" enabled is broken.**
+  If email confirmation is on (a configuration the README permits), `signUp()` returns no
+  session, so `user` stays `null`; `LoginPage` navigates to `/pending`, and
+  `PendingApprovalPage` immediately redirects the unauthenticated user back to `/login` — a
+  confusing loop with no "check your email" state. *Fix:* return the signup result and render a
+  check-email state when there is no session. *Verify which Supabase email-confirmation setting
+  is live.*
+- **[Low · needs-verification] CAPTCHA is only credited client-side.** The hCaptcha widget +
+  disabled button don't enforce anything; an attacker can call the public Supabase Auth
+  endpoints directly. Supabase enforces CAPTCHA only when the provider secret is enabled in the
+  hosted project. Treat this as a deployment-verified control (like RLS), not a repo-provable one.
+
+These do not touch the Python billing pipeline, but **three are real client bugs** (remember-me
+reload, logout error-swallow, last-admin delete) and one is a **broken setup path that would
+leave RLS unapplied** — all worth fixing before the next auth change.
+
+---
+
 ### Daily Verdict
 
-**Safe to merge.** No new application code landed in the daily window and the current `master`
-is healthy: the Python engine compiles, the last merged fix is sound, and the auth layer's
-authorization is correctly enforced server-side by RLS with defense-in-depth. The findings are
-resilience/hardening items — the only one worth prioritizing is the client-side perpetual-
-skeleton bug and the missing `useAuth` tests. Address those before the next auth change, but
-nothing here blocks the current state of the branch.
+**Merge with fixes** (for the portal auth code; this review doc itself is safe to merge). No new
+application code landed in the daily window and the Python billing engine is healthy — compiles
+clean, last merged fix sound, cron pipeline untouched. But the second-pass review found genuine
+auth bugs: a same-tab-refresh logout when "Remember me" is unchecked, a swallowed `signOut()`
+error, a last-admin self-DELETE gap, and a README setup path that would leave RLS unapplied on a
+fresh project. None affect the billing cron, but they degrade the portal's auth UX/security and
+should be fixed before the next auth change. The RLS/CAPTCHA "verified" claims hold only for the
+committed schema — confirm they're actually applied to the live Supabase project.
