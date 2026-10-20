@@ -23,9 +23,14 @@ layer is notably mature: **client-side guards are backed by server-side RLS** as
 CLI migration, so the deployed policies must be confirmed against the hosted DB — see §4). The
 deployment also ships a full CSP + HSTS header set.
 
-The findings below are **hardening and resilience**, not production-breaking defects. The
-one that matters most is a client-side availability bug (perpetual loading skeleton on a
-profile-fetch failure) and a real **test-coverage gap on the core auth hook**.
+The billing-pipeline picture is **hardening and resilience**, but a deeper second pass (§7)
+found **genuine functional/security bugs in the portal auth flow**, so the overall verdict is
+**Merge with fixes** for `portal-v2`, not clean. Highest-priority items: the **"Remember me"-off
+same-tab-refresh logout** (§7, High), the swallowed `signOut()` error, the last-admin
+self-DELETE gap, a **stale `portal-v2` README whose setup steps fail** (removed `portal/` dir +
+wrong schema path), and a **needs-verification P1** that the CSP may block hCaptcha and thus
+login. The first-pass perpetual-skeleton bug and the **test-coverage gap on the core auth hook**
+still stand. None of this touches the Python billing cron, which is healthy.
 
 ---
 
@@ -179,8 +184,13 @@ profile-fetch failure) and a real **test-coverage gap on the core auth hook**.
   gating, and error surfacing (ties to the enumeration finding).
 - **`ForgotPasswordPage.tsx` untested** — specifically assert the **generic-error /
   no-enumeration** behavior so it can't silently regress.
-- Present and good: `AuthGuard`, `RoleGuard`, `ResetPasswordPage`, `PendingApprovalPage`,
-  and `UsersPage` (`canDemote`/RBAC-04) all have tests.
+- Present and good: `AuthGuard`, `RoleGuard`, `PendingApprovalPage`, and `UsersPage`
+  (`canDemote`/RBAC-04) have tests.
+- **`ResetPasswordPage` is only partially covered** — the test asserts OTP verification, the
+  expired-link message, and the ready-state transition, but **never submits the form**: it
+  doesn't fill the password fields, assert the `updateUser()` payload, exercise an update
+  failure, or verify the success redirect. The actual credential-change path is untested; add
+  submission-path tests.
 - **Python:** the #409 fix added `UserVariantCandidateParityTests` + a cassette fixture —
   good. No new gap introduced in the engine this period.
 
@@ -212,9 +222,14 @@ first pass missed. Each was verified against the actual code/schema (not inferre
   `setSessionStorage(true)` swaps it to `sessionStorage` only at login. After a reload the
   singleton is `localStorage` again, so `getSession()` never reads the `sessionStorage`-stored
   session and the user is signed out on refresh — defeating the point of `sessionStorage`
-  (which should survive reloads and die on tab close). *Fix:* persist the chosen backend (e.g.
-  a flag in `localStorage`) and re-create the client with it at startup, or initialize from
-  whichever store holds a session.
+  (which should survive reloads and die on tab close). *Related, same root cause:* `login()`
+  swaps the exported client via `setSessionStorage()` but never disposes the old client or
+  rebinds the `useAuthState` subscriber, so the new client's `SIGNED_IN` may not reach the
+  listener (navigation then hits `AuthGuard` with `user === null`) and repeated logins
+  accumulate clients sharing one storage key (undefined behavior per GoTrueClient). *Fix:* use a
+  **single** client with a storage-routing adapter (pick `localStorage`/`sessionStorage` per the
+  remember-me flag) and initialize it at startup from whichever store holds a session — rather
+  than swapping the singleton.
 - **[Medium · correctness] `logout()` ignores the `signOut()` error** (`useAuth.ts:113`:
   `await supabase.auth.signOut();`). Supabase returns `{ error }`; on a failed revocation the
   session stays active while `PendingApprovalPage`/navbar take the success path and "log out"
@@ -224,12 +239,38 @@ first pass missed. Each was verified against the actual code/schema (not inferre
   grants admins `FOR ALL` (incl. DELETE). An admin deleting their own `profiles` row bypasses
   both the UI guard and the trigger, leaving no administrator and no way to promote one. *Fix:*
   add a `BEFORE DELETE` guard (concurrency-safe, as in §3), or deny DELETE on `profiles`.
-- **[Medium · setup/correctness] The README setup path cannot install the schema.**
-  `portal-v2/README.md:58` tells operators to open `portal-v2/supabase/schema.sql`, but that
-  directory does not exist — the actual file is `supabase/portal_schema.sql`. A new project set
-  up per the guide never creates the `profiles` table, trigger, or RLS policies. This makes the
-  RLS deployment caveat (§4) concrete: the documented path leaves the DB **unprotected**. *Fix:*
-  correct the README path to `supabase/portal_schema.sql`.
+- **[Medium · setup/correctness] The `portal-v2/README.md` setup guide is stale and fails.**
+  Two concrete breaks: (a) line 58 says open `portal-v2/supabase/schema.sql`, but that path
+  doesn't exist — the real file is `supabase/portal_schema.sql`; (b) lines 5, 101, 106, 155
+  reference the `portal/` Express directory (`cd ../portal`, deploy it, `portal/routes/api.js`),
+  but `portal/` was **removed** (03153c3) and no longer exists. An operator following the guide
+  fails at the schema step and again at `cd ../portal`. *Consequence is a setup failure, not a
+  data exposure:* `supabase/portal_schema.sql` creates the tables **and** enables RLS, so a fresh
+  project that never runs it has **no portal tables** (PostgREST 404s), not unprotected ones.
+  (The §4 drift caveat is the separate risk for an *existing* hand-applied project.) *Fix:*
+  rewrite the README setup section — correct the schema path and delete the obsolete
+  Express/`portal/` steps.
+- **[Medium · functional] Approved users aren't released from `/pending` live.**
+  `PendingApprovalPage` reacts only when the context `profile` changes, but `useAuthState`
+  refetches the profile only on initial load and auth-state events. An admin flipping
+  `profiles.role` emits no auth event in the waiting user's tab, so an approved user stays on
+  `/pending` until a token refresh or manual reload. *Fix:* poll, add a Realtime subscription on
+  their `profiles` row, or expose a manual "refresh status" action.
+- **[Medium · security, needs-verification] Artifact-bucket privacy isn't established by the schema.**
+  The `storage.objects` SELECT policy restricts reads, but `portal_schema.sql` never creates the
+  `excel-artifacts` bucket nor sets `public:false`; a *public* Supabase bucket bypasses object
+  RLS and would expose the billing files regardless. `scripts/security-probe.ts:108` exists to
+  assert `public:false`, but no workflow runs it. *Fix:* set/verify the bucket private and wire
+  the probe into CI. So the §4 "Storage readable only by admin/billing" positive is contingent
+  on the live bucket being private.
+- **[P1 · auth-availability, needs-verification] CSP `connect-src` omits the hCaptcha origins.**
+  `portal-v2/vercel.json` `connect-src` lists only self, the Supabase host, and Sentry — not
+  `https://hcaptcha.com`/`https://*.hcaptcha.com`, which hCaptcha's CSP guidance requires
+  (`script-src`/`frame-src` do include them). If hCaptcha's challenge XHR is governed by the
+  parent-page CSP, it is blocked → no token → the submit button (gated on `!captchaToken`) never
+  enables, i.e. **login/signup/reset are broken in production**. *Caveat:* if the widget renders
+  in its own `hcaptcha.com` iframe, the parent `connect-src` may not apply — so verify against a
+  live deployment before acting. *Fix (if confirmed):* add the hCaptcha origins to `connect-src`.
 - **[Medium · functional, needs-verification] Signup with "Confirm email" enabled is broken.**
   If email confirmation is on (a configuration the README permits), `signUp()` returns no
   session, so `user` stays `null`; `LoginPage` navigates to `/pending`, and
