@@ -5,9 +5,27 @@ title: What's New
 
 # What's New
 
-_Last updated: October 19, 2026 (updated automatically)_
+_Last updated: October 20, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — October 20, 2026
+
+- 📄 Help guides updated: 2026-10-19 operations -- WR heals, PRs //, ARM-35.2-05 blocked
+- ✨ New capability: manifest job continuity — resume in-flight jobs, requester notices, My Manifests page (+ feature-4 design)
+- ✅ Problem fixed: Not-Approved webapp return advances an undecided Requests row to the routed identity
+- ✅ Problem fixed: version-authority seed derives C from Variant 'both' rows (never lowers)
+- ✅ Problem fixed: WR 91295045 -- accept the register+1 Gen B regen key; as-built fallback sees Destination='both' runs (BUG-169)
+- ✅ Problem fixed: BUG-168 -- advance an undecided Requests row to the routed identity (WR 91119096)
+- 📄 Help guides updated: 2026-10-15 ARM-35.2-05 attempt -- seed landed, flip aborted on 4 belief&#95;behind WRs
+- ✅ Problem fixed: BUG-167 Copilot follow-up -- regen pre-mint evidence, event&#95;key keyset ledger walk
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -18,41 +36,18 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — October 19, 2026
-
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/claudeos -->
 ## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-_Running steadily — no meaningful changes were detected in this period._ ✅
+### 📋 Changelog — October 20, 2026
 
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
-
-### 📋 Changelog — October 19, 2026
-
-- ✨ New capability: Manifest Portal closeout — unified GF Return, inspector approvals to billing, notifications bell, M2 multi-scope fix, connector-fix reconciliation
-- 📄 Help guides updated: 2026-10-15 ARM-35.2-05 attempt -- seed landed, flip aborted on 4 belief&#95;behind WRs
-- ✅ Problem fixed: BUG-167 Copilot follow-up -- regen pre-mint evidence, event&#95;key keyset ledger walk
-- ✅ Problem fixed: claimer(evidence=) — any stored counter proves a WR seeded for B/C lanes (BUG-167)
-- ✅ Problem fixed: approve dispatches sync-assignments; 4-hourly schedule (BUG-166)
-- ✅ Problem fixed: wait for the late ref bind instead of hot-requeueing a young return job
-- ✅ Problem fixed: recovery link signed the user in — hold the recovery session on /reset-password, token-hash reset links (BUG-163)
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- • config(prompt-audit): apply the 2026-10-10 audit (Haiku 5.5 rubric lane, dead UI lanes, fable5-overlay.v2) + frontend-craft batch
+- • Merge pull request from JFlo21/chore/claudeos-runtime-audit-2026-10-09
+- ✅ Problem fixed: Greptile round 2 on PR - machine-local UV&#95;CONSTRAINT, Monaco client boundary, vendored README
+- ✅ Problem fixed: resolve Greptile round on PR - lattice hook wording, vendored design-skill corrections
+- • config(lattice): narrow Lattice pipeline to feature/refactor lanes (overlay v1.1); settings + ledger through 2026-10-15
 
 <!-- /runbook-repo -->
 
@@ -61,9 +56,20 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 19, 2026
+### 📋 Changelog — October 20, 2026
 
-- • 📊 Audit: 2026-10-12T07:17:57Z
+- • 📊 Audit: 2026-10-19T07:10:13Z
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — October 20, 2026
+
+- 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
 
@@ -450,7 +456,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 19, 2026
+### 📋 Changelog — October 20, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
