@@ -17,9 +17,11 @@ Supabase).
 **Overall health: good.** The Python billing engine compiles clean (`py_compile` on
 `generate_weekly_pdfs.py` + `audit_billing_changes.py`) and the #409 fix is well-reasoned
 (it collapses two divergent WR-derivations into one shared sanitizer — correct). The auth
-layer is notably mature: **client-side guards are genuinely backed by server-side RLS**
-(verified in `supabase/portal_schema.sql`), privilege escalation via the browser client is
-blocked at the database, and the deployment ships a full CSP + HSTS header set.
+layer is notably mature: **client-side guards are backed by server-side RLS** as written in
+`supabase/portal_schema.sql` — a non-admin cannot self-promote via the browser client,
+*provided that schema is actually applied to the live project* (it is applied by hand, with no
+CLI migration, so the deployed policies must be confirmed against the hosted DB — see §4). The
+deployment also ships a full CSP + HSTS header set.
 
 The findings below are **hardening and resilience**, not production-breaking defects. The
 one that matters most is a client-side availability bug (perpetual loading skeleton on a
@@ -97,35 +99,48 @@ profile-fetch failure) and a real **test-coverage gap on the core auth hook**.
 ## 3. Code Quality Improvements
 
 - **Leftover `[v0]` debug prefix.** `useAuth.ts` logs `console.warn('[v0] Profile fetch
-  returned an error:', error.message)`. Drop the `[v0]` Vercel-v0 scaffolding tag and route
-  through the existing Sentry breadcrumb path (`lib/sentry.ts`) rather than `console` so
-  production diagnostics are captured, not just printed.
+  returned an error:', error.message)`. Drop the `[v0]` Vercel-v0 scaffolding tag and report
+  the failure with `Sentry.captureException`/`captureMessage` rather than `console`. Note a
+  Sentry *breadcrumb* would **not** surface it: a breadcrumb is only transmitted when a later
+  event is captured, and this path just returns, so the lockout would stay invisible in
+  production. (`lib/sentry.ts` today only initializes and exports the SDK — there is no existing
+  breadcrumb/report helper to reuse, so one must be added.)
 - **Weak password floor.** All three password inputs enforce `minLength={6}`. 6 chars is the
   Supabase default, not a policy. Raise to ≥10 (or a zxcvbn strength check) for an
-  operator/billing portal; enforce the same minimum in the Supabase Auth settings so the
-  client and server agree.
+  operator/billing portal — but apply the stronger client `minLength` **only to the signup and
+  reset inputs, not the shared sign-in field**: raising it on sign-in would stop existing
+  accounts with valid 6–9 char passwords from submitting the login form. Enforce the new
+  minimum server-side in Supabase Auth, and force-reset/migrate shorter legacy passwords rather
+  than gating them at the login form.
 - **CSP `style-src` has no `'unsafe-inline'`.** *Needs verification:* Tailwind's built CSS is
   `'self'` (fine) and framer-motion animates via CSSOM `.style` (allowed), but confirm no
   library injects a `<style>` tag at runtime — if one does it will be silently dropped and
   cause visual breakage. Keep the strict policy if the prod build renders clean.
 - **`canDemote` duplication is good, extend the pattern.** The last-admin guard is correctly
   exported and unit-tested *and* backed by the `prevent_last_admin_demotion` DB trigger —
-  textbook defense-in-depth. Use the same "export the predicate, test it, mirror it in a DB
-  trigger" shape for any future role transition rules.
+  good defense-in-depth. Use the same "export the predicate, test it, mirror it in a DB
+  trigger" shape for any future role transition rules. *Caveat:* the trigger does an unlocked
+  `COUNT(*)`, so it is not fully race-safe — with two admins, two concurrent demotions can each
+  observe a count of 2 and both commit, leaving zero admins. Serialize it (`SELECT … FOR UPDATE`
+  on the admin rows, or a transaction advisory lock) if that race matters.
 
 ---
 
 ## 4. Security Review
 
-**Positives (verified, not assumed):**
-- **RLS is the real boundary and it is correct** (`supabase/portal_schema.sql`): `profiles`
-  has a self-`SELECT`-only policy plus an admin-only `FOR ALL` policy — there is **no
+**Positives (verified against the committed schema — mind the deployment caveat below):**
+- **RLS is the real boundary and the schema is correct** (`supabase/portal_schema.sql`):
+  `profiles` has a self-`SELECT`-only policy plus an admin-only `FOR ALL` policy — there is **no
   self-UPDATE policy**, so a non-admin cannot self-promote via `supabase.from('profiles')
   .update({role:'admin'})` from the console. `RoleGuard`/`AuthGuard` are UX layers over a
-  sound server boundary.
+  sound server boundary. **Deployment caveat:** the file states it is applied **manually** in
+  the Supabase SQL editor with no CLI migration, so repo inspection proves the *intended*
+  schema, not the *live* one. Confirm the hosted project actually has these policies and that
+  RLS is enabled before relying on this — drift here would silently remove the boundary.
 - **Recursion-safe role lookup** via `current_user_role()` `SECURITY DEFINER` — avoids the
   classic "infinite recursion in policy for relation profiles."
-- **Last-admin demotion** is enforced at the DB (trigger), not just the UI.
+- **Last-admin demotion** is guarded at the DB (trigger), not just the UI — subject to the
+  concurrency caveat in §3 (the guard's `COUNT(*)` is unlocked).
 - **Artifacts + Storage** readable only by `admin`/`billing`; pending/anon get nothing;
   no client write policy (publish runs as `service_role`).
 - **Signup → always `pending`** via `handle_new_user` trigger (no client-side profile insert
@@ -134,6 +149,12 @@ profile-fetch failure) and a real **test-coverage gap on the core auth hook**.
   `frame-ancestors 'none'`, `base-uri 'self'`), HSTS 2y + subdomains, `X-Frame-Options: DENY`,
   `nosniff`, `Referrer-Policy`. hCaptcha on login/signup/forgot. Forgot-password is
   enumeration-safe.
+- **CSP `connect-src` hard-codes one Supabase project** (`poeyztlmsawfoqlanucc.supabase.co`),
+  while `.env.example` / setup allow any `VITE_SUPABASE_URL`. Any staging, replacement, or
+  re-provisioned project will load the UI but have **all auth/profile requests silently blocked**
+  by `connect-src`. Template the CSP from the configured Supabase URL at build time, or document
+  that this project ID and the CSP header must be changed together. *(So the "strict CSP" is a
+  positive only for this exact project; it is a footgun on any other.)*
 
 **Residual risks / watch items:**
 - **Session tokens live in `localStorage`/`sessionStorage`** (supabase-js SPA default), which
