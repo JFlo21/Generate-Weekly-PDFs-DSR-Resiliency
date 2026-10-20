@@ -34,14 +34,21 @@ profile-fetch failure) and a real **test-coverage gap on the core auth hook**.
 - **File:** `portal-v2/src/hooks/useAuth.ts` (`fetchProfile`) + `portal-v2/src/components/auth/AuthGuard.tsx`
 - **Problem:** `fetchProfile()` swallows any query error (`console.warn` then `return`) and
   never sets an error state, so `profile` stays `null`. `AuthGuard` computes
-  `resolving = loading || (Boolean(user) && !profile)`. For a logged-in user whose profile
-  fetch errors (transient network blip, Supabase hiccup), `profile` is `null` **forever** →
-  `resolving` is `true` **forever** → the skeleton renders indefinitely with no redirect,
-  no error, and no retry.
+  `resolving = loading || (Boolean(user) && !profile)`, so a logged-in user whose profile
+  fetch fails (transient network blip, Supabase hiccup) is held on the loading skeleton with
+  **no error screen and no explicit retry**. Recovery is *possible but not guaranteed*: it
+  depends on a later `onAuthStateChange` event (e.g. a token refresh) re-invoking
+  `fetchProfile` and that retry succeeding. A user who triggers no further auth event stays
+  on the skeleton indefinitely, with no redirect and no feedback — so the practical effect is
+  a stuck session until (and unless) a later auth event happens to recover it.
+- **Edge case (also unhandled):** `maybeSingle()` returns `data: null, error: null` when the
+  row is genuinely missing, which leaves `profileError` unset. The patch below must therefore
+  treat a *missing* profile as terminal too, not only a query error. (In practice the
+  `handle_new_user` trigger guarantees a row, so this arm is defense-in-depth.)
 - **Why it matters:** The comment reasons "a logged-in user always has a profiles row, so
-  `user && !profile` means fetch-in-flight." That is true for a *successful* fetch, but a
-  *failed* fetch is indistinguishable from in-flight here. A single network error on load
-  strands the user.
+  `user && !profile` means fetch-in-flight." That holds for a *successful* fetch, but a
+  *failed or empty* fetch is indistinguishable from in-flight here. A single network error on
+  load strands the user until the next auth event, if any.
 - **Recommended fix:** Give `fetchProfile` a terminal error state and let `AuthGuard`
   resolve on it (show an inline error + Retry rather than the skeleton). Minimal patch:
 
@@ -53,11 +60,12 @@ profile-fetch failure) and a real **test-coverage gap on the core auth hook**.
       .from('profiles').select('id, email, role, created_at')
       .eq('id', userId).maybeSingle();
     if (error) { setProfileError(new Error(error.message)); return; }
+    if (!data) { setProfileError(new Error('Profile not found')); return; } // data:null,error:null
     setProfileError(null);
-    if (data) setProfile(data as Profile);
+    setProfile(data as Profile);
   }
   // expose profileError; in AuthGuard: resolving = loading || (user && !profile && !profileError)
-  // and render an error+retry panel when profileError is set.
+  // and render an error+retry panel (with a manual retry that re-runs fetchProfile) when set.
   ```
 
 ### LOW — Possible user-enumeration via signup error surfacing
