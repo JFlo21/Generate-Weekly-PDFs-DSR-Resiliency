@@ -20,18 +20,25 @@ the `docs(review)` entry for the 2026-10-20 pass. So today is again a **state-of
 - **Note on the task's "website authentication flow" focus:** the Docusaurus `website/` has
   **no auth code** (`website/src` is just `index.tsx` + `custom.css`). All authentication lives
   in **`portal-v2/`** (React 18 + Supabase). That is where this review concentrates.
-- **The portal auth findings from the 2026-10-20 review carry forward unresolved.** The auth
-  code is byte-for-byte unchanged (git log + clean working tree confirm it), so none of the
-  previously reported bugs were fixed and the recommended `useAuth` / storage-swap test was
-  **not** added. Today's §2 re-verifies the highest-priority subset against the current code; the
-  remaining 2026-10-20 items are **carried forward without re-verification** (code unchanged, so
-  they stand) rather than re-audited line by line: user-enumeration via signup error surfacing on
-  `LoginPage` (Low), missing-hCaptcha-sitekey silently disables login (Low), last-admin
-  self-DELETE → zero admins (Medium), stale `portal-v2/README.md` setup path (Medium), approved
-  users not released from `/pending` live (Medium), artifact-bucket privacy not established by
-  the schema (needs verification), the CSP `connect-src`-omits-hCaptcha-origins P1 (needs
-  verification — see §4), and signup-with-Confirm-email-enabled (needs verification). See
-  `docs/ai/reviews/daily-code-review-2026-10-20.md` for each.
+- **The portal auth findings from the 2026-10-20 review carry forward, but are not all equally
+  "confirmed still open."** The auth *code* is byte-for-byte unchanged (git log + clean working
+  tree confirm it), so the pure-**code** defects were not fixed and the recommended `useAuth` /
+  storage-swap test was **not** added. Today's §2 re-verifies the highest-priority code defects
+  against the current source. The remaining items are **carried forward without re-verification**
+  and split by what unchanged code can actually prove:
+  - *Code-backed (unchanged code ⇒ still present):* user-enumeration via signup error surfacing on
+    `LoginPage` (Low), missing-hCaptcha-sitekey silently disables login (Low), last-admin
+    self-DELETE → zero admins (Medium), stale `portal-v2/README.md` setup path (Medium), approved
+    users not released from `/pending` live (Medium), `connect-src` hard-codes one Supabase
+    project (portability — see §4).
+  - *Dashboard/deploy-state dependent (unchanged code does NOT prove status — must be checked
+    against the live project):* Supabase Auth password policy, email-confirmation (Confirm-email
+    signup), CAPTCHA configuration, artifact-bucket visibility, and whether the enforcing CSP
+    actually blocks anything in production. The 2026-10-20 `connect-src`-omits-hCaptcha P1 in
+    particular appears **already resolved/non-reproducing** per the repo's live enforcing-CSP
+    smoke-test evidence (see §4) — it should not be asserted as open.
+
+  See `docs/ai/reviews/daily-code-review-2026-10-20.md` for each.
 
 The auth layer is architecturally sound at the trust boundary — client guards are backed by
 server-side RLS, and the deployment ships a full CSP + HSTS + anti-clickjacking header set
@@ -55,16 +62,21 @@ re-confirmed today as still present in the unchanged code.
   `supabase` singleton to a brand-new client on every login**. Two consequences:
   1. The `onAuthStateChange` listener in `useAuthState`'s `useEffect` was registered once at
      mount against the *original* (localStorage) client. After the swap, auth events fire on the
-     *new* client, which has **no listener** — so `setUser`/`setSession`/`fetchProfile` never run
-     from a post-swap sign-in. (`useEffect` does not re-run on a module-level reassignment.)
+     *new* client, which has no listener. In practice supabase-js v2 clients for the same project
+     share one storage key and cross-broadcast auth events via `BroadcastChannel`, so in browsers
+     that support it the mount-time listener *can* still pick up the new client's `SIGNED_IN` —
+     so this arm is **environment-dependent** (it degrades where `BroadcastChannel` is absent or
+     the broadcast is missed), not a guaranteed "state setters never run." (**Confirmed,
+     deterministic** failure is consequence 2.)
   2. With "Remember me" **unchecked**, the session is written to `sessionStorage` only at login,
      but on the next page load the singleton is reconstructed from `localStorage` (the default),
      so `getSession()` can't see the `sessionStorage` session → the user is **logged out on a
      same-tab refresh**, defeating the purpose of the tab-only mode.
-- **Why it matters:** This is the backbone of the login lifecycle. It produces intermittent
-  "logged out for no reason" reports and an AuthGuard redirect to `/login` with `user === null`
-  after an otherwise-successful sign-in. It is non-deterministic across first login vs. repeated
-  same-tab logins, which makes it hard to diagnose from bug reports.
+- **Why it matters:** This is the backbone of the login lifecycle. The deterministic,
+  reproducible symptom is the same-tab-refresh logout (consequence 2); the stale-listener arm
+  (consequence 1) adds intermittent, environment-dependent "logged out / stuck on `/login` with
+  `user === null`" reports that are hard to diagnose. Do not attribute ordinary first-login
+  redirects to it without the test below.
 - **Recommended fix:** Create **one** client at startup with a storage-routing adapter and never
   swap the instance:
   ```ts
@@ -80,10 +92,15 @@ re-confirmed today as still present in the unchanged code.
     auth: { storage: routingStorage, persistSession: true, autoRefreshToken: true },
   });
   ```
-  At startup, set `useSession` from whichever store already holds a session key so a refresh
-  restores the tab-only session. **Needs verification:** before/after, confirm (a) first login
-  lands on `/dashboard`, (b) a second same-tab login still updates context, and (c) refresh with
-  "Remember me" off keeps the user signed in for the tab but not across a browser restart.
+  The adapter alone is not sufficient: persist a **durable preference marker** (e.g.
+  `localStorage["auth_persist"]`) that records the chosen mode, initialize `useSession` from it
+  (not from "whichever store has a key" — both can hold a stale key), and on every login/logout
+  **explicitly clear the Supabase auth key from the inactive store** so a refresh can't restore a
+  stale account or the wrong persistence mode, and sign-out doesn't orphan a token in the other
+  store. **Needs verification:** before/after, confirm (a) first login lands on `/dashboard`,
+  (b) a second same-tab login still updates context, (c) refresh with "Remember me" off keeps the
+  user signed in for the tab but not across a browser restart, and (d) switching the remember-me
+  choice leaves no token in the now-inactive store.
 
 ### MEDIUM — `logout()` swallows the `signOut()` error [carried over, re-confirmed]
 - **File:** `portal-v2/src/hooks/useAuth.ts:112-114`
@@ -102,16 +119,28 @@ re-confirmed today as still present in the unchanged code.
   legitimate user on the skeleton until (and unless) a later auth event re-triggers the fetch.
   The `maybeSingle()` path also returns `data:null, error:null` for a genuinely missing row,
   which is indistinguishable from in-flight here.
+- **Related (stale-profile) risk:** `fetchProfile` only ever *sets* `profile`; it never clears a
+  previously loaded one, and the auth callback clears it only when the new session is null. So if
+  a user signs into a second account without a clean sign-out first, or if two `fetchProfile`
+  calls resolve out of order, the previous user's role can linger in context — the UI may render
+  the wrong (e.g. admin) controls (RLS still guards the server data, but the client surface is
+  wrong). 
 - **Fix:** give `fetchProfile` a terminal error/empty state and let `AuthGuard` resolve on it
-  (inline error + Retry) instead of looping on the skeleton.
+  (inline error + Retry) instead of looping on the skeleton; **and** clear `profile` on every
+  user-ID change and discard any `fetchProfile` response whose `userId` no longer matches the
+  current session (guard against out-of-order resolution).
 
 ### LOW — Weak minimum password policy on signup and reset
 - **Files:** `portal-v2/src/components/auth/LoginPage.tsx:137` (signup) ·
   `ResetPasswordPage.tsx:118,148` — `minLength={6}` with no complexity requirement.
 - **Why it matters:** 6 chars is the Supabase default floor and the *only* client-side strength
-  gate. For a billing portal this is thin. Raise the client minimum (e.g. ≥10) and, more
-  importantly, enforce a password policy server-side in Supabase Auth settings (the client gate
-  is advisory only). Needs verification that the hosted project's Auth password policy is set.
+  gate. For a billing portal this is thin. **Important caveat:** `LoginPage`'s password input is
+  shared by both sign-in and sign-up modes, so do **not** raise `minLength` on it unconditionally
+  — that would block existing users whose valid passwords are 6–9 chars from *logging in*. Apply
+  the stronger minimum (e.g. ≥10) only to the **sign-up** path and `ResetPasswordPage`, leave
+  sign-in at the current floor, and — more importantly — enforce the policy server-side in
+  Supabase Auth settings (the client gate is advisory only), coordinating any raise with existing
+  accounts. Needs verification that the hosted project's Auth password policy is set.
 
 ---
 
@@ -141,17 +170,34 @@ re-confirmed today as still present in the unchanged code.
   or unapplied policy silently removes the only real enforcement.
 - **Password-reset enumeration: safe.** `ForgotPasswordPage` always shows the generic
   "Check your inbox" / "Could not send reset email" and never reveals whether the email exists.
-- **Reset flow gating: safe.** `ResetPasswordPage` keeps the submit button disabled until a
-  recovery session is established (`verifyOtp` for token-hash links, `PASSWORD_RECOVERY` for
-  implicit), so `updateUser({password})` can't fire without a valid recovery context.
+- **Reset flow gating: safe; but recovery session is not cleaned up.** `ResetPasswordPage` keeps
+  the submit button disabled until a recovery session is established (`verifyOtp` for token-hash
+  links, `PASSWORD_RECOVERY` for implicit), so `updateUser({password})` can't fire without a
+  valid recovery context — that part is correct. **Gap:** after a successful `updateUser`, the
+  page navigates to `/login` but never signs the recovery session out, and that session persists
+  in the default `localStorage`. This contradicts the page's "Password updated — please sign in"
+  message and can leave an authenticated session behind on a shared device. *Fix:* call
+  `supabase.auth.signOut()` after a successful update (or deliberately document + test that
+  staying signed in is intended).
 - **Headers (`portal-v2/vercel.json`): strong.** CSP with `object-src 'none'`,
   `frame-ancestors 'none'`, `base-uri 'self'`, plus HSTS (2y, includeSubDomains), `X-Frame-Options:
-  DENY`, `nosniff`, and a sane `Referrer-Policy`. **Open P1 from 2026-10-20 (still unresolved,
-  needs verification):** `script-src`/`frame-src` allow `*.hcaptcha.com`, but `connect-src` lists
-  only the Supabase + Sentry origins and **not** the hCaptcha origins. If hCaptcha's challenge
-  XHR is governed by the parent-page CSP, it is blocked → no token → the submit button (gated on
-  `!captchaToken`) never enables, hard-blocking login. Confirm in-browser against the live
-  deployment; if confirmed, add `https://hcaptcha.com https://*.hcaptcha.com` to `connect-src`.
+  DENY`, `nosniff`, and a sane `Referrer-Policy`.
+- **hCaptcha-vs-`connect-src` (2026-10-20 P1): most likely already a non-issue — do not treat as
+  open.** The 2026-10-20 review raised that `connect-src` omits the hCaptcha origins and *might*
+  block the challenge. Repo evidence contradicts that: `.planning/phases/07-security-hardening-and-express-removal/07-01`/`07-03` summaries record a live production smoke test under the
+  **enforcing** CSP in which hCaptcha (iframe + script), login, Supabase Realtime, Sentry, and
+  signed-URL downloads all worked with **zero CSP console violations** — consistent with hCaptcha
+  doing its network I/O inside its own iframe (governed by `frame-src`, which does list the
+  origins), not via the parent page's `connect-src`. Treat this as **resolved/not-reproducing**
+  unless a future CSP or hCaptcha-integration change reopens it; a quick re-confirm in DevTools on
+  the next deploy is enough.
+- **Open portability finding (`connect-src` hard-codes one Supabase project) — carry forward.**
+  `connect-src` permits only `https://poeyztlmsawfoqlanucc.supabase.co` (+ `wss://…`), but
+  `.env.example` / the setup guide let `VITE_SUPABASE_URL` point at a different project. A preview
+  environment, a replacement project, or a fresh setup can therefore build and render while the
+  CSP silently blocks **every** auth and profile request to the configured Supabase origin. *Fix:*
+  template the CSP from the configured Supabase URL at build time, or document that this project
+  ID and the CSP header must be kept in sync.
 - **Token storage:** tokens live in `localStorage`/`sessionStorage` (supabase-js SPA default),
   readable by any JS on the origin — acceptable for an SPA *only because* the CSP above blocks
   injected/inline script. Keep the CSP strict; do not add `'unsafe-inline'` to `script-src`.
@@ -183,8 +229,11 @@ re-confirmed today as still present in the unchanged code.
 4. **Add `useAuth.test.ts`** covering the four assertions in §5.
 5. **Verify the live Supabase project**: confirm RLS policies from `portal_schema.sql` are
    actually applied, and that the Auth password policy is configured server-side.
-6. **Verify hCaptcha loads under the production CSP** (a blocked captcha silently disables login).
-7. **Raise the client password minimum** and normalize the `[v0]` log prefix (low-effort cleanup).
+6. **Make the CSP `connect-src` portable** (template it from `VITE_SUPABASE_URL` or document the
+   project-ID/CSP sync requirement); the hCaptcha/`connect-src` concern is treated as resolved per
+   the live enforcing-CSP smoke-test evidence (§4) — just re-confirm in DevTools on the next deploy.
+7. **Raise the client password minimum on sign-up/reset only** (never the shared sign-in field)
+   and normalize the `[v0]` log prefix (low-effort cleanup).
 
 ---
 
