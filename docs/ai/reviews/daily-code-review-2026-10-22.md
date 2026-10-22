@@ -97,7 +97,11 @@ re-confirmed today as still present in the unchanged code.
   (not from "whichever store has a key" — both can hold a stale key), and on every login/logout
   **explicitly clear the Supabase auth key from the inactive store** so a refresh can't restore a
   stale account or the wrong persistence mode, and sign-out doesn't orphan a token in the other
-  store. **Needs verification:** before/after, confirm (a) first login lands on `/dashboard`,
+  store. **Also cover sign-up:** `LoginPage` shows the same Remember-me checkbox in sign-up mode
+  but `signup()` ignores it and never selects a backend, so when Confirm-Email is disabled a fresh
+  sign-up (which returns a session immediately) lands in the startup `localStorage` and survives a
+  restart regardless of the checkbox. Route the storage choice through the sign-up path too (or
+  hide the checkbox in sign-up mode). **Needs verification:** before/after, confirm (a) first login lands on `/dashboard`,
   (b) a second same-tab login still updates context, (c) refresh with "Remember me" off keeps the
   user signed in for the tab but not across a browser restart, and (d) switching the remember-me
   choice leaves no token in the now-inactive store.
@@ -170,15 +174,25 @@ re-confirmed today as still present in the unchanged code.
   or unapplied policy silently removes the only real enforcement.
 - **Password-reset enumeration: safe.** `ForgotPasswordPage` always shows the generic
   "Check your inbox" / "Could not send reset email" and never reveals whether the email exists.
-- **Reset flow gating: safe; but recovery session is not cleaned up.** `ResetPasswordPage` keeps
-  the submit button disabled until a recovery session is established (`verifyOtp` for token-hash
-  links, `PASSWORD_RECOVERY` for implicit), so `updateUser({password})` can't fire without a
-  valid recovery context — that part is correct. **Gap:** after a successful `updateUser`, the
-  page navigates to `/login` but never signs the recovery session out, and that session persists
-  in the default `localStorage`. This contradicts the page's "Password updated — please sign in"
-  message and can leave an authenticated session behind on a shared device. *Fix:* call
-  `supabase.auth.signOut()` after a successful update (or deliberately document + test that
-  staying signed in is intended).
+- **Reset flow gating: mostly safe, with two gaps.** `ResetPasswordPage` keeps the submit button
+  disabled until a recovery session is established (`verifyOtp` for token-hash links,
+  `PASSWORD_RECOVERY` for implicit), so `updateUser({password})` can't fire without a valid
+  recovery context — that part is correct.
+  - **Gap A — recovery session not cleaned up:** after a successful `updateUser`, the page
+    navigates to `/login` but never signs the recovery session out, and that session persists in
+    the default `localStorage`. This contradicts the "Password updated — please sign in" message
+    and can leave an authenticated session behind on a shared device. *Fix:* call
+    **`supabase.auth.signOut({ scope: 'local' })`** after a successful update — the bare
+    `signOut()` defaults to `global` scope and would revoke the user's sessions on *all* their
+    devices, which is not the intent here; handle its returned error. (Or deliberately document +
+    test that staying signed in is intended.)
+  - **Gap B — pre-mount `PASSWORD_RECOVERY` race (legacy implicit links):** the Supabase client
+    begins processing the recovery URL at module init, but the page registers its
+    `PASSWORD_RECOVERY` listener later in a component effect. If that one-shot event fires before
+    the listener subscribes, `readyToReset` stays `false` forever even though the recovery session
+    is valid, and the form never unlocks. The current test invokes the callback only after render,
+    so it can't catch this. *Fix:* capture recovery state at the app/auth-provider level (register
+    the listener early) and pass it to the page, rather than subscribing inside the page effect.
 - **Headers (`portal-v2/vercel.json`): strong.** CSP with `object-src 'none'`,
   `frame-ancestors 'none'`, `base-uri 'self'`, plus HSTS (2y, includeSubDomains), `X-Frame-Options:
   DENY`, `nosniff`, and a sane `Referrer-Policy`.
