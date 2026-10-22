@@ -20,9 +20,18 @@ the `docs(review)` entry for the 2026-10-20 pass. So today is again a **state-of
 - **Note on the task's "website authentication flow" focus:** the Docusaurus `website/` has
   **no auth code** (`website/src` is just `index.tsx` + `custom.css`). All authentication lives
   in **`portal-v2/`** (React 18 + Supabase). That is where this review concentrates.
-- **The portal auth findings from the 2026-10-20 review are all still open.** The auth code is
-  byte-for-byte unchanged (git log + clean working tree confirm it), so none of the previously
-  reported bugs were fixed and the recommended `useAuth` / storage-swap test was **not** added.
+- **The portal auth findings from the 2026-10-20 review carry forward unresolved.** The auth
+  code is byte-for-byte unchanged (git log + clean working tree confirm it), so none of the
+  previously reported bugs were fixed and the recommended `useAuth` / storage-swap test was
+  **not** added. Today's §2 re-verifies the highest-priority subset against the current code; the
+  remaining 2026-10-20 items are **carried forward without re-verification** (code unchanged, so
+  they stand) rather than re-audited line by line: user-enumeration via signup error surfacing on
+  `LoginPage` (Low), missing-hCaptcha-sitekey silently disables login (Low), last-admin
+  self-DELETE → zero admins (Medium), stale `portal-v2/README.md` setup path (Medium), approved
+  users not released from `/pending` live (Medium), artifact-bucket privacy not established by
+  the schema (needs verification), the CSP `connect-src`-omits-hCaptcha-origins P1 (needs
+  verification — see §4), and signup-with-Confirm-email-enabled (needs verification). See
+  `docs/ai/reviews/daily-code-review-2026-10-20.md` for each.
 
 The auth layer is architecturally sound at the trust boundary — client guards are backed by
 server-side RLS, and the deployment ships a full CSP + HSTS + anti-clickjacking header set
@@ -137,10 +146,12 @@ re-confirmed today as still present in the unchanged code.
   implicit), so `updateUser({password})` can't fire without a valid recovery context.
 - **Headers (`portal-v2/vercel.json`): strong.** CSP with `object-src 'none'`,
   `frame-ancestors 'none'`, `base-uri 'self'`, plus HSTS (2y, includeSubDomains), `X-Frame-Options:
-  DENY`, `nosniff`, and a sane `Referrer-Policy`. **Needs verification:** `script-src`/`frame-src`
-  allow `*.hcaptcha.com` and `connect-src` allows the Supabase + Sentry origins, which looks
-  complete — but confirm in-browser that the hCaptcha widget and challenge load with no CSP
-  violation (a blocked captcha hard-blocks login, since the submit button requires a token).
+  DENY`, `nosniff`, and a sane `Referrer-Policy`. **Open P1 from 2026-10-20 (still unresolved,
+  needs verification):** `script-src`/`frame-src` allow `*.hcaptcha.com`, but `connect-src` lists
+  only the Supabase + Sentry origins and **not** the hCaptcha origins. If hCaptcha's challenge
+  XHR is governed by the parent-page CSP, it is blocked → no token → the submit button (gated on
+  `!captchaToken`) never enables, hard-blocking login. Confirm in-browser against the live
+  deployment; if confirmed, add `https://hcaptcha.com https://*.hcaptcha.com` to `connect-src`.
 - **Token storage:** tokens live in `localStorage`/`sessionStorage` (supabase-js SPA default),
   readable by any JS on the origin — acceptable for an SPA *only because* the CSP above blocks
   injected/inline script. Keep the CSP strict; do not add `'unsafe-inline'` to `script-src`.
