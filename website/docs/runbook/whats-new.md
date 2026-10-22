@@ -14,8 +14,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — October 21, 2026
+### 📋 Changelog — October 22, 2026
 
+- ✅ Problem fixed: BUG-173 defer the approval while the new version's Register row is pending
 - ✅ Problem fixed: close the lingering PR Greptile findings (BUG-175..180) + Opus review round
 - ✅ Problem fixed: write Assigned Inspector as a contact objectValue (BUG-174)
 - ✨ New capability: Return is the single GF/admin approval path (unified GF Return, quick 261020-06k)
@@ -23,7 +24,38 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✨ New capability: manifest job continuity — resume in-flight jobs, requester notices, My Manifests page (+ feature-4 design)
 - ✅ Problem fixed: Not-Approved webapp return advances an undecided Requests row to the routed identity
 - ✅ Problem fixed: version-authority seed derives C from Variant 'both' rows (never lowers)
-- ✅ Problem fixed: WR 91295045 -- accept the register+1 Gen B regen key; as-built fallback sees Destination='both' runs (BUG-169)
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/claudeos -->
+## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+### 📋 Changelog — October 22, 2026
+
+- ✨ New capability: Impeccable as per-profile tooling — strip self-guarded hook entries whose tool is not exported (integrity 44/44); personal dry run
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✨ New capability: account profiles, session handoff, VS Code/cloud continuity (code-complete, not activated)
+- • config(prompt-audit): apply the 2026-10-10 audit (Haiku 5.5 rubric lane, dead UI lanes, fable5-overlay.v2) + frontend-craft batch
+- • Merge pull request from JFlo21/chore/portability-impeccable-per-profile-2026-10-21
+- ✨ New capability: Impeccable is per-profile tooling; strip self-guarded hook entries whose tool is not exported (integrity 44/44); personal dry run
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — October 22, 2026
+
+- 📄 Help guides updated: daily code review 2026-10-20
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log b60c3a6 &#91;skip ci&#93;
+- 📄 Help guides updated: daily code review 2026-10-20 ()
 
 <!-- /runbook-repo -->
 
@@ -36,40 +68,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — October 22, 2026
-
-- 📄 Help guides updated: daily code review 2026-10-20
-- 📄 Help guides updated: daily code review 2026-10-20 ()
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/claudeos -->
-## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-### 📋 Changelog — October 21, 2026
-
-- • config(prompt-audit): apply the 2026-10-10 audit (Haiku 5.5 rubric lane, dead UI lanes, fable5-overlay.v2) + frontend-craft batch
-- • Merge pull request from JFlo21/chore/claudeos-runtime-audit-2026-10-09
-- ✅ Problem fixed: Greptile round 2 on PR - machine-local UV&#95;CONSTRAINT, Monaco client boundary, vendored README
-- ✅ Problem fixed: resolve Greptile round on PR - lattice hook wording, vendored design-skill corrections
-- • config(lattice): narrow Lattice pipeline to feature/refactor lanes (overlay v1.1); settings + ledger through 2026-10-15
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 21, 2026
+### 📋 Changelog — October 22, 2026
 
 - • 📊 Audit: 2026-10-19T07:10:13Z
 
@@ -458,7 +462,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 21, 2026
+### 📋 Changelog — October 22, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -499,3 +503,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
