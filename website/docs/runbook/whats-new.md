@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: October 21, 2026 (updated automatically)_
+_Last updated: October 22, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -41,8 +41,10 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — October 21, 2026
+### 📋 Changelog — October 22, 2026
 
+- 📄 Help guides updated: daily code review 2026-10-20
+- 📄 Help guides updated: daily code review 2026-10-20 ()
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
@@ -497,4 +499,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
