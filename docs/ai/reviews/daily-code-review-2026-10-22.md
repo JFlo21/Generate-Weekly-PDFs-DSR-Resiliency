@@ -184,7 +184,7 @@ re-confirmed today as still present in the unchanged code.
   DENY`, `nosniff`, and a sane `Referrer-Policy`.
 - **hCaptcha-vs-`connect-src` (2026-10-20 P1): most likely already a non-issue — do not treat as
   open.** The 2026-10-20 review raised that `connect-src` omits the hCaptcha origins and *might*
-  block the challenge. Repo evidence contradicts that: `.planning/phases/07-security-hardening-and-express-removal/07-01`/`07-03` summaries record a live production smoke test under the
+  block the challenge. Repo evidence contradicts that: `.planning/phases/07-security-hardening-and-express-removal/07-01-SUMMARY.md` and `07-03-SUMMARY.md` record a live production smoke test under the
   **enforcing** CSP in which hCaptcha (iframe + script), login, Supabase Realtime, Sentry, and
   signed-URL downloads all worked with **zero CSP console violations** — consistent with hCaptcha
   doing its network I/O inside its own iframe (governed by `frame-src`, which does list the
