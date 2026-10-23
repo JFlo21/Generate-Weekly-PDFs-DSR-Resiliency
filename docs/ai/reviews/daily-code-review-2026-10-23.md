@@ -243,10 +243,13 @@ source. File:line references are current.
   `resolving` forever.
 - **No test for `logout()` error propagation** once the error is no longer swallowed.
 - **No test/probe for the last-admin DELETE guard** — there is no assertion anywhere that
-  deleting the last admin row is blocked. (Separately, a bucket-privacy probe *does* exist —
-  `scripts/security-probe.ts:107-118` (SEC-01b) asserts an anon Storage GET on
-  `excel-artifacts` returns 400/403 — but it still isn't wired into any workflow, so it
-  never runs in CI.)
+  deleting the last admin row is blocked. (Separately, `scripts/security-probe.ts:107-118`
+  (SEC-01b) *attempts* a bucket-privacy check but is **ineffective**: it GETs a never-created
+  key `excel-artifacts/test` and treats a 400 as success, yet a **public** bucket also
+  returns 400/404 for a missing object — so it can't distinguish public from private, and it
+  also isn't wired into any workflow. A real check must read the bucket's `public` flag
+  directly or fetch a **known canary object** through the public endpoint and assert it's
+  denied.)
 
 ## 6. Suggested Next Actions
 
