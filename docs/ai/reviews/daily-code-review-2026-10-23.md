@@ -71,6 +71,24 @@ source. File:line references are current.
 - **Fix:** Same root fix as above — one client, storage-routing adapter, no runtime
   client swap. The listener then stays valid for the app's lifetime and no clients leak.
 
+### Medium — Stale cross-account authorization + unscoped artifact cache on in-tab account switch
+- **Severity:** Medium (security / authorization — potential cross-user data exposure)
+- **File:** `hooks/useAuth.ts:65-74` (SIGNED_IN handler) + `AuthGuard.tsx` / `RoleGuard.tsx` +
+  `hooks/useArtifactsInfinite.ts:22-28` (query key)
+- **Problem:** On an in-tab identity change (`/login` is publicly reachable — `App.tsx:42`),
+  the `onAuthStateChange` SIGNED_IN handler sets the new `session`/`user` but does **not**
+  clear the previous `profile` before the async `fetchProfile` resolves. During that window
+  `AuthGuard`/`RoleGuard` authorize on the **prior user's role**, and if the fetch fails the
+  stale profile persists. Separately, the artifact query key is
+  `['artifacts', search, variants, sort…]` with **no user/session scoping** (confirmed), so
+  React Query can render the previous account's cached billing rows after the switch.
+- **Why it matters:** On a shared device, a second user can briefly hold the first user's
+  role and see the first user's cached billing artifacts — a cross-account authorization and
+  data-exposure gap, not just a cosmetic flash.
+- **Fix:** Clear `profile` (and user-scoped caches) immediately on every identity change;
+  discard profile responses for superseded users (guard against out-of-order fetches); and
+  scope the artifact / React Query keys by user id so caches can't bleed across accounts.
+
 ### Medium — Perpetual loading skeleton if the profile fetch errors
 - **Severity:** Medium (availability / can lock out a legitimate user)
 - **File:** `portal-v2/src/hooks/useAuth.ts:29-45` + `components/auth/AuthGuard.tsx:22`
@@ -249,7 +267,11 @@ source. File:line references are current.
   returns 400/404 for a missing object — so it can't distinguish public from private, and it
   also isn't wired into any workflow. A real check must read the bucket's `public` flag
   directly or fetch a **known canary object** through the public endpoint and assert it's
-  denied.)
+  denied. More broadly the probe **fails open**: SEC-01a (`:96-104`) and the checks at
+  `:135-143` treat a Supabase query `error` (→ `data: null`) as PASS, and `:150-160` accepts
+  any signed-URL error as proof of an RLS denial — so if it were ever wired into CI it could
+  report access controls pass without testing them. Any such probe must assert the *expected*
+  empty/denied result and fail on unexpected Supabase errors.)
 
 ## 6. Suggested Next Actions
 
