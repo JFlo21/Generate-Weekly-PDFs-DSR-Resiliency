@@ -16,12 +16,14 @@ audit_billing_changes.py` → OK). The last substantive code change remains
 
 Because nothing changed, today's job is verification: I re-checked each genuine bug the
 2026-10-20 second pass found against the current source. **All of them are still
-present and unfixed.** The two HIGH auth defects (remember-me same-tab logout, and the
-stale `onAuthStateChange` listener after the login client-swap), the swallowed `signOut()`
-error (a client bug), the last-admin self-DELETE gap (a **database/schema/RLS** issue, not a
-client bug), and the stale `portal-v2/README.md` setup path are all unchanged. One
-additional low-severity item (weak client password minimum) is added below. The Python cron
-pipeline is healthy and untouched.
+present and unfixed.** The HIGH remember-me same-tab logout; the login client-swap
+(reclassified **Medium** this pass — GoTrue's cross-client `BroadcastChannel` likely delivers
+`SIGNED_IN` to the old listener where it's available, so it's a concurrency/footgun risk, not
+a confirmed login failure); the swallowed `signOut()` error (a client bug); the last-admin
+self-DELETE gap (a **database/schema/RLS** issue, not a client bug); the broken-on-confirm
+signup flow and the un-live `/pending` release (both carryover); and the stale
+`portal-v2/README.md` setup path are all unchanged. One additional low-severity item (weak
+client password minimum) is added below. The Python cron pipeline is healthy and untouched.
 
 The important signal for today: **the open auth findings from 2026-10-20 have not been
 actioned.** They should be fixed before the next auth change touches this surface.
@@ -46,23 +48,28 @@ source. File:line references are current.
   from whichever store already holds a session — rather than swapping the exported
   singleton.
 
-### HIGH — Login swaps the client out from under the live `onAuthStateChange` listener
-- **Severity:** High (auth correctness) — *Needs verification against a live deploy*
+### Medium — Login swaps the Supabase client out from under the mounted `onAuthStateChange` listener
+- **Severity:** Medium (auth correctness / concurrency) — *mitigated in modern browsers; see below*
 - **File:** `portal-v2/src/hooks/useAuth.ts:65-78` (listener bound at mount) vs.
   `lib/supabase.ts:36-38` + `useAuth.ts:88` (`login()` reassigns `supabase`)
 - **Problem:** `useAuthState`'s effect binds `onAuthStateChange` to the client instance
   that exists at mount. `login()` calls `setSessionStorage(...)` **on every login**
   (`!rememberMe` is passed even when remember-me is true), which reassigns the module
   `supabase` to a brand-new client and then calls `signInWithPassword` on that new client.
-  The mounted listener is still bound to the *old* client, so the new client's `SIGNED_IN`
-  event may never reach React state. `LoginPage` then `navigate('/dashboard')` while
-  `AuthGuard` can still see `user === null` → bounce back to `/login`. Repeated logins also
-  accumulate orphaned clients sharing one storage key (undefined behavior per
-  GoTrueClient).
-- **Why it matters:** This is the most load-bearing path in the portal. If the listener
-  misses the event, successful credentials still fail to land the user on the dashboard.
+  The mounted listener is bound to the *old* client. **In practice this works:** GoTrue
+  (with `persistSession`) wires a `BroadcastChannel` across clients sharing a storage key and
+  broadcasts `SIGNED_IN`, so the old listener still receives the new client's event in
+  browsers where `BroadcastChannel` is available — which is why login lands on the dashboard
+  in production. The residual risk is narrower but real: (a) in environments where
+  `BroadcastChannel` is unavailable or blocked, the event can be missed, `AuthGuard` sees
+  `user === null`, and the user bounces back to `/login`; (b) every login leaks an orphaned
+  client on the shared storage key (undefined concurrency per GoTrueClient). So this is a
+  footgun / undefined-behavior risk, not a confirmed universal login failure.
+- **Why it matters:** The flow works today only via an implicit cross-client broadcast and
+  leaks a client on every login — fragile for the portal's most load-bearing path, and a
+  genuine failure where `BroadcastChannel` is absent.
 - **Fix:** Same root fix as above — one client, storage-routing adapter, no runtime
-  client swap. The listener then stays valid for the app's lifetime.
+  client swap. The listener then stays valid for the app's lifetime and no clients leak.
 
 ### Medium — Perpetual loading skeleton if the profile fetch errors
 - **Severity:** Medium (availability / can lock out a legitimate user)
@@ -133,6 +140,19 @@ source. File:line references are current.
 - **Fix:** Add a Supabase Realtime subscription on the user's own `profiles` row (or a
   lightweight poll / manual "refresh status" action) so an approval releases the tab live.
 
+### Medium — Signup breaks when Supabase "Confirm email" is enabled
+- **Severity:** Medium (functional) — *deployment-contingent on the live email-confirmation setting*
+- **File:** `components/auth/LoginPage.tsx:35-36` + `PendingApprovalPage.tsx:28-31` +
+  `hooks/useAuth.ts:97-110`
+- **Problem:** With email confirmation enabled, `signUp()` returns no session, so `user`
+  stays `null`. `LoginPage` unconditionally navigates to `/pending`, and
+  `PendingApprovalPage` redirects the still-unauthenticated user straight back to `/login` —
+  a confusing loop with no "check your email" state. (Carryover from 2026-10-20; still open —
+  no portal code changed.)
+- **Fix:** Return the signup result and render a check-email state when there is no session;
+  gate the `/pending` redirect on an authenticated user. *Verify which email-confirmation
+  setting is live.*
+
 ## 3. Code Quality Improvements
 
 - **`console.warn('[v0] ...')` debug prefix** (`useAuth.ts:41`) is a leftover scaffold tag;
@@ -140,9 +160,13 @@ source. File:line references are current.
 - **`fetchProfile` is fire-and-forget** at `useAuth.ts:58` and `:70` (not awaited, no
   `.catch`). It handles its own error internally today, but an unexpected throw would be an
   unhandled rejection. Make the contract explicit (always resolve, never throw).
-- **`verifyOtp(...).then(...)` has no `.catch`** (`ResetPasswordPage.tsx:34-42`). A network
-  failure during OTP verification leaves the page stuck on "Verifying your reset link…"
-  with no error surfaced. Add rejection handling that mirrors the expired-link path.
+- **`verifyOtp(...)` mislabels transient network failures as an expired link**
+  (`ResetPasswordPage.tsx:34-42`). supabase-js converts a failed fetch into an
+  `AuthRetryableFetchError` and `verifyOtp` **resolves** with it in `{ error }` (it does not
+  reject), so the existing `.then(({ error }) => …)` runs and shows "This reset link has
+  expired" for what is really a transient outage. Fix by inspecting the resolved `error` and
+  distinguishing retryable/network errors (offer retry) from a genuinely invalid/expired
+  token — a bare `.catch` is not the fix, since the promise resolves rather than throws.
 - **Duplicated auth-screen chrome.** `LoginPage`, `ResetPasswordPage`, `ForgotPasswordPage`
   repeat the same gradient wrapper, `GlassCard`, motion header, and password show/hide
   input. Extract an `AuthShell` + `PasswordField` to cut duplication and keep the three
@@ -160,6 +184,13 @@ source. File:line references are current.
   enables → login/signup/reset broken. **Needs verification against a live deploy** (the
   widget may render in its own `hcaptcha.com` iframe, in which case the parent `connect-src`
   doesn't apply). Low effort to add the origins defensively.
+- **CSP `connect-src` hard-codes a single Supabase project** (`portal-v2/vercel.json:15` →
+  `https://poeyztlmsawfoqlanucc.supabase.co` plus its `wss://`), while `.env.example` and the
+  README tell operators to supply their own `VITE_SUPABASE_URL`. On any preview, replacement,
+  or fresh deployment pointed at a different project, the page loads but the browser **blocks
+  every auth, profile, and Realtime XHR/WebSocket** to the configured host — a silent, total
+  auth outage. *Fix:* generate the CSP from the deployment's Supabase URL, or document that
+  `vercel.json`'s CSP and `VITE_SUPABASE_URL` must be changed together.
 - **CAPTCHA is a deployment-verified control**, not repo-provable: the client widget +
   disabled button enforce nothing server-side; Supabase enforces it only when the provider
   secret is enabled in the hosted project. Same class as RLS — confirm it's live.
@@ -173,14 +204,17 @@ source. File:line references are current.
 ### NEW (this pass)
 
 - **Low — Weak client-side password minimum.** `LoginPage.tsx:137` and
-  `ResetPasswordPage.tsx:118,149` enforce only `minLength={6}`. Six characters is below
-  current guidance (NIST 800-63B suggests an 8-char floor and length-first policies) and is
-  client-only (bypassable). The real floor is whatever the Supabase project's password
-  policy is set to — **raise the hosted minimum to ≥ 8**. Note `LoginPage` shares a single
-  password field between sign-in and signup, so raise the client `minLength` only on
-  **signup and password reset**; keep **sign-in** at the existing minimum so current users
-  with 6–7-char passwords can still submit (Supabase validates real credentials server-side
-  regardless). *Needs verification of the live Supabase password policy.*
+  `ResetPasswordPage.tsx:118,149` enforce only `minLength={6}`, and it is client-only
+  (bypassable). Eight characters is **not** the current NIST bar for this portal: NIST
+  SP 800-63B-4 sets a longer verifier minimum for a password used as a **single factor**
+  (this portal is email/password — hCaptcha is bot mitigation, not a second factor), and
+  permits 8 only when the password participates in MFA. Recommend a length-first policy with
+  a **≥ 12–15-char** minimum; treat 8 as a non-NIST floor at most. The real floor is whatever
+  the Supabase project's password policy is set to. Note `LoginPage` shares a single password
+  field between sign-in and signup, so raise the client `minLength` only on **signup and
+  password reset**; keep **sign-in** at the existing minimum so current users with shorter
+  passwords can still submit (Supabase validates real credentials server-side regardless).
+  *Needs verification of the live Supabase password policy.*
 
 ## 5. Testing Gaps
 
@@ -202,8 +236,8 @@ source. File:line references are current.
 
 ## 6. Suggested Next Actions
 
-1. **Rewrite the Supabase client as a single routed client** (fixes both HIGH findings at
-   once) — this is the highest-leverage change on the portal.
+1. **Rewrite the Supabase client as a single routed client** (fixes the HIGH remember-me
+   logout and the Medium client-swap listener leak at once) — highest-leverage portal change.
 2. **Guard `logout()` against `signOut()` errors** (`useAuth.ts:112`) and surface failures to
    callers.
 3. **Add a `BEFORE DELETE` last-admin guard** (or deny DELETE) in `supabase/portal_schema.sql`.
@@ -211,8 +245,10 @@ source. File:line references are current.
    skeleton).
 5. **Fix `portal-v2/README.md`** setup steps (schema path + remove `portal/` references) so a
    fresh project actually applies RLS.
-6. **Verify-then-fix the deploy-contingent items:** hCaptcha `connect-src`, bucket
-   `public:false`, live CAPTCHA secret, and the Supabase password-minimum policy.
+6. **Verify-then-fix the deploy-contingent items:** hCaptcha `connect-src`, the hard-coded
+   Supabase host in `connect-src` vs. a configurable `VITE_SUPABASE_URL`, the broken-on-
+   confirm signup flow, bucket `public:false`, the live CAPTCHA secret, and the Supabase
+   password-minimum policy.
 7. **Backfill the auth test gaps** in §5 so the next refactor of this surface is safe.
 
 ### Daily Verdict
@@ -221,8 +257,10 @@ source. File:line references are current.
 merge. No new application code landed in the daily window, the Python billing engine is
 healthy (compiles clean, cron path untouched, branch even with `master`), so there is
 nothing new that risks production today. The caveat is that every genuine auth bug found on
-2026-10-20 is **still open and unfixed** — two HIGH session-handling defects, a swallowed
-logout error, a last-admin self-DELETE gap, and a README that leaves RLS unapplied. None
+2026-10-20 is **still open and unfixed** — one HIGH session-handling defect (remember-me
+logout), plus the Medium client-swap listener leak, a swallowed logout error, a last-admin
+self-DELETE gap, a broken-on-confirm signup flow, and a README that blocks fresh setup. None
 touch the billing cron, but they should be fixed before the next change to the portal auth
-surface. Deploy-contingent claims (RLS, CAPTCHA, CSP, password policy) hold only for the
-committed config — verify them against the live Supabase/Vercel project.
+surface. Deploy-contingent claims (RLS, CAPTCHA, CSP + configurable Supabase host, password
+policy) hold only for the committed config — verify them against the live Supabase/Vercel
+project.
