@@ -272,6 +272,11 @@ source. File:line references are current.
   any signed-URL error as proof of an RLS denial — so if it were ever wired into CI it could
   report access controls pass without testing them. Any such probe must assert the *expected*
   empty/denied result and fail on unexpected Supabase errors.)
+- **No component tests for the core auth forms** (carryover). `LoginPage` and
+  `ForgotPasswordPage` have no tests at all, and `ResetPasswordPage.test.tsx` never submits
+  the form or exercises `updateUser` (its failure path or the success redirect). So the
+  signup, reset-request, and credential-change flows are untested end-to-end — the §6
+  backfill should cover them, not just the hook-level cases above.
 
 ## 6. Suggested Next Actions
 
