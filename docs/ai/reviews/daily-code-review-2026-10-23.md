@@ -126,8 +126,11 @@ source. File:line references are current.
 - **Why it matters:** An operator following the guide fails at the schema step (so the
   tables + RLS defined in `supabase/portal_schema.sql` are never applied) and again at
   `cd ../portal`.
-- **Fix:** Rewrite the setup section: correct the schema path and delete the obsolete
-  Express/`portal/` steps.
+- **Fix:** Rewrite the setup section: correct the schema path, delete the obsolete
+  Express/`portal/` steps, and document the **required `VITE_HCAPTCHA_SITEKEY`** (plus the
+  hosted hCaptcha secret). The README currently lists only the two Supabase vars, but without
+  a real sitekey every auth form stays disabled (see §4), so the setup is incomplete even
+  after the schema/Express fixes.
 
 ### Medium — Approved users aren't released from `/pending` live
 - **Severity:** Medium (functional / UX)
@@ -194,6 +197,17 @@ source. File:line references are current.
 - **CAPTCHA is a deployment-verified control**, not repo-provable: the client widget +
   disabled button enforce nothing server-side; Supabase enforces it only when the provider
   secret is enabled in the hosted project. Same class as RLS — confirm it's live.
+- **Missing/placeholder hCaptcha sitekey disables all auth forms (setup footgun, carryover).**
+  `LoginPage.tsx:207` and `ForgotPasswordPage.tsx:124` gate submission on a captcha token, and
+  the widget reads `import.meta.env.VITE_HCAPTCHA_SITEKEY` (`.env.example:4` ships a
+  placeholder). A fresh deploy that configures only the two Supabase vars leaves login,
+  signup, and password-reset permanently un-submittable. *Fix:* require a real
+  `VITE_HCAPTCHA_SITEKEY` in the setup docs and fail loudly if it's absent.
+- **Signup error surfacing enables user-enumeration (carryover, deployment-contingent).**
+  `LoginPage.tsx:38-39`'s catch block renders the raw Supabase error, so a distinguishable
+  duplicate-registration message (possible with email confirmation disabled) reveals that a
+  submitted email already has an account. *Fix:* map signup failures to a generic message
+  unless the live project's email-enumeration protection is verified. Low severity.
 - **Password-reset token in the URL query string** (`ResetPasswordPage.tsx:30-35`,
   `?token_hash=...&type=recovery`): standard for the Supabase PKCE recovery flow, but
   query-string secrets can leak via `Referer` headers and server logs. Low risk given it's
