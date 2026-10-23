@@ -16,10 +16,12 @@ audit_billing_changes.py` → OK). The last substantive code change remains
 
 Because nothing changed, today's job is verification: I re-checked each genuine bug the
 2026-10-20 second pass found against the current source. **All of them are still
-present and unfixed.** The three real client bugs (remember-me same-tab logout, swallowed
-`signOut()` error, last-admin self-DELETE gap) and the stale `portal-v2/README.md` setup
-path are unchanged. One additional low-severity item (weak client password minimum) is
-added below. The Python cron pipeline is healthy and untouched.
+present and unfixed.** The two HIGH auth defects (remember-me same-tab logout, and the
+stale `onAuthStateChange` listener after the login client-swap), the swallowed `signOut()`
+error (a client bug), the last-admin self-DELETE gap (a **database/schema/RLS** issue, not a
+client bug), and the stale `portal-v2/README.md` setup path are all unchanged. One
+additional low-severity item (weak client password minimum) is added below. The Python cron
+pipeline is healthy and untouched.
 
 The important signal for today: **the open auth findings from 2026-10-20 have not been
 actioned.** They should be fixed before the next auth change touches this surface.
@@ -151,8 +153,11 @@ source. File:line references are current.
   `ResetPasswordPage.tsx:118,149` enforce only `minLength={6}`. Six characters is below
   current guidance (NIST 800-63B suggests an 8-char floor and length-first policies) and is
   client-only (bypassable). The real floor is whatever the Supabase project's password
-  policy is set to — **raise the hosted minimum to ≥ 8** and align the client `minLength` to
-  match. *Needs verification of the live Supabase password policy.*
+  policy is set to — **raise the hosted minimum to ≥ 8**. Note `LoginPage` shares a single
+  password field between sign-in and signup, so raise the client `minLength` only on
+  **signup and password reset**; keep **sign-in** at the existing minimum so current users
+  with 6–7-char passwords can still submit (Supabase validates real credentials server-side
+  regardless). *Needs verification of the live Supabase password policy.*
 
 ## 5. Testing Gaps
 
@@ -166,9 +171,11 @@ source. File:line references are current.
 - **No test for `AuthGuard` when `fetchProfile` errors** — assert the guard does not hang in
   `resolving` forever.
 - **No test for `logout()` error propagation** once the error is no longer swallowed.
-- **No DB-level test/probe** asserting the last-admin DELETE is blocked and the
-  `excel-artifacts` bucket is private (the `scripts/security-probe.ts` probe still isn't
-  wired into any workflow).
+- **No test/probe for the last-admin DELETE guard** — there is no assertion anywhere that
+  deleting the last admin row is blocked. (Separately, a bucket-privacy probe *does* exist —
+  `scripts/security-probe.ts:107-118` (SEC-01b) asserts an anon Storage GET on
+  `excel-artifacts` returns 400/403 — but it still isn't wired into any workflow, so it
+  never runs in CI.)
 
 ## 6. Suggested Next Actions
 
