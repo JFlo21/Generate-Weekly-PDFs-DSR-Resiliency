@@ -85,7 +85,11 @@ source. File:line references are current.
   navbar) take the success path and "log the user out" in the UI only. (Confirmed
   unchanged.)
 - **Fix:** `const { error } = await supabase.auth.signOut(); if (error) throw error;` and
-  let callers show a failure state.
+  let callers show a failure state. Caveat: `Navbar.tsx:87` currently wires
+  `onClick={logout}`, passing the promise straight to the handler with no `await`/`catch` —
+  so once `logout()` can reject, the navbar **must** move to an async handler that catches
+  and surfaces the error, or the throw becomes an unhandled rejection with no feedback to
+  dashboard users. Fix both in the same change.
 
 ### Medium — Last admin can DELETE their own profile → zero admins
 - **Severity:** Medium (security, defense-in-depth / recoverability)
@@ -95,11 +99,19 @@ source. File:line references are current.
   grants admins `FOR ALL`, including DELETE. An admin deleting their own `profiles` row
   bypasses the UI guard and the trigger, leaving no administrator and no in-app way to
   promote one. (Confirmed: the trigger is still `BEFORE UPDATE ON public.profiles`.)
-- **Fix:** Add a concurrency-safe `BEFORE DELETE` guard that blocks deleting the last
-  admin row, or deny DELETE on `profiles` at the policy level.
+- **Fix:** Add a concurrency-safe `BEFORE DELETE` guard that blocks deleting the last admin
+  row, or deny DELETE on `profiles` at the policy level. **Also harden the existing
+  `BEFORE UPDATE` demotion guard**: it runs an unlocked `COUNT(*)`, so with exactly two
+  admins two concurrent demotions can each read a count of 2 and both commit → zero admins.
+  Apply the same transaction-level serialization (e.g. an advisory lock or `SELECT … FOR
+  UPDATE` on the admin set) to **both** the DELETE and UPDATE paths.
 
 ### Medium — `portal-v2/README.md` setup guide is stale and fails
-- **Severity:** Medium (setup correctness; a fresh project left with **no RLS applied**)
+- **Severity:** Medium (setup / bootstrap failure). *Consequence is an availability
+  failure, not data exposure:* `supabase/portal_schema.sql` creates the tables **and**
+  enables RLS in the same script, so a fresh project that never runs it has **no portal
+  tables at all** (PostgREST 404s) — not unprotected ones. (The separate drift risk for an
+  existing hand-applied project is its own concern.)
 - **File:** `portal-v2/README.md:58` (points at non-existent
   `portal-v2/supabase/schema.sql`; real path is `supabase/portal_schema.sql`),
   and `:101,:106,:155` (reference the removed `portal/` Express dir — `cd ../portal`,
@@ -109,6 +121,17 @@ source. File:line references are current.
   `cd ../portal`.
 - **Fix:** Rewrite the setup section: correct the schema path and delete the obsolete
   Express/`portal/` steps.
+
+### Medium — Approved users aren't released from `/pending` live
+- **Severity:** Medium (functional / UX)
+- **File:** `components/auth/PendingApprovalPage.tsx` + `hooks/useAuth.ts:29-78`
+- **Problem:** `PendingApprovalPage` only reacts when the context `profile` changes, but
+  `useAuthState` refetches the profile only on initial load and on auth-state events. An
+  admin flipping `profiles.role` from `pending` to an active role emits no auth event in the
+  waiting user's tab, so an approved user stays stranded on `/pending` until a token refresh
+  or a manual reload. (Carryover from 2026-10-20; still open — no portal code changed.)
+- **Fix:** Add a Supabase Realtime subscription on the user's own `profiles` row (or a
+  lightweight poll / manual "refresh status" action) so an approval releases the tab live.
 
 ## 3. Code Quality Improvements
 
