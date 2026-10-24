@@ -5,27 +5,9 @@ title: What's New
 
 # What's New
 
-_Last updated: October 23, 2026 (updated automatically)_
+_Last updated: October 24, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
-
-### 📋 Changelog — October 23, 2026
-
-- ✅ Problem fixed: BUG-183 compare-and-set account writes behind MANIFEST&#95;ACCOUNT&#95;CAS&#95;LIVE&#95;WRITE (migration 0028, not applied) -- supersedes
-- ✅ Problem fixed: post-merge Copilot triage -- /latest carries viewer&#95;wr&#95;scope; fence guarantee downgraded (BUG-183)
-- ✅ Problem fixed: PR Copilot round 4 -- lifecycle fence, ambiguous account writes, deep-link viewer scope
-- • Phase 39.1: GF supervisor scope (management wr&#95;scope=all), User Access scope control, access audit
-- ✅ Problem fixed: BUG-173 defer the approval while the new version's Register row is pending
-- ✅ Problem fixed: close the lingering PR Greptile findings (BUG-175..180) + Opus review round
-- ✅ Problem fixed: write Assigned Inspector as a contact objectValue (BUG-174)
-- ✨ New capability: Return is the single GF/admin approval path (unified GF Return, quick 261020-06k)
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -36,12 +18,30 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — October 24, 2026
+
+- 📄 Help guides updated: Phase 39.1 close-out -- PR merged + deployed; 0030 applied; 0029 recorded
+- 📄 Help guides updated: migration 0028 applied on the app project; PR merged; Copilot follow-ups deferred
+- ✅ Problem fixed: CAS gate requires the audit gate (fail closed); migration 0029 fences CAS writes on the scope write id (Copilot PR , BUG-184)
+- ✅ Problem fixed: BUG-183 compare-and-set account writes behind MANIFEST&#95;ACCOUNT&#95;CAS&#95;LIVE&#95;WRITE (migration 0028, not applied) -- supersedes
+- ✅ Problem fixed: post-merge Copilot triage -- /latest carries viewer&#95;wr&#95;scope; fence guarantee downgraded (BUG-183)
+- ✅ Problem fixed: PR Copilot round 4 -- lifecycle fence, ambiguous account writes, deep-link viewer scope
+- • Phase 39.1: GF supervisor scope (management wr&#95;scope=all), User Access scope control, access audit
+- ✅ Problem fixed: BUG-173 defer the approval while the new version's Register row is pending
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — October 23, 2026
+### 📋 Changelog — October 24, 2026
 
 - 📄 Help guides updated: daily code review 2026-10-20
 - 📄 Help guides updated: automated plain-language update from Notion Worker
@@ -50,12 +50,24 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/docs -->
+## docs
+
+> ℹ️ **What this system does:** Use the starter kit to get your docs deployed and ready to customize.
+
+### 📋 Changelog — October 24, 2026
+
+- • Initial commit from Mintlify hosted docs
+- • Initial commit
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/claudeos -->
 ## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — October 23, 2026
+### 📋 Changelog — October 24, 2026
 
 - ✨ New capability: Impeccable as per-profile tooling — strip self-guarded hook entries whose tool is not exported (integrity 44/44); personal dry run
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -73,7 +85,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 23, 2026
+### 📋 Changelog — October 24, 2026
 
 - • 📊 Audit: 2026-10-19T07:10:13Z
 
@@ -462,7 +474,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 23, 2026
+### 📋 Changelog — October 24, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
