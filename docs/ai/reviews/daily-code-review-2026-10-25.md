@@ -32,10 +32,12 @@ still run the full suite per the repo's push gate. The auth layer is architectur
 (no code changed, so none could be fixed). The most important is the "Remember me"
 client-swap bug (§2 HIGH). I re-traced it this pass: the **reliably reproducible** symptom is
 the same-tab reload logout the prior review described; I initially also claimed it breaks the
-*initial* "Remember me"-off sign-in, but `@supabase/auth-js` 2.98.0 (pinned) uses a
-`BroadcastChannel` keyed on the shared storage key, so on browsers where that channel exists
-the orphaned listener still receives the new client's `SIGNED_IN` event and the initial-login
-bounce does **not** occur — it is a fallback-only symptom, not the primary one (see §2).
+*initial* "Remember me"-off sign-in, but the resolved `@supabase/auth-js` (modern — the two
+lockfiles differ, `package-lock.json` 2.98.0 vs `pnpm-lock.yaml` 2.103.3, both well past the
+feature's introduction) uses a `BroadcastChannel` keyed on the shared storage key, so on
+browsers where that channel exists the orphaned listener still receives the new client's
+`SIGNED_IN` event and the initial-login bounce does **not** occur — a fallback-only symptom,
+not the primary one (see §2).
 Because these are **standing, previously-reported** issues rather than a new regression, the
 posture is unchanged: **the Python pipeline is Safe to merge; `portal-v2` is
 Merge-with-fixes** — but nothing shipped today that *introduces* risk.
@@ -62,8 +64,9 @@ Merge-with-fixes** — but nothing shipped today that *introduces* risk.
   `sessionStorage`. This is the prior review's finding and it reproduces deterministically.
 - **Fallback-only symptom (initial-login bounce):** in principle the mount-time listener is
   orphaned by the client swap, so the sign-in's `SIGNED_IN` event would never update React
-  state and `AuthGuard` would bounce the user back to `/login`. In practice
-  `@supabase/auth-js` 2.98.0 broadcasts auth events over a `BroadcastChannel` keyed on the
+  state and `AuthGuard` would bounce the user back to `/login`. In practice the resolved
+  `@supabase/auth-js` (2.98.0 per `package-lock.json`, 2.103.3 per `pnpm-lock.yaml` — confirm
+  which the deploy installs) broadcasts auth events over a `BroadcastChannel` keyed on the
   shared storage key, and the orphaned listener's channel still receives the new client's
   `SIGNED_IN`, so React state *does* update and the bounce does **not** occur on browsers
   with `BroadcastChannel`. Treat the initial-login bounce as a degraded-fallback risk (no
@@ -161,10 +164,12 @@ Merge-with-fixes** — but nothing shipped today that *introduces* risk.
 
 ## 3. Code Quality Improvements
 
-- **`setSessionStorage` is a design smell, not just a bug** (§2 HIGH). Mutating an exported
-  `let supabase` binding at runtime means any module that imported the symbol earlier may hold
-  a stale reference. Consolidating to a single client with a storage adapter removes an entire
-  class of latent bugs.
+- **`setSessionStorage` is a design smell, not just a bug** (§2 HIGH). ES-module imports of the
+  exported `let supabase` are *live bindings*, so re-reading the symbol sees the new client —
+  the hazard is not stale importers but anything that **captured the client instance** at a
+  point in time: the `onAuthStateChange` subscription bound to the old client (the §2 bug), and
+  any code that copies `supabase` into a local before the swap. Consolidating to a single client
+  with a storage adapter removes that whole class of latent bugs.
 - **`[v0]` log prefix** in `fetchProfile` (`console.warn('[v0] …')`) reads like leftover
   scaffolding from a generator. Normalize to the project's logging convention or drop it.
 - **Duplicated gradient/orb markup** across `LoginPage`, `ResetPasswordPage`, and the other
