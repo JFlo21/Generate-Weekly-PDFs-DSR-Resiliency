@@ -9,9 +9,13 @@
 
 **No new application code shipped in the daily window.** `git log b60c3a6..HEAD`
 restricted to `portal-v2/`, `generate_weekly_pdfs.py`, `pipeline/`, and
-`audit_billing_changes.py` is **empty**. The last substantive code commit is still
-`1c52d10` (`fix(11-09): USER-variant groups dropped…`, #409) from **2026-09-14**; the key
-auth files (`useAuth.ts`, `lib/supabase.ts`) were last touched in that same commit.
+`audit_billing_changes.py` is **empty**. The last substantive *billing-pipeline* commit is
+still `1c52d10` (`fix(11-09): USER-variant groups dropped…`, #409) from **2026-09-14**. The
+portal **auth** files are older still and unchanged since spring: `lib/supabase.ts` was last
+touched by `1723bdf` (*feat(04-01): fail-loud factory + Remember-Me swap*, 2026-06-01) and
+`useAuth.ts` by `2e348c2` (*feat(04-03): captcha, remember-me, resetPassword, role helpers*,
+2026-06-01) — both well before the 2026-10-20 review, so still outside today's window. (The
+"Remember-Me swap" named in `1723bdf` is exactly the pattern flagged in §2 HIGH.)
 Everything since is an automated `docs(runbook)` update from the Notion Worker plus the
 previous review doc (#421). So this is a **state-of-repo audit**, weighted to the special
 focus: the portal auth flow (`portal-v2/`, React 18 + Supabase).
@@ -62,8 +66,20 @@ but nothing shipped today that *introduces* risk.
      never changes, so the mount-time listener stays valid.
      ```ts
      // lib/supabase.ts
-     let useSession = false;
-     export function setSessionStorage(v: boolean) { useSession = v; }
+     // Persist the choice itself in localStorage so the adapter restores it at
+     // module load — otherwise `useSession` resets to false on reload and the
+     // adapter reads localStorage while a tab-only session lives in
+     // sessionStorage, silently dropping the session on refresh.
+     const PERSIST_KEY = 'auth.persistence';
+     let useSession = (() => {
+       try { return localStorage.getItem(PERSIST_KEY) === 'session'; }
+       catch { return false; }
+     })();
+     export function setSessionStorage(v: boolean) {
+       useSession = v;
+       try { localStorage.setItem(PERSIST_KEY, v ? 'session' : 'local'); }
+       catch { /* storage unavailable — fall back to in-memory flag */ }
+     }
      const hybridStorage: Storage = {
        getItem: (k) => (useSession ? sessionStorage : localStorage).getItem(k),
        setItem: (k, val) => (useSession ? sessionStorage : localStorage).setItem(k, val),
@@ -74,13 +90,20 @@ but nothing shipped today that *introduces* risk.
        auth: { storage: hybridStorage, persistSession: true, autoRefreshToken: true },
      });
      ```
-     Set the flag before sign-in (as today) — but never recreate the client.
+     Set the flag before sign-in (as today) — but never recreate the client. The
+     `PERSIST_KEY` flag is only a per-device preference, not a credential: after a
+     restart it still points at `sessionStorage`, which is empty, so the user is
+     correctly asked to log in again; on a same-tab reload `sessionStorage` still
+     holds the token, so the session survives.
   2. **Minimum viable** — if the swap must stay, re-subscribe the listener after the swap
      and re-seed state from `getSession()` on the new client. This is strictly more fragile
      than (1).
-- **Test to add:** a Vitest case that signs in with `rememberMe=false` and asserts `user`
-  becomes non-null and the listener survives the storage swap. There is currently **no test
-  touching `rememberMe` / `setSessionStorage`** (grep confirms).
+- **Tests to add (two):** (1) sign in with `rememberMe=false` and assert `user` becomes
+  non-null (initial-login propagation); (2) sign in with `rememberMe=false`, then simulate a
+  same-tab reload (re-import the module / re-create the hook) and assert the session is
+  restored from `sessionStorage` — guards the reload regression the single-client adapter
+  must avoid. There is currently **no test touching `rememberMe` / `setSessionStorage`**
+  (grep confirms).
 
 ### MEDIUM — Profile-fetch failure strands a logged-in user on the loading skeleton
 - **Severity:** Medium (availability / UX) — **unchanged from 2026-10-20, still present**
