@@ -21,25 +21,31 @@ previous review doc (#421). So this is a **state-of-repo audit**, weighted to th
 focus: the portal auth flow (`portal-v2/`, React 18 + Supabase).
 
 **Overall health: good on the production path, unchanged risk on the portal.** The Python
-billing engine compiles clean (`py_compile` on `generate_weekly_pdfs.py` +
-`audit_billing_changes.py`). The billing cron is untouched and healthy. The auth layer is
-architecturally mature (client guards backed by server-side RLS, full CSP/HSTS header set).
+billing engine passes a syntax check (`py_compile` on `generate_weekly_pdfs.py` +
+`audit_billing_changes.py`), and the pipeline path is unchanged since #409. This review did
+**not** run the full `pytest tests/ -v` suite, so "cron healthy" here means *unchanged and
+syntactically valid*, not *test-verified* — a contributor landing a pipeline change must
+still run the full suite per the repo's push gate. The auth layer is architecturally mature
+(client guards backed by server-side RLS, full CSP/HSTS header set), with specific gaps below.
 
 **However, the auth findings from the 2026-10-20 review are still present and unaddressed**
-(no code changed, so none could be fixed). The most important — the "Remember me"
-client-swap bug — I re-traced this pass and it is **worse than previously characterized**:
-it does not merely drop the session on a same-tab refresh, it breaks React state
-propagation for the *initial* "Remember me"-off sign-in as well. Details in §2. Because
-these are **standing, previously-reported** issues rather than a new regression, the posture
-is unchanged: **the Python pipeline is Safe to merge; `portal-v2` is Merge-with-fixes** —
-but nothing shipped today that *introduces* risk.
+(no code changed, so none could be fixed). The most important is the "Remember me"
+client-swap bug (§2 HIGH). I re-traced it this pass: the **reliably reproducible** symptom is
+the same-tab reload logout the prior review described; I initially also claimed it breaks the
+*initial* "Remember me"-off sign-in, but `@supabase/auth-js` 2.98.0 (pinned) uses a
+`BroadcastChannel` keyed on the shared storage key, so on browsers where that channel exists
+the orphaned listener still receives the new client's `SIGNED_IN` event and the initial-login
+bounce does **not** occur — it is a fallback-only symptom, not the primary one (see §2).
+Because these are **standing, previously-reported** issues rather than a new regression, the
+posture is unchanged: **the Python pipeline is Safe to merge; `portal-v2` is
+Merge-with-fixes** — but nothing shipped today that *introduces* risk.
 
 ---
 
 ## 2. Top Findings
 
 ### HIGH — "Remember me" swaps the Supabase singleton out from under the live auth listener
-- **Severity:** High (functional + session reliability; can bounce a correctly-authenticated user back to `/login`)
+- **Severity:** High (session reliability; a "Remember me"-off user is silently logged out on a same-tab reload)
 - **Files:** `portal-v2/src/lib/supabase.ts` (`setSessionStorage`) ↔ `portal-v2/src/hooks/useAuth.ts` (`useAuthState` effect, `login`)
 - **Problem:** `useAuthState`'s `useEffect` subscribes `onAuthStateChange` **once at mount**,
   on whatever `supabase` instance exists then (the default `localStorage` client). On
@@ -49,13 +55,20 @@ but nothing shipped today that *introduces* risk.
   listeners — but the only subscribed listener is bound to the **old, now-orphaned**
   client. So after a "Remember me"-off sign-in, `setUser`/`setSession`/`fetchProfile` never
   fire from the sign-in event.
-- **Observable effect:** `login()` resolves without error, `LoginPage` navigates to
-  `/dashboard`, but `AuthGuard` still sees `user === null` (state never updated) →
-  `resolving` is false → **redirect back to `/login`**. The session *is* valid in
-  `sessionStorage`, so behavior is confusing and intermittent-looking (a later auth event,
-  or a remount, may recover it). The previous review framed this as a same-tab-refresh
-  logout; the root cause is the stale-listener/stale-client split, which also degrades the
-  initial login.
+- **Reliable symptom (same-tab reload):** after a "Remember me"-off sign-in, the token lives
+  in `sessionStorage`. On a reload the module re-initializes the singleton as the **default
+  `localStorage` client**, and `getSession()` reads `localStorage` — which is empty — so the
+  user is silently logged out even though a valid tab-scoped session exists in
+  `sessionStorage`. This is the prior review's finding and it reproduces deterministically.
+- **Fallback-only symptom (initial-login bounce):** in principle the mount-time listener is
+  orphaned by the client swap, so the sign-in's `SIGNED_IN` event would never update React
+  state and `AuthGuard` would bounce the user back to `/login`. In practice
+  `@supabase/auth-js` 2.98.0 broadcasts auth events over a `BroadcastChannel` keyed on the
+  shared storage key, and the orphaned listener's channel still receives the new client's
+  `SIGNED_IN`, so React state *does* update and the bounce does **not** occur on browsers
+  with `BroadcastChannel`. Treat the initial-login bounce as a degraded-fallback risk (no
+  `BroadcastChannel`, or a future auth-js that drops it), not the primary failure. **Needs
+  verification** on the exact target-browser matrix if this is to be relied on.
 - **Why it matters:** "Remember me" unchecked is a normal, security-conscious choice
   (shared workstations). A core auth path should not depend on a later incidental auth
   event to reconcile React state.
@@ -98,12 +111,12 @@ but nothing shipped today that *introduces* risk.
   2. **Minimum viable** — if the swap must stay, re-subscribe the listener after the swap
      and re-seed state from `getSession()` on the new client. This is strictly more fragile
      than (1).
-- **Tests to add (two):** (1) sign in with `rememberMe=false` and assert `user` becomes
-  non-null (initial-login propagation); (2) sign in with `rememberMe=false`, then simulate a
+- **Tests to add (two):** (1) **primary** — sign in with `rememberMe=false`, then simulate a
   same-tab reload (re-import the module / re-create the hook) and assert the session is
-  restored from `sessionStorage` — guards the reload regression the single-client adapter
-  must avoid. There is currently **no test touching `rememberMe` / `setSessionStorage`**
-  (grep confirms).
+  restored from `sessionStorage`; this guards the deterministic reload logout. (2) sign in
+  with `rememberMe=false` and assert `user` becomes non-null without a `BroadcastChannel`
+  (mock it absent) — covers the fallback initial-login bounce. There is currently **no test
+  touching `rememberMe` / `setSessionStorage`** (grep confirms).
 
 ### MEDIUM — Profile-fetch failure strands a logged-in user on the loading skeleton
 - **Severity:** Medium (availability / UX) — **unchanged from 2026-10-20, still present**
@@ -128,14 +141,21 @@ but nothing shipped today that *introduces* risk.
 - **Recommended fix:** `const { error } = await supabase.auth.signOut(); if (error) throw error;`
   and surface it where `logout()` is called.
 
-### NEEDS VERIFICATION — CSP vs hCaptcha on the login path
-- **Severity:** Needs verification (P1 if confirmed) — carried from 2026-10-20
-- **Files:** `portal-v2/vercel.json` (CSP) + `LoginPage.tsx` (hCaptcha widget; submit is gated on `!captchaToken`)
-- **Problem:** `LoginPage` disables the submit button until an hCaptcha token exists. If the
-  deployed CSP (`script-src`/`frame-src`/`connect-src`) does not whitelist hCaptcha origins
-  (`hcaptcha.com`, `*.hcaptcha.com`), the widget never loads, no token is produced, and
-  **login is impossible**. Verify the live CSP against hCaptcha's required origins; this is a
-  config check, not a code change.
+### HIGH — CSP omits hCaptcha from `connect-src` (login/signup/reset can be blocked)
+- **Severity:** High (availability of every auth path) — **confirmed in the committed config**
+- **Files:** `portal-v2/vercel.json` (CSP) + `LoginPage.tsx` (submit gated on `!captchaToken`)
+- **Problem:** The committed CSP whitelists hCaptcha in `script-src`, `style-src`, and
+  `frame-src`, but its `connect-src` is `'self' https://poeyztlmsawfoqlanucc.supabase.co
+  wss://…supabase.co https://*.ingest.sentry.io` — **the hCaptcha origins are missing.**
+  hCaptcha's own [CSP guide](https://docs.hcaptcha.com/#content-security-policy-settings)
+  requires `https://hcaptcha.com https://*.hcaptcha.com` in `connect-src` for the widget's
+  verification XHRs. `LoginPage` keeps the submit button disabled until a token exists, so if
+  those connections are blocked no token is produced and **login, signup, and password reset
+  all become unavailable.** The config non-compliance is a confirmed fact; the only thing left
+  to verify is the live user-facing impact (whether the widget still functions entirely inside
+  its iframe), which is a quick check, not a prerequisite for fixing the directive.
+- **Recommended fix:** add `https://hcaptcha.com https://*.hcaptcha.com` to `connect-src` in
+  `portal-v2/vercel.json`, matching the other three hCaptcha directives.
 
 ---
 
@@ -156,20 +176,30 @@ but nothing shipped today that *introduces* risk.
 
 ## 4. Security Review
 
-- **RLS is the real backstop and it is correct in schema** — client guards (`AuthGuard`,
-  `RoleGuard`) are UX only; a non-admin cannot self-promote via the browser client *provided
-  the `supabase/portal_schema.sql` policies are actually applied to the live project.* The
-  schema is applied by hand (no CLI migration), so **confirm deployed RLS against the hosted
-  DB** — this remains the single most important thing to verify out-of-band.
+- **RLS is the real backstop for self-promotion** — client guards (`AuthGuard`, `RoleGuard`)
+  are UX only; a non-admin cannot self-promote via the browser client *provided the
+  `supabase/portal_schema.sql` policies are actually applied to the live project.* The schema
+  is applied by hand (no CLI migration), so **confirm deployed RLS against the hosted DB** —
+  the single most important thing to verify out-of-band.
+- **Last-admin lockout via DELETE (standing finding, carried from 2026-10-20).** The schema is
+  *not* fully correct: `profiles_admin_all` grants admins `FOR ALL` on `public.profiles`, but
+  the `check_last_admin` guard is `BEFORE UPDATE` only (`supabase/portal_schema.sql:172`). An
+  admin can therefore **DELETE** the sole admin profile and bypass `prevent_last_admin_demotion`,
+  leaving the portal with no administrator. Fix: deny profile deletion, or add an equivalent
+  `BEFORE DELETE` trigger that blocks removing the last admin.
 - **Token storage:** access/refresh tokens live in Web Storage (`localStorage` default,
   `sessionStorage` for "Remember me"-off). This is standard for the supabase-js browser SDK
   but is XSS-reachable — which is why the CSP header set matters (see §2 CSP item). No tokens
   in cookies, so there is no CSRF surface from this app; keep it that way.
 - **No secrets in client code** — only `VITE_SUPABASE_URL`, the anon key, and the hCaptcha
   *site* key are referenced, all public-by-design. No service-role key in `portal-v2/`.
-- **Error messages** on the login form surface the raw Supabase `error.message`. Supabase
-  deliberately returns a generic "Invalid login credentials" for bad email/password (no user
-  enumeration), so this is acceptable; just avoid ever widening it to echo backend internals.
+- **Error messages — signin is fine, signup enables enumeration.** The shared `LoginPage`
+  catch block surfaces the raw Supabase `error.message` for both `login()` and `signup()`. For
+  signin that is safe (Supabase returns a generic "Invalid login credentials", no enumeration).
+  For **signup** it is not: when "Confirm email" is disabled — a mode `portal-v2/README.md`
+  explicitly permits — `signUp()` returns "User already registered" for an existing confirmed
+  account, letting an attacker enumerate registered emails via the signup form. Fix: map
+  signup failures to a generic message (or gate this on the deployed confirmation setting).
 - **Python / Smartsheet:** no change this window. The token-only-via-env rule and the
   `@cell`-formula prohibition continue to hold in the codebase.
 
@@ -186,16 +216,20 @@ but nothing shipped today that *introduces* risk.
 
 ## 6. Suggested Next Actions
 
-1. **Fix the client-swap auth bug** (§2 HIGH) via the single-client storage-adapter pattern;
-   add the `rememberMe` Vitest case.
-2. **Verify the live CSP includes hCaptcha origins** (§2 Needs-verification) — fastest, cheapest
-   check; a failure here is a full login outage.
-3. **Add a terminal error state to `fetchProfile`** and resolve `AuthGuard` to an inline
-   error + Retry (§2 MEDIUM).
-4. **Surface `signOut()` errors** instead of swallowing them (§2 LOW–MEDIUM).
-5. **Confirm deployed RLS** on the hosted Supabase project matches `portal_schema.sql`
-   (§4) — out-of-band, but it is the real authorization boundary.
-6. Housekeeping: extract a shared `AuthShell`, drop the `[v0]` log prefix, and replace
+1. **Add hCaptcha origins to `connect-src`** in `portal-v2/vercel.json` (§2 HIGH) — a one-line
+   config fix for a confirmed non-compliance that can take down every auth path; verify the
+   live widget afterward.
+2. **Fix the client-swap auth bug** (§2 HIGH) via the single-client storage-adapter pattern;
+   add the reload + fallback `rememberMe` Vitest cases.
+3. **Add a `BEFORE DELETE` last-admin guard** (or deny profile deletion) so an admin cannot
+   DELETE the sole admin and lock the portal out of administration (§4).
+4. **Map signup failures to a generic message** so the signup form stops enumerating
+   registered emails when "Confirm email" is disabled (§4).
+5. **Add a terminal error state to `fetchProfile`** and resolve `AuthGuard` to an inline
+   error + Retry (§2 MEDIUM); **surface `signOut()` errors** instead of swallowing them.
+6. **Confirm deployed RLS** on the hosted Supabase project matches `portal_schema.sql` (§4) —
+   out-of-band, but it is the real authorization boundary.
+7. Housekeeping: extract a shared `AuthShell`, drop the `[v0]` log prefix, and replace
    string-match error classification in `ResetPasswordPage` with code/status branching.
 
 ---
@@ -203,8 +237,10 @@ but nothing shipped today that *introduces* risk.
 ## Daily Verdict
 
 **Merge with fixes** (scoped to `portal-v2`). The production Python billing pipeline is
-healthy and untouched — **Safe to merge** on its own. No new code shipped in the daily
-window, so nothing *new* introduces risk; but the portal auth layer carries **standing,
-unaddressed bugs** from the prior review, the most serious being the "Remember me"
-client-swap that can bounce a correctly-authenticated user back to `/login`. Land the §2
-HIGH fix and verify the CSP↔hCaptcha config before treating `portal-v2` as merge-ready.
+unchanged since #409 and syntactically clean — **Safe to merge** on its own (the full pytest
+suite was not run here, so a pipeline change still owes that gate). No new code shipped in the
+daily window, so nothing *new* introduces risk; but the portal auth layer carries **standing,
+unaddressed bugs**. The two highest-priority items are both availability-of-login risks: the
+**CSP omitting hCaptcha from `connect-src`** (a confirmed one-line config non-compliance) and
+the **"Remember me"-off same-tab reload logout**. Land those two, plus the `BEFORE DELETE`
+last-admin guard and the signup-enumeration fix, before treating `portal-v2` as merge-ready.
