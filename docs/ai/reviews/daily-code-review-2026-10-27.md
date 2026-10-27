@@ -8,8 +8,9 @@
 ## 1. Executive Summary
 
 **No application code changed in the review window — and none has changed for ~6 weeks.**
-The branch is byte-identical to `origin/master` (`git rev-list --left-right --count`
-= `0 0`). Every commit since the 2026-10-20 review (`b60c3a6`, #421) is either an automated
+The application-code tree is unchanged from `origin/master`: before this review doc was
+committed, `git rev-list --left-right --count origin/master...HEAD` returned `0 0` (this PR
+then adds only this report). Every commit since the 2026-10-20 review (`b60c3a6`, #421) is either an automated
 `docs(runbook)` prose update to `website/docs/runbook/whats-new.md` or a prior daily-review
 doc. The last substantive code commit remains `1c52d10` (#409, 2026-09-14); the auth files
 (`portal-v2/src/hooks/useAuth.ts`, `AuthGuard.tsx`) last changed 2026-09-15 and are
