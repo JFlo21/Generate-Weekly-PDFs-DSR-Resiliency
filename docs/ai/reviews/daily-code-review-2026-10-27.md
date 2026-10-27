@@ -1,6 +1,6 @@
 # Daily Code Review & Code Quality Check — 2026-10-27
 
-**Repo:** `generate-weekly-pdfs-dsr-resiliency` · **Branch:** `claude/zealous-ramanujan-x9e65n` (even with `master`)
+**Repo:** `generate-weekly-pdfs-dsr-resiliency` · **Branch:** `claude/zealous-ramanujan-x9e65n` (application code even with `master`; this PR adds only this report)
 **Reviewer:** automated senior-engineer pass · **Scope:** changed-code check → confirmed no code delta → state-of-repo + process audit.
 
 ---
@@ -167,7 +167,7 @@ nothing new to merge from today's window itself.
 
 ## Daily Verdict
 
-**Merge with fixes.** No code changed in this window, so there is nothing new to break — the
+**Merge with fixes.** No application code changed in this window, so there is nothing new to break — the
 billing engine compiles clean and is unaffected. But the review automation is not translating
 into change: five daily-review PRs are open and unmerged, and the portal-v2 auth defects first
 raised weeks ago remain live and unpatched. The correct next step is process, not more review:
