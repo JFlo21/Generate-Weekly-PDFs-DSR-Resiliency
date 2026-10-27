@@ -73,18 +73,27 @@ nothing new to merge from today's window itself.
 - **Fix:** capture and surface the error; on a shared device, failing to clear the session is a
   security-relevant event worth a Sentry breadcrumb and a user-visible "could not sign out".
   ```ts
+  import { Sentry } from '../lib/sentry'; // module exports `Sentry` (@sentry/react)
   async function logout(): Promise<void> {
     const { error } = await supabase.auth.signOut();
-    if (error) { sentryCapture(error); throw error; }
+    if (error) { Sentry.captureException(error); throw error; }
   }
   ```
+  (Use the repo's actual API — `lib/sentry.ts` exports `Sentry` and existing code calls
+  `Sentry.captureException`; there is no `sentryCapture` helper.)
 
-### MEDIUM — "Remember me" off + same-tab refresh behaviour *(needs verification, still live)*
-- **File:** `useAuth.ts` `login` (L80–95) + `setSessionStorage` in `lib/supabase`.
-- **Problem flagged in #421:** with "Remember me" unchecked the client is swapped to
-  `sessionStorage`; confirm a same-tab reload keeps the session as intended and that the
-  storage swap at `createClient` time composes correctly with `getSession()` on reload. Label:
-  **Needs verification** against a live build — unchanged since first raised.
+### HIGH — "Remember me" off → logged out on same-tab refresh *(confirmed in #421, still live)*
+- **File:** `useAuth.ts` `login` (L80–95) + `setSessionStorage` / the client singleton in
+  `lib/supabase.ts`.
+- **Problem (confirmed, not merely "needs verification"):** with "Remember me" unchecked,
+  `login` calls `setSessionStorage(true)` so the session is written to `sessionStorage`. But a
+  same-tab **reload** re-evaluates `lib/supabase.ts` and re-creates the client against the
+  default `localStorage`, so `getSession()` never reads the `sessionStorage`-stored session and
+  the user is signed out on refresh — defeating the purpose of the "Remember me"-off path. This
+  was a confirmed functional defect in #421, not a verification item.
+- **Fix:** build a single client with a storage-routing adapter that picks
+  `localStorage`/`sessionStorage` per the remembered preference on every read, rather than
+  swapping the exported singleton only at login time.
 
 ---
 
@@ -100,8 +109,28 @@ nothing new to merge from today's window itself.
 ## 4. Security Review
 
 - **No new attack surface** — auth code is unchanged since 2026-09-15.
-- **Standing items:** the swallowed-`signOut` gap (§2 MEDIUM) and the swallowed
-  profile-fetch error (§2 HIGH) are the only auth-logic concerns, both pre-existing.
+- **All prior auth findings from #421 still stand** (the files are unchanged), not only the
+  two highlighted above. The full standing set:
+  - Swallowed profile-fetch error → perpetual skeleton (§2 HIGH).
+  - Swallowed `signOut()` failure (§2 MEDIUM).
+  - "Remember me"-off same-tab-refresh logout (§2 HIGH, confirmed).
+  - **Last admin can DELETE their own profile → zero admins** (Medium, defense-in-depth):
+    `prevent_last_admin_demotion` is a `BEFORE UPDATE` trigger only, but `profiles_admin_all`
+    grants admins `FOR ALL` (incl. DELETE), so the sole admin deleting their own `profiles`
+    row bypasses the guard and leaves the portal with no administrator. *Fix:* add a
+    `BEFORE DELETE` arm (or a `BEFORE INSERT OR UPDATE OR DELETE` trigger) enforcing the
+    last-admin invariant.
+  - **Approved users aren't released from `/pending` live** (Medium, functional):
+    `PendingApprovalPage` reacts only to context-`profile` changes, but `useAuthState` does not
+    refetch on DB changes, so an admin approving a pending user leaves them stuck on `/pending`
+    until a token refresh or manual reload. *Fix:* add a Realtime subscription on the user's
+    `profiles` row (or polling / an explicit refresh control).
+  - **Stale `portal-v2/README.md` setup guide** (Medium, setup/correctness): it points to a
+    nonexistent `portal-v2/supabase/schema.sql` (real path `supabase/portal_schema.sql`) and
+    tells operators to `cd ../portal` (the Express dir was removed in 03153c3). A fresh
+    operator cannot apply the schema or start the documented backend — and since
+    `portal_schema.sql` is what enables RLS, a botched setup risks an RLS-less DB. *Fix:*
+    rewrite the README setup section with the correct schema path and remove the `portal/` steps.
 - **Dependency security debt:** `pillow 12.3.0→13.0.0` (#427), `fast-uri` (#383),
   `brace-expansion` (#320) bumps are open and unreviewed. Triage these — a stale security bump
   is a silent exposure. (Needs verification that any are CVE-driven vs. routine.)
@@ -122,14 +151,17 @@ nothing new to merge from today's window itself.
 
 1. **Stop the PR pile-up.** Decide: merge one review PR, or convert the routine to a rolling
    log. Close superseded review PRs #422/#426/#428/#429.
-2. **Land the portal-v2 auth fixes** (perpetual-skeleton + swallowed `signOut`) as one real
-   code PR — they have now survived 5+ reviews.
-3. **Add `useAuth.test.ts`** covering the `fetchProfile` error/empty path, `login` storage
-   swap, and `logout`.
-4. **Triage dependabot security bumps** (#427 pillow, #383 fast-uri, #320 brace-expansion):
+2. **Land the portal-v2 auth fixes** as one real code PR — all have survived 5+ reviews:
+   perpetual-skeleton on profile-fetch failure, swallowed `signOut`, the "Remember me"-off
+   same-tab-refresh logout, the last-admin `BEFORE DELETE` gap, and the `/pending`
+   not-released-live refresh.
+3. **Fix the stale `portal-v2/README.md` setup guide** (schema path + removed `portal/` dir)
+   so a fresh operator can actually apply RLS and start the backend.
+4. **Add `useAuth.test.ts`** covering the `fetchProfile` error/empty path, `login` storage
+   swap (remembered vs. not, incl. reload), and `logout`.
+5. **Triage dependabot security bumps** (#427 pillow, #383 fast-uri, #320 brace-expansion):
    run CI, merge or close.
-5. Verify RLS policies on the hosted Supabase project match `portal_schema.sql`.
-6. Verify the "Remember me"-off same-tab-refresh behaviour on a live build.
+6. Verify RLS policies on the hosted Supabase project match `portal_schema.sql`.
 
 ---
 
