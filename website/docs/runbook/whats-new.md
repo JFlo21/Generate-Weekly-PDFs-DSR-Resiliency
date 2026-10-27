@@ -27,6 +27,20 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — October 27, 2026
+
+- 📄 Help guides updated: daily code review 2026-10-20
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log b60c3a6 &#91;skip ci&#93;
+- 📄 Help guides updated: daily code review 2026-10-20 ()
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
 
@@ -44,20 +58,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 ### 📋 Changelog — October 27, 2026
 
 - • 📊 Audit: 2026-10-26T07:08:11Z
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — October 27, 2026
-
-- 📄 Help guides updated: daily code review 2026-10-20
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log b60c3a6 &#91;skip ci&#93;
-- 📄 Help guides updated: daily code review 2026-10-20 ()
 
 <!-- /runbook-repo -->
 
