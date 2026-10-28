@@ -8,11 +8,14 @@
 ## 1. Executive Summary
 
 **No application code shipped in the daily window — and none since the 2026-10-20 review.**
-The last substantive code commit remains from **2026-09-16**; every commit since (through
-HEAD `4abf9a4`, 2026-10-28) is an automated `docs(runbook)` update from the Notion Worker
-touching only `website/docs/runbook/whats-new.md`. Today's run is therefore a **state-of-repo
-audit**, weighted to the task's special focus: the portal web-app authentication flow
-(`portal-v2/`, React 18 + Supabase).
+The last substantive *application-code* commit remains `1c52d10` (`fix(11-09): USER-variant
+groups dropped…`, #409) from **2026-09-14** (per the 2026-10-20 review). Every commit since is
+docs/tooling only: automated `docs(runbook)` updates from the Notion Worker to
+`website/docs/runbook/whats-new.md`, the 2026-10-20 review doc itself (`b60c3a6`) and its
+runbook/blog log entry (`b092951`), and a repo-tooling commit (`52e662e`, `.claude/` agents and
+hooks). HEAD is `4abf9a4` (2026-10-28). None of it touches the Python billing engine or the
+`portal-v2/` runtime. Today's run is therefore a **state-of-repo audit**, weighted to the task's
+special focus: the portal web-app authentication flow (`portal-v2/`, React 18 + Supabase).
 
 **Overall health: good, and unchanged.** The Python billing engine compiles clean
 (`py_compile` on `generate_weekly_pdfs.py` + `audit_billing_changes.py`). The billing cron
@@ -90,17 +93,24 @@ portal verdict stays **Merge with fixes**. The Python billing pipeline is **Safe
   missing row (`data: null, error: null`) as terminal too (defense-in-depth; the
   `handle_new_user` trigger normally guarantees a row).
 
-### MEDIUM — `RoleGuard` does not mirror `AuthGuard`'s resolving window
-- **Severity:** Medium (transient wrong-authorization UI; permanent denial on profile error)
+### LOW (latent / defense-in-depth) — `RoleGuard` does not mirror `AuthGuard`'s resolving window
+- **Severity:** Low — **not reachable in the current routes** (latent; would bite only a future standalone use)
 - **File:** `portal-v2/src/components/auth/RoleGuard.tsx`
-- **Problem:** `RoleGuard` gates only on `loading`. When `loading` is `false` but the profile
-  fetch is still in flight (or failed), `profile` is `null`, so `!allow.includes(profile.role)`
-  short-circuits and renders **"You don't have permission to view this page."** for an authorized
-  user — a flash in the common case, and a *permanent* false denial if the profile fetch errored
-  (same root cause as the finding above).
-- **Recommended fix:** Reuse the same resolving signal as `AuthGuard` (`user && !profile` ⇒ still
-  resolving) and render `null`/skeleton until the profile is known; only show the denial once the
-  role is actually resolved.
+- **Problem:** `RoleGuard` gates only on `loading`. In isolation, when `loading` is `false` but
+  the profile fetch is still in flight (or failed), `profile` is `null`, so
+  `!allow.includes(profile.role)` short-circuits and would render **"You don't have permission to
+  view this page."** for an authorized user.
+- **Why it is not an active bug (correction):** In `App.tsx` the only non-test use of `RoleGuard`
+  (`/dashboard/admin/users`) renders inside `DashboardLayout`'s `<Outlet/>`, and that layout is
+  itself wrapped by `<AuthGuard>`. `AuthGuard` returns its skeleton (and does **not** render the
+  layout/Outlet) while `resolving = loading || (user && !profile)` is true, so `RoleGuard` only
+  ever mounts once `profile` is non-null. On a profile-fetch error, `AuthGuard` stays on the
+  skeleton (the perpetual-skeleton finding above) and `RoleGuard` still never renders. So the
+  flash / false-denial symptom cannot occur in the current route tree — thanks to the earlier
+  reviewer (Greptile) for catching the overstatement.
+- **Recommended fix (hardening only):** Make `RoleGuard` self-sufficient — treat
+  `user && !profile` as still-resolving and render `null`/skeleton until the role is known — so it
+  stays correct if it is ever used outside an `AuthGuard`. Low priority; no current-route impact.
 
 ---
 
@@ -154,7 +164,8 @@ portal verdict stays **Merge with fixes**. The Python billing pipeline is **Safe
    broadcast. Pick one — don't leave it implicit.
 2. **Add an error/retry state to `fetchProfile` + `AuthGuard`** so a failed profile fetch can't
    silently lock a user on the skeleton.
-3. **Align `RoleGuard` with `AuthGuard`'s resolving logic.**
+3. **(Low / optional) Harden `RoleGuard`** to be self-sufficient outside an `AuthGuard` — no
+   current-route impact, so only if convenient alongside the `fetchProfile` fix.
 4. **Add login-path tests** (remember-me swap + state propagation) — the missing safety net.
 5. **Confirm live Supabase RLS** is applied on the hosted project (the client guards assume it).
 6. **Housekeeping:** `[v0]` log prefix, `verifyOtp` `.catch()`, `autoComplete` attributes.
