@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: October 27, 2026 (updated automatically)_
+_Last updated: October 28, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,30 +14,30 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — October 27, 2026
+### 📋 Changelog — October 28, 2026
 
+- 📄 Help guides updated: Phase 40 merged to master (PR -&gt; 1eec7ca2); runbook Steps 2-3 done
+- ✅ Problem fixed: PR Copilot follow-up (BUG-197) -- no post-record lease loss escapes the web publication; GF chain renews per step
+- ✅ Problem fixed: PR Copilot follow-up -- missing-asset JSON 404, rule globs, stale docs, 0035 draft identity key
+- ✅ Problem fixed: renew the WR lease around the web Workflow Events publishes (PR Copilot follow-up)
+- • Frontend audit: learning loop, changelog sync, Wave 2 P1 fixes, ClaudeOS frontend workflow contract, Flask &#42;.map guard
 - ✅ Problem fixed: BUG-195 web-side Workflow Events parity behind a default-off gate (stacked on )
 - ✅ Problem fixed: refuse an undeliverable web refresh before the ProMax pull (BUG-194)
 - 📄 Help guides updated: docs+ci(35.2): ARM-35.2-06 closed on evidence; H-SHADOW-PUBLISH applied (ARM-35.2-07)
-- ✅ Problem fixed: BUG-190/191/192/193(1)(2) follow-ups to the Phase 39.2 table overhaul
-- • Phase 39.2: Manifest Tracking Log table -- My Manifests becomes the Tracking Log; real table capabilities on every web-app table
-- ✨ New capability: Manifest Tracking Log (admin-granted) + management as-built download
-- 📄 Help guides updated: Phase 39.1 close-out -- PR merged + deployed; 0030 applied; 0029 recorded
-- 📄 Help guides updated: migration 0028 applied on the app project; PR merged; Copilot follow-ups deferred
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
+## Parser that will offload grid format information from work request completed packets
 
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — October 27, 2026
+### 📋 Changelog — October 28, 2026
 
-- 📄 Help guides updated: daily code review 2026-10-20
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log b60c3a6 &#91;skip ci&#93;
-- 📄 Help guides updated: daily code review 2026-10-20 ()
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- • Merge pull request from JFlo21/chore/ledger-refresh-2026-10-27
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
@@ -50,12 +50,26 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — October 28, 2026
+
+- 📄 Help guides updated: daily code review 2026-10-20
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log b60c3a6 &#91;skip ci&#93;
+- 📄 Help guides updated: daily code review 2026-10-20 ()
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 27, 2026
+### 📋 Changelog — October 28, 2026
 
 - • 📊 Audit: 2026-10-26T07:08:11Z
 
@@ -66,7 +80,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Use the starter kit to get your docs deployed and ready to customize.
 
-### 📋 Changelog — October 27, 2026
+### 📋 Changelog — October 28, 2026
 
 - • Initial commit from Mintlify hosted docs
 - • Initial commit
@@ -78,7 +92,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — October 27, 2026
+### 📋 Changelog — October 28, 2026
 
 - ✨ New capability: Impeccable as per-profile tooling — strip self-guarded hook entries whose tool is not exported (integrity 44/44); personal dry run
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -88,15 +102,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - • Merge pull request from JFlo21/chore/portability-impeccable-per-profile-2026-10-21
 - ✨ New capability: Impeccable is per-profile tooling; strip self-guarded hook entries whose tool is not exported (integrity 44/44); personal dry run
 - • Merge pull request from JFlo21/chore/ledger-merged-2026-10-21
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
-## Parser that will offload grid format information from work request completed packets
-
-> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -474,7 +479,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 27, 2026
+### 📋 Changelog — October 28, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
