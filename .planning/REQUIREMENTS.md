@@ -331,8 +331,13 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
   not reproduced on a re-audited group transition to `fixed` with the fixing run id.
 
-- [x] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
+- [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
   queryable per WR.
+  *(2026-10-29, PR #435: reverted to Pending. Phase 13 v1 shipped the SQL views only —
+  `pipeline_memory.open_findings` and `pipeline_memory.finding_history_by_wr`, which
+  cover "open + resurfaced only" and "history queryable per WR". The Excel/portal
+  visual surface is deferred (D-07; ROADMAP Phase 13 backlog entry), so this
+  requirement is not complete.)*
 
 ### Foreman Helper #2 (Phase 14)
 
@@ -471,7 +476,7 @@ Which phases cover which requirements.
 | OWN-04 | Phase 12 | Complete |
 | AUD-01 | Phase 13 | Complete |
 | AUD-02 | Phase 13 | Complete |
-| AUD-03 | Phase 13 | Complete |
+| AUD-03 | Phase 13 | Pending (v1 SQL views only; Excel/portal surface deferred, D-07 — 2026-10-29) |
 | HLP-01 | Phase 14 | Complete |
 | HLP-02 | Phase 14 | Complete |
 | HLP-03 | Phase 14 | Complete |
@@ -489,4 +494,4 @@ Which phases cover which requirements.
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-09-10 — OWN-01..04 Complete (Phase 12 closed; D-12-A/C/E scope notes) · 2026-09-09 (HLP-01..07 Complete) · 2026-08-24 — appended v1.4 MEM-01..04 / INC-01..05 / OWN-01..04 / AUD-01..03 (Supabase Run Memory), mapped to Phases 10–13; merged from `.planning/milestones/v1.4-REQUIREMENTS.md` so plan-phase's requirements-coverage gate can see them; 2026-09-08 — HLP-01..07 (Foreman Helper #2, Phase 14) HLP-01..07 Complete (HLP-06 closed by 14-12 on 2026-09-09, D-14-13-VERIFIED).*
+*Last updated: 2026-10-29 — AUD-03 reverted to Pending (PR #435: v1 shipped SQL views only; visual surface deferred) · 2026-09-10 — OWN-01..04 Complete (Phase 12 closed; D-12-A/C/E scope notes) · 2026-09-09 (HLP-01..07 Complete) · 2026-08-24 — appended v1.4 MEM-01..04 / INC-01..05 / OWN-01..04 / AUD-01..03 (Supabase Run Memory), mapped to Phases 10–13; merged from `.planning/milestones/v1.4-REQUIREMENTS.md` so plan-phase's requirements-coverage gate can see them; 2026-09-08 — HLP-01..07 (Foreman Helper #2, Phase 14) HLP-01..07 Complete (HLP-06 closed by 14-12 on 2026-09-09, D-14-13-VERIFIED).*

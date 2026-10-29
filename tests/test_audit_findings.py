@@ -784,7 +784,14 @@ def test_orchestrate_hook_flag_on_calls_build_pairs_and_upsert_once_with_run_id(
 
     mock_build.assert_called_once_with(audit_results, rows, "run-123")
     mock_executed.assert_called_once_with()
-    mock_pairs.assert_called_once_with(rows, frozenset({"rate_sanity_mismatch"}))
+    # PR #435: no audit_coverage passed -> every check is non-authoritative
+    # for closure (findings are still upserted).
+    mock_pairs.assert_called_once_with(
+        rows, frozenset({"rate_sanity_mismatch"}),
+        eligible_row_indices={
+            check: None for check in audit_findings.MEMORY_BACKED_CHECKS
+        },
+    )
     mock_upsert.assert_called_once_with(
         "run-123", [{"finding_key": "abc"}], fake_pairs,
     )

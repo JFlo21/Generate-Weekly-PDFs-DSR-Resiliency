@@ -61,11 +61,24 @@ MEMORY_BACKED_CHECKS: frozenset[str] = frozenset({
 # canonical string. ``data_consistency_issue``'s trailing field is a
 # comma-joined sorted list of issue strings, handled specially in
 # ``compute_finding_key`` (not a plain scalar).
+#
+# The payload builders below DERIVE their identity tuple from this map
+# (``_identity_values``) -- they never hardcode a field order of their
+# own -- and tests/test_audit_memory_closure_safety.py pins the resulting
+# keys byte-for-byte, so reordering a recipe here is a deliberate key
+# migration (FINDING_KEY_RECIPE_VERSION bump), never a silent edit.
 IDENTITY_RECIPES: dict[str, tuple[str, ...]] = {
     "rate_sanity_mismatch": ("wr", "week_ending", "cu", "work_type"),
     "price_variance_anomaly": ("wr", "week_ending"),
     "data_consistency_issue": ("wr", "week_ending", "issues"),
 }
+
+# Checks whose evaluation pools a Work Request's rows across EVERY week
+# (``_detect_price_anomalies`` has no week filter, D-CD-01). A row set
+# narrowed to some (wr, week) pairs -- the incremental PHASE 2b re-fetch
+# -- is never guaranteed to hold the WR's complete pool, so such a check
+# is never treated as having re-audited anything on a scoped run.
+WR_POOLED_CHECKS: frozenset[str] = frozenset({"price_variance_anomaly"})
 
 # ── Python <-> SQL contract constants (plan 13-04, Task 3) ───────────────
 # Declared here (not just as literals inside a test) so there is ONE
@@ -112,7 +125,22 @@ _counters: dict[str, int] = {
     "findings_skipped_no_recipe": 0,
     "upsert_written": 0,
     "upsert_errored": 0,
+    # audit_financial_data returned an ``error`` key: the run's findings
+    # and coverage are partial, so nothing was upserted or closed.
+    "audit_results_non_authoritative": 0,
 }
+
+# The skip/error counters surfaced to operators once per run by
+# ``log_run_counters`` (log line + the caller's Sentry breadcrumb).
+# Counts only -- never a WR, CU, price, or name. Deliberately NOT written
+# to run_summary.json (Gate 6's golden is structural).
+EXPORTED_RUN_COUNTERS: tuple[str, ...] = (
+    "findings_skipped_no_match",
+    "findings_week_ambiguous",
+    "findings_skipped_unresolved_row",
+    "upsert_errored",
+    "audit_results_non_authoritative",
+)
 
 
 def _bump_counter(key: str) -> None:
@@ -128,10 +156,41 @@ def counters() -> dict[str, int]:
 
 
 def reset_counters() -> None:
-    """Zero the module counters. Test-only helper."""
+    """Zero the module counters.
+
+    Called once per run at the audit-memory run boundary
+    (``pipeline.orchestrate._run_audit_memory_phase``) so the exported
+    counts describe THIS run only; tests call it too.
+    """
     with _counters_lock:
         for k in list(_counters):
             _counters[k] = 0
+
+
+def record_non_authoritative_audit() -> None:
+    """Count (and log, counts only) a run whose audit result carried an
+    ``error`` key, so its upsert and closure were skipped. Never raises."""
+    _bump_counter("audit_results_non_authoritative")
+    logging.warning(
+        "⚠️ Audit-memory: audit result carried an error; findings not "
+        "upserted and no finding closed this run."
+    )
+
+
+def log_run_counters() -> dict[str, int]:
+    """Emit the per-run skip/error counters as one INFO line and return
+    them (integers only) for the caller's Sentry breadcrumb.
+
+    Never raises; never logs an identifier.
+    """
+    snapshot = counters()
+    exported = {k: int(snapshot.get(k, 0)) for k in EXPORTED_RUN_COUNTERS}
+    logging.info(
+        "🧮 Audit-memory counters: "
+        + " ".join(f"{k}=%d" for k in EXPORTED_RUN_COUNTERS),
+        *(exported[k] for k in EXPORTED_RUN_COUNTERS),
+    )
+    return exported
 
 
 # ── Key derivation ────────────────────────────────────────────────────────
@@ -165,6 +224,21 @@ def compute_finding_key(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _identity_values(check_id: str, fields: dict[str, Any]) -> tuple:
+    """Order *fields* by ``IDENTITY_RECIPES[check_id]`` -- the single
+    authority for each check's identity field order. A recipe field the
+    builder did not supply hashes as ``None`` (never raises); the pinned
+    key test catches that gap in CI."""
+    return tuple(fields.get(name) for name in IDENTITY_RECIPES[check_id])
+
+
+def _normalize_cu(value: Any) -> str:
+    """CU normalization IDENTICAL to ``_detect_rate_sanity_mismatches``'s
+    emitter (``str(row.get('CU') or '').strip().upper()``), applied to
+    both the finding and the source row when matching one to the other."""
+    return str(value or "").strip().upper()
+
+
 def _week_ending_iso(value: Any) -> str | None:
     """Return ISO ``YYYY-MM-DD`` for a parsed date, or ``None``."""
     parsed = excel_serial_to_date(value)
@@ -191,16 +265,20 @@ def _resolve_rate_sanity_week_ending(
     Never reads ``row['__mem_week_ending']`` -- that stash is only
     populated when ``RUN_MEMORY_WRITE_ENABLED`` is on, which is a
     different, independently-gated flag from this one.
+
+    CU is compared under ``_normalize_cu`` on BOTH sides (PR #435): the
+    emitter upper-cases CU while the source row keeps its raw casing, so
+    a strip-only comparison dropped the finding as ``__NO_MATCH__``.
     """
     wr = str(finding.get("work_request") or "").strip()
-    cu = str(finding.get("cu") or "").strip()
+    cu = _normalize_cu(finding.get("cu"))
     work_type = str(finding.get("work_type") or "").strip()
 
     weeks: set[str] = set()
     matched_any = False
     for row in rows:
         row_wr = str(row.get("Work Request #") or "").strip()
-        row_cu = str(row.get("CU") or "").strip()
+        row_cu = _normalize_cu(row.get("CU"))
         row_work_type = str(row.get("Work Type") or "").strip()
         if row_wr != wr or row_cu != cu or row_work_type != work_type:
             continue
@@ -236,7 +314,10 @@ def _build_rate_sanity_payload(
     if week_ending is None:
         _bump_counter("findings_skipped_multi_week")
 
-    identity_values = (wr, week_ending, cu, work_type)
+    identity_values = _identity_values("rate_sanity_mismatch", {
+        "wr": wr, "week_ending": week_ending, "cu": cu,
+        "work_type": work_type,
+    })
     finding_key = compute_finding_key("rate_sanity_mismatch", identity_values)
 
     evidence = {
@@ -310,7 +391,9 @@ def _build_price_variance_payload(
     wr = str(finding.get("work_request") or "").strip()
     week_ending = _resolve_price_variance_week_ending(finding, rows)
 
-    identity_values = (wr, week_ending)
+    identity_values = _identity_values("price_variance_anomaly", {
+        "wr": wr, "week_ending": week_ending,
+    })
     finding_key = compute_finding_key("price_variance_anomaly", identity_values)
 
     evidence = {
@@ -396,7 +479,10 @@ def _build_data_consistency_payload(
     issues = finding.get("issues") or []
     issue_codes = sorted(str(issue) for issue in issues)
 
-    identity_values = (wr, week_ending, ",".join(issue_codes))
+    identity_values = _identity_values("data_consistency_issue", {
+        "wr": wr, "week_ending": week_ending,
+        "issues": ",".join(issue_codes),
+    })
     finding_key = compute_finding_key("data_consistency_issue", identity_values)
 
     evidence = {
@@ -538,6 +624,12 @@ def executed_checks() -> frozenset[str]:
     never be treated as having "re-audited" any group, or a temporarily
     disabled check's findings would be closed as a side effect of the
     OTHER two checks' groups being re-audited.
+
+    The enabled flag alone is NOT proof that a row was evaluated (PR
+    #435): production closure additionally requires the per-row coverage
+    ``BillingAudit.memory_eval_coverage()`` reports, via
+    ``closing_row_indices`` + ``build_reaudited_pairs(...,
+    eligible_row_indices=...)``. This gate stays as defense in depth.
     """
     checks = set(MEMORY_BACKED_CHECKS)
     if os.getenv("RATE_SANITY_AUDIT_ENABLED", "true").lower() != "true":
@@ -545,13 +637,68 @@ def executed_checks() -> frozenset[str]:
     return frozenset(checks)
 
 
+def _as_row_index_set(value: Any) -> frozenset[int] | None:
+    """Validate one coverage entry: a set/frozenset/list/tuple of
+    non-negative ints -> ``frozenset``; anything else -> ``None`` (not
+    authoritative). Never raises."""
+    if not isinstance(value, (set, frozenset, list, tuple)):
+        return None
+    indices = set()
+    for item in value:
+        if not isinstance(item, int) or isinstance(item, bool) or item < 0:
+            return None
+        indices.add(item)
+    return frozenset(indices)
+
+
+def closing_row_indices(
+    coverage: Any, *, scope_row_indices: Iterable[int] | None = None,
+) -> dict[str, frozenset[int] | None]:
+    """Per memory-backed check, the row indices (into the audited
+    ``rows`` list) that may contribute a CLOSING re-audited pair.
+
+    *coverage* is ``BillingAudit.memory_eval_coverage()``: per check id,
+    the rows that check actually and successfully evaluated this run, or
+    ``None`` when the check was disabled or stopped on a caught error.
+    Anything malformed (not a dict, a non-int index, a mocked object)
+    resolves to ``None`` -- that check closes nothing this run.
+
+    *scope_row_indices* (incremental mode only) narrows every check to
+    the rows of this run's candidate pairs, and drops ``WR_POOLED_CHECKS``
+    entirely: a scoped row set is never a complete WR pool. ``None`` (full
+    mode) applies no scope. Never raises.
+    """
+    if not isinstance(coverage, dict):
+        coverage = {}
+    scope = None
+    if scope_row_indices is not None:
+        scope = _as_row_index_set(list(scope_row_indices)) or frozenset()
+    eligible: dict[str, frozenset[int] | None] = {}
+    for check_id in sorted(MEMORY_BACKED_CHECKS):
+        indices = _as_row_index_set(coverage.get(check_id))
+        if indices is not None and scope is not None:
+            indices = (
+                None if check_id in WR_POOLED_CHECKS else indices & scope
+            )
+        eligible[check_id] = indices
+    return eligible
+
+
 def build_reaudited_pairs(
     rows: Sequence[dict] | None, executed_checks_: Iterable[str],
+    *, eligible_row_indices: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Return one ``{check_id, wr, week_ending}`` triple per distinct
     ``(wr, week)`` pair in *rows*, for every check id in
     *executed_checks_* (D-10: "re-audited group" = the set of (wr,
     week_ending) pairs whose rows were in this run's audited row set).
+
+    *eligible_row_indices* (PR #435; ``closing_row_indices``' output) is
+    the stricter form every production caller passes: a check emits a
+    pair only when EVERY row of that pair in *rows* is in the check's
+    eligible index set. A check that is absent or ``None`` there emits
+    nothing -- its findings stay untouched. ``None`` keeps the legacy
+    "every row counts" behavior for direct callers.
 
     Never drops a row for an unparseable week -- it still contributes a
     triple with ``week_ending=None`` (serialized as JSON ``null``), so a
@@ -574,17 +721,28 @@ def build_reaudited_pairs(
     if not rows or not executed:
         return []
 
-    distinct_pairs: set[tuple[str, str | None]] = set()
-    for row in rows:
+    rows_by_pair: dict[tuple[str, str | None], list[int]] = {}
+    for index, row in enumerate(rows):
         wr = str(row.get("Work Request #") or "").strip()
         week_ending = _week_ending_iso(row.get("Weekly Reference Logged Date"))
-        distinct_pairs.add((wr, week_ending))
+        rows_by_pair.setdefault((wr, week_ending), []).append(index)
 
-    pairs = [
-        {"check_id": check_id, "wr": wr, "week_ending": week_ending}
-        for check_id in executed
-        for (wr, week_ending) in distinct_pairs
-    ]
+    pairs = []
+    for check_id in executed:
+        if eligible_row_indices is None:
+            check_pairs = list(rows_by_pair)
+        else:
+            eligible = _as_row_index_set(eligible_row_indices.get(check_id))
+            if eligible is None:
+                continue
+            check_pairs = [
+                pair for pair, indices in rows_by_pair.items()
+                if all(i in eligible for i in indices)
+            ]
+        pairs.extend(
+            {"check_id": check_id, "wr": wr, "week_ending": week_ending}
+            for (wr, week_ending) in check_pairs
+        )
     pairs.sort(
         key=lambda p: (
             p["check_id"], p["wr"],
