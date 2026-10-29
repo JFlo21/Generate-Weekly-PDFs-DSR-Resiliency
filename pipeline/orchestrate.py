@@ -1852,6 +1852,8 @@ def _run_phase2_incremental(
     per_sheet_reasons: dict[Any, str],
     mem_run_id: str,
     session_start: datetime.datetime,
+    *,
+    regen_debt: 'frozenset[tuple[Any, Any]] | set[tuple[Any, Any]] | None' = frozenset(),
 ) -> dict[str, Any]:
     """Phase 11 Plan 04 (D-04 Option C): PHASE 2a delta read -> the
     UNMODIFIED ``_run_memory_write_phase`` -> affected-set -> sheet
@@ -1866,6 +1868,17 @@ def _run_phase2_incremental(
     single full ``get_all_source_rows`` call over EVERY source sheet:
     the regeneration scope can only ever be too WIDE, never too narrow
     (T-11-18).
+
+    D-04 candidate = affected | carried regeneration debt (Phase 11 Plan
+    12, G-11-37 mechanism B): *regen_debt* holds ``(wr, week)`` pairs an
+    earlier interrupted / partly-failed run stranded. They join the
+    ``map_affected_to_sheets`` input and the returned ``candidate_pairs``
+    (``affected`` stays the memory write's own set, for counters). ``None``
+    means the debt is UNKNOWN and returns the full-mode fallback
+    ``trigger_regen_debt_unknown`` BEFORE any read or memory write (scope
+    can only widen -- T-11-18). The default ``frozenset()`` leaves every
+    pre-11-12 caller unchanged. ``RUN_MEMORY_INCREMENTAL_ENABLED`` is OFF
+    in production, so this path is not yet live.
 
     Per-sheet dispatch (``per_sheet_reasons`` from ``resolve_run_mode``):
       - a sheet flagged ``trigger3_auth_error`` is SKIPPED entirely this
@@ -1914,6 +1927,15 @@ def _run_phase2_incremental(
           -- PHASE 2a/2b observability counters (notes-only, never a new
           ``run_summary.json`` key); present only when ok is True.
     """
+    if regen_debt is None:
+        return {
+            "ok": False,
+            "fallback_reason": (
+                "trigger_regen_debt_unknown: regeneration debt carried "
+                "from earlier runs could not be established (cannot "
+                "confirm; resolving this run to full mode)"
+            ),
+        }
     try:
         skip_ids = {
             sid for sid, reason in per_sheet_reasons.items()
@@ -2072,8 +2094,14 @@ def _run_phase2_incremental(
                 )
                 affected |= _prior_pairs
 
-        if affected:
-            mapped_sheet_ids = _mem_reader.map_affected_to_sheets(affected)
+        # D-04 candidate = affected | carried regeneration debt, joined
+        # AFTER the identity-lost widening above.
+        candidate_pairs = set(affected) | set(regen_debt)
+
+        if candidate_pairs:
+            mapped_sheet_ids = _mem_reader.map_affected_to_sheets(
+                candidate_pairs
+            )
             if not mapped_sheet_ids:
                 return {
                     "ok": False,
@@ -2100,6 +2128,7 @@ def _run_phase2_incremental(
             "fallback_reason": None,
             "all_rows": all_rows,
             "affected": affected,
+            "candidate_pairs": candidate_pairs,
             "mem_result": mem_result,
             "delta_rows_count": len(delta_rows),
             "delta_sheets_changed": delta_sheets_changed,
@@ -2973,6 +3002,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _phase2_result = _run_phase2_incremental(
                     client, source_sheets, _watermarks, _per_sheet_reasons,
                     _mem_run_id, session_start,
+                    regen_debt=_mem_regen_debt,
                 )
                 span.set_data("ok", _phase2_result.get("ok", False))
             if _phase2_result.get("ok"):
@@ -2988,7 +3018,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _incremental_mapped_sheet_count = (
                     _phase2_result["mapped_sheet_count"]
                 )
-                _incremental_empty_affected_run = not _mem_affected
+                # Phase 11 Plan 12: the incremental candidate is affected |
+                # carried regeneration debt, identical to what the shadow
+                # measures; "legitimately empty" means no candidate at all.
+                _mem_candidate_pairs = set(
+                    _phase2_result.get("candidate_pairs") or _mem_affected
+                )
+                _incremental_empty_affected_run = not _mem_candidate_pairs
                 _mem_sheets_written = _mem_result["sheets_written"]
                 _mem_sheets_errored = _mem_result["sheets_errored"]
                 _mem_rows_sent = _mem_result["rows_sent"]
@@ -3097,9 +3133,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # grouping or upload input.
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
-                _mem_candidate_pairs = _memory_candidate.shadow_candidate_pairs(
-                    _mem_affected, _mem_regen_debt or set(),
-                )
+                if _resolved_mode == 'full':
+                    _mem_candidate_pairs = (
+                        _memory_candidate.shadow_candidate_pairs(
+                            _mem_affected, _mem_regen_debt or set(),
+                        )
+                    )
+                # (incremental: set from _phase2_result["candidate_pairs"]
+                # above -- the identical affected | debt union.)
                 _mem_candidate_ready = True
                 _note_pending_regen_pairs(
                     _mem_run_id, _mem_candidate_pairs,
@@ -3335,7 +3376,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # second grouping/Excel codepath (D-04's central promise).
             if _resolved_mode == 'incremental':
                 _pre_filter_group_count = len(groups) if groups else 0
-                groups = _filter_groups_to_affected(groups, _mem_affected)
+                groups = _filter_groups_to_affected(groups, _mem_candidate_pairs)
                 _post_filter_group_count = len(groups) if groups else 0
                 span.set_data(
                     "pre_filter_group_count", _pre_filter_group_count
