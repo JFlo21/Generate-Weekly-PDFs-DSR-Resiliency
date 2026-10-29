@@ -397,18 +397,18 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 ### Foreman Notes and colour carry-over - GF pilot (Phase 15)
 
-- [ ] **FN-01**: A scope switch (`off` / `pilot` / `all`, default `pilot`) controls Foreman Notes
+- [x] **FN-01**: A scope switch (`off` / `pilot` / `all`, default `pilot`) controls Foreman Notes
   rendering. With the switch `off`, and for every non-pilot group, workbook output stays
   cell-identical and the change-detection hash stays byte-identical to the BASE golden record
   (D-15-01).
 
-- [ ] **FN-02**: The pilot is selected by a separate comma-separated General Foreman allowlist
+- [x] **FN-02**: The pilot is selected by a separate comma-separated General Foreman allowlist
   setting with NO name default in code (empty default = zero pilot groups, fail-closed, logged
   as a count only). The three pilot GFs (aliases GF-1, GF-2, GF-3) are supplied only via the
   local `.env` for the dry run and a GitHub Actions repository variable at rollout - public-repo
   identifier rule, living ledger `[2026-08-27 21:10]` / `[2026-08-28 18:45]` (D-15-02).
 
-- [ ] **FN-03**: The General Foreman is resolved once per run from the `General Foreman` column
+- [x] **FN-03**: The General Foreman is resolved once per run from the `General Foreman` column
   on TARGET_SHEET_ID by `Work Request #`, case/whitespace-insensitive, and fails closed (no
   pilot rendering) on NA, blank, miss, read failure, ambiguity, or title mismatch
   (D-15-04/05).
@@ -553,9 +553,9 @@ Which phases cover which requirements.
 | HLP-05 | Phase 14 | Complete |
 | HLP-06 | Phase 14 | Complete (14-12 closed O-14-B; D-14-13-VERIFIED 2026-09-09) |
 | HLP-07 | Phase 14 | Complete |
-| FN-01 | Phase 15 | Pending |
-| FN-02 | Phase 15 | Pending |
-| FN-03 | Phase 15 | Pending |
+| FN-01 | Phase 15 | Complete |
+| FN-02 | Phase 15 | Complete |
+| FN-03 | Phase 15 | Complete |
 | FN-04 | Phase 15 | Pending |
 | FN-05 | Phase 15 | Pending |
 | FN-06 | Phase 15 | Pending |
