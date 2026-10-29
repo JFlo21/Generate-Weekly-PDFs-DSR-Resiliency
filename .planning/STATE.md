@@ -6,10 +6,10 @@ current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
 stopped_at: Completed 11-14-PLAN.md
-last_updated: "2026-10-29T20:59:15.731Z"
+last_updated: "2026-10-29T21:08:03.357Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: a01302e95fbc77f3669032628c4295ebb67251b9
+state_head: 6f5ce53a0033ba125211855b935796a675804e5d
 progress:
   total_phases: 15
   completed_phases: 14
@@ -386,6 +386,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - Phase 11.1 inserted after Phase 11: Post-INC-05 Runtime Remediation (URGENT)
 - Phase 14 added: Foreman Helper #2 — second independently identifiable helping-foreman slot through the Excel-generation workflow (planning-only authorization; Intake 8 excluded; optional Helper #2 columns skip, never fail)
 - Phase 15 added: Foreman Notes + Smartsheet conditional-format color carry-over into weekly WR Excel, GF guard-rail pilot (off/pilot/all), dry-run first
+- Phase 15 edited: Phase 15 sequenced as the next feature after Phase 11 completes (11-15); depends_on -> Phase 11
 
 ### Blockers/Concerns
 

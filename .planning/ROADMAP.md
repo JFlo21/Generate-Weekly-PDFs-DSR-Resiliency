@@ -898,7 +898,7 @@ Plans:
 
 **Goal:** [To be planned]
 **Requirements**: TBD
-**Depends on:** Phase 14
+**Depends on:** Phase 11 (plan 11-15 complete — owner sequencing 2026-10-29: Phase 15 is the next feature after Phase 11)
 **Plans:** 0 plans
 
 Plans:
