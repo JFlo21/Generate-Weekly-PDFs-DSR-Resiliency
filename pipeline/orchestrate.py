@@ -2355,6 +2355,10 @@ def _run_audit_memory_phase(
     audit_results: dict[str, Any],
     all_rows: list[dict[str, Any]],
     run_id: str,
+    *,
+    audit_coverage: Any = None,
+    scope_pairs: 'set[tuple[Any, Any]] | None' = None,
+    source_read_complete: bool = True,
 ) -> dict[str, Any]:
     """Phase 13 (AUD-01): persist audit-billing-changes findings to
     ``pipeline_memory.audit_finding`` -- OBSERVABILITY only, entirely
@@ -2384,26 +2388,73 @@ def _run_audit_memory_phase(
     outer try/except, mirroring every other ``pipeline_memory`` hook in
     this module (e.g. ``_reconcile_deep_run_deletions`` above).
 
+    Closure safety (PR #435) -- a finding may only close when its pair +
+    check was actually and successfully evaluated this run:
+
+    - An *audit_results* carrying an ``error`` key (``audit_financial_
+      data`` caught an exception and returned partial lists) is
+      non-authoritative: nothing is upserted or closed; a counter and a
+      WARNING record the skip.
+    - *audit_coverage* (``BillingAudit.memory_eval_coverage()``) names,
+      per check, the rows that check evaluated. A pair closes for a check
+      only when EVERY row of the pair was evaluated by it; ``None`` or
+      anything malformed closes nothing (findings are still upserted).
+    - *scope_pairs* (incremental mode only: the run's candidate
+      ``(wr, week)`` pairs, ``_resolve_row_wr_week`` form) restricts
+      closure to rows of those pairs -- PHASE 2b re-fetches whole sheets,
+      so other groups in *all_rows* may be incomplete -- and drops the
+      WR-pooled check. ``None`` (full mode) is unchanged. Open findings on
+      groups outside the re-fetched scope are left untouched, never
+      closed (follow-up: .planning/todos/pending/
+      2026-10-29-audit-memory-open-findings-incremental-recheck.md).
+    - *source_read_complete* ``False`` (a sheet's read failed or was only
+      partial this run, ``pipeline.fetch.get_last_full_read_failed_
+      sheet_ids``) closes nothing: that sheet's missing rows may belong
+      to a pair whose remaining rows were evaluated.
+
+    The module's skip/error counters are reset at this run boundary and
+    logged once per run (counts only); ``result["counters"]`` carries
+    them for the caller's breadcrumb -- never ``run_summary.json``.
+
     Returns a dict of summary counts for the caller's breadcrumb
-    (``findings_emitted``, ``rpc_result`` when the RPC ran).
+    (``findings_emitted``, ``rpc_result`` when the RPC ran, ``counters``).
     """
     result: dict[str, Any] = {"findings_emitted": 0, "rpc_result": None}
 
     if not (AUDIT_MEMORY_ENABLED and audit_results):
         return result
 
-    payloads = _mem_audit_findings.build_finding_payloads(
-        audit_results, all_rows, run_id,
-    )
-    reaudited_pairs = _mem_audit_findings.build_reaudited_pairs(
-        all_rows, _mem_audit_findings.executed_checks(),
-    )
-    rpc_result = _mem_audit_findings.upsert_audit_findings(
-        run_id, payloads, reaudited_pairs,
-    )
-    result["findings_emitted"] = len(payloads)
-    result["rpc_result"] = rpc_result
-    return result
+    _mem_audit_findings.reset_counters()
+    try:
+        if "error" in audit_results:
+            _mem_audit_findings.record_non_authoritative_audit()
+            return result
+
+        payloads = _mem_audit_findings.build_finding_payloads(
+            audit_results, all_rows, run_id,
+        )
+        scope_row_indices = None
+        if scope_pairs is not None:
+            scope_row_indices = [
+                index for index, row in enumerate(all_rows)
+                if _resolve_row_wr_week(row) in scope_pairs
+            ]
+        eligible = _mem_audit_findings.closing_row_indices(
+            audit_coverage if source_read_complete else None,
+            scope_row_indices=scope_row_indices,
+        )
+        reaudited_pairs = _mem_audit_findings.build_reaudited_pairs(
+            all_rows, _mem_audit_findings.executed_checks(),
+            eligible_row_indices=eligible,
+        )
+        rpc_result = _mem_audit_findings.upsert_audit_findings(
+            run_id, payloads, reaudited_pairs,
+        )
+        result["findings_emitted"] = len(payloads)
+        result["rpc_result"] = rpc_result
+        return result
+    finally:
+        result["counters"] = _mem_audit_findings.log_run_counters()
 
 
 def _repair_group_state_for_affected_pairs(
@@ -3358,8 +3409,25 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # above.
         if AUDIT_MEMORY_ENABLED and audit_results:
             try:
+                # PR #435: closure needs the detectors' per-row coverage
+                # (a mocked/absent audit system yields none -> closes
+                # nothing) and, in incremental mode, the candidate scope.
+                _audit_mem_coverage = None
+                _cov_fn = getattr(audit_system, "memory_eval_coverage", None)
+                if callable(_cov_fn):
+                    _audit_mem_coverage = _cov_fn()
+                _audit_mem_scope = (
+                    set(_mem_candidate_pairs)
+                    if _resolved_mode == 'incremental' else None
+                )
+                _audit_mem_read_complete = not (
+                    _fetch.get_last_full_read_failed_sheet_ids()
+                )
                 _audit_mem_result = _run_audit_memory_phase(
                     audit_results, all_rows, _mem_run_id,
+                    audit_coverage=_audit_mem_coverage,
+                    scope_pairs=_audit_mem_scope,
+                    source_read_complete=_audit_mem_read_complete,
                 )
                 _audit_mem_summary = _mem_audit_findings.summarize_upsert_result(
                     _audit_mem_result["rpc_result"]
@@ -3371,6 +3439,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             "findings_emitted"
                         ],
                         **_audit_mem_summary,
+                        **(_audit_mem_result.get("counters") or {}),
                     },
                 )
             except Exception as e:

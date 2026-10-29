@@ -300,7 +300,14 @@ class BillingAudit:
         # Additive extension — the running total and its summary key
         # name are unchanged.
         self._rate_sanity_out_of_scope_by_reason: Dict[str, int] = {}
-        
+        # Audit-memory closure coverage (PR #435): per memory-backed
+        # check id, the row indices it actually and successfully
+        # evaluated this run, or None when it was disabled or stopped on
+        # a caught error. OBSERVATION ONLY -- read by
+        # pipeline_memory.audit_findings.closing_row_indices; it never
+        # changes which findings any detector emits.
+        self._memory_eval_coverage: Dict[str, Optional[frozenset]] = {}
+
         self.logger.info("🔍 Billing Audit System initialized")
         if self.skip_cell_history:
             self.logger.info("⚡ Cell history checks disabled for performance")
@@ -321,6 +328,24 @@ class BillingAudit:
             "audit_summary": {}
         }
     
+    def _set_memory_eval_coverage(
+        self, check_id: str, row_indices: Optional[Any],
+    ) -> None:
+        """Record which rows *check_id* evaluated (``None`` = not
+        authoritative). Never raises; never touches detection."""
+        coverage = getattr(self, '_memory_eval_coverage', None)
+        if not isinstance(coverage, dict):
+            coverage = {}
+            self._memory_eval_coverage = coverage
+        coverage[check_id] = (
+            None if row_indices is None else frozenset(row_indices)
+        )
+
+    def memory_eval_coverage(self) -> Dict[str, Optional[frozenset]]:
+        """Snapshot of the per-check evaluated-row coverage (see
+        ``_memory_eval_coverage`` in ``__init__``)."""
+        return dict(getattr(self, '_memory_eval_coverage', None) or {})
+
     def _save_audit_state(self):
         """Save current audit state to file."""
         try:
@@ -352,6 +377,8 @@ class BillingAudit:
             "rate_sanity_mismatches": [],
             "summary": {}
         }
+        # Fresh per-run coverage; each detector below records its own.
+        self._memory_eval_coverage = {}
 
         try:
             # 1. Check for unauthorized price changes
@@ -444,19 +471,24 @@ class BillingAudit:
         # distinct week resolved from the pool) -- see
         # audit_findings._resolve_price_variance_week_ending.
         anomalies = []
-        
+        # Audit-memory coverage (PR #435): rows whose price entered the
+        # pool. Recorded only if the whole pass completes.
+        self._set_memory_eval_coverage("price_variance_anomaly", None)
+        evaluated_rows = set()
+
         try:
             # Group by work request for price analysis
             wr_prices = {}
-            for row in rows:
+            for row_index, row in enumerate(rows):
                 wr_num = row.get('Work Request #')
                 price_str = row.get('Units Total Price', '0')
-                
+
                 try:
                     price = float(str(price_str).replace('$', '').replace(',', ''))
                     if wr_num not in wr_prices:
                         wr_prices[wr_num] = []
                     wr_prices[wr_num].append(price)
+                    evaluated_rows.add(row_index)
                 except (ValueError, TypeError):
                     continue
             
@@ -477,7 +509,11 @@ class BillingAudit:
                             "severity": "medium",
                             "description": f"High price variance detected in WR# {wr_num}"
                         })
-            
+
+            self._set_memory_eval_coverage(
+                "price_variance_anomaly", evaluated_rows
+            )
+
         except Exception as e:
             self.logger.warning(f"Price anomaly detection failed: {e}")
         
@@ -486,7 +522,10 @@ class BillingAudit:
     def _validate_data_consistency(self, rows: List[Dict]) -> List[Dict]:
         """Validate data consistency across fields."""
         issues = []
-        
+        # Audit-memory coverage (PR #435): every row is evaluated, but
+        # only a completed pass is authoritative.
+        self._set_memory_eval_coverage("data_consistency_issue", None)
+
         try:
             # Phase 13 (pipeline_memory/audit_findings.py, D-01/D-CD-02):
             # every literal string appended to row_issues below is
@@ -532,7 +571,11 @@ class BillingAudit:
                         "issues": row_issues,
                         "severity": "low" if len(row_issues) == 1 else "medium"
                     })
-        
+
+            self._set_memory_eval_coverage(
+                "data_consistency_issue", range(len(rows))
+            )
+
         except Exception as e:
             self.logger.warning(f"Data consistency validation failed: {e}")
 
@@ -572,6 +615,11 @@ class BillingAudit:
         self._rate_sanity_skipped = 0
         self._rate_sanity_out_of_scope = 0
         self._rate_sanity_out_of_scope_by_reason = {}
+        # Audit-memory coverage (PR #435): only rows that reached the
+        # mismatch comparison count, and only on a completed pass --
+        # disabled, out-of-scope, skipped or errored rows never close.
+        self._set_memory_eval_coverage("rate_sanity_mismatch", None)
+        evaluated_rows = set()
 
         if os.getenv("RATE_SANITY_AUDIT_ENABLED", "true").lower() != "true":
             return mismatches
@@ -586,7 +634,7 @@ class BillingAudit:
             )
 
             checked = 0
-            for row in rows:
+            for row_index, row in enumerate(rows):
                 in_scope, reason = _rate_sanity_in_scope(
                     row, snapshot_column_index
                 )
@@ -621,6 +669,7 @@ class BillingAudit:
                     continue
 
                 checked += 1
+                evaluated_rows.add(row_index)
                 if _rate_sanity_is_mismatch(expected, actual):
                     wr = str(row.get('Work Request #', 'Unknown'))
                     cu = str(row.get('CU') or '').strip().upper()
@@ -657,6 +706,9 @@ class BillingAudit:
                     'pre_cutoff_or_undated', 0
                 ),
                 len(mismatches),
+            )
+            self._set_memory_eval_coverage(
+                "rate_sanity_mismatch", evaluated_rows
             )
         except Exception as e:
             self.logger.warning(
