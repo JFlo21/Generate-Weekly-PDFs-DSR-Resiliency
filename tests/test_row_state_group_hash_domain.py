@@ -632,5 +632,39 @@ class KeyCoverageDriftTests(unittest.TestCase):
         )
 
 
+# ===========================================================================
+# Task 3 -- the row_state re-key cannot cause regeneration / upload
+# ===========================================================================
+
+class SkipGateIndependenceTests(unittest.TestCase):
+    """The one-time ``row_state.content_hash`` re-key on the first
+    post-deploy run must not regenerate or upload anything: the per-group
+    skip / regenerate gate reads only ``calculate_data_hash``, the durable
+    group hash and attachment existence -- never ``row_state``."""
+
+    _FORBIDDEN = (
+        "row_state", "_mem_affected", "upsert_rows_bulk", "__mem_group_fp",
+    )
+
+    def test_skip_gate_never_reads_row_state(self):
+        lines = (
+            _REPO_ROOT / "pipeline" / "orchestrate.py"
+        ).read_text(encoding="utf-8").splitlines()
+        hits = [
+            i for i, line in enumerate(lines)
+            if "Skip (unchanged + attachment exists)" in line
+        ]
+        self.assertEqual(len(hits), 1, "skip-gate log line not found once")
+        end = hits[0] + 1
+        window = lines[max(0, end - 120):end]
+        code = [ln for ln in window if not ln.lstrip().startswith("#")]
+        for token in self._FORBIDDEN:
+            offenders = [ln.strip() for ln in code if token in ln]
+            self.assertEqual(
+                offenders, [],
+                f"skip gate window reads {token!r}: {offenders}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
