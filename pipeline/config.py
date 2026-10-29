@@ -52,6 +52,20 @@ HELPER2_ENABLED = os.getenv(
 
 # Activity log-based foreman assignment has been removed - we now use helper column logic only
 
+# Phase 15 (Foreman Notes + Smartsheet colour carry-over, GF pilot; D-15-01/02/03):
+# FOREMAN_NOTES_SCOPE is the CONFIGURED scope (off | pilot | all). It is validated and
+# resolved to the EFFECTIVE scope in pipeline.foreman_notes.compute_effective_scope, so
+# a production cron run (TEST_MODE unset, FOREMAN_NOTES_UPLOAD unset) stays 'off'.
+FOREMAN_NOTES_SCOPE = os.getenv('FOREMAN_NOTES_SCOPE', 'pilot').strip().lower()
+# D-15-04: comma-separated General Foreman allowlist. The code default is EMPTY
+# (zero pilot groups, fail-closed). Real names live only in a local .env or a
+# GitHub Actions repository variable -- never in this public repository.
+FOREMAN_NOTES_PILOT_GFS = os.getenv('FOREMAN_NOTES_PILOT_GFS', '')
+# Rollout switch: a publishing run (this on) resolves to the configured scope.
+FOREMAN_NOTES_UPLOAD = os.getenv(
+    'FOREMAN_NOTES_UPLOAD', '0'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Skip Smartsheet uploads for local testing (files still saved to OUTPUT_FOLDER)
 SKIP_UPLOAD = os.getenv('SKIP_UPLOAD', 'false').lower() == 'true'
 
@@ -73,6 +87,14 @@ def _coerce_sheet_id(raw_value, default=None):
         return default
 
 TARGET_SHEET_ID = _coerce_sheet_id(_target_sheet_id_env, 5723337641643908)
+# Phase 15 (D-15-04): target-sheet columns the General Foreman lookup reads.
+# Verified by title ('Work Request #' / 'General Foreman') at load time.
+FOREMAN_NOTES_GF_WR_COLUMN_ID = _coerce_sheet_id(
+    os.getenv('FOREMAN_NOTES_GF_WR_COLUMN_ID'), 5180541294563204
+)
+FOREMAN_NOTES_GF_COLUMN_ID = _coerce_sheet_id(
+    os.getenv('FOREMAN_NOTES_GF_COLUMN_ID'), 2159630534528900
+)
 _audit_sheet_id_int = _coerce_sheet_id(AUDIT_SHEET_ID) if AUDIT_SHEET_ID else None
 
 if _target_sheet_id_env:
