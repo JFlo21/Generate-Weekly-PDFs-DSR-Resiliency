@@ -1752,6 +1752,7 @@ def _regen_debt_finish_kwargs(
     scoped: bool,
     debt_unknown: bool,
     inherited_unknown: bool = False,
+    coverage_complete: bool = True,
 ) -> dict[str, Any]:
     """``run_ledger_finish`` kwargs carrying this run's regeneration debt
     (Phase 11 Plan 12, G-11-37 mechanism B) for a run that FINISHED.
@@ -1764,8 +1765,11 @@ def _regen_debt_finish_kwargs(
     the loop, ``skip_upload``) stays debt. *inherited_unknown*: the debt
     this run started from was itself unknowable, so every group pair of
     this run is treated as pending too (a stranded group outside the
-    candidate must still be carried if it is not confirmed). PURE; never
-    raises -- an internal error reports ``regen_debt_unknown`` True.
+    candidate must still be carried if it is not confirmed).
+    *coverage_complete* False (see :func:`_regen_debt_coverage_complete`)
+    carries every pending pair: an incomplete *groups* map cannot prove a
+    pair done. PURE; never raises -- an internal error reports
+    ``regen_debt_unknown`` True.
     """
     try:
         group_pairs = {
@@ -1791,6 +1795,7 @@ def _regen_debt_finish_kwargs(
             pending |= set(group_pairs.values())
         carried = _memory_candidate.unconfirmed_pairs(
             pending, group_pairs, confirmed, scoped,
+            coverage_complete=coverage_complete,
         )
         pairs_json, overflow = _memory_candidate.pairs_to_json(carried)
         return {
@@ -1804,6 +1809,30 @@ def _regen_debt_finish_kwargs(
             "regen_debt_overflow": False,
             "regen_debt_unknown": True,
         }
+
+
+def _regen_debt_coverage_complete(
+    groups_truncated: bool,
+    failed_sheet_ids: 'set[Any] | None',
+    grouping_mode: str,
+) -> bool:
+    """True when this run's ``groups`` map holds EVERY group a production
+    full run would build for each pair it contains (PR #435 feedback).
+
+    False when MAX_GROUPS truncated the map, any source sheet's read
+    failed or was partial (``fetch.get_last_full_read_failed_sheet_ids``;
+    ``None`` = unknowable), or ``RES_GROUPING_MODE`` is not ``both`` (a
+    ``primary`` / ``helper`` run builds a different group set). Debt is
+    then carried, never cleared. Never raises (False on error).
+    """
+    try:
+        if groups_truncated:
+            return False
+        if failed_sheet_ids is None or len(failed_sheet_ids) > 0:
+            return False
+        return str(grouping_mode).strip().lower() == "both"
+    except Exception:  # noqa: BLE001 - safe direction
+        return False
 
 
 def _regen_debt_failure_kwargs(
@@ -2716,6 +2745,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     _mem_confirmed_skip_keys = set()
     _mem_attachment_repair_keys = set()
     _mem_group_upload_ok = {}
+    # PR #435 feedback: True once MAX_GROUPS truncates ``groups`` -- the
+    # finish hook then cannot clear debt from the (incomplete) map.
+    _mem_groups_truncated = False
     # Greptile P1 (PR #351): False until _run_memory_write_phase confirms
     # every sheet this run -- gates the 11-05 shadow comparator and is
     # persisted as run_ledger.notes.mem_confirmed at both finish sites.
@@ -3484,6 +3516,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         if MAX_GROUPS and len(groups) > MAX_GROUPS:
             logging.info(f"✂️ Limiting processing to first {MAX_GROUPS} groups for test run")
             groups = dict(list(groups.items())[:MAX_GROUPS])
+            _mem_groups_truncated = True
         
         # Process groups
         snapshot_date = datetime.datetime.now()
@@ -5850,6 +5883,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             or (_mem_regen_debt is None and _dbt_scoped)
                         ),
                         inherited_unknown=_mem_regen_debt is None,
+                        coverage_complete=_regen_debt_coverage_complete(
+                            _mem_groups_truncated,
+                            _fetch.get_last_full_read_failed_sheet_ids(),
+                            RES_GROUPING_MODE,
+                        ),
                     ))
                 except Exception:
                     _finish_kwargs.update(

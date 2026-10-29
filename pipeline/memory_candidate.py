@@ -36,10 +36,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from typing import Any, Iterable, Mapping
 
 from pipeline import change_detection as _cd
 
 logger = logging.getLogger(__name__)
+
+# One ``(wr, week_ending)`` candidate / debt pair.
+Pair = tuple[Any, Any]
 
 # Raw mapped columns that feed a group KEY or the group hash's positional
 # meta (FOREMAN=, HELPER*=, HELPER2*=) WITHOUT being in
@@ -247,7 +251,13 @@ def shadow_candidate_pairs(affected, debt):
         return set()
 
 
-def unconfirmed_pairs(pending, group_pairs, confirmed_keys, scoped):
+def unconfirmed_pairs(
+    pending: Iterable[Pair],
+    group_pairs: Mapping[Any, Pair],
+    confirmed_keys: Iterable[Any],
+    scoped: bool,
+    coverage_complete: bool = True,
+) -> set[Pair]:
     """Subset of *pending* pairs this run could NOT confirm (carried debt).
 
     *group_pairs* maps group key -> ``(wr, week)``; *confirmed_keys* holds
@@ -257,11 +267,19 @@ def unconfirmed_pairs(pending, group_pairs, confirmed_keys, scoped):
     and the run was unscoped (*scoped* False: the full grouping simply has
     no group for it, e.g. its rows were deleted). A scoped run (WR_FILTER,
     MAX_GROUPS, ...) cannot tell "no groups" from "filtered out", so it
-    carries zero-group pairs. Never raises: on an internal error returns
-    the FULL pending set, the safe (wider) direction.
+    carries zero-group pairs.
+
+    *coverage_complete* False (PR #435 feedback): *group_pairs* may be
+    missing some of a pair's groups -- MAX_GROUPS truncated the map, a
+    source sheet's read failed, or the grouping mode is not ``both`` -- so
+    "every present group confirmed" does not prove the pair is done.
+    EVERY pending pair is then carried. Never raises: on an internal error
+    returns the FULL pending set, the safe (wider) direction.
     """
     try:
         pending = set(pending)
+        if not coverage_complete:
+            return pending
         keys_by_pair = {}
         for gk, pair in group_pairs.items():
             if pair in pending:
