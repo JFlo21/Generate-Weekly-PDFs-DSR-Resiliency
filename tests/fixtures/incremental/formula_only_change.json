@@ -45,5 +45,29 @@
       "__mem_units_total_price": 480.0,
       "Customer Name": "American Electric Power - Ohio"
     }
+  },
+  "non_group_hash_field_change": {
+    "description": "A formula-only edit to a column read by NEITHER pipeline_memory HASH_FIELDS NOR the group hash (pipeline.change_detection._extended_row_fields) nor any group-key derivation -- the display/notification-only 'Vac Crew Email Address' (fetch.py stores it as __vac_crew_email; calculate_data_hash never reads it). MUST produce the SAME content_hash even after the G-11-37 group-hash fingerprint is stamped: UAT test 28's 'correct, not a miss' claim, stated against the true group-hash domain. Derived from the existing MEM-04 cassette shape (11-11 Plan, Task 2); NOT a new Smartsheet API probe.",
+    "sheet_id": 4909062725521284,
+    "before": {
+      "__row_id": 1101266002509702,
+      "Work Request #": "90001",
+      "Weekly Reference Logged Date": "2026-08-30",
+      "Foreman": "Jane Doe",
+      "Units Completed?": true,
+      "__mem_quantity": 12,
+      "__mem_units_total_price": 480.0,
+      "Vac Crew Email Address": "crew.lead@example.invalid"
+    },
+    "after": {
+      "__row_id": 1101266002509702,
+      "Work Request #": "90001",
+      "Weekly Reference Logged Date": "2026-08-30",
+      "Foreman": "Jane Doe",
+      "Units Completed?": true,
+      "__mem_quantity": 12,
+      "__mem_units_total_price": 480.0,
+      "Vac Crew Email Address": "crew.lead.renamed@example.invalid"
+    }
   }
 }

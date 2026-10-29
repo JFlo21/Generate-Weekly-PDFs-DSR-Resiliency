@@ -849,10 +849,16 @@ class FormulaOnlyReconciliationTests(unittest.TestCase):
     def test_non_hash_field_formula_change_yields_same_hash_no_repair(
         self,
     ):
-        """A formula-only change to a field OUTSIDE HASH_FIELDS (here,
-        'Customer Name' -- never read by _row_to_payload at all) must
-        produce the IDENTICAL content_hash and therefore drive NO
-        group_state repair -- this is correct, not a miss."""
+        """WRITER-LEVEL pin only: ``_row_to_payload`` on a row WITHOUT
+        the caller's ``__mem_group_fp`` stamp ignores 'Customer Name'
+        (outside HASH_FIELDS), so the content_hash is identical.
+
+        Since G-11-37 (11-11) this is NOT the production semantics:
+        ``_run_memory_write_phase`` stamps ``__mem_group_fp`` on every
+        row, and 'Customer Name' IS read by the group hash, so in
+        production that edit DOES change ``content_hash`` -- see
+        ``test_group_hash_field_change_differs_when_stamped`` below.
+        """
         from pipeline_memory.writer import (
             _row_to_payload, compute_content_hash,
         )
@@ -871,6 +877,70 @@ class FormulaOnlyReconciliationTests(unittest.TestCase):
             compute_content_hash(before_payload),
             compute_content_hash(after_payload),
         )
+
+    def test_group_hash_field_change_differs_when_stamped(self):
+        """G-11-37 production semantics: the same Customer Name cassette
+        pair, stamped with ``row_group_hash_fingerprint`` exactly as
+        ``_run_memory_write_phase`` does, yields DIFFERENT content hashes
+        (Customer Name is read by the group hash)."""
+        import copy
+        from pipeline.memory_candidate import row_group_hash_fingerprint
+        from pipeline_memory.writer import _row_to_payload
+
+        cassette = _load_fixture(
+            "formula_only_change.json"
+        )["non_hash_field_change"]
+        hashes = []
+        for side in ("before", "after"):
+            row = copy.deepcopy(cassette[side])
+            row["__mem_group_fp"] = row_group_hash_fingerprint(row)
+            hashes.append(_row_to_payload(
+                row, "run-1", "2026-08-30", "2026-08-25",
+            )["content_hash"])
+        self.assertNotEqual(hashes[0], hashes[1])
+
+    def test_non_group_hash_field_change_same_hash_even_when_stamped(self):
+        """UAT test 28's 'correct, not a miss' claim, now stated against
+        the TRUE group-hash domain: a column outside HASH_FIELDS AND
+        outside the group hash / group-key inputs does not move
+        content_hash even with the fingerprint stamped."""
+        import copy
+        from pipeline import change_detection
+        from pipeline.memory_candidate import (
+            GROUP_DERIVATION_KEYS, row_group_hash_fingerprint,
+        )
+        from pipeline_memory.writer import _row_to_payload
+
+        cassette = _load_fixture(
+            "formula_only_change.json"
+        )["non_group_hash_field_change"]
+        before, after = cassette["before"], cassette["after"]
+        changed = {k for k in after if before.get(k) != after.get(k)}
+        self.assertEqual(changed, {"Vac Crew Email Address"})
+
+        # Outside the group-hash domain ...
+        self.assertEqual(
+            change_detection._extended_row_fields(before, "vac_crew"),
+            change_detection._extended_row_fields(after, "vac_crew"),
+        )
+        self.assertNotIn("Vac Crew Email Address", GROUP_DERIVATION_KEYS)
+        # ... and outside HASH_FIELDS (unstamped writer hash identical).
+        unstamped = [
+            _row_to_payload(
+                copy.deepcopy(row), "run-1", "2026-08-30", "2026-08-25",
+            )["content_hash"]
+            for row in (before, after)
+        ]
+        self.assertEqual(unstamped[0], unstamped[1])
+
+        stamped = []
+        for row in (before, after):
+            row = copy.deepcopy(row)
+            row["__mem_group_fp"] = row_group_hash_fingerprint(row)
+            stamped.append(_row_to_payload(
+                row, "run-1", "2026-08-30", "2026-08-25",
+            )["content_hash"])
+        self.assertEqual(stamped[0], stamped[1])
 
     def test_hash_field_change_pair_is_pickable_by_group_state_repair(self):
         """Wires Task 1's _repair_group_state_for_affected_pairs into
