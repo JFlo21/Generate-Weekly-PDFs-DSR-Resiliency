@@ -175,10 +175,14 @@ daily window.
   `user && !profile` resolving window (SEC-04 HIGH-03). The untested slice is
   **recovery after a failed/terminal profile fetch** — the stuck-skeleton path in the
   Medium availability finding above.
-- **`ResetPasswordPage` is well covered** — `ResetPasswordPage.test.tsx` tests the
-  `verifyOtp` token-hash path (success, expired link, no-token implicit flow, and the
-  `PASSWORD_RECOVERY` fallback); no gap here. *(Corrected from an earlier draft that
-  wrongly listed `AuthGuard` and `ResetPasswordPage` as untested.)*
+- **`ResetPasswordPage` link handling is covered, but the submit path is not** —
+  `ResetPasswordPage.test.tsx` tests the `verifyOtp` token-hash path (success, expired
+  link, no-token implicit flow, and the `PASSWORD_RECOVERY` fallback). The **password-
+  submit path remains untested**: `updateUser` is mocked but never exercised, so there
+  are no assertions on the update payload, update-failure handling, the success toast, or
+  the `/login` redirect. *(Corrected from an earlier draft that wrongly listed `AuthGuard`
+  and `ResetPasswordPage` as fully untested — the link-handling coverage is real, the
+  submit-path gap is not.)*
 
 ## 6. Suggested Next Actions
 
