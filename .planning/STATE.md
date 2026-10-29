@@ -5,11 +5,11 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 11-14-PLAN.md
-last_updated: "2026-10-29T21:08:03.357Z"
+stopped_at: Phase 15 context gathered
+last_updated: "2026-10-29T21:16:01.789Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: 6f5ce53a0033ba125211855b935796a675804e5d
+state_head: 0647bb937db843fcd4421b8b2405cadd34b12683
 progress:
   total_phases: 15
   completed_phases: 14
@@ -566,8 +566,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-10-29T20:57:52.503Z
-**Stopped at:** Completed 11-14-PLAN.md
+**Last session:** 2026-10-29T21:15:58.868Z
+**Stopped at:** Phase 15 context gathered
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
@@ -585,7 +585,7 @@ breaker); `keep_historical` deferred behind the incremental-mode gate
 (record `.planning/todos/done/2026-09-10-pr402-review-followups.md`); (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A)
 on its contract then; (3) owner: Dependabot triage / Codex threads.
-**Resume file:** None
+**Resume file:** .planning/phases/15-foreman-notes-and-smartsheet-color-carry-over-gf-pilot/15-CONTEXT.md
 
 ## Session Continuity
 
