@@ -105,6 +105,26 @@ daily window.
   2026-10-20; still unconfirmed against the live CSP. Verify the deployed header set
   against hCaptcha's required origins and that the sitekey env var is present in prod.
 
+### MEDIUM · security (defense-in-depth) — Last admin can DELETE their own profile → zero admins
+- **File:** `supabase/portal_schema.sql` (`profiles_admin_all` L82-83, `check_last_admin` L171-173)
+- **Problem (re-verified, carried from 2026-10-20):** `check_last_admin` is a
+  `BEFORE UPDATE` trigger only, but `profiles_admin_all` grants admins `FOR ALL` —
+  including DELETE. The sole admin deleting their own `profiles` row is unguarded, so the
+  portal can be left with **zero administrators** and no in-app way to recover.
+- **Recommended fix:** Add a concurrency-safe `BEFORE DELETE` guard mirroring
+  `prevent_last_admin_demotion`, or deny DELETE on `profiles` at the policy level.
+
+### MEDIUM · setup/correctness — `portal-v2/README.md` setup guide is stale and fails
+- **File:** `portal-v2/README.md`
+- **Problem (re-verified, carried from 2026-10-20):** line 58 points to
+  `portal-v2/supabase/schema.sql`, which does not exist (the real file is
+  `supabase/portal_schema.sql`); lines 101/155 still reference the removed Express
+  `portal/` directory (`cd ../portal`, `portal/routes/api.js`, removed in 03153c3). A
+  fresh operator's setup fails at the schema step — and since `supabase/portal_schema.sql`
+  is what enables RLS, a mis-followed setup risks creating tables **without RLS**.
+- **Recommended fix:** Rewrite the README setup section — correct the schema path and
+  delete the obsolete `portal/` steps.
+
 ---
 
 ## 3. Code Quality Improvements
@@ -116,9 +136,11 @@ daily window.
   (`supabase.ts:31`) — any accidental early call throws an opaque NPE rather than the
   clean `isSupabaseConfigured` guard message. Acceptable given the `main.tsx` guard,
   but a narrow typed accessor would be safer.
-- **Password policy is `minLength={6}`** across Login/Reset inputs (Supabase default).
-  Consider raising to ≥8 with basic strength feedback; align the client bound with the
-  Supabase project's configured minimum so the two can't diverge.
+- **Password policy is `minLength={6}`** (Supabase default). Raise it to ≥8 with basic
+  strength feedback **only on the sign-up and reset flows** — `LoginPage`'s input is
+  shared by sign-in, so raising its minimum would block existing accounts with valid
+  6–7 char passwords from signing in. Coordinate the client bound with the Supabase
+  project's server-side minimum (and any credential migration) so the two can't diverge.
 - **Env validation is asymmetric.** `VITE_SUPABASE_*` is validated via
   `isSupabaseConfigured`; `VITE_HCAPTCHA_SITEKEY` is not. Add an equivalent guard so a
   missing sitekey fails loudly at boot instead of silently disabling login.
@@ -148,9 +170,15 @@ daily window.
   have caught the HIGH orphaned-listener bug directly.
 - **No test for the "Remember me" storage swap** (session vs local; survival across a
   simulated reload).
-- **No test for `AuthGuard`** behavior: the `pending → /pending` redirect, and the
-  `user && !profile` resolving window (incl. the profile-fetch-failure stuck state).
-- **No test for `ResetPasswordPage`** `verifyOtp` token-hash path (success + expired).
+- **`AuthGuard` is partially covered** — `AuthGuard.test.tsx` already tests the
+  `pending → /pending` redirect, the unauthenticated → `/login` redirect, and the
+  `user && !profile` resolving window (SEC-04 HIGH-03). The untested slice is
+  **recovery after a failed/terminal profile fetch** — the stuck-skeleton path in the
+  Medium availability finding above.
+- **`ResetPasswordPage` is well covered** — `ResetPasswordPage.test.tsx` tests the
+  `verifyOtp` token-hash path (success, expired link, no-token implicit flow, and the
+  `PASSWORD_RECOVERY` fallback); no gap here. *(Corrected from an earlier draft that
+  wrongly listed `AuthGuard` and `ResetPasswordPage` as untested.)*
 
 ## 6. Suggested Next Actions
 
@@ -167,6 +195,10 @@ daily window.
 5. **Give `fetchProfile` a terminal error state** and render an error+retry in
    `AuthGuard` instead of an indefinite skeleton.
 6. **Handle the `signOut` error result** and drop the `[v0]` log prefix.
+7. **Add a `BEFORE DELETE` last-admin guard** (or deny DELETE on `profiles`) so the sole
+   admin cannot delete themselves into a zero-admin state.
+8. **Rewrite the stale `portal-v2/README.md` setup section** (correct schema path, drop
+   the removed `portal/` steps) so a fresh operator's setup applies RLS correctly.
 
 ---
 
