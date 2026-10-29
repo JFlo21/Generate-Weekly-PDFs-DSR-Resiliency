@@ -18,9 +18,13 @@ descriptor -- counts only (CLAUDE.md Sentry PII rule; public-repo identifier rul
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any
+
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
 from pipeline import config
 from pipeline.retry import smartsheet_call_with_retry
@@ -52,6 +56,11 @@ __all__ = [
     "build_sheet_column_maps",
     "attach_group_styles",
     "reset_style_cache",
+    "NOTES_KEY",
+    "norm_note",
+    "row_notes_component",
+    "group_notes_token",
+    "globals_component",
 ]
 
 _VALID_SCOPES = ("off", "pilot", "all")
@@ -574,3 +583,70 @@ def attach_group_styles(client: Any, group_rows: Any, sheet_maps: dict) -> int:
     except Exception as exc:  # noqa: BLE001
         logging.warning("Foreman notes: attach styles failed (%s)", type(exc).__name__)
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Notes normaliser and digests (D-15-11, OQ-4)
+# ---------------------------------------------------------------------------
+
+NOTES_KEY = "Foreman Notes"
+_NOTE_MAX = 32767
+
+
+def norm_note(value: Any) -> str:
+    """The ONLY note normaliser: used for hashing, fingerprints and Excel writes.
+
+    Illegal XML characters removed, then trimmed, then capped at 32767 chars.
+    """
+    if value is None:
+        return ""
+    return ILLEGAL_CHARACTERS_RE.sub("", str(value)).strip()[:_NOTE_MAX]
+
+
+def row_notes_component(row: Any) -> str | None:
+    """Normalised note for a PILOT row; ``None`` when off or non-pilot."""
+    try:
+        if _STATE.scope == "off" or not is_pilot_row(row):
+            return None
+        return norm_note(row.get(NOTES_KEY))
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("Foreman notes: row component failed (%s)", type(exc).__name__)
+        return None
+
+
+def group_notes_token(sorted_rows: Any, row_identity: Any) -> str:
+    """16-hex digest of (row identity, normalised note) pairs for a pilot group.
+
+    ``row_identity`` is a caller-supplied callable (change_detection passes its
+    own identity join so this module needs no change_detection import). Returns
+    ``''`` for a non-pilot group. Pairs are sorted, so any row permutation --
+    including identity ties with different notes -- yields the same digest.
+    An all-blank pilot group yields a deterministic non-empty constant (OQ-4).
+    """
+    try:
+        if not is_pilot_group(sorted_rows):
+            return ""
+        pairs = sorted(
+            [str(row_identity(r)), norm_note(r.get(NOTES_KEY))] for r in sorted_rows
+        )
+        payload = json.dumps(pairs, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("Foreman notes: group token failed (%s)", type(exc).__name__)
+        return ""
+
+
+def globals_component() -> str:
+    """16-hex digest of scope + allowlist + pilot WR set; ``''`` when off."""
+    try:
+        state = _STATE
+        if state.scope == "off":
+            return ""
+        payload = json.dumps(
+            [state.scope, sorted(state.allowlist), sorted(state.pilot_wrs)],
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("Foreman notes: globals component failed (%s)", type(exc).__name__)
+        return ""
