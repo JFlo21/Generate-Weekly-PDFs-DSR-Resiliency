@@ -1,0 +1,1893 @@
+{
+ "groups": {
+  "primary": {
+   "hashes": {
+    "data_hash": "3376859b90c29aec",
+    "row_fps": [
+     "a60a8742a110c45cb017e6841439b0b88796d6cd94b1e2da880575acf7309a62",
+     "39bb046806e6d509593396b42c99f995385d8655cd3b06df3291c1417629c511",
+     "71e3c7a6d9e92375739851acb9d66dbe285dfe8021786a39f426cf3a4e8ca8a1",
+     "f4f9962441b3b43b64ff132580b6d2792a243acb1e3da0d8020905f182cd1bf8"
+    ]
+   },
+   "returned": {
+    "customer_name": "Example Utility Co",
+    "filename": "WR_90311_WeekEnding_072626_<ts>_User_Pat_Example_3376859b90c29aec.xlsx",
+    "missing_cus": {},
+    "wr_numbers": [
+     "90311"
+    ]
+   },
+   "workbook": {
+    "cells": {
+     "A1": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 20.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "LINETEC SERVICES"
+     },
+     "A14": {
+      "alignment": {
+       "horizontal": "left",
+       "vertical": "center",
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 14.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Tuesday (07/21/2026)"
+     },
+     "A15": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Point Number"
+     },
+     "A16": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "P-100"
+     },
+     "A17": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "P-200"
+     },
+     "A18": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "TOTAL"
+     },
+     "A21": {
+      "alignment": {
+       "horizontal": "left",
+       "vertical": "center",
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 14.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Wednesday (07/22/2026)"
+     },
+     "A22": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Point Number"
+     },
+     "A23": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "P-300"
+     },
+     "A24": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "P-100"
+     },
+     "A25": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "TOTAL"
+     },
+     "B10": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Billing Period:"
+     },
+     "B15": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Billable Unit Code"
+     },
+     "B16": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "CU-100"
+     },
+     "B17": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "CU-200"
+     },
+     "B22": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Billable Unit Code"
+     },
+     "B23": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "CU-300"
+     },
+     "B24": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "CU-100"
+     },
+     "B7": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 12.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "REPORT SUMMARY"
+     },
+     "B8": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Total Billed Amount:"
+     },
+     "B9": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Total Line Items:"
+     },
+     "C10": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "07/20/2026 to 07/26/26"
+     },
+     "C15": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Work Type"
+     },
+     "C16": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Install"
+     },
+     "C17": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Removal"
+     },
+     "C22": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Work Type"
+     },
+     "C23": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Transfer"
+     },
+     "C24": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Install"
+     },
+     "C8": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "\"$\"#,##0.00_-",
+      "value": 180.5
+     },
+     "C9": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": 4
+     },
+     "D15": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Unit Description"
+     },
+     "D16": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Anchor assembly"
+     },
+     "D17": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Pôteau métallique"
+     },
+     "D2": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00404040",
+       "i": false,
+       "name": "Calibri",
+       "size": 16.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "WEEKLY UNITS COMPLETED PER SCOPE ID"
+     },
+     "D22": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Unit Description"
+     },
+     "D23": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Guy wire"
+     },
+     "D24": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Anchor assembly"
+     },
+     "D5": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": true,
+       "name": "Calibri",
+       "size": 9.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "<generated-at>"
+     },
+     "E15": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Unit of Measure"
+     },
+     "E16": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "EA"
+     },
+     "E17": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "EA"
+     },
+     "E22": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Unit of Measure"
+     },
+     "E23": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "EA"
+     },
+     "E24": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "EA"
+     },
+     "F10": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Work Request #:"
+     },
+     "F11": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Scope ID #:"
+     },
+     "F12": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Work Order #:"
+     },
+     "F13": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Customer:"
+     },
+     "F14": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Job #:"
+     },
+     "F15": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "# Units"
+     },
+     "F16": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": 2
+     },
+     "F17": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": 1
+     },
+     "F22": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "# Units"
+     },
+     "F23": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": 3
+     },
+     "F24": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": 1
+     },
+     "F7": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 12.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "REPORT DETAILS"
+     },
+     "F8": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Foreman:"
+     },
+     "F9": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": true,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Dept #:"
+     },
+     "G10": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "90311"
+     },
+     "G11": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "S-77"
+     },
+     "G12": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "WO-5001"
+     },
+     "G13": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Example Utility Co"
+     },
+     "G14": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "J-4100"
+     },
+     "G15": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "N/A"
+     },
+     "G22": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "N/A"
+     },
+     "G8": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Pat Example"
+     },
+     "G9": {
+      "alignment": {
+       "horizontal": "right",
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 10.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "520"
+     },
+     "H15": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Pricing"
+     },
+     "H16": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "\"$\"#,##0.00_-",
+      "value": 50
+     },
+     "H17": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "\"$\"#,##0.00_-",
+      "value": 75.5
+     },
+     "H18": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "\"$\"#,##0.00_-",
+      "value": 125.5
+     },
+     "H22": {
+      "alignment": {
+       "horizontal": "center",
+       "vertical": "center",
+       "wrap_text": true
+      },
+      "data_type": "s",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "General",
+      "value": "Pricing"
+     },
+     "H23": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "\"$\"#,##0.00_-",
+      "value": 30
+     },
+     "H24": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00000000",
+       "fill_type": null
+      },
+      "font": {
+       "b": false,
+       "color_rgb": null,
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "\"$\"#,##0.00_-",
+      "value": 25
+     },
+     "H25": {
+      "alignment": {
+       "horizontal": null,
+       "vertical": null,
+       "wrap_text": null
+      },
+      "data_type": "n",
+      "fill": {
+       "fg_rgb": "00C00000",
+       "fill_type": "solid"
+      },
+      "font": {
+       "b": true,
+       "color_rgb": "00FFFFFF",
+       "i": false,
+       "name": "Calibri",
+       "size": 11.0,
+       "strike": null,
+       "u": null
+      },
+      "number_format": "\"$\"#,##0.00_-",
+      "value": 55
+     }
+    },
+    "fit_to_page": null,
+    "footer": {
+     "center": null,
+     "left": null,
+     "right": null
+    },
+    "images": 0,
+    "margins": {
+     "bottom": 0.5,
+     "left": 0.25,
+     "right": 0.25,
+     "top": 0.5
+    },
+    "merged": [
+     "A18:G18",
+     "A1:C3",
+     "A21:H21",
+     "A25:G25",
+     "B7:D7",
+     "D2:I2",
+     "D5:I5",
+     "F7:I7",
+     "G10:I10",
+     "G11:I11",
+     "G12:I12",
+     "G13:I13",
+     "G14:I14",
+     "G8:I8",
+     "G9:I9"
+    ],
+    "page_setup": {
+     "fitToHeight": null,
+     "fitToWidth": null,
+     "orientation": "landscape",
+     "paperSize": 9
+    },
+    "print": {
+     "freeze_panes": null,
+     "print_area": "",
+     "print_title_rows": null
+    },
+    "widths": {
+     "A": 15.0,
+     "B": 20.0,
+     "C": 25.0,
+     "D": 45.0,
+     "E": 20.0,
+     "F": 10.0,
+     "G": 15.0,
+     "H": 15.0,
+     "I": 15.0,
+     "J": 13.0
+    }
+   }
+  }
+ },
+ "meta": {
+  "base_sha": "3b14a1eee7cee09d6f4b8054c47e28eed7e11185",
+  "pinned": [
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "EXTENDED_CHANGE_DETECTION",
+    "value": true
+   },
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "RATE_CUTOFF_DATE",
+    "value": "2026-01-01"
+   },
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "_SUBCONTRACTOR_RATES_FINGERPRINT",
+    "value": "fixture-sub-fp"
+   },
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "_SUBCONTRACTOR_RATES",
+    "value": {
+     "CU-100": {
+      "new_install_price": 12.5,
+      "new_remove_price": 6.25,
+      "new_transfer_price": 4.0,
+      "reduced_install_price": 10.0,
+      "reduced_remove_price": 5.0,
+      "reduced_transfer_price": 3.0
+     },
+     "CU-200": {
+      "new_install_price": 40.0,
+      "new_remove_price": 20.0,
+      "new_transfer_price": 15.0,
+      "reduced_install_price": 32.0,
+      "reduced_remove_price": 16.0,
+      "reduced_transfer_price": 12.0
+     }
+    }
+   },
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "RES_GROUPING_MODE",
+    "value": "both"
+   },
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "TEST_MODE",
+    "value": false
+   },
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "PRIMARY_CLAIM_ATTRIBUTION_ENABLED",
+    "value": true
+   },
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "VAC_CREW_CLAIM_ATTRIBUTION_ENABLED",
+    "value": true
+   },
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "SUPABASE_HASH_STORE_AUTHORITATIVE",
+    "value": false
+   },
+   {
+    "module": "generate_weekly_pdfs",
+    "name": "BILLING_AUDIT_AVAILABLE",
+    "value": true
+   },
+   {
+    "module": "pipeline.fetch",
+    "name": "_RATES_FINGERPRINT",
+    "value": "fixture-rates-fp"
+   },
+   {
+    "module": "pipeline.pricing",
+    "name": "SUBCONTRACTOR_RATE_VARIANTS_ENABLED",
+    "value": true
+   },
+   {
+    "module": "pipeline.excel",
+    "name": "LOGO_PATH",
+    "value": "__no_such_logo__.png"
+   }
+  ],
+  "skipped_variants": {}
+ }
+}
