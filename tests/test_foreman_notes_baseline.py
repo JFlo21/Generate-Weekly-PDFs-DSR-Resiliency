@@ -13,6 +13,8 @@ Regenerating the fixture is only legitimate on the BASE commit:
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -66,9 +68,19 @@ def _all_cell_values(group: dict[str, Any]) -> set[str]:
     }
 
 
-EXPECTED_GROUPS = [
-    "primary",
-]
+EXPECTED_GROUPS = list(golden.EXPECTED_GROUP_NAMES)
+
+# Perturbed environment for the env-independence test: every knob that could
+# leak into the hash or workbook is flipped away from its default.
+PERTURBED_ENV = {
+    "EXTENDED_CHANGE_DETECTION": "0",
+    "RATE_CUTOFF_DATE": "2030-01-01",
+    "TEST_MODE": "true",
+    "RES_GROUPING_MODE": "primary",
+    "HELPER2_ENABLED": "0",
+    "SUBCONTRACTOR_RATE_VARIANTS_ENABLED": "0",
+    "SKIP_UPLOAD": "true",
+}
 
 
 class ForemanNotesBaselineTests(unittest.TestCase):
@@ -103,6 +115,37 @@ class ForemanNotesBaselineTests(unittest.TestCase):
                 self.assertRegex(hashes["data_hash"], r"^[0-9a-f]{16}$")
                 self.assertEqual(
                     len(hashes["row_fps"]), len(rows_by_name[name]))
+
+    def test_expected_ten_variant_families_are_all_built(self):
+        self.assertEqual(
+            [name for name, _k, _r in golden.build_fixture_groups()],
+            EXPECTED_GROUPS)
+        self.assertEqual(len(EXPECTED_GROUPS), 10)
+
+    def test_every_fixture_group_carries_a_note_and_a_formula_note(self):
+        for name, _key, rows in golden.build_fixture_groups():
+            notes = [str(r.get("Foreman Notes") or "") for r in rows]
+            with self.subTest(group=name):
+                self.assertTrue(any(n.strip() for n in notes))
+                self.assertTrue(any(n.startswith("=") for n in notes))
+
+    def test_capture_is_independent_of_the_process_environment(self):
+        """A subprocess with a perturbed environment must reproduce the
+        fixture; a difference means an env-derived input leaked in and must
+        be added to ``pinned_env`` -- never loosen this comparison."""
+        env = dict(os.environ, PYTHONUTF8="1", **PERTURBED_ENV)
+        proc = subprocess.run(
+            [sys.executable, "-I", str(_TESTS / "_foreman_notes_golden.py"),
+             "--print"],
+            cwd=str(_REPO_ROOT), env=env, capture_output=True,
+            text=True, encoding="utf-8", timeout=300,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        result = json.loads(proc.stdout)
+        diff = _first_diff(
+            _strip_base_sha(self.fixture), _strip_base_sha(result))
+        self.assertIsNone(
+            diff, f"perturbed-environment capture differs at {diff}")
 
     def test_primary_group_golden_has_merged_ranges(self):
         self.assertTrue(self.fixture["groups"]["primary"]["workbook"]["merged"])

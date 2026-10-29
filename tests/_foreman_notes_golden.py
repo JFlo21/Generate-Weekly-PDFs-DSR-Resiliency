@@ -15,6 +15,7 @@ when run as a script).
 
 Entry points:
     python tests/_foreman_notes_golden.py --write   regenerate the fixture
+    python tests/_foreman_notes_golden.py --print   capture JSON to stdout
 """
 
 from __future__ import annotations
@@ -168,10 +169,58 @@ def _rows(**extra: Any) -> list[dict[str, Any]]:
     ]
 
 
+_HELPER1 = {
+    "__helper_foreman": "Sam Sample", "__helper_dept": "NA-03",
+    "__helper_job": "J-9100", "__is_helper_row": True,
+}
+_HELPER2 = {
+    "__helper2_foreman": "Robin Sample", "__helper2_dept": "NA-04",
+    "__helper2_job": "J-9200", "__is_helper2_row": True,
+}
+_VAC = {
+    "__vac_crew_name": "Vic Crewman", "__vac_crew_dept": "VAC-7",
+    "__vac_crew_job": "J-7700", "__is_vac_crew": True,
+    "__current_foreman": "Vic Crewman",
+}
+
+# Every variant family that flows through the single ``generate_excel``
+# (FN-12).  Group keys use the formats ``pipeline/grouping.py`` emits.
+EXPECTED_GROUP_NAMES = (
+    "primary", "helper", "helper2", "vac_crew", "aep_billable", "reduced_sub",
+    "aep_billable_helper", "reduced_sub_helper",
+    "aep_billable_helper2", "reduced_sub_helper2",
+)
+
+
 def build_fixture_groups() -> list[tuple[str, str, list[dict[str, Any]]]]:
     """Ordered ``(name, group_key, rows)`` for every variant family."""
+    k = f"{WEEK_RAW}_{WR}"
     return [
-        ("primary", f"{WEEK_RAW}_{WR}", _rows()),
+        ("primary", k, _rows()),
+        ("helper", f"{k}_HELPER_Sam_Sample",
+         _rows(__variant="helper", __current_foreman="Sam Sample",
+               **_HELPER1)),
+        ("helper2", f"{k}_HELPER2_Robin_Sample",
+         _rows(__variant="helper2", __current_foreman="Robin Sample",
+               **_HELPER2)),
+        ("vac_crew", f"{k}_VACCREW_Vic_Crewman",
+         _rows(__variant="vac_crew", **_VAC)),
+        ("aep_billable", f"{k}_AEPBILLABLE_USER_Pat_Example",
+         _rows(__variant="aep_billable")),
+        ("reduced_sub", f"{k}_REDUCEDSUB_USER_Pat_Example",
+         _rows(__variant="reduced_sub")),
+        ("aep_billable_helper", f"{k}_AEPBILLABLE_HELPER_Sam_Sample",
+         _rows(__variant="aep_billable_helper",
+               __current_foreman="Sam Sample", **_HELPER1)),
+        ("reduced_sub_helper", f"{k}_REDUCEDSUB_HELPER_Sam_Sample",
+         _rows(__variant="reduced_sub_helper",
+               __current_foreman="Sam Sample", **_HELPER1)),
+        ("aep_billable_helper2", f"{k}_AEPBILLABLE_HELPER2_Robin_Sample",
+         _rows(__variant="aep_billable_helper2",
+               __current_foreman="Robin Sample", **_HELPER2)),
+        ("reduced_sub_helper2", f"{k}_REDUCEDSUB_HELPER2_Robin_Sample",
+         _rows(__variant="reduced_sub_helper2",
+               __current_foreman="Robin Sample", **_HELPER2)),
     ]
 
 
@@ -324,11 +373,29 @@ def dumps(record: dict[str, Any]) -> str:
     return json.dumps(record, ensure_ascii=False, sort_keys=True, indent=1) + "\n"
 
 
+def _print_capture() -> int:
+    """Write the capture JSON to the REAL stdout; chatter goes to stderr.
+
+    Used by the env-independence test, which runs this in a subprocess with
+    a perturbed environment.
+    """
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr  # facade / generate_excel print progress lines
+    try:
+        record = capture()
+    finally:
+        sys.stdout = real_stdout
+    real_stdout.write(dumps(record))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     # The facade prints emoji at import time; a cp1252 console would crash.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
+    if "--print" in argv:
+        return _print_capture()
     if "--write" in argv:
         FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
         record = capture()
