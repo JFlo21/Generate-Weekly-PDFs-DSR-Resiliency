@@ -815,5 +815,301 @@ class IncrementalMainWiringTests(unittest.TestCase):
         )
 
 
+# ── PR #435 feedback: coverage, ledger-start confirmation ───────────────
+
+class CoverageIncompleteTests(unittest.TestCase):
+    """Issue 1: debt is cleared only from a COMPLETE groups map. MAX_GROUPS
+    truncation, a failed source-sheet read or a non-'both' grouping mode
+    can hide some of a pair's groups, so every pending pair is carried."""
+
+    def test_incomplete_coverage_carries_pair_with_confirmed_groups(self):
+        pending = {("1", "w")}
+        group_pairs = {"g1": ("1", "w")}
+        self.assertEqual(
+            mc.unconfirmed_pairs(
+                pending, group_pairs, {"g1"}, False,
+                coverage_complete=False,
+            ),
+            {("1", "w")},
+        )
+
+    def test_incomplete_coverage_carries_zero_group_pair_unscoped(self):
+        pending = {("9", "w")}
+        self.assertEqual(
+            mc.unconfirmed_pairs(
+                pending, {}, set(), False, coverage_complete=False,
+            ),
+            {("9", "w")},
+        )
+
+    def test_complete_coverage_is_the_default(self):
+        sig = inspect.signature(mc.unconfirmed_pairs)
+        self.assertIs(sig.parameters["coverage_complete"].default, True)
+        self.assertEqual(
+            mc.unconfirmed_pairs({("1", "w")}, {"g1": ("1", "w")}, {"g1"},
+                                 False),
+            set(),
+        )
+
+    def test_finish_kwargs_carry_uploaded_pair_when_incomplete(self):
+        base = dict(
+            candidate_pairs={("1", "2026-11-01")},
+            groups={"g1": _group("1", "2026-11-01")},
+            skip_keys=set(),
+            upload_ok={"g1": True},
+            deferred_records=[{"group_key": "g1"}],
+            upload_tasks=[{"group_key": "g1"}],
+            no_target_groups=set(),
+            scoped=False,
+            debt_unknown=False,
+        )
+        self.assertEqual(
+            orch._regen_debt_finish_kwargs(**base)["regen_debt_pairs"], [],
+        )
+        self.assertEqual(
+            orch._regen_debt_finish_kwargs(
+                **base, coverage_complete=False,
+            )["regen_debt_pairs"],
+            [["1", "2026-11-01"]],
+        )
+
+    def test_coverage_complete_rule(self):
+        f = orch._regen_debt_coverage_complete
+        self.assertTrue(f(False, set(), "both"))
+        self.assertFalse(f(True, set(), "both"))
+        self.assertFalse(f(False, {123}, "both"))
+        self.assertFalse(f(False, set(), "primary"))
+        self.assertFalse(f(False, set(), "helper"))
+        self.assertFalse(f(False, None, "both"))
+
+    def test_main_tracks_truncation_and_passes_coverage(self):
+        src = inspect.getsource(orch.main)
+        cut = src.index("Limiting processing to first")
+        self.assertIn(
+            "_mem_groups_truncated = True", src[cut:cut + 400],
+        )
+        self.assertIn("_mem_groups_truncated = False", src[:cut])
+        self.assertIn("coverage_complete=_regen_debt_coverage_complete(",
+                      src)
+        self.assertIn("get_last_full_read_failed_sheet_ids()", src)
+
+
+class LedgerStartConfirmationWriterTests(unittest.TestCase):
+    """Issues 2 + 3, writer side: start / note report success, and the
+    finish upsert can carry a fallback ``started_at``."""
+
+    def setUp(self):
+        from pipeline_memory import client as mem_client
+        mem_client.reset_cache_for_tests()
+        self._env = mock.patch.dict(os.environ, {
+            "RUN_MEMORY_WRITE_ENABLED": "1",
+        })
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    def tearDown(self):
+        from pipeline_memory import client as mem_client
+        mem_client.reset_cache_for_tests()
+
+    def _client(self, upsert_exc=None, update_data=None, update_exc=None):
+        client = mock.Mock()
+        table = client.schema.return_value.table.return_value
+        if upsert_exc is not None:
+            table.upsert.return_value.execute.side_effect = upsert_exc
+        else:
+            table.upsert.return_value.execute.return_value = (
+                SimpleNamespace(data=[])
+            )
+        upd = table.update.return_value.eq.return_value.execute
+        if update_exc is not None:
+            upd.side_effect = update_exc
+        else:
+            upd.return_value = SimpleNamespace(data=update_data)
+        return client, table
+
+    def test_run_ledger_start_returns_true_on_write(self):
+        from pipeline_memory import writer as mem_writer
+        client, _t = self._client()
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            self.assertIs(
+                mem_writer.run_ledger_start("r", mode="full"), True,
+            )
+
+    def test_run_ledger_start_returns_false_when_not_written(self):
+        from pipeline_memory import writer as mem_writer
+        client, _t = self._client(upsert_exc=Exception("boom"))
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            self.assertIs(
+                mem_writer.run_ledger_start("r", mode="full"), False,
+            )
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=None,
+        ):
+            self.assertIs(
+                mem_writer.run_ledger_start("r", mode="full"), False,
+            )
+
+    def test_note_pending_true_only_when_a_row_matched(self):
+        from pipeline_memory import writer as mem_writer
+        client, _t = self._client(update_data=[{"run_id": "r"}])
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            self.assertIs(
+                mem_writer.run_ledger_note_pending("r", [], False), True,
+            )
+        client, table = self._client(update_data=[])
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            self.assertIs(
+                mem_writer.run_ledger_note_pending("ghost", [], False),
+                False,
+            )
+        table.upsert.assert_not_called()
+        table.insert.assert_not_called()
+
+    def test_note_pending_false_on_failure_or_no_client(self):
+        from pipeline_memory import writer as mem_writer
+        client, _t = self._client(update_exc=Exception("boom"))
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            self.assertIs(
+                mem_writer.run_ledger_note_pending("r", [], False), False,
+            )
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=None,
+        ):
+            self.assertIs(
+                mem_writer.run_ledger_note_pending("r", [], False), False,
+            )
+
+    def test_finish_carries_fallback_started_at_as_a_column(self):
+        from pipeline_memory import writer as mem_writer
+        client, table = self._client()
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            mem_writer.run_ledger_finish(
+                "r", started_at="2026-11-01T10:00:00+00:00",
+                regen_debt_pairs=[["1", "w"]],
+            )
+        payload = table.upsert.call_args.args[0]
+        self.assertEqual(payload["started_at"], "2026-11-01T10:00:00+00:00")
+        self.assertNotIn("started_at", payload["notes"])
+        self.assertEqual(payload["notes"]["regen_debt_pairs"], [["1", "w"]])
+
+    def test_finish_without_started_at_never_sends_the_column(self):
+        from pipeline_memory import writer as mem_writer
+        client, table = self._client()
+        with mock.patch(
+            "pipeline_memory.writer.get_client", return_value=client,
+        ):
+            mem_writer.run_ledger_finish("r")
+            mem_writer.run_ledger_finish("r", started_at=None)
+        self.assertEqual(table.upsert.call_count, 2)
+        for call in table.upsert.call_args_list:
+            payload = call.args[0]
+            self.assertNotIn("started_at", payload)
+            self.assertNotIn("started_at", payload["notes"])
+
+
+class LedgerStartConfirmationOrchestrateTests(unittest.TestCase):
+    """Issues 2 + 3, orchestrate side."""
+
+    def test_note_helper_returns_the_writer_result(self):
+        for ret in (True, False):
+            with mock.patch.object(
+                orch._mem_writer, "run_ledger_note_pending",
+                return_value=ret,
+            ):
+                self.assertIs(
+                    orch._note_pending_regen_pairs("r", {("1", "w")}, False),
+                    ret,
+                )
+
+    def test_note_helper_false_when_writer_raises(self):
+        with mock.patch.object(
+            orch._mem_writer, "run_ledger_note_pending",
+            side_effect=RuntimeError("x"),
+        ):
+            self.assertIs(
+                orch._note_pending_regen_pairs("r", set(), False), False,
+            )
+
+    def test_unconfirmed_ledger_rule(self):
+        f = orch._ledger_debt_unconfirmed
+        # start not confirmed -> unknown, whatever else happened
+        self.assertTrue(f(False, True, True))
+        self.assertTrue(f(False, False, False))
+        # start ok, note attempted but not confirmed -> unknown
+        self.assertTrue(f(True, True, False))
+        # start ok and note confirmed / never needed -> trusted
+        self.assertFalse(f(True, True, True))
+        self.assertFalse(f(True, False, False))
+
+    def test_start_fallback_kwargs(self):
+        f = orch._ledger_start_fallback_kwargs
+        self.assertEqual(
+            f(True, "2026-11-01T10:00:00+00:00"),
+            {"run_ledger_start_confirmed": True},
+        )
+        self.assertEqual(
+            f(False, "2026-11-01T10:00:00+00:00"),
+            {
+                "run_ledger_start_confirmed": False,
+                "started_at": "2026-11-01T10:00:00+00:00",
+            },
+        )
+        out = f(False, None)
+        self.assertFalse(out["run_ledger_start_confirmed"])
+        self.assertTrue(isinstance(out["started_at"], str)
+                        and out["started_at"])
+
+    def test_fallback_row_is_newest_and_its_debt_is_carried(self):
+        # Start failed; finish wrote a row WITH the fallback started_at, so
+        # the reducer sees its failed-upload debt instead of an older
+        # clean success row.
+        rows = [
+            _row(started="2026-11-02T10:00:00+00:00", notes={
+                "regen_debt_pairs": [["1", "w"]],
+                "regen_debt_unknown": False,
+            }),
+            _row(started="2026-11-01T10:00:00+00:00", notes={
+                "regen_debt_pairs": [],
+            }),
+        ]
+        self.assertEqual(
+            mc.regen_debt_from_ledger_rows(rows), {("1", "w")},
+        )
+
+    def test_main_wiring(self):
+        src = inspect.getsource(orch.main)
+        self.assertIn("_mem_ledger_started = False", src)
+        self.assertIn("_mem_ledger_noted = False", src)
+        self.assertIn(
+            "_mem_ledger_started = _mem_writer.run_ledger_start(", src,
+        )
+        note_i = src.index("_note_pending_regen_pairs(")
+        self.assertIn(
+            "_mem_ledger_noted = _note_pending_regen_pairs(",
+            src[note_i - 60:note_i + 30],
+        )
+        # A failed start is retried once before the pending note.
+        retry_i = src.rindex(
+            "_mem_ledger_started = _mem_writer.run_ledger_start(",
+        )
+        self.assertLess(src.index("PHASE 2: Fetching source data"), retry_i)
+        self.assertLess(retry_i, note_i)
+        # Both finish sites mark the debt unknown and carry started_at.
+        self.assertEqual(src.count("_ledger_debt_unconfirmed("), 2)
+        self.assertEqual(src.count("_ledger_start_fallback_kwargs("), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
