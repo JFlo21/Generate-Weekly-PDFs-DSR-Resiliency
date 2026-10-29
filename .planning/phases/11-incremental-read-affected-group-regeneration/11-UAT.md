@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 11-incremental-read-affected-group-regeneration
 source: 11-01-SUMMARY.md, 11-02-SUMMARY.md, 11-03-SUMMARY.md, 11-04-SUMMARY.md, 11-05-SUMMARY.md, 11-06-SUMMARY.md, 11-07-SUMMARY.md, 11-08-SUMMARY.md, 11-VERIFICATION.md
 started: 2026-09-14T01:45:56Z
@@ -274,5 +274,20 @@ blocked: 0
   reason: "Claude-taken live reading 2026-10-29: streak 0; 22 post-fix fail verdicts (17 production_frequent); bidirectional group-side actual_not_in_candidate divergence on USER/HELPER variant groups persists after 04c618a/1c52d10"
   severity: major
   test: 37
-  artifacts: []
-  missing: []
+  root_cause: "D-04 candidate set and full-run actual set use different change domains. (A) Hash-domain gap: pipeline/change_detection.py _extended_row_fields hashes Dept #, Scope #/ID, Customer Name, Job #, Work Order #, CU Description, Unit of Measure, Area, but pipeline_memory/writer.py HASH_FIELDS/_row_to_payload/row_state store none of them, so an edit to those columns regenerates the group with no row_state change -> no affected pair -> only_in_actual (live: run 40584456830, WR 91427660 week 110126). (B) Regeneration-debt gap: row_state advances before uploads; a cancelled/timed-out/upload-failed run strands its groups and the next run's diff no longer contains them (live: cancelled 40751825583 then manual 40757294483 regenerated ~12 groups vs 4 affected). Minor (C): upsert_rows_bulk returns (new wr, prior week) for a moved row, not (prior wr, prior week). only_in_candidate never fails by D-07 refinement #2 (by-design superset)."
+  artifacts:
+    - path: "pipeline_memory/writer.py"
+      issue: "HASH_FIELDS/_row_to_payload omit columns that change_detection hashes"
+    - path: "pipeline/change_detection.py"
+      issue: "_extended_row_fields hash domain is wider than row_state's"
+    - path: "pipeline_memory/schema.sql"
+      issue: "row_state lacks the columns; upsert_rows_bulk returns (new wr, prior week) on WR moves"
+    - path: "pipeline/orchestrate.py"
+      issue: "_filter_groups_to_affected / shadow parity candidate has no regeneration-debt input"
+  missing:
+    - "Candidate selector covers the full group-hash domain (additive row_state columns + HASH_FIELDS, or a changed candidate definition) -- Supabase schema change, owner approval required"
+    - "Persistent regeneration-debt input: groups whose durable hash is unconfirmed for the current row_state generation are carried into the candidate"
+    - "upsert_rows_bulk returns the prior (wr, week) pair on a WR move"
+    - "Regression fixtures: Job #/Dept # edit with no other change; interrupted run followed by a clean run"
+    - "Decide whether manual / cancel-adjacent runs count toward the streak"
+  debug_session: .planning/debug/inc02-candidate-divergence-post-fix.md
