@@ -9,6 +9,12 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-10-29 — docs/ai implementation truth re-verified
+
+All five `docs/ai/*` pages fact-checked against `master` and corrected in place: CR-01 and WR-01 are
+fixed (not open), Phase 12 is closed, and line anchors / `CLAUDE.md` section citations are current.
+`README.md` passed unchanged. Docs-only. Ledger `[2026-10-29 12:30]`.
+
 ## 2026-10-29 — Instruction files re-aligned; GitNexus index added
 
 `CLAUDE.md` trimmed 152 → 150 lines with no guardrail removed, and `.github/copilot-instructions.md`

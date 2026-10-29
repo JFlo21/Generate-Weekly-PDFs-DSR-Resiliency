@@ -9702,3 +9702,22 @@ auto-load everywhere; trimming them is owner-controlled policy, so they are left
 planning); this run touched no `.planning/` file. GitNexus 1.6.12 index built with
 `analyze --index-only` (no `CLAUDE.md`/`AGENTS.md`/skill injection; `.gitnexus/` is excluded via
 `.git/info/exclude`, so nothing tracked changed): 8,900 nodes, 18,194 edges, 326 flows.
+
+## [2026-10-29 12:30] docs/ai implementation truth re-verified against master (scoped `/gsd-core:docs-update`)
+
+Owner chose a scoped run over the full `/gsd-core:docs-update` (which would have spawned ~48 agents,
+created `docs/ARCHITECTURE.md` / `CONFIGURATION.md` / `TESTING.md` duplicating `docs/ai/*`, and does
+not touch `.planning/STATE.md`, so it cannot clear the W011/W024 health warnings). gsd-doc-verifier
+first pass: `architecture` 66/70, `implementation-truth` 75/94, `safe-commands` 42/48, `known-bugs`
+11/21, `decisions` 19/22, `README.md` 66/66. Real status corrections: CR-01 (`_is_sentinel_identifier`
+now an `_SANITIZED_ERROR_IDENTIFIERS` allowlist, `pipeline/cleanup.py:98/116`, commit `1f159bc` #388)
+and WR-01 (`AttachmentParentType` import now function-local, `pipeline/orchestrate.py` ~1352) are
+FIXED, not open; OWN-01/03/04 complete; D-12-A ladder as implemented is `observed_in_week →
+backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel` (`operator` is a
+provenance tag). Everything else was drift: Phase 14 moved line anchors, and the 2026-09-02
+`CLAUDE.md` trim renamed the section headings `docs/ai/*` cited. Fixes were surgical (no
+restructure); the re-verify pass found 6 residual items (1 introduced by the fix round), all fixed
+and grep-checked; every `CLAUDE.md "…"` citation now resolves to a real heading. Follow-ups:
+`architecture.md` (142), `implementation-truth.md` (138), `safe-commands.md` (133) exceed the
+130-line `docs/ai` cap; `portal-v2/README.md` still documents a Vite `/api` proxy that
+`vite.config.ts` no longer has.
