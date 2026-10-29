@@ -162,7 +162,10 @@ canonicalized-content standard; `group_state` attachment-id proof deferred to th
   pass; same discipline as `compare_control_run.py`).
 - **D-09 (AMENDED 2026-08-29 by the owner, PR #372: the counted types are `production_frequent`,
   `weekend_maintenance`, and `manual` when `notes.streak_eligible` is true; a `pass` counts only on a
-  `success` row; only the weekly deep run stays outside the streak. Original text follows.)**
+  `success` row; only the weekly deep run stays outside the streak. AMENDED 2026-10-29 by the owner
+  (Juan), G-11-37 plan 11-13: a run whose previous run_ledger row is unfinished or not success
+  (D-02 trigger 6) gets parity_verdict skipped (would_fallback_full:trigger6) and neither counts
+  nor resets; manual runs with streak_eligible true keep counting. Original text follows.)**
   **Streak = consecutive parity-evaluated `production_frequent` runs.** "≥5
   consecutive scheduled runs" is computed by scanning the newest `run_ledger` rows whose
   `notes.execution_type == 'production_frequent'` backward: `pass` counts, `fail` resets,
