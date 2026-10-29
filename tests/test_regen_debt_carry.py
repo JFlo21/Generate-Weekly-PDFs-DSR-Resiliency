@@ -709,5 +709,111 @@ class FinishWiringTests(unittest.TestCase):
         self.assertIn("only_in_actual_attachment_repair", self.src)
 
 
+
+# ── Task 3: the incremental path consumes the same candidate ────────────
+
+class IncrementalPathTests(unittest.TestCase):
+    """``_run_phase2_incremental(regen_debt=...)``: D-04 candidate =
+    affected | carried debt (flag OFF in production)."""
+
+    def _run(self, regen_debt, **kw):
+        from tests.test_incremental_read import (
+            _delta_row, _delta_sheet, _delta_source,
+        )
+        import datetime
+
+        source = _delta_source(sheet_id=111222)
+        sheet = _delta_sheet([_delta_row(1, "90001", "2026-08-30")])
+        write = mock.Mock(return_value={
+            "sheets_written": 1, "sheets_errored": 0,
+            "rows_sent": 1, "rows_changed": 1,
+            "affected": {("90001", "2026-08-30")},
+            "memory_confirmed": True,
+        })
+        mapping = mock.Mock(return_value={111222})
+        with mock.patch.object(
+            orch._fetch, "fetch_sheet_delta",
+            return_value={
+                "escalate": False, "sheet": sheet, "version": 9, "calls": 2,
+            },
+        ), mock.patch.object(
+            orch, "_run_memory_write_phase", write,
+        ), mock.patch.object(
+            orch._mem_reader, "map_affected_to_sheets", mapping,
+        ), mock.patch.object(
+            orch, "get_all_source_rows", return_value=[],
+        ):
+            args = dict(
+                client=mock.Mock(),
+                source_sheets=[source],
+                watermarks={111222: {
+                    "last_sheet_version": 8,
+                    "last_read_at": "2026-08-26T18:00:00+00:00",
+                }},
+                per_sheet_reasons={},
+                mem_run_id="run-1",
+                session_start=datetime.datetime.now(),
+            )
+            if regen_debt != "OMIT":
+                args["regen_debt"] = regen_debt
+            args.update(kw)
+            result = orch._run_phase2_incremental(**args)
+        return result, write, mapping
+
+    def test_default_debt_is_empty_and_behaviour_unchanged(self):
+        result, _w, mapping = self._run("OMIT")
+        self.assertTrue(result["ok"])
+        mapping.assert_called_once_with({("90001", "2026-08-30")})
+        self.assertEqual(result["candidate_pairs"], result["affected"])
+        sig = inspect.signature(orch._run_phase2_incremental)
+        self.assertEqual(
+            sig.parameters["regen_debt"].default, frozenset(),
+        )
+        self.assertEqual(
+            sig.parameters["regen_debt"].kind,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+
+    def test_debt_pair_widens_the_sheet_mapping_and_candidate(self):
+        debt = {("80001", "2026-08-23")}
+        result, _w, mapping = self._run(debt)
+        self.assertTrue(result["ok"])
+        mapping.assert_called_once_with(
+            {("90001", "2026-08-30"), ("80001", "2026-08-23")},
+        )
+        self.assertIn(("80001", "2026-08-23"), result["candidate_pairs"])
+        # The memory affected set (counters) is NOT widened.
+        self.assertEqual(result["affected"], {("90001", "2026-08-30")})
+
+    def test_unknown_debt_forces_full_before_any_write(self):
+        result, write, mapping = self._run(None)
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            result["fallback_reason"].startswith("trigger_regen_debt_unknown")
+        )
+        write.assert_not_called()
+        mapping.assert_not_called()
+
+
+class IncrementalMainWiringTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.src = inspect.getsource(orch.main)
+
+    def test_main_passes_debt_and_consumes_candidate_pairs(self):
+        src = self.src
+        self.assertIn("regen_debt=_mem_regen_debt", src)
+        self.assertIn(
+            "groups = _filter_groups_to_affected(groups, _mem_candidate_pairs)",
+            src,
+        )
+        self.assertIn(
+            "_incremental_empty_affected_run = not _mem_candidate_pairs", src,
+        )
+        self.assertNotIn(
+            "_incremental_empty_affected_run = not _mem_affected", src,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
