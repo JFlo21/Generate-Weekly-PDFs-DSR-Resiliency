@@ -395,6 +395,55 @@ CU pricing, rate recalculation, and billing formulas do not change.
   comparison criteria, and a rollback that preserves created Helper #2 evidence and never
   moves claimed units back to the primary foreman.
 
+### Foreman Notes and colour carry-over - GF pilot (Phase 15)
+
+- [ ] **FN-01**: A scope switch (`off` / `pilot` / `all`, default `pilot`) controls Foreman Notes
+  rendering. With the switch `off`, and for every non-pilot group, workbook output stays
+  cell-identical and the change-detection hash stays byte-identical to the BASE golden record
+  (D-15-01).
+
+- [ ] **FN-02**: The pilot is selected by a separate comma-separated General Foreman allowlist
+  setting with NO name default in code (empty default = zero pilot groups, fail-closed, logged
+  as a count only). The three pilot GFs (aliases GF-1, GF-2, GF-3) are supplied only via the
+  local `.env` for the dry run and a GitHub Actions repository variable at rollout - public-repo
+  identifier rule, living ledger `[2026-08-27 21:10]` / `[2026-08-28 18:45]` (D-15-02).
+
+- [ ] **FN-03**: The General Foreman is resolved once per run from the `General Foreman` column
+  on TARGET_SHEET_ID by `Work Request #`, case/whitespace-insensitive, and fails closed (no
+  pilot rendering) on NA, blank, miss, read failure, ambiguity, or title mismatch
+  (D-15-04/05).
+
+- [ ] **FN-04**: `Foreman Notes` is mapped by discovery behind a mapping-schema marker bump and
+  is identical on full-read and delta-read rows (D-15-08).
+
+- [ ] **FN-05**: Pilot workbooks render column I `Foreman Notes` per CU row, the day header
+  spans A:I, and the TOTAL row fills column I, all through `safe_merge_cells` (D-15-06).
+
+- [ ] **FN-06**: Pilot workbooks use a landscape fit-to-width print setup; `oddFooter.right.text`
+  is never written (D-15-07).
+
+- [ ] **FN-07**: Colour carry-over copies fill and font colour only, with per-slot precedence
+  cell conditional > row conditional > cell static > row static, and fails closed to plain
+  `BODY_FONT` when a colour cannot be resolved (D-15-09/10, live probe).
+
+- [ ] **FN-08**: A pilot-gated `NOTES_FP` meta token enters the group hash; the non-pilot hash
+  stays byte-identical (D-15-11).
+
+- [ ] **FN-09**: A pilot-gated notes component enters `row_group_hash_fingerprint` and the
+  globals fingerprint, with a coverage test and full-read vs delta-read parity (D-15-11).
+
+- [ ] **FN-10**: Colour-only edits never trigger regeneration (D-15-12).
+
+- [ ] **FN-11**: Pilot rendering runs only on a `TEST_MODE` dry run with every
+  `pipeline_memory` write path disabled, or when `FOREMAN_NOTES_UPLOAD` is on; `SKIP_UPLOAD`
+  alone keeps the effective scope `off`; a dry run never persists pilot-flavoured state to
+  `pipeline_memory`; `SKIP_UPLOAD` / `TEST_MODE` semantics are unchanged (D-15-03).
+
+- [ ] **FN-12**: Every output path - primary, Helper, Helper #2, VAC crew, and the subcontractor
+  variants - gets the same treatment through the single `generate_excel`.
+
+- [ ] **FN-13**: Merge of Phase 15 is gated on Phase 11 closure (D-15-13).
+
 ## v2 / Future Requirements
 
 Deferred to a future milestone. Tracked but not in this roadmap.
@@ -504,6 +553,19 @@ Which phases cover which requirements.
 | HLP-05 | Phase 14 | Complete |
 | HLP-06 | Phase 14 | Complete (14-12 closed O-14-B; D-14-13-VERIFIED 2026-09-09) |
 | HLP-07 | Phase 14 | Complete |
+| FN-01 | Phase 15 | Pending |
+| FN-02 | Phase 15 | Pending |
+| FN-03 | Phase 15 | Pending |
+| FN-04 | Phase 15 | Pending |
+| FN-05 | Phase 15 | Pending |
+| FN-06 | Phase 15 | Pending |
+| FN-07 | Phase 15 | Pending |
+| FN-08 | Phase 15 | Pending |
+| FN-09 | Phase 15 | Pending |
+| FN-10 | Phase 15 | Pending |
+| FN-11 | Phase 15 | Pending |
+| FN-12 | Phase 15 | Pending |
+| FN-13 | Phase 15 | Pending |
 
 **Coverage:**
 
@@ -511,6 +573,7 @@ Which phases cover which requirements.
 - v1.2 requirements: 6 total — mapped to phases: 6 (Phase 08: 6); unmapped: 0 ✓
 - v1.4 requirements: 16 total — mapped to phases: 16 (Phase 10: 4, Phase 11: 5, Phase 12: 4, Phase 13: 3); unmapped: 0 ✓ (DRAFT — Phase 10 pending spec §8 decisions)
 - v1.4 Foreman Helper #2 (HLP-01..07, Phase 14): 7 total — mapped to phases: 7 (Phase 14: 7); unmapped: 0 ✓ — 7 Complete (HLP-06 closed by 14-12, D-14-13-VERIFIED, after PR #389 `ba6eeaf`)
+- v1.4 Foreman Notes (FN-01..13, Phase 15): 13 total - mapped to phases: 13 (Phase 15: 13); unmapped: 0
 
 ---
 *Requirements defined: 2026-05-29*
