@@ -9678,3 +9678,27 @@ the candidate, never narrow it, and the unmodified hash-skip gate then skips the
 exactly as the full run does. Full suite green (2426 passed / 1 skipped / 610 subtests, zero
 regressions). The fresh ≥5 consecutive-pass `production_frequent` streak this fix requires before any
 future flag-flip decision remains owner-gated in plan 11-10.
+
+## [2026-10-29 10:45] Instruction-file alignment run 2; GitNexus index added (docs-only)
+
+`/global-project-bootstrap` found the repo fully bootstrapped, and its Step 0 drift check found
+`CLAUDE.md` at 152 lines (cap 150) and a stale `.github/copilot-instructions.md`. Moves:
+`CLAUDE.md` header compressed (provenance line kept, the ledger pointer kept); the TEST_MODE
+two-line validation comment folded into one line with its warning intact ("blank the token or
+TEST_MODE reads every sheet LIVE"); the duplicate status/navigation pointer in "Second-brain
+write-back" now points at "Where to read next", which already lists both. No guardrail text
+removed: every guardrail keyword still greps to `CLAUDE.md`. 152 → 150 lines. The Copilot mirror
+was regenerated from the trimmed file and now carries three guardrails added after 2026-09-02
+(attachment identity from `group_state` with per-row fallback, the `sheet_registry` +
+`helper2-v1` validation-skip conditions, the Sentry `before_send_log` backstop).
+
+Not done, owner-visible: `AGENTS.md` is still unfrozen (367 lines; harness-boundary hook blocks
+ClaudeOS writes, so the Step 3.4 `FROZEN MIRROR` header is a hand step for Juan, although
+`docs/AI_CONTEXT_RESUME.md` already calls it frozen). `.claude/rules/documentation-maintenance.md`
+(65) and `.claude/rules/smartsheet-python-optimization.md` (108) exceed the 60-line rule cap and
+auto-load everywhere; trimming them is owner-controlled policy, so they are left for a decision.
+`/gsd-core:docs-update` (`docs/ai/*` last verified 2026-09-02) was deferred to Phase 11 close.
+`plan/phase-13` and `master` carry divergent `.planning/STATE.md` (phase 11 executing vs phase 13
+planning); this run touched no `.planning/` file. GitNexus 1.6.12 index built with
+`analyze --index-only` (no `CLAUDE.md`/`AGENTS.md`/skill injection; `.gitnexus/` is excluded via
+`.git/info/exclude`, so nothing tracked changed): 8,900 nodes, 18,194 edges, 326 flows.

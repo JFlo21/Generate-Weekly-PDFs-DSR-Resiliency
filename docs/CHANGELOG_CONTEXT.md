@@ -9,6 +9,13 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-10-29 — Instruction files re-aligned; GitNexus index added
+
+`CLAUDE.md` trimmed 152 → 150 lines with no guardrail removed, and `.github/copilot-instructions.md`
+regenerated from it (it was missing three post-2026-09-02 guardrails). GitNexus is indexed locally
+(`.gitnexus/`, untracked) for impact/trace queries. Docs-only; no pipeline behavior change. Owner
+follow-ups: freeze `AGENTS.md` by hand; decide the two over-cap rule files. Ledger `[2026-10-29 10:45]`.
+
 ## 2026-09-11 — PR #402 follow-ups decided (D-14-FOLLOWUPS): breaker half-open shipped, keep_historical deferred
 
 Juan decided both parked follow-ups. Breaker: `billing_audit.client.close_circuit()` closes an open per-op breaker
