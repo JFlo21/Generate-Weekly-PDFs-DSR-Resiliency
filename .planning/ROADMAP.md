@@ -620,7 +620,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 13/15 plans executed (8/8 executed; 2 gap-closure plans added 2026-09-14 for `11-VERIFICATION.md` gaps 1-2; 5 gap-closure plans added 2026-10-29 for UAT gap G-11-37)
+**Plans:** 14/15 plans executed (8/8 executed; 2 gap-closure plans added 2026-09-14 for `11-VERIFICATION.md` gaps 1-2; 5 gap-closure plans added 2026-10-29 for UAT gap G-11-37)
 
 Plans:
 **Wave 1**
@@ -665,7 +665,7 @@ Plans:
 - [x] 11-11-PLAN.md — Mechanism A: hash-only group-hash fingerprint folded into `row_state.content_hash` (no DDL, `HASH_FIELDS`/RPC unchanged; one-time re-key, no Excel/upload effect) (wave 1, gap_closure)
 - [x] 11-12-PLAN.md — Mechanism B: regeneration debt carried in `run_ledger.notes` into the next run's D-04 candidate; unknown debt -> skipped / full (wave 2, gap_closure)
 - [x] 11-13-PLAN.md — Record owner decision (Juan 2026-10-29: trigger-6 runs skipped, manual keeps counting); shadow models D-02 full fallbacks + group-hash globals; blocking pre-flip globals todo (wave 3, gap_closure)
-- [ ] 11-14-PLAN.md — Mechanism C: additive `upsert_rows_bulk` branch returning the prior (wr, week) pair on a WR move; protected DDL behind owner approval, with rollback (wave 4, gap_closure, autonomous:false)
+- [x] 11-14-PLAN.md — Mechanism C: additive `upsert_rows_bulk` branch returning the prior (wr, week) pair on a WR move; protected DDL behind owner approval, with rollback (wave 4, gap_closure, autonomous:false)
 - [ ] 11-15-PLAN.md — Post-deploy records: burst-run billing-impact check + owner ≥5 streak reading (wave 5, gap_closure, autonomous:false)
 
 ### Phase 11.1: Post-INC-05 Runtime Remediation (INSERTED)

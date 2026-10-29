@@ -5,17 +5,17 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
-stopped_at: Completed 11-13-PLAN.md
-last_updated: "2026-10-29T20:10:25.857Z"
+stopped_at: Completed 11-14-PLAN.md
+last_updated: "2026-10-29T20:57:54.676Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: 9a84d4139b773d1b1e6474630d301ef019c8e34f
+state_head: c324a3749ef25728cf306e9330a07a886daf10ee
 progress:
   total_phases: 14
   completed_phases: 14
   total_plans: 87
-  completed_plans: 85
-  percent: 98
+  completed_plans: 86
+  percent: 99
 ---
 
 # Project State
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
-Plan: 6 of 10
+Plan: 7 of 10
 Status: Ready to execute
 
 Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
@@ -96,7 +96,7 @@ Last activity: 2026-09-14 — Phase 11 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans ([█████████░] 98%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([█████████░] 99%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -182,6 +182,7 @@ Progress: [████████████████████] 74/74 p
 | Phase 11 P11 | 45min | 3 tasks | 7 files |
 | Phase 11 P12 | 60min | 3 tasks | 5 files |
 | Phase 11 P13 | 35min | 3 tasks | 6 files |
+| Phase 11 P14 | 40min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -362,6 +363,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 11]: 11-12: regen debt carried via run_ledger.notes (no DDL); UNKNOWN debt -> shadow skipped / incremental full
 - [Phase 11]: 11-12: run_ledger_note_pending is UPDATE-by-run_id only; inherited-unknown debt widens finish pending to all group pairs
 - [Phase 11]: 11-13: Owner (Juan, 2026-10-29): run after unfinished/failed run (D-02 trigger 6) is shadow-skipped; manual streak_eligible runs keep counting; shadow skips would-fallback-full and group-hash-globals-changed runs
+- [Phase 11]: 11-14: upsert_rows_bulk additive prior-WR branch (G-11-37 C) owner-approved and APPLIED live 2026-10-29 (migration 20261029205414); D-04 amended
 
 ### Roadmap Evolution
 
@@ -562,8 +564,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-10-29T20:10:23.403Z
-**Stopped at:** Completed 11-13-PLAN.md
+**Last session:** 2026-10-29T20:57:52.503Z
+**Stopped at:** Completed 11-14-PLAN.md
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
