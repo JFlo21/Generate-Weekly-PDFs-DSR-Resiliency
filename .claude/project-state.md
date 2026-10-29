@@ -1,6 +1,7 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-09-11 10:49 CDT (2026-09-11 15:49Z) · **overwrite-in-place each session** — this is
+_Last updated: 2026-10-29 10:45 CDT (instruction-file alignment run 2 + GitNexus index; ledger
+`[2026-10-29 10:45]`) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 

@@ -1,7 +1,7 @@
 # Project Guidelines
 
-<!-- Generated from CLAUDE.md @ deac60e on 2026-09-02 by the align-instruction-files skill. Do not hand-edit;
-     regenerate from CLAUDE.md when it changes. -->
+<!-- Generated from CLAUDE.md on 2026-10-29 (branch docs/align-instruction-files) by the
+     align-instruction-files skill. Do not hand-edit; regenerate from CLAUDE.md when it changes. -->
 
 ## Overview
 
@@ -30,8 +30,12 @@ never `cd portal`. Full map: `docs/ai/architecture.md`.
   `.github/workflows/weekly-excel-generation.yml`.
 - `TIME_BUDGET_MINUTES` (`165`) must stay strictly below the job's `timeout-minutes` (`180`).
 - Change detection is `pipeline_memory.group_state`-backed (Supabase), not a local JSON cache;
-  `RESET_HASH_HISTORY=true` forces full regeneration.
-- `SENTRY_ENABLE_LOGS` stays `false` by default (row PII); standardize Sentry `environment`/`release`.
+  `RESET_HASH_HISTORY=true` forces full regeneration. Attachment identity resolves from
+  `group_state` with a per-row on-demand fallback.
+- A sheet skips full validation only when its live version matches `pipeline_memory.sheet_registry`,
+  a stored column mapping exists, and the `helper2-v1` marker is set; any doubt → full validation.
+- `SENTRY_ENABLE_LOGS` stays `false` by default (row PII; `before_send_log` in
+  `pipeline/observability.py` is the backstop); standardize Sentry `environment`/`release`.
 - New behavior goes in the owning `pipeline/*`, `pipeline_memory/*`, or `billing_audit/*` module,
   never back into the facade (`.claude/rules/python-module-architecture.md`).
 

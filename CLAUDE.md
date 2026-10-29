@@ -1,8 +1,7 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repository: rules, guardrails, and pointers only. Architecture,
-env vars, schedules, and history live in the files linked below (trimmed 2026-09-02 by the
-`align-instruction-files` skill — nothing deleted, only moved; see ledger `[2026-09-02 22:05]`).
+Rules, guardrails, and pointers only. Architecture, env vars, schedules, and history live in the
+files linked below (moved, never deleted, by `align-instruction-files`; ledger `[2026-09-02 22:05]`).
 
 ## What this repo is
 
@@ -82,8 +81,7 @@ pytest tests/ -v                                  # full suite — must pass bef
 python -m py_compile generate_weekly_pdfs.py      # syntax check
 SKIP_UPLOAD=true python generate_weekly_pdfs.py   # local dry run, no upload
 SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true PYTHONUTF8=1 python generate_weekly_pdfs.py
-                                                  # synthetic data; blank the token — with a .env token
-                                                  # TEST_MODE performs a LIVE read of every source sheet
+                                  # synthetic; blank the token or TEST_MODE reads every sheet LIVE
 bash scripts/run_6_gates.sh                       # 6-gate harness after any module move
 ```
 
@@ -138,7 +136,7 @@ They return a compact write-back packet (what changed · why it matters · targe
 dropping a file in `.claude/writeback-pending/` when needed; the main session applies vault
 edits via `global-second-brain-writeback-bridge` / `global-context-continuity` and clears the
 packet (audited by the global `~/.claude/hooks/audit_vault_writes.js` hook). Never place secrets
-in a packet. Repo status: `.claude/project-state.md`; navigation map: `.claude/context-map.md`.
+in a packet (status and navigation pointers: see "Where to read next").
 
 ## Where to read next
 
