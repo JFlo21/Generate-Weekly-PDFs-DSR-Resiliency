@@ -70,9 +70,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 ### 📋 Changelog — October 29, 2026
 
+- 📄 Help guides updated: re-verify implementation truth
 - 📄 Help guides updated: align instruction files, run 2
-- 📄 Help guides updated: align instruction files (run 2) ()
+- 📄 Help guides updated: re-verify implementation truth ()
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log d5b4e1b &#91;skip ci&#93;
+- 📄 Help guides updated: align instruction files (run 2) ()
 
 <!-- /runbook-repo -->
 
