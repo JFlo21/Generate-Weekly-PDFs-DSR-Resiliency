@@ -5,17 +5,17 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 15
 current_phase_name: Foreman Notes and Smartsheet color carry-over (GF pilot)
 status: executing
-stopped_at: Phase 15 context gathered
-last_updated: "2026-10-29T23:27:54.967Z"
+stopped_at: Completed 15-01-PLAN.md
+last_updated: "2026-10-29T23:34:45.118Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: 31b73a529b3eaf83356dc21e956cc99e9e1f58d9
+state_head: 928185c779dba5b1d486597b9176d1d78e97532b
 progress:
   total_phases: 15
   completed_phases: 14
   total_plans: 94
-  completed_plans: 86
-  percent: 91
+  completed_plans: 87
+  percent: 93
 ---
 
 # Project State
@@ -36,7 +36,7 @@ pipeline.
 ## Current Position
 
 Phase: 15 (Foreman Notes and Smartsheet color carry-over (GF pilot)) — READY TO EXECUTE
-Plan: 7 of 10
+Plan: 8 of 10
 Status: Ready to execute
 
 Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
@@ -96,7 +96,7 @@ Last activity: 2026-09-14 — Phase 11 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans ([█████████░] 91%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([█████████░] 93%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -183,6 +183,7 @@ Progress: [████████████████████] 74/74 p
 | Phase 11 P12 | 60min | 3 tasks | 5 files |
 | Phase 11 P13 | 35min | 3 tasks | 6 files |
 | Phase 11 P14 | 40min | 3 tasks | 6 files |
+| Phase 15 P01 | 25m | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -364,6 +365,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 11]: 11-12: run_ledger_note_pending is UPDATE-by-run_id only; inherited-unknown debt widens finish pending to all group pairs
 - [Phase 11]: 11-13: Owner (Juan, 2026-10-29): run after unfinished/failed run (D-02 trigger 6) is shadow-skipped; manual streak_eligible runs keep counting; shadow skips would-fallback-full and group-hash-globals-changed runs
 - [Phase 11]: 11-14: upsert_rows_bulk additive prior-WR branch (G-11-37 C) owner-approved and APPLIED live 2026-10-29 (migration 20261029205414); D-04 amended
+- [Phase 15]: 15-01: Golden record uses invented names/WR 90311, pins env inputs on consuming modules, placeholders for wall-clock cell and filename timestamp
 
 ### Roadmap Evolution
 
@@ -566,8 +568,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-10-29T21:15:58.868Z
-**Stopped at:** Phase 15 context gathered
+**Last session:** 2026-10-29T23:34:43.208Z
+**Stopped at:** Completed 15-01-PLAN.md
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
@@ -585,7 +587,7 @@ breaker); `keep_historical` deferred behind the incremental-mode gate
 (record `.planning/todos/done/2026-09-10-pr402-review-followups.md`); (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A)
 on its contract then; (3) owner: Dependabot triage / Codex threads.
-**Resume file:** .planning/phases/15-foreman-notes-and-smartsheet-color-carry-over-gf-pilot/15-CONTEXT.md
+**Resume file:** None
 
 ## Session Continuity
 

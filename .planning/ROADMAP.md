@@ -899,13 +899,13 @@ Plans:
 **Goal:** Weekly WR Excel files for pilot general foremen (GF from `General Foreman` on the pre-planned pricing sheet) carry each CU row's `Foreman Notes` in a new column I and the Smartsheet applied colours on the Smartsheet-sourced CU-line cells, across every output path, behind a scope switch; switch-off and non-pilot output stay cell-identical with byte-identical hashes, and production is unchanged until the pilot upload switch is turned on after an owner dry-run review.
 **Requirements**: FN-01, FN-02, FN-03, FN-04, FN-05, FN-06, FN-07, FN-08, FN-09, FN-10, FN-11, FN-12, FN-13
 **Depends on:** Phase 11 for MERGE only (11-15 reading); planning/coding may run in parallel (owner, 2026-10-29)
-**Plans:** 7 plans
+**Plans:** 1/7 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 15-01-PLAN.md — Wave 0 golden record (cell dumps + hashes, every variant family) from the BASE commit; FN-01..13 registered *(wave 1)*
+- [x] 15-01-PLAN.md — Wave 0 golden record (cell dumps + hashes, every variant family) from the BASE commit; FN-01..13 registered *(wave 1)*
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
