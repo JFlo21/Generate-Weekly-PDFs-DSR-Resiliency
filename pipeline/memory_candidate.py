@@ -281,3 +281,92 @@ def unconfirmed_pairs(pending, group_pairs, confirmed_keys, scoped):
             return set(pending)
         except Exception:  # noqa: BLE001
             return set()
+
+
+# ── Shadow fallback modelling (Phase 11 Plan 13, G-11-37) ─────────────────
+#
+# Owner decision 2026-10-29 (plan 11-13 Task 1, D-09 amendment): a run
+# whose previous run_ledger row is unfinished or not ``success`` (D-02
+# trigger 6) is ``skipped`` -- the real incremental path would have run
+# FULL there, so a parity comparison against it is neither a pass nor a
+# fail. ``manual`` runs keep counting (trigger 7 is never modelled).
+SHADOW_MODELS_TRIGGER6: bool = True
+
+_GLOBALS_FP_NOTES_KEY = "group_hash_globals_fp"
+
+
+def shadow_fallback_skip_reason(would_mode, would_reason, model_trigger6):
+    """Map a would-be ``resolve_run_mode`` result to a shadow skip reason.
+
+    Returns ``'would_fallback_full:<trigger>'`` when the real incremental
+    path would have run FULL because of D-02 trigger 4 (empty watermark
+    map), 5 (operator flag) or -- when *model_trigger6* (owner decision
+    2026-10-29) -- 6 (previous run unfinished / not success); otherwise
+    ``None``. Trigger 7, the flag gate, per-sheet triggers and an
+    incremental outcome are never modelled. Pure; never raises.
+    """
+    try:
+        if would_mode != "full" or not isinstance(would_reason, str):
+            return None
+        for label in ("trigger4", "trigger5", "trigger6"):
+            if would_reason.startswith(label):
+                if label == "trigger6" and not model_trigger6:
+                    return None
+                return f"would_fallback_full:{label}"
+        return None
+    except Exception:  # noqa: BLE001 - never-raise contract
+        return None
+
+
+def group_hash_globals_fingerprint():
+    """Fingerprint of the group-hash GLOBAL inputs (no row delta sees them).
+
+    SHA-256 hex prefix (16) over a JSON list of EXTENDED_CHANGE_DETECTION,
+    RATE_CUTOFF_DATE, the subcontractor-rates fingerprint and the
+    contract-rates fingerprint, read exactly the way
+    ``change_detection.calculate_data_hash`` late-binds them (rates
+    fingerprint falls back to ''). Only final after PHASE 2 rebinds the
+    rates fingerprint. Never raises: returns '' on error, which callers
+    treat as unknown.
+    """
+    try:
+        import generate_weekly_pdfs as _gwp  # noqa: PLC0415
+
+        extended = _gwp.EXTENDED_CHANGE_DETECTION
+        cutoff = _gwp.RATE_CUTOFF_DATE
+        sub_fp = _gwp._SUBCONTRACTOR_RATES_FINGERPRINT
+        try:
+            import pipeline.fetch as _fetch  # noqa: PLC0415
+
+            rates_fp = _fetch._RATES_FINGERPRINT
+        except (ImportError, AttributeError):
+            rates_fp = ""
+        payload = json.dumps(
+            [bool(extended), str(cutoff), str(sub_fp), str(rates_fp)],
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    except Exception:  # noqa: BLE001 - never-raise contract
+        return ""
+
+
+def prior_globals_fingerprint(rows):
+    """Globals fingerprint of the newest ``success`` run_ledger row.
+
+    ``None`` when absent (legacy rows, no success row, malformed input).
+    Never raises.
+    """
+    try:
+        if not isinstance(rows, (list, tuple)):
+            return None
+        for row in rows:
+            if not isinstance(row, dict) or row.get("status") != "success":
+                continue
+            notes = row.get("notes")
+            if not isinstance(notes, dict):
+                return None
+            fp = notes.get(_GLOBALS_FP_NOTES_KEY)
+            return fp if isinstance(fp, str) and fp else None
+        return None
+    except Exception:  # noqa: BLE001 - never-raise contract
+        return None

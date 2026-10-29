@@ -1828,6 +1828,69 @@ def _regen_debt_failure_kwargs(
         }
 
 
+def _shadow_fallback_skip(
+    source_sheets,
+    watermarks,
+    last_run_status,
+    ledger_rows,
+    current_fp,
+):
+    """Shadow skip decision for runs the incremental path would not run.
+
+    Phase 11 Plan 13 (G-11-37, owner decision 2026-10-29): returns
+    ``None`` when the shadow comparison may proceed, else
+    ``{"reason": "would_fallback_full:<why>", "would_fallback_reason":
+    <detail>}``. The group-hash GLOBALS check runs first: a changed (or
+    unknowable) fingerprint regenerates every affected group without any
+    row change, so no row-delta candidate can contain them. Then the pure
+    ``resolve_run_mode`` is asked, with the production flag ON and
+    ``production_frequent`` (trigger 7 is never modelled; ``manual`` runs
+    keep counting), whether the real path would have run FULL (triggers
+    4/5/6). Never raises: an internal error is unknowable -> skipped.
+    """
+    try:
+        prior_fp = _memory_candidate.prior_globals_fingerprint(ledger_rows)
+        if not current_fp or prior_fp is None:
+            return {
+                "reason": "would_fallback_full:group_hash_globals_unknown",
+                "would_fallback_reason": (
+                    "group-hash globals fingerprint unavailable "
+                    "(current or previous successful run)"
+                ),
+            }
+        if current_fp != prior_fp:
+            return {
+                "reason": "would_fallback_full:group_hash_globals_changed",
+                "would_fallback_reason": (
+                    "EXTENDED_CHANGE_DETECTION / RATE_CUTOFF_DATE / rates "
+                    "fingerprint changed since the previous successful run"
+                ),
+            }
+        would_mode, would_reason, _ = resolve_run_mode(
+            source_sheets,
+            watermarks,
+            last_run_status,
+            incremental_enabled=True,
+            execution_type="production_frequent",
+            reset_hash_history=RESET_HASH_HISTORY,
+            regen_weeks=REGEN_WEEKS,
+            reset_wr_list=RESET_WR_LIST,
+            force_generation=FORCE_GENERATION,
+        )
+        reason = _memory_candidate.shadow_fallback_skip_reason(
+            would_mode, would_reason,
+            _memory_candidate.SHADOW_MODELS_TRIGGER6,
+        )
+        if reason is None:
+            return None
+        return {"reason": reason, "would_fallback_reason": would_reason}
+    except Exception as exc:  # noqa: BLE001 - never-raise contract
+        return {
+            "reason": "would_fallback_full:shadow_model_error",
+            "would_fallback_reason": type(exc).__name__,
+        }
+
+
 def _attachment_repair_only_in_actual(
     actual_hashes: dict, candidate_hashes: dict, repair_keys: set,
 ) -> list[str]:
@@ -2635,6 +2698,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # 11-13 reuses these same rows without a second SELECT. None debt =
     # UNKNOWN (shadow 'skipped' / incremental resolves to full).
     _mem_ledger_rows = None
+    # Phase 11 Plan 13: hoisted so the shadow can model D-02 trigger 6 even
+    # when the resolve try block below failed (None == trigger 6, the same
+    # reading resolve_run_mode gives an unreadable last status).
+    _last_run_status = None
+    _mem_globals_fp = ''
     _mem_regen_debt = None
     _mem_candidate_pairs = set()
     # True once _mem_candidate_pairs has been computed from a memory write
@@ -4832,6 +4900,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # unexpected bug here can never affect Excel generation, upload,
         # or cleanup, which have ALL already completed processing their
         # decisions for this run's groups by this point in source order.
+        # Phase 11 Plan 13: fingerprint of the group-hash globals, final
+        # now that PHASE 2 has rebound the rates fingerprint. Persisted in
+        # run_ledger.notes by both finish paths; the next run's shadow
+        # compares against it. '' (error) is treated as unknown.
+        try:
+            _mem_globals_fp = (
+                _memory_candidate.group_hash_globals_fingerprint()
+            )
+        except Exception:
+            _mem_globals_fp = ''
         if (
             _resolved_mode == 'full'
             and RUN_MEMORY_WRITE_ENABLED
@@ -4929,6 +5007,34 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     )
                     _parity_verdict = "skipped"
                     _parity_details = {"reason": "regen_debt_unknown"}
+                elif (
+                    _shadow_fb := _shadow_fallback_skip(
+                        source_sheets, _watermarks, _last_run_status,
+                        _mem_ledger_rows, _mem_globals_fp,
+                    )
+                ) is not None:
+                    # Phase 11 Plan 13 (owner decision 2026-10-29): the
+                    # real incremental path would have run FULL (D-02
+                    # triggers 4/5/6) or a group-hash global changed, so
+                    # the comparison is neither a pass nor a fail (D-07).
+                    logging.info(
+                        "⏩ Skipping shadow parity check: "
+                        f"{_shadow_fb['reason']} "
+                        f"({_shadow_fb['would_fallback_reason']})."
+                    )
+                    sentry_add_breadcrumb(
+                        "pipeline_memory",
+                        "Shadow parity check skipped, would fall back full",
+                        level="info",
+                        data={"reason": _shadow_fb["reason"]},
+                    )
+                    _parity_verdict = "skipped"
+                    _parity_details = {
+                        "reason": _shadow_fb["reason"],
+                        "would_fallback_reason": (
+                            _shadow_fb["would_fallback_reason"]
+                        ),
+                    }
                 else:
                     _shadow_candidate_groups = _filter_groups_to_affected(
                         groups, _mem_candidate_pairs,
@@ -5754,6 +5860,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # the shadow parity block actually ran this run (None
                 # default means "never a fabricated verdict" -- see the
                 # _parity_verdict hoist comment near the top of main()).
+                _finish_kwargs["group_hash_globals_fp"] = _mem_globals_fp or ''
                 if _parity_verdict is not None:
                     _finish_kwargs["parity_verdict"] = _parity_verdict
                     _finish_kwargs["parity_details"] = _parity_details
@@ -6125,6 +6232,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # the shadow parity block actually ran this run (None
                 # default means "never a fabricated verdict" -- see the
                 # _parity_verdict hoist comment near the top of main()).
+                _finish_kwargs["group_hash_globals_fp"] = _mem_globals_fp or ''
                 if _parity_verdict is not None:
                     _finish_kwargs["parity_verdict"] = _parity_verdict
                     _finish_kwargs["parity_details"] = _parity_details
