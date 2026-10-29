@@ -967,6 +967,19 @@ BEGIN
 END;
 $$;
 
+-- Explicit EXECUTE contract (PR #435): Postgres grants EXECUTE on a new
+-- function to PUBLIC by default, which would leave this write RPC
+-- callable by anon/authenticated via PostgREST (RLS still blocks the
+-- row writes, but the call itself should never be reachable). Mirrors
+-- acknowledge_finding's REVOKE and upsert_rows_bulk's GRANT: REVOKE
+-- from PUBLIC first, then GRANT the pipeline's only writer. Live apply:
+-- pipeline_memory/upsert_audit_findings_grant_migration.sql (owner-
+-- approved, NOT applied by this file's presence in the repo).
+REVOKE ALL ON FUNCTION pipeline_memory.upsert_audit_findings(TEXT, JSONB, JSONB)
+    FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pipeline_memory.upsert_audit_findings(TEXT, JSONB, JSONB)
+    TO service_role;
+
 -- ── RLS -- service-role only, audit_finding / audit_finding_event ────
 -- Plan 13-05. Mirrors the RLS block above (the five MEM-01 tables,
 -- schema.sql:577-605) exactly: ENABLE ROW LEVEL SECURITY, then a
