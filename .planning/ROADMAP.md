@@ -896,13 +896,37 @@ Plans:
 
 ### Phase 15: Foreman Notes and Smartsheet color carry-over (GF pilot)
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Weekly WR Excel files for pilot general foremen (GF from `General Foreman` on the pre-planned pricing sheet) carry each CU row's `Foreman Notes` in a new column I and the Smartsheet applied colours on the Smartsheet-sourced CU-line cells, across every output path, behind a scope switch; switch-off and non-pilot output stay cell-identical with byte-identical hashes, and production is unchanged until the pilot upload switch is turned on after an owner dry-run review.
+**Requirements**: FN-01, FN-02, FN-03, FN-04, FN-05, FN-06, FN-07, FN-08, FN-09, FN-10, FN-11, FN-12, FN-13
 **Depends on:** Phase 11 for MERGE only (11-15 reading); planning/coding may run in parallel (owner, 2026-10-29)
-**Plans:** 0 plans
+**Plans:** 7 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 15 to break down)
+
+**Wave 1**
+
+- [ ] 15-01-PLAN.md — Wave 0 golden record (cell dumps + hashes, every variant family) from the BASE commit; FN-01..13 registered *(wave 1)*
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 15-02-PLAN.md — `pipeline/foreman_notes.py` owning module + config flags: effective scope, GF pilot set, colour precedence, lazy style enrichment, notes digests *(wave 2)*
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 15-03-PLAN.md — Data-path seams: discovery synonym + marker suffix, NOTES_FP token, Phase 11 fingerprint + globals, parity and AST guards *(wave 3)*
+- [ ] 15-04-PLAN.md — Excel pilot rendering: column I notes, A:I headers, TOTAL I, fit-to-width print, colours; golden identity for every variant *(wave 3)*
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 15-05-PLAN.md — Orchestrate seams (GF load before PHASE 1, style attach before render), dry-run no-persist write guards + drift test, end-to-end + seam-order tests, 6 gates *(wave 4)*
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 15-06-PLAN.md — Operator docs (catalog, architecture, ledger) + website runbook page, environment reference and synthesized changelog *(wave 5)*
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 15-07-PLAN.md — Owner dry-run review checkpoint (`15-DRYRUN-APPROVAL.md`), then a draft PR stacked on #435, gated on Phase 11 closure *(wave 6)*
 
 ---
 
