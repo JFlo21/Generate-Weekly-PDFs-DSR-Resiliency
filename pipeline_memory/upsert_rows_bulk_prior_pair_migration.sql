@@ -1,5 +1,12 @@
 -- pipeline_memory/upsert_rows_bulk_prior_pair_migration.sql
--- STATUS: NOT APPLIED (repo change only; nothing live has changed).
+-- STATUS: APPLIED 2026-10-29 20:54:14Z as Supabase migration 20261029205414
+-- (name upsert_rows_bulk_prior_pair, project poeyztlmsawfoqlanucc) after the owner
+-- reviewed the exact FORWARD SQL and replied apply-now (2026-10-29). Read-only
+-- post-apply verification: pg_get_functiondef contains prior_wr; live prosrc md5
+-- (comments+whitespace stripped) b96af4f7de8fc75592e86e09be54caec == local FORWARD
+-- block (pre-apply live md5 f052e3edda479c3a6b0271d1e1c01d6e == ROLLBACK snapshot);
+-- service_role EXECUTE true; search_path='' pinned; get_advisors(security) shows no
+-- finding on pipeline_memory.
 -- Phase 11 plan 11-14, G-11-37 minor mechanism C: upsert_rows_bulk also
 -- returns the row's PRIOR (wr, week_ending) pair when its Work Request #
 -- changed, so the OLD WR's group enters the D-04 candidate.
