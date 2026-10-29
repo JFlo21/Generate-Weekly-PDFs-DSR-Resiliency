@@ -169,7 +169,13 @@ canonicalized-content standard; `group_state` attachment-id proof deferred to th
   `success` row; only the weekly deep run stays outside the streak. AMENDED 2026-10-29 by the owner
   (Juan), G-11-37 plan 11-13: a run whose previous run_ledger row is unfinished or not success
   (D-02 trigger 6) gets parity_verdict skipped (would_fallback_full:trigger6) and neither counts
-  nor resets; manual runs with streak_eligible true keep counting. Original text follows.)**
+  nor resets; manual runs with streak_eligible true keep counting. AMENDED again 2026-10-29 by the
+  owner (Juan), PR #435: plan 11-15 closes Phase 11 on ONE post-deploy run that passes the billing-impact
+  check (run success; no unexpected regenerations, uploads or errors). The `get_parity_streak()` reading
+  is recorded as-is (a first-run `skipped` verdict is expected) and is no longer a ≥5 closing gate;
+  bugs found later are fixed forward. The `RUN_MEMORY_INCREMENTAL_ENABLED` flip stays separately
+  blocked (todo `2026-10-29-inc02-incremental-globals-fallback-trigger.md`) and still requires its own
+  owner decision. Original text follows.)**
   **Streak = consecutive parity-evaluated `production_frequent` runs.** "≥5
   consecutive scheduled runs" is computed by scanning the newest `run_ledger` rows whose
   `notes.execution_type == 'production_frequent'` backward: `pass` counts, `fail` resets,
