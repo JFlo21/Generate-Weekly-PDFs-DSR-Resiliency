@@ -340,11 +340,11 @@ class UpsertAuditFindingsExecuteGrantContractTests(unittest.TestCase):
             r"(PUBLIC|anon|authenticated)",
         )
 
-    def test_standalone_migration_is_marked_not_applied_with_rollback(self):
+    def test_standalone_migration_records_apply_status_with_rollback(self):
         text = _read_source(self._MIGRATION)
         header = text[: text.index("REVOKE")]
-        self.assertIn("NOT APPLIED", header)
-        self.assertIn("owner approval", header.lower())
+        self.assertIn("STATUS: APPLIED 2026-10-29", header)
+        self.assertIn("owner approved", header.lower())
         self._assert_revoke_then_grant(_strip_sql_comments(text))
         self.assertIn("-- ── ROLLBACK", text)
         self.assertIn(

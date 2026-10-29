@@ -1,5 +1,7 @@
 -- pipeline_memory/upsert_audit_findings_grant_migration.sql
--- STATUS: NOT APPLIED. Owner approval required before any live apply.
+-- STATUS: APPLIED 2026-10-29 to project poeyztlmsawfoqlanucc via the Supabase
+-- connector (owner approved "apply the grant"). Read-back: service_role=true,
+-- anon=false, authenticated=false.
 -- Do not run from CI, a script, or an MCP/SQL tool without Juan's explicit
 -- go-ahead on the exact FORWARD SQL below.
 --
