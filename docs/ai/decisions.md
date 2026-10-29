@@ -1,4 +1,4 @@
-Repo-local implementation truth — outranks second-brain notes; verified from repo files on 2026-09-02.
+Repo-local implementation truth — outranks second-brain notes; verified from repo files on 2026-09-02; re-verified 2026-10-29 (gsd-doc-verifier).
 
 <!-- This file is repo-local IMPLEMENTATION TRUTH. It is a POINTER to the canonical Living Ledger —
 do not duplicate ledger prose here; the ledger (memory-bank/living-ledger.md) is the source of truth
@@ -31,15 +31,15 @@ read the cited ledger entry / ROADMAP section for full rationale before acting.
 | `.planning/ROADMAP.md` Phase 10 | `pipeline_memory` Supabase schema introduced as shadow-mode run memory, independent of `billing_audit` (separate client/kill switch) | shipped |
 | `memory-bank/living-ledger.md` Phase 11 Plan 08 (INC-05) | Local discovery-cache / hash-history JSON files + their TTLs retired; cross-run identity lives solely in `pipeline_memory.sheet_registry` / `group_state`; bulk attachment pre-fetch retired in favor of on-demand + `group_state` resolution | active |
 | `memory-bank/living-ledger.md [2026-09-02 17:45]` | Phase 11.1 closed — bounded discovery validation read (`row_numbers=[1,2,3]`) proven via production canary (skip-MISS run, `⚡ Phase 1 complete` 3214s→37.7s) | active |
-| `memory-bank/living-ledger.md [2026-09-01 19:45]` / `[19:55]` | Phase 12 semantics: claim-time / as-of-the-week ownership per row+role adopted; cross-week inheritance explicitly OFF | active (Phase 12 in progress) |
-| `memory-bank/living-ledger.md [2026-09-02 18:15]` | **D-12-A** — Phase 12 ships NO `wr_week_ownership` table; OWN-01 ladder = `observed_in_week → backfill_artifacts → backfill_hash_history → operator → sentinel` (no cross-week rung); table deferred to Phase 13 | active |
+| `memory-bank/living-ledger.md [2026-09-01 19:45]` / `[19:55]` | Phase 12 semantics: claim-time / as-of-the-week ownership per row+role adopted; cross-week inheritance explicitly OFF | active (Phase 12 closed — `.planning/ROADMAP.md` completed 2026-09-10; ledger `[2026-09-11 02:10]`) |
+| `memory-bank/living-ledger.md [2026-09-02 18:15]` | **D-12-A** — Phase 12 ships NO `wr_week_ownership` table; OWN-01 ladder as implemented = `observed_in_week → backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel` (no cross-week rung; `operator` is a provenance tag for manual overrides, not a rung — `.planning/ROADMAP.md` D-12-A); table deferred to Phase 13, not yet on the Phase 13 contract | active |
 | `memory-bank/living-ledger.md [2026-09-02 18:15]` | **D-12-B** — OWN-03 backfill source 4 (`backfill_hash_history`) reads the Supabase hash store (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), NOT a JSON file; no `--hash-history` flag | active |
 | `memory-bank/living-ledger.md [2026-09-02 00:35]` (referenced) | Backfill source 5 (Smartsheet cell history) included as a separate capped off-hours job, never inside `generate_weekly_pdfs.py` | active |
 | `requirements.txt` header comment | `smartsheet-python-sdk` pinned to an exact version (not a range) — D-01, "no unreviewed SDK auto-enters production" | active |
 
 ## Notes on using this file
 
-- This index is not exhaustive — the Living Ledger has 47+ dated entries covering claim attribution,
+- This index is not exhaustive — the Living Ledger has well over 100 dated entries covering claim attribution,
   rate recalculation, attachment pre-fetch budgets, WR sanitization/collision quarantine, etc. Search
   the ledger directly for anything not listed here.
 - When a ledger entry is superseded, the ledger itself records the supersession inline — do not mark
@@ -47,7 +47,8 @@ read the cited ledger entry / ROADMAP section for full rationale before acting.
 
 ## Last verified
 
-- Last verified: 2026-09-02 — read `.planning/ROADMAP.md` (Phase 09–13 headers + Phase 12 decision
-  block) and the last ~150 lines of `memory-bank/living-ledger.md` (entries through
-  `[2026-09-02 19:25]` Phase 12 PLANNED). Older ledger entries (pre-2026-09) referenced by anchor only,
-  not re-read this pass.
+- Last verified: 2026-10-29 — gsd-doc-verifier pass (19/22) against `master`, then re-read
+  `.planning/ROADMAP.md` (Phase 12 checkbox + D-12-A block) and the ledger anchors
+  `[2026-09-02 18:15]` (whose "Closeout 19:25 CDT — Phase 12 PLANNED" line the 2026-09-02 pass
+  cited as a separate entry) and `[2026-09-11 02:10]` (Phase 12 CLOSED). Older ledger entries
+  (pre-2026-09) referenced by anchor only, not re-read this pass.

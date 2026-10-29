@@ -1,4 +1,4 @@
-Repo-local implementation truth — outranks second-brain notes; verified from repo files on 2026-09-02.
+Repo-local implementation truth — outranks second-brain notes; verified from repo files on 2026-09-02; re-verified 2026-10-29 (gsd-doc-verifier).
 
 <!-- This file is repo-local IMPLEMENTATION TRUTH. Only mark VERIFIED after reading the exact
 script/CI step or running the command. Never put secrets/env values here — env var NAMES only. -->
@@ -23,13 +23,13 @@ docs. 4. Global second brain. 5. Global wiki. 6. `raw/` (data only). 7. Chat his
 ### Install dependencies
 - `pip install -r requirements.txt` (Python core engine)
 - `cd portal-v2 && npm install` / `cd website && npm install` (Node surfaces)
-- Status: **VERIFIED** — read from `CLAUDE.md` "Build, Test, and Run Commands"
+- Status: **VERIFIED** — `CLAUDE.md` "Validation commands (authoritative)", `portal-v2/package.json`, `website/package.json`
 
 ### Build
 - `python -m py_compile generate_weekly_pdfs.py` (syntax-only check of the facade)
 - `cd portal-v2 && npm run build` (`tsc -b && vite build`)
 - `cd website && npm run build` (Docusaurus)
-- Status: **VERIFIED** — `CLAUDE.md`
+- Status: **VERIFIED** — `CLAUDE.md` "Validation commands (authoritative)", `portal-v2/package.json`, `website/package.json`
 
 ### Test
 - `pytest tests/ -v` — full suite, must pass before push
@@ -38,12 +38,12 @@ docs. 4. Global second brain. 5. Global wiki. 6. `raw/` (data only). 7. Chat his
 - `pytest tests/ --cov` — with coverage
 - `cd portal-v2 && npm run lint` — `eslint --max-warnings 0` (Node)
 - `bash scripts/run_6_gates.sh` — full 6-gate validation harness (see below)
-- Status: **VERIFIED** — `CLAUDE.md`, `scripts/run_6_gates.sh`
+- Status: **VERIFIED** — `CLAUDE.md` "Validation commands (authoritative)", `portal-v2/package.json`, `scripts/run_6_gates.sh`
 
 ### Aspirational (future `uv` migration — not yet wired up)
 - `uv run pytest tests/` · `uv run ruff check .` · `uv run mypy .`
 - Status: **NOT WIRED** — `pyproject.toml` exists but there is no `uv.lock` and CI does not invoke
-  `uv`; carried over from `CLAUDE.md` "Validation Commands (aspirational)" on 2026-09-02. Treat as
+  `uv`; moved here from a former `CLAUDE.md` section during the 2026-09-02 trim. Treat as
   NEEDS_VERIFICATION before relying on any of them.
 
 ### 6-gate harness (`scripts/run_6_gates.sh`) — gate order
@@ -71,7 +71,8 @@ docs. 4. Global second brain. 5. Global wiki. 6. `raw/` (data only). 7. Chat his
 - `python audit_billing_changes.py`
 - `python cleanup_excels.py`
 - `python run_info.py` — lists available scripts
-- Status: **VERIFIED** — `CLAUDE.md`
+- Status: **VERIFIED** (scripts exist at repo root) — not listed in `CLAUDE.md`; moved here from a
+  former `CLAUDE.md` section during the 2026-09-02 trim
 
 ### Run / dev (frontend surfaces)
 - `cd portal-v2 && cp .env.example .env.local` then set `VITE_SUPABASE_URL` and
@@ -110,10 +111,13 @@ docs. 4. Global second brain. 5. Global wiki. 6. `raw/` (data only). 7. Chat his
 
 - Required env var names (values never stored here): `SMARTSHEET_API_TOKEN` (required),
   `TARGET_SHEET_ID`, `AUDIT_SHEET_ID`, `SENTRY_DSN`, plus the ~30 optional behavior-flag vars
-  documented in `CLAUDE.md` "Configuration — 30+ Environment Variables" (`SKIP_UPLOAD`, `TEST_MODE`,
-  `RES_GROUPING_MODE`, `WR_FILTER`, `MAX_GROUPS`, `RESET_HASH_HISTORY`, `TIME_BUDGET_MINUTES`, etc.).
-  Exact Supabase client env var names for `pipeline_memory`/`billing_audit` — NEEDS_VERIFICATION.
-- Required toolchain: Python 3.10+ locally (3.12 in CI per `CLAUDE.md`); Node.js/npm for
+  catalogued in `.github/prompts/configuration-environment.md` § Operator quick reference (pointed to
+  from `CLAUDE.md` "Configuration") (`SKIP_UPLOAD`, `TEST_MODE`, `RES_GROUPING_MODE`, `WR_FILTER`,
+  `MAX_GROUPS`, `RESET_HASH_HISTORY`, `TIME_BUDGET_MINUTES`, etc.).
+  Supabase client env var names (both `pipeline_memory` and `billing_audit`): `SUPABASE_URL`,
+  `SUPABASE_SERVICE_ROLE_KEY` — VERIFIED from their `os.getenv` reads 2026-10-29 (names only).
+- Required toolchain: Python 3.10+ locally (`pyproject.toml`), 3.12 in CI
+  (`.github/workflows/weekly-excel-generation.yml` `python-version`); Node.js/npm for
   `portal-v2`/`website`.
 - `.github/hooks/pre-push-tests.json` is a Claude Code hook (not a git hook) — it blocks the `git
   push` *tool* if `pytest tests/` fails when run inside Claude Code. A plain shell push is not
@@ -123,6 +127,7 @@ docs. 4. Global second brain. 5. Global wiki. 6. `raw/` (data only). 7. Chat his
 
 ## Last verified
 
-- Last verified: 2026-09-02 — read `CLAUDE.md` "Build, Test, and Run Commands" +
-  "Configuration" sections, `scripts/run_6_gates.sh` in full, and `docs/AI_CONTEXT_RESUME.md`
-  "Verify the project (commands)" section (cross-check, no discrepancies found).
+- Last verified: 2026-10-29 — gsd-doc-verifier pass (42/48; all six failures were citations of
+  `CLAUDE.md` section names that the 2026-09-02 trim renamed or removed, now re-pointed to
+  `CLAUDE.md` "Validation commands (authoritative)", the package manifests, `pyproject.toml` and the
+  workflow). Commands, scripts and npm scripts all exist. Previous pass: 2026-09-02.
