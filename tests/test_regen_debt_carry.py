@@ -546,8 +546,8 @@ class FinishKwargsTests(unittest.TestCase):
 
     def _kw(self, **over):
         base = dict(
-            candidate_pairs={("1", "w")},
-            groups={"g1": _group("1", "w")},
+            candidate_pairs={("1", "2026-11-01")},
+            groups={"g1": _group("1", "2026-11-01")},
             skip_keys=set(),
             upload_ok={},
             deferred_records=[],
@@ -565,13 +565,13 @@ class FinishKwargsTests(unittest.TestCase):
             deferred_records=[{"group_key": "g1"}],
             upload_tasks=[{"group_key": "g1"}],
         )
-        self.assertEqual(out["regen_debt_pairs"], [["1", "w"]])
+        self.assertEqual(out["regen_debt_pairs"], [["1", "2026-11-01"]])
         self.assertFalse(out["regen_debt_unknown"])
 
     def test_time_budget_stop_carries_the_pair(self):
         # g1 in groups, neither skipped nor uploaded nor generated.
         out = self._kw()
-        self.assertEqual(out["regen_debt_pairs"], [["1", "w"]])
+        self.assertEqual(out["regen_debt_pairs"], [["1", "2026-11-01"]])
 
     def test_hash_skip_clears_the_pair(self):
         out = self._kw(skip_keys={"g1"})
@@ -595,10 +595,10 @@ class FinishKwargsTests(unittest.TestCase):
         self.assertEqual(out["regen_debt_pairs"], [])
 
     def test_scoped_run_carries_zero_group_pair_unscoped_clears(self):
-        pending = {("9", "w")}
+        pending = {("9", "2026-11-01")}
         self.assertEqual(
             self._kw(candidate_pairs=pending, groups={}, scoped=True)[
-                "regen_debt_pairs"], [["9", "w"]],
+                "regen_debt_pairs"], [["9", "2026-11-01"]],
         )
         self.assertEqual(
             self._kw(candidate_pairs=pending, groups={}, scoped=False)[
@@ -613,13 +613,13 @@ class FinishKwargsTests(unittest.TestCase):
         # run's candidate must still be carried if it is not confirmed.
         out = self._kw(
             candidate_pairs=set(),
-            groups={"g1": _group("7", "w")},
+            groups={"g1": _group("7", "2026-11-01")},
             inherited_unknown=True,
         )
-        self.assertEqual(out["regen_debt_pairs"], [["7", "w"]])
+        self.assertEqual(out["regen_debt_pairs"], [["7", "2026-11-01"]])
 
     def test_overflow_reports_empty_list_and_flag(self):
-        many = {(str(i), "w") for i in range(mc.REGEN_DEBT_MAX_PAIRS + 1)}
+        many = {(str(i), "2026-11-01") for i in range(mc.REGEN_DEBT_MAX_PAIRS + 1)}
         out = self._kw(candidate_pairs=many, groups={}, scoped=True)
         self.assertEqual(out["regen_debt_pairs"], [])
         self.assertTrue(out["regen_debt_overflow"])
@@ -634,10 +634,10 @@ class FinishKwargsTests(unittest.TestCase):
 
     def test_failure_path_carries_full_pending_without_confirmation(self):
         out = orch._regen_debt_failure_kwargs(
-            {("1", "w"), ("2", "w")}, debt_unknown=False,
+            {("1", "2026-11-01"), ("2", "2026-11-01")}, debt_unknown=False,
         )
         self.assertEqual(
-            out["regen_debt_pairs"], [["1", "w"], ["2", "w"]],
+            out["regen_debt_pairs"], [["1", "2026-11-01"], ["2", "2026-11-01"]],
         )
         self.assertFalse(out["regen_debt_unknown"])
         self.assertTrue(

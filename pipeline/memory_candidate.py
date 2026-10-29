@@ -245,3 +245,39 @@ def shadow_candidate_pairs(affected, debt):
         return set(affected or ()) | set(debt or ())
     except Exception:  # noqa: BLE001 - never-raise contract
         return set()
+
+
+def unconfirmed_pairs(pending, group_pairs, confirmed_keys, scoped):
+    """Subset of *pending* pairs this run could NOT confirm (carried debt).
+
+    *group_pairs* maps group key -> ``(wr, week)``; *confirmed_keys* holds
+    the group keys that were skipped as unchanged, uploaded successfully,
+    or are never observable. A pending pair is CLEARED iff it has at least
+    one group and every such group key is confirmed, OR it has zero groups
+    and the run was unscoped (*scoped* False: the full grouping simply has
+    no group for it, e.g. its rows were deleted). A scoped run (WR_FILTER,
+    MAX_GROUPS, ...) cannot tell "no groups" from "filtered out", so it
+    carries zero-group pairs. Never raises: on an internal error returns
+    the FULL pending set, the safe (wider) direction.
+    """
+    try:
+        pending = set(pending)
+        keys_by_pair = {}
+        for gk, pair in group_pairs.items():
+            if pair in pending:
+                keys_by_pair.setdefault(pair, []).append(gk)
+        confirmed = set(confirmed_keys)
+        carried = set()
+        for pair in pending:
+            keys = keys_by_pair.get(pair)
+            if keys:
+                if any(k not in confirmed for k in keys):
+                    carried.add(pair)
+            elif scoped:
+                carried.add(pair)
+        return carried
+    except Exception:  # noqa: BLE001 - never-raise contract
+        try:
+            return set(pending)
+        except Exception:  # noqa: BLE001
+            return set()

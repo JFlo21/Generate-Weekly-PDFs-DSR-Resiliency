@@ -1727,6 +1727,124 @@ def _note_pending_regen_pairs(
         )
 
 
+def _memory_write_may_have_advanced_unseen(mem_result: dict) -> bool:
+    """True when the memory write may have advanced ``row_state`` without
+    its pairs reaching the returned affected set (some sheet unconfirmed
+    AND rows were sent) -- the regeneration debt is then unknowable."""
+    try:
+        return (
+            mem_result.get("sheets_unconfirmed", 0) > 0
+            and mem_result.get("rows_sent", 0) > 0
+        )
+    except Exception:  # noqa: BLE001 - safe direction
+        return True
+
+
+def _regen_debt_finish_kwargs(
+    *,
+    candidate_pairs: 'set[tuple[Any, Any]]',
+    groups: dict[Any, list[dict[str, Any]]],
+    skip_keys: set,
+    upload_ok: dict,
+    deferred_records: list[dict[str, Any]],
+    upload_tasks: list[dict[str, Any]],
+    no_target_groups: set,
+    scoped: bool,
+    debt_unknown: bool,
+    inherited_unknown: bool = False,
+) -> dict[str, Any]:
+    """``run_ledger_finish`` kwargs carrying this run's regeneration debt
+    (Phase 11 Plan 12, G-11-37 mechanism B) for a run that FINISHED.
+
+    A pending pair is confirmed when every one of its groups was skipped as
+    unchanged, uploaded (or already matched), or is never observable
+    (generated but withheld / no target-sheet row) -- the same
+    never-observable set ``_shadow_parity_input_sets`` drops. Anything else
+    (upload failed, group never reached because the time budget stopped
+    the loop, ``skip_upload``) stays debt. *inherited_unknown*: the debt
+    this run started from was itself unknowable, so every group pair of
+    this run is treated as pending too (a stranded group outside the
+    candidate must still be carried if it is not confirmed). PURE; never
+    raises -- an internal error reports ``regen_debt_unknown`` True.
+    """
+    try:
+        group_pairs = {
+            gk: _resolve_row_wr_week(rows[0])
+            for gk, rows in groups.items() if rows
+        }
+        uploadable = {
+            t.get('group_key') for t in (upload_tasks or [])
+            if isinstance(t, dict)
+        }
+        withheld = {
+            rec.get('group_key') for rec in (deferred_records or [])
+            if rec.get('group_key') not in uploadable
+        }
+        confirmed = (
+            set(skip_keys)
+            | {gk for gk, ok in upload_ok.items() if ok}
+            | withheld
+            | set(no_target_groups)
+        )
+        pending = set(candidate_pairs)
+        if inherited_unknown:
+            pending |= set(group_pairs.values())
+        carried = _memory_candidate.unconfirmed_pairs(
+            pending, group_pairs, confirmed, scoped,
+        )
+        pairs_json, overflow = _memory_candidate.pairs_to_json(carried)
+        return {
+            "regen_debt_pairs": pairs_json,
+            "regen_debt_overflow": overflow,
+            "regen_debt_unknown": bool(debt_unknown),
+        }
+    except Exception:  # noqa: BLE001 - never-raise; unknown is safe
+        return {
+            "regen_debt_pairs": [],
+            "regen_debt_overflow": False,
+            "regen_debt_unknown": True,
+        }
+
+
+def _regen_debt_failure_kwargs(
+    candidate_pairs: 'set[tuple[Any, Any]]', debt_unknown: bool,
+) -> dict[str, Any]:
+    """Failure-path counterpart: the FULL pending set is carried (no
+    confirmation is attempted for a run that died). Never raises."""
+    try:
+        pairs_json, overflow = _memory_candidate.pairs_to_json(
+            candidate_pairs
+        )
+        return {
+            "regen_debt_pairs": pairs_json,
+            "regen_debt_overflow": overflow,
+            "regen_debt_unknown": bool(debt_unknown),
+        }
+    except Exception:  # noqa: BLE001
+        return {
+            "regen_debt_pairs": [],
+            "regen_debt_overflow": False,
+            "regen_debt_unknown": True,
+        }
+
+
+def _attachment_repair_only_in_actual(
+    actual_hashes: dict, candidate_hashes: dict, repair_keys: set,
+) -> list[str]:
+    """Stringified, sorted, capped-at-10 group keys that are
+    only_in_actual (generated and observable but not in the candidate)
+    AND regenerated solely because their attachment was missing -- an
+    externally deleted attachment, distinguishable from a selector miss.
+    Computed from the two FULL hash dicts, not from the comparator's own
+    truncated ``only_in_actual`` list. Observability only; never raises.
+    """
+    try:
+        only = set(actual_hashes) - set(candidate_hashes)
+        return sorted(str(k) for k in (only & set(repair_keys)))[:10]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _run_phase2_incremental(
     client: Any,
     source_sheets: list[dict[str, Any]],
@@ -2966,10 +3084,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             )
             # Phase 11 Plan 12: an unconfirmed sheet with rows sent may have
             # advanced row_state without its pairs reaching _mem_affected.
-            if (
-                _mem_result.get("sheets_unconfirmed", 0) > 0
-                and _mem_rows_sent > 0
-            ):
+            if _memory_write_may_have_advanced_unseen(_mem_result):
                 _mem_regen_unknown = True
 
         # Phase 11 Plan 12 (G-11-37 mechanism B): the D-04 candidate is
@@ -4438,11 +4553,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         if can_skip:
                             logging.info(f"⏩ Skip (unchanged + attachment exists) {variant} WR {wr_num} week {week_raw} hash {data_hash}")
                             _groups_skipped += 1
+                            _mem_confirmed_skip_keys.add(group_key)
                             sentry_add_breadcrumb("group", f"Skipped unchanged group", level="info", data={
                                 "wr": wr_num, "week": week_raw, "variant": variant, "hash": data_hash,
                             })
                             continue
                         else:
+                            _mem_attachment_repair_keys.add(group_key)
                             logging.info(f"🔁 Regenerating {variant} WR {wr_num} week {week_raw} despite unchanged hash (attachment missing or verification failed)")
                             sentry_add_breadcrumb("group", f"Regenerating despite same hash (attachment missing)", level="warning", data={
                                 "wr": wr_num, "week": week_raw, "variant": variant,
@@ -4823,6 +4940,17 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         _shadow_group_result["verdict"],
                         _shadow_read_result["read_verdict"],
                     )
+                    # Phase 11 Plan 12: tag only_in_actual groups that
+                    # regenerated solely because their attachment was
+                    # missing (observability only; the verdict above is
+                    # already final). The shadow runs after the group loop
+                    # and before uploads, so the repair set is populated.
+                    _shadow_group_result[
+                        "only_in_actual_attachment_repair"
+                    ] = _attachment_repair_only_in_actual(
+                        _shadow_actual_hashes, _shadow_candidate_hashes,
+                        _mem_attachment_repair_keys,
+                    )
                     _parity_details = {
                         "group": _shadow_group_result,
                         "read": _shadow_read_result,
@@ -5071,6 +5199,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
 
             with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
                 upload_results = list(executor.map(_upload_one, _upload_tasks))
+
+            # Phase 11 Plan 12: record per-group upload success (a
+            # reduced_sub fan-out needs EVERY leg) for the regen-debt
+            # confirmation at run_ledger_finish. Record only.
+            for _dbt_task, _dbt_res in zip(_upload_tasks, upload_results):
+                _dbt_gk = _dbt_task.get('group_key')
+                _mem_group_upload_ok[_dbt_gk] = (
+                    _mem_group_upload_ok.get(_dbt_gk, True)
+                    and _dbt_res in ('uploaded', 'skipped')
+                )
 
             _groups_uploaded = sum(1 for r in upload_results if r == 'uploaded')
             _upload_errors = sum(1 for r in upload_results if r == 'error')
@@ -5543,6 +5681,34 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
                 if _resolved_fallback_reason:
                     _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                # Phase 11 Plan 12 (G-11-37 mechanism B): the pending
+                # pairs this run could not confirm (failed / never-reached
+                # uploads) are carried to the next run as regeneration
+                # debt. Any error here reports the debt UNKNOWN (next run
+                # skips / resolves full; scope only widens).
+                try:
+                    _dbt_scoped = not _mem_writer.streak_eligible_from_env()
+                    _finish_kwargs.update(_regen_debt_finish_kwargs(
+                        candidate_pairs=_mem_candidate_pairs,
+                        groups=groups or {},
+                        skip_keys=_mem_confirmed_skip_keys,
+                        upload_ok=_mem_group_upload_ok,
+                        deferred_records=_deferred_group_state,
+                        upload_tasks=_upload_tasks,
+                        no_target_groups=set(_no_target_row_groups),
+                        scoped=_dbt_scoped,
+                        debt_unknown=(
+                            _mem_regen_unknown
+                            or not _mem_candidate_ready
+                            or (_mem_regen_debt is None and _dbt_scoped)
+                        ),
+                        inherited_unknown=_mem_regen_debt is None,
+                    ))
+                except Exception:
+                    _finish_kwargs.update(
+                        regen_debt_pairs=[], regen_debt_overflow=False,
+                        regen_debt_unknown=True,
+                    )
                 # Phase 11 Plan 05 (INC-04, D-07/D-08): only present when
                 # the shadow parity block actually ran this run (None
                 # default means "never a fabricated verdict" -- see the
@@ -5893,6 +6059,27 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
                 if _resolved_fallback_reason:
                     _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                # Phase 11 Plan 12 (G-11-37 mechanism B): a run that died
+                # carries its FULL pending set (no confirmation attempted).
+                # Unknown when row_state may have advanced without a
+                # returned affected set, or when the inherited debt was
+                # itself unknowable.
+                try:
+                    _finish_kwargs.update(_regen_debt_failure_kwargs(
+                        _mem_candidate_pairs,
+                        debt_unknown=(
+                            _mem_regen_unknown
+                            or (_mem_candidate_ready
+                                and _mem_regen_debt is None)
+                            or (not _mem_candidate_ready
+                                and _mem_rows_sent > 0)
+                        ),
+                    ))
+                except Exception:
+                    _finish_kwargs.update(
+                        regen_debt_pairs=[], regen_debt_overflow=False,
+                        regen_debt_unknown=True,
+                    )
                 # Phase 11 Plan 05 (INC-04, D-07/D-08): only present when
                 # the shadow parity block actually ran this run (None
                 # default means "never a fabricated verdict" -- see the
