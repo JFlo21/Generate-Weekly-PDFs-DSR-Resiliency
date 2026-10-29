@@ -894,6 +894,16 @@ Plans:
 
 - [x] 13-06-PLAN.md — Docs: D-13-A closure across the spec/REQUIREMENTS/ROADMAP, the two backlog entries, operator documentation for `AUDIT_MEMORY_ENABLED` and the SQL surface, and the finding-key ledger entry *(wave 5)*
 
+### Phase 15: Foreman Notes and Smartsheet color carry-over (GF pilot)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 14
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 15 to break down)
+
 ---
 
 ### Phase 14: Foreman Helper #2

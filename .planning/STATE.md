@@ -6,16 +6,16 @@ current_phase: 11
 current_phase_name: Incremental Read + Affected-Group Regeneration
 status: executing
 stopped_at: Completed 11-14-PLAN.md
-last_updated: "2026-10-29T20:57:54.676Z"
+last_updated: "2026-10-29T20:59:15.731Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: c324a3749ef25728cf306e9330a07a886daf10ee
+state_head: a01302e95fbc77f3669032628c4295ebb67251b9
 progress:
-  total_phases: 14
+  total_phases: 15
   completed_phases: 14
   total_plans: 87
   completed_plans: 86
-  percent: 99
+  percent: 93
 ---
 
 # Project State
@@ -96,7 +96,7 @@ Last activity: 2026-09-14 — Phase 11 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans ([█████████░] 99%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([█████████░] 93%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
@@ -385,6 +385,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 - Phase 11.1 inserted after Phase 11: Post-INC-05 Runtime Remediation (URGENT)
 - Phase 14 added: Foreman Helper #2 — second independently identifiable helping-foreman slot through the Excel-generation workflow (planning-only authorization; Intake 8 excluded; optional Helper #2 columns skip, never fail)
+- Phase 15 added: Foreman Notes + Smartsheet conditional-format color carry-over into weekly WR Excel, GF guard-rail pilot (off/pilot/all), dry-run first
 
 ### Blockers/Concerns
 
