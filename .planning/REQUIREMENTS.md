@@ -235,7 +235,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **INC-01**: Frequent runs use `ifVersionAfter` + `rowsModifiedSince` per registered
   sheet; unchanged sheets cost one call and zero rows.
 
-- [x] **INC-02**: Only (WR, week) groups touched by changed rows (including the previous
+- [ ] **INC-02**: Only (WR, week) groups touched by changed rows (including the previous
   week when a row's week moved) are regrouped, regenerated, and uploaded; rows for those
   groups come from `row_state`, not Smartsheet.
   > **[2026-08-26] D-05 approved partial (Phase 11 Plan 04):** the `row_state`-sourcing
@@ -461,7 +461,7 @@ Which phases cover which requirements.
 | MEM-03 | Phase 10 | Complete |
 | MEM-04 | Phase 10 | Complete |
 | INC-01 | Phase 11 | Complete |
-| INC-02 | Phase 11 | Complete |
+| INC-02 | Phase 11 | Pending |
 | INC-03 | Phase 11 | Complete |
 | INC-04 | Phase 11 | Complete |
 | INC-05 | Phase 11 | Complete |
