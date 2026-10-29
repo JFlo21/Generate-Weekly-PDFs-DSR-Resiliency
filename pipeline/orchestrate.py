@@ -73,6 +73,9 @@ from pipeline_memory import reader as _mem_reader
 # proof -- computes and compares only, never acts. See pipeline/parity.py
 # module docstring for the full contract.
 from pipeline import parity as _parity
+# Phase 11 Plan 11 (G-11-37 mechanism A): pure inputs to the D-04
+# incremental candidate set (row group-hash fingerprint).
+from pipeline import memory_candidate as _memory_candidate
 
 # Named re-export imports (byte-exact from the facade) so every bare sibling
 # reference inside main()/testmode resolves identically (W1-W5 pattern). The
@@ -819,6 +822,14 @@ def _run_memory_write_phase(
             row['__mem_units_total_price'] = (
                 None if _raw_utp in (None, '')
                 else _pricing.parse_price(_raw_utp)
+            )
+            # G-11-37 mechanism A: fingerprint of every per-row input to
+            # the GROUP hash / group key that HASH_FIELDS does not carry
+            # (Job #, Dept #, Foreman Assigned?, ...). Double-underscore
+            # key -- invisible to excel.py's column sampler and to
+            # calculate_data_hash(), same convention as __mem_quantity.
+            row['__mem_group_fp'] = (
+                _memory_candidate.row_group_hash_fingerprint(row)
             )
 
         try:

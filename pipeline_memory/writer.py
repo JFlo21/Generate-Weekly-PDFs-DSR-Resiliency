@@ -675,6 +675,14 @@ HASH_FIELDS: tuple[str, ...] = (
     "helper2_job",
 )
 
+# Hash-only members: feed ``content_hash`` but are NEVER stored or sent
+# (D-05 membership-only, no DDL; G-11-37 mechanism A). ``group_hash_fp``
+# is the caller-computed fingerprint of every per-row input to the group
+# hash / group key that ``HASH_FIELDS`` does not carry. NEVER append these
+# to ``HASH_FIELDS``: tests/test_upsert_rows_bulk_helper2_contract.py pins
+# ``HASH_FIELDS`` to the RPC column lists.
+HASH_ONLY_FIELDS: tuple[str, ...] = ("group_hash_fp",)
+
 
 def compute_content_hash(payload: dict[str, Any]) -> str:
     """SHA-256 hex digest over ``HASH_FIELDS``, read in ``HASH_FIELDS``'
@@ -684,7 +692,9 @@ def compute_content_hash(payload: dict[str, Any]) -> str:
     discipline). Missing keys hash as ``None`` via ``dict.get``, so a
     blank/absent observation still produces a stable, non-empty hash.
     """
-    ordered = {key: payload.get(key) for key in HASH_FIELDS}
+    ordered = {
+        key: payload.get(key) for key in HASH_FIELDS + HASH_ONLY_FIELDS
+    }
     canonical = json.dumps(ordered, default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -826,6 +836,14 @@ def _row_to_payload(
     hashes; a database that has not yet received the additive DDL is
     tolerated by the writer's existing fail-open contract, never a new
     one (see ``client.py::with_retry``'s SQLSTATE handling).
+
+    G-11-37 mechanism A: ``content_hash`` additionally folds in the
+    caller-computed ``__mem_group_fp`` (see ``HASH_ONLY_FIELDS``) so an
+    edit to any field the GROUP hash reads but ``HASH_FIELDS`` does not
+    (Job #, Dept #, Customer Name, ...) still moves ``content_hash``.
+    Like ``__mem_quantity`` it is computed by the caller and never parsed
+    here (package boundary preserved); it is removed from the returned
+    payload, so the RPC ``p_rows`` key set is unchanged.
     """
     del run_id  # per-call RPC parameter, not a per-row payload field
 
@@ -869,7 +887,12 @@ def _row_to_payload(
         "helper2_job": row_data.get("Helper #2 Job #") or None,
         "row_modified_at": row_data.get("__row_modified_at"),
     }
+    # G-11-37 mechanism A: fold the caller-computed group-hash fingerprint
+    # into content_hash, then remove it so the sent payload keys are
+    # byte-identical to before (hash-only, no DDL).
+    payload["group_hash_fp"] = row_data.get("__mem_group_fp") or None
     payload["content_hash"] = compute_content_hash(payload)
+    del payload["group_hash_fp"]
     return payload
 
 
