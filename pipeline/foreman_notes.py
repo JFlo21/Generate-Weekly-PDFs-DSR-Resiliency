@@ -44,6 +44,14 @@ __all__ = [
     "parse_allowlist",
     "is_pilot_row",
     "is_pilot_group",
+    "STYLE_KEY",
+    "STYLE_COLUMNS",
+    "PALETTE",
+    "parse_descriptor",
+    "resolve_cell_style",
+    "build_sheet_column_maps",
+    "attach_group_styles",
+    "reset_style_cache",
 ]
 
 _VALID_SCOPES = ("off", "pilot", "all")
@@ -184,10 +192,7 @@ def reset_state() -> None:
     global _STATE
     _STATE = FnState()
     _BLOCKED_KINDS_LOGGED.clear()
-    try:  # style cache lives in the same module once Task 2 lands
-        reset_style_cache()  # type: ignore[name-defined]
-    except NameError:
-        pass
+    reset_style_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -363,3 +368,209 @@ def is_pilot_group(rows: Any) -> bool:
         return bool(rows) and is_pilot_row(rows[0])
     except Exception:  # noqa: BLE001
         return False
+
+
+# ---------------------------------------------------------------------------
+# Smartsheet colour carry-over (D-15-09 / D-15-10 / D-15-12)
+# ---------------------------------------------------------------------------
+
+STYLE_KEY = "__fn_style"
+
+# (excel_column_number, logical_column_name). Column 7 ("N/A") is never styled.
+# Column 9 (Foreman Notes) is included: every CU-line column sourced from
+# Smartsheet carries its colour (discretionary reading of D-15-10).
+STYLE_COLUMNS: tuple = (
+    (1, "Pole #"),
+    (2, "CU"),
+    (3, "Work Type"),
+    (4, "CU Description"),
+    (5, "Unit of Measure"),
+    (6, "Quantity"),
+    (8, "Units Total Price"),
+    (9, "Foreman Notes"),
+)
+
+# Pinned copy of GET https://api.smartsheet.com/2.0/serverinfo formats.color
+# (verified live 2026-10-29). Index 0 'none' and 3 'transparent' mean no colour.
+PALETTE: tuple = (
+    "none", "#000000", "#FFFFFF", "transparent", "#FFEBEE", "#FFF3DF",
+    "#FFFEE6", "#E7F5E9", "#E2F2FE", "#F4E4F5", "#F2E8DE", "#FFCCD2",
+    "#FFE1AF", "#FEFF85", "#C6E7C8", "#B9DDFC", "#EBC7EF", "#EEDCCA",
+    "#E5E5E5", "#F87E7D", "#FFCD7A", "#FEFF00", "#7ED085", "#5FB3F9",
+    "#D190DA", "#D0AF8F", "#BDBDBD", "#EA352E", "#FF8D00", "#FFED00",
+    "#40B14B", "#1061C3", "#9210AD", "#974C00", "#757575", "#991310",
+    "#EA5000", "#EBC700", "#237F2E", "#0B347D", "#61058B", "#592C00",
+)
+
+_DESC_MAX_PARTS = 17
+_SLOT_TEXT = 8
+_SLOT_BG = 9
+_CHUNK = 100
+
+
+def _slot_hex(part: str) -> str | None:
+    part = part.strip()
+    if not part:
+        return None
+    if not (part.isascii() and part.isdigit()):
+        raise ValueError("non-numeric palette slot")
+    idx = int(part)
+    if idx >= len(PALETTE):
+        raise ValueError("unknown palette index")
+    entry = PALETTE[idx]
+    if entry in ("none", "transparent"):
+        return None
+    return entry.lstrip("#").upper()
+
+
+def parse_descriptor(desc: Any) -> tuple | None:
+    """Parse a 17-slot Smartsheet format descriptor into ``(text_hex, bg_hex)``.
+
+    ``None`` / ``''`` -> ``None`` (absent). A slot that is empty or palette
+    index 0 / 3 yields ``None`` for that slot. Raises ``ValueError`` for more
+    than 17 parts, a non-numeric slot or an unknown palette index.
+    """
+    if desc is None or desc == "":
+        return None
+    if not isinstance(desc, str):
+        raise ValueError("descriptor is not a string")
+    parts = desc.split(",")
+    if len(parts) > _DESC_MAX_PARTS:
+        raise ValueError("descriptor too long")
+    for part in parts:
+        part = part.strip()
+        if part and not (part.isascii() and part.isdigit()):
+            raise ValueError("non-numeric descriptor part")
+    parts += [""] * (_DESC_MAX_PARTS - len(parts))
+    return _slot_hex(parts[_SLOT_TEXT]), _slot_hex(parts[_SLOT_BG])
+
+
+def resolve_cell_style(cell_cf: Any, row_cf: Any, cell_fmt: Any, row_fmt: Any) -> tuple:
+    """Effective ``(fill_hex, font_hex)`` for one cell.
+
+    Per slot precedence: cell conditional > row conditional > cell static >
+    row static. Any present-but-invalid descriptor in the chain fails the whole
+    cell closed to ``(None, None)``.
+    """
+    try:
+        parsed = [parse_descriptor(d) for d in (cell_cf, row_cf, cell_fmt, row_fmt)]
+    except ValueError:
+        return None, None
+    fill = font = None
+    for p in parsed:
+        if p is None:
+            continue
+        if font is None:
+            font = p[0]
+        if fill is None:
+            fill = p[1]
+    return fill, font
+
+
+def build_sheet_column_maps(source_sheets: Any) -> dict:
+    """``{int(sheet_id): {logical_name: column_id}}``; malformed entries skipped."""
+    out: dict = {}
+    for source in (source_sheets or []):
+        try:
+            out[int(source["id"])] = dict(source["column_mapping"])
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+# (sheet_id, row_id) -> {logical_name: (fill_hex, font_hex)}; one fetch per row per run.
+_STYLE_CACHE: dict = {}
+
+
+def reset_style_cache() -> None:
+    _STYLE_CACHE.clear()
+
+
+def _cache_key(row: dict) -> tuple | None:
+    try:
+        return int(row["__source_sheet_id"]), int(row["__row_id"])
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _row_styles(resp_row: Any, col_to_name: dict) -> dict:
+    row_cf = getattr(resp_row, "conditional_format", None)
+    row_fmt = getattr(resp_row, "format_", None)
+    cells = {}
+    for cell in (getattr(resp_row, "cells", None) or []):
+        name = col_to_name.get(getattr(cell, "column_id", None))
+        if name is not None:
+            cells[name] = cell
+    styles = {}
+    for _, name in STYLE_COLUMNS:
+        cell = cells.get(name)
+        styles[name] = resolve_cell_style(
+            getattr(cell, "conditional_format", None),
+            row_cf,
+            getattr(cell, "format_", None),
+            row_fmt,
+        )
+    return styles
+
+
+def attach_group_styles(client: Any, group_rows: Any, sheet_maps: dict) -> int:
+    """Lazily fetch Smartsheet colours for a PILOT group and attach them.
+
+    Sets ``row[STYLE_KEY] = {logical_name: (fill_hex, font_hex)}`` on the group
+    rows passed in (per-group copies; shared source rows are never touched).
+    Non-pilot groups make zero client calls. Read-only; never raises. Returns
+    the number of group rows that carry a style. Colours are never a hash input
+    (FN-10).
+    """
+    try:
+        if not is_pilot_group(group_rows):
+            return 0
+        todo: dict = {}
+        for row in group_rows:
+            key = _cache_key(row)
+            if key is None or key in _STYLE_CACHE:
+                continue
+            ids = todo.setdefault(key[0], [])
+            if key[1] not in ids:
+                ids.append(key[1])
+        for sheet_id, row_ids in todo.items():
+            mapping = (sheet_maps or {}).get(sheet_id) or {}
+            names = [n for _, n in STYLE_COLUMNS if n in mapping]
+            if not names:
+                continue
+            col_to_name = {mapping[n]: n for n in names}
+            column_ids = ",".join(str(mapping[n]) for n in names)
+            for i in range(0, len(row_ids), _CHUNK):
+                chunk = row_ids[i:i + _CHUNK]
+                try:
+                    sheet = smartsheet_call_with_retry(
+                        client.Sheets.get_sheet,
+                        sheet_id,
+                        include="format",
+                        column_ids=column_ids,
+                        row_ids=",".join(str(r) for r in chunk),
+                        label="foreman_notes.styles",
+                    )
+                    for resp_row in (getattr(sheet, "rows", None) or []):
+                        rid = getattr(resp_row, "id", None)
+                        if rid is None:
+                            continue
+                        _STYLE_CACHE[(sheet_id, int(rid))] = _row_styles(
+                            resp_row, col_to_name
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    logging.warning(
+                        "Foreman notes: style fetch failed (%s) for %d rows",
+                        type(exc).__name__, len(chunk),
+                    )
+        attached = 0
+        for row in group_rows:
+            key = _cache_key(row)
+            styles = _STYLE_CACHE.get(key) if key is not None else None
+            if styles is not None:
+                row[STYLE_KEY] = styles
+                attached += 1
+        return attached
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("Foreman notes: attach styles failed (%s)", type(exc).__name__)
+        return 0
