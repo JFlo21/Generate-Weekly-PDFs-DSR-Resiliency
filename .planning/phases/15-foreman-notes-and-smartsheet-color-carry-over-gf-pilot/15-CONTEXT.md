@@ -29,8 +29,12 @@ attachment upload, Excel output for other report types, changing header/TOTAL st
 - **D-15-01:** A scope switch with values `off` / `pilot` / `all`, default `pilot`, read via
   `os.getenv` in `pipeline/config.py` with the repo's env-var pattern. `off` = exact current
   behavior. `all` = every Excel file (future rollout). — **Reversibility:** reversible — env flag.
-- **D-15-02:** Pilot allowlist is a separate setting (comma-separated names), default
-  `Amado Cantu, Dave Cardy, Paul Rodriguez`. Owner can change it without code edits.
+- **D-15-02:** Pilot allowlist is a separate setting (comma-separated names) holding the three
+  pilot general foremen (aliases GF-1, GF-2, GF-3). Public-repo identifier rule (living ledger
+  `[2026-08-27 21:10]` / `[2026-08-28 18:45]`): real names never appear in tracked files or PR
+  text, so the allowlist has NO name default in code; it is supplied via env (local `.env` for
+  dry runs; a GitHub Actions repository variable at rollout). Empty allowlist = no pilot groups
+  (fail-closed). Owner changes it without code edits.
 - **D-15-03:** Dry run first. Uploading pilot-changed files to the pre-planned pricing sheet sits
   behind its own switch (off until the owner reviews dry-run output). Existing `SKIP_UPLOAD` /
   `TEST_MODE` semantics are unchanged.

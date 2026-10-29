@@ -4,7 +4,7 @@
 (Sonnet) reports + 1 area resolved inline from code.
 
 Carried forward from session (not re-asked): guard rail off/pilot/all + GF allowlist
-(Amado Cantu, Dave Cardy, Paul Rodriguez); Foreman Notes on the same CU row; colors on every
+(GF-1, GF-2, GF-3; real names held outside the repo); Foreman Notes on the same CU row; colors on every
 Smartsheet-sourced column; all paths; dry run first, upload behind its own switch.
 
 | Area | Options presented | Selected |
