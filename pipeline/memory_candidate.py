@@ -159,11 +159,11 @@ REGEN_DEBT_MAX_PAIRS = 5000
 REGEN_DEBT_SCAN_LIMIT = 20
 
 
-def _pairs_from_json(raw):
+def _pairs_from_json(raw: Any) -> set[Pair] | None:
     """Return a set of ``(wr, week)`` tuples, or ``None`` if malformed."""
     if not isinstance(raw, (list, tuple)):
         return None
-    out = set()
+    out: set[Pair] = set()
     for item in raw:
         if not isinstance(item, (list, tuple)) or len(item) != 2:
             return None
@@ -171,7 +171,7 @@ def _pairs_from_json(raw):
     return out
 
 
-def regen_debt_from_ledger_rows(rows):
+def regen_debt_from_ledger_rows(rows: Any) -> set[Pair] | None:
     """Reduce newest-first ``run_ledger`` rows to the carried debt.
 
     Walks rows newest to oldest, unioning each row's pairs, and stops at
@@ -192,7 +192,7 @@ def regen_debt_from_ledger_rows(rows):
     try:
         if not isinstance(rows, (list, tuple)):
             return None
-        debt = set()
+        debt: set[Pair] = set()
         for row in rows:
             if not isinstance(row, dict):
                 return None
@@ -226,7 +226,9 @@ def regen_debt_from_ledger_rows(rows):
         return None
 
 
-def pairs_to_json(pairs):
+def pairs_to_json(
+    pairs: Iterable[Pair] | None,
+) -> tuple[list[list[Any]], bool]:
     """``(wr, week)`` pairs -> ``(sorted [[wr, week], ...], overflow)``.
 
     Above :data:`REGEN_DEBT_MAX_PAIRS` returns ``([], True)`` -- an
@@ -239,14 +241,17 @@ def pairs_to_json(pairs):
         if len(pairs) > REGEN_DEBT_MAX_PAIRS:
             return [], True
         ordered = sorted(
-            pairs, key=lambda p: (str(p[0]), "" if p[1] is None else str(p[1])),
+            pairs,
+            key=lambda p: (str(p[0]), "" if p[1] is None else str(p[1])),
         )
         return [[p[0], p[1]] for p in ordered], False
     except Exception:  # noqa: BLE001 - never-raise contract
         return [], True
 
 
-def shadow_candidate_pairs(affected, debt):
+def shadow_candidate_pairs(
+    affected: Iterable[Pair] | None, debt: Iterable[Pair] | None,
+) -> set[Pair]:
     """D-04 candidate = affected | carried debt. Caller handles debt None."""
     try:
         return set(affected or ()) | set(debt or ())
@@ -316,7 +321,9 @@ SHADOW_MODELS_TRIGGER6: bool = True
 _GLOBALS_FP_NOTES_KEY = "group_hash_globals_fp"
 
 
-def shadow_fallback_skip_reason(would_mode, would_reason, model_trigger6):
+def shadow_fallback_skip_reason(
+    would_mode: Any, would_reason: Any, model_trigger6: bool,
+) -> str | None:
     """Map a would-be ``resolve_run_mode`` result to a shadow skip reason.
 
     Returns ``'would_fallback_full:<trigger>'`` when the real incremental
@@ -339,7 +346,7 @@ def shadow_fallback_skip_reason(would_mode, would_reason, model_trigger6):
         return None
 
 
-def group_hash_globals_fingerprint():
+def group_hash_globals_fingerprint() -> str:
     """Fingerprint of the group-hash GLOBAL inputs (no row delta sees them).
 
     SHA-256 hex prefix (16) over a JSON list of EXTENDED_CHANGE_DETECTION,
@@ -371,7 +378,7 @@ def group_hash_globals_fingerprint():
         return ""
 
 
-def prior_globals_fingerprint(rows):
+def prior_globals_fingerprint(rows: Any) -> str | None:
     """Globals fingerprint of the newest ``success`` run_ledger row.
 
     ``None`` when absent (legacy rows, no success row, malformed input).

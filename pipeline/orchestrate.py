@@ -1899,12 +1899,12 @@ def _regen_debt_failure_kwargs(
 
 
 def _shadow_fallback_skip(
-    source_sheets,
-    watermarks,
-    last_run_status,
-    ledger_rows,
-    current_fp,
-):
+    source_sheets: list[dict[str, Any]],
+    watermarks: dict[Any, dict[str, Any]],
+    last_run_status: dict[str, Any] | None,
+    ledger_rows: list[dict[str, Any]] | None,
+    current_fp: str,
+) -> dict[str, str] | None:
     """Shadow skip decision for runs the incremental path would not run.
 
     Phase 11 Plan 13 (G-11-37, owner decision 2026-10-29): returns
@@ -1986,7 +1986,9 @@ def _run_phase2_incremental(
     mem_run_id: str,
     session_start: datetime.datetime,
     *,
-    regen_debt: 'frozenset[tuple[Any, Any]] | set[tuple[Any, Any]] | None' = frozenset(),
+    regen_debt: (
+        'frozenset[tuple[Any, Any]] | set[tuple[Any, Any]] | None'
+    ) = frozenset(),
 ) -> dict[str, Any]:
     """Phase 11 Plan 04 (D-04 Option C): PHASE 2a delta read -> the
     UNMODIFIED ``_run_memory_write_phase`` -> affected-set -> sheet
