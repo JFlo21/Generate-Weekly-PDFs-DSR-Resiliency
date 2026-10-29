@@ -155,21 +155,24 @@ def _utcnow_iso() -> str:
 
 
 def run_ledger_start(run_id: str, mode: str,
-                      release: str | None = None) -> None:
+                      release: str | None = None) -> bool:
     """Upsert the ``run_ledger`` 'start' row. NEVER raises.
 
     ``mode`` is always ``"full"`` in Phase 10 (D-07 -- every run is still
     a full read in shadow mode). Client-none guard -> flag guard -> build
-    params -> ``with_retry``-wrapped upsert -> counter bump -> no return
-    value (fail-open: callers cannot distinguish "wrote" from "skipped"
-    by return value, matching the fire-and-forget shape at both call
-    sites in ``orchestrate.py``).
+    params -> ``with_retry``-wrapped upsert -> counter bump. Fail-open.
+
+    Returns True only when the upsert completed (PR #435 feedback): False
+    for a ``None`` client, the write flag off, or a failed write. The
+    regeneration-debt carrier depends on this row existing (the pending
+    note is an UPDATE of it), so ``orchestrate.main`` retries a False once
+    and otherwise marks this run's debt UNKNOWN at finish.
     """
     client = get_client()
     if client is None:
-        return
+        return False
     if not _client_write_enabled():
-        return
+        return False
 
     payload = {
         "run_id": run_id,
@@ -190,11 +193,12 @@ def run_ledger_start(run_id: str, mode: str,
     result = with_retry(_invoke, op="run_ledger_upsert")
     if result is None:
         _bump_counter("run_ledger_errored")
-        return
+        return False
     _bump_counter("run_ledger_written")
+    return True
 
 
-def run_ledger_note_pending(run_id: str, pairs: list, overflow: bool) -> None:
+def run_ledger_note_pending(run_id: str, pairs: list, overflow: bool) -> bool:
     """Record this run's pending candidate pairs in ``run_ledger.notes``.
 
     Phase 11 Plan 12 (G-11-37 mechanism B). Called right after the memory
@@ -212,12 +216,17 @@ def run_ledger_note_pending(run_id: str, pairs: list, overflow: bool) -> None:
     a killed row stays invisible to ``reader.get_parity_streak`` exactly as
     before. ``run_ledger_finish`` replaces ``notes`` wholesale, which is
     intended: its ``regen_debt_pairs`` supersedes this pending note.
+
+    Returns True only when the UPDATE matched a row (PR #435 feedback: a
+    missing start row made it affect zero rows silently). ``update()``
+    returns the updated rows by default (``returning=representation``), so
+    an empty ``data`` list means no row matched.
     """
     client = get_client()
     if client is None:
-        return
+        return False
     if not _client_write_enabled():
-        return
+        return False
 
     notes = {
         "regen_pending_pairs": pairs,
@@ -236,8 +245,9 @@ def run_ledger_note_pending(run_id: str, pairs: list, overflow: bool) -> None:
     result = with_retry(_invoke, op="run_ledger_note_pending")
     if result is None:
         _bump_counter("run_ledger_errored")
-        return
+        return False
     _bump_counter("run_ledger_written")
+    return bool(getattr(result, "data", None))
 
 
 # Direct ``run_ledger`` columns ``run_ledger_finish`` accepts by keyword.
@@ -331,6 +341,14 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
     ``0 5 * * 1`` deep run identified by cron identity, ``weekend_maintenance``
     on Sat/Sun, else ``production_frequent``; defaults to ``"manual"``
     outside GitHub Actions).
+
+    ``started_at`` (PR #435 feedback) is a real column, never a note: the
+    caller passes it ONLY when its ``run_ledger_start`` was not confirmed.
+    Without it this upsert would INSERT a row whose ``started_at`` is NULL,
+    which ``reader.get_recent_run_ledger_rows`` orders behind all history
+    (nulls last) and the debt reducer skips -- silently dropping any
+    failed-upload debt the row carries. A falsy value is not sent, so a
+    normal finish never overwrites the start row's timestamp.
     """
     client = get_client()
     if client is None:
@@ -341,6 +359,7 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
     counters = dict(counters)  # local copy -- caller's dict is untouched
     status = counters.pop("status", "success")
     mode = counters.pop("mode", "full")
+    started_at = counters.pop("started_at", None)
     row_columns = {
         key: counters.pop(key, 0) for key in _RUN_LEDGER_FINISH_COLUMNS
     }
@@ -358,6 +377,8 @@ def run_ledger_finish(run_id: str, **counters: Any) -> None:
         "notes": notes,
         **row_columns,
     }
+    if started_at:
+        payload["started_at"] = started_at
 
     def _invoke():
         return (

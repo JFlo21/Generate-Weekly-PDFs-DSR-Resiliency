@@ -184,7 +184,10 @@ def regen_debt_from_ledger_rows(rows):
     non-success row has neither ``regen_debt_pairs`` nor
     ``regen_pending_pairs`` (killed before its pending note), or no
     ``success`` row exists inside ``rows``. A row with ``started_at`` NULL
-    is skipped, never treated as the newest run. Never raises.
+    is skipped, never treated as the newest run (only legacy rows can be
+    NULL-started: a finish without a confirmed start now writes a
+    fallback ``started_at`` and ``regen_debt_unknown``, PR #435). Never
+    raises.
     """
     try:
         if not isinstance(rows, (list, tuple)):

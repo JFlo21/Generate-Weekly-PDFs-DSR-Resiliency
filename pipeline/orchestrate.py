@@ -1703,7 +1703,7 @@ def _note_pending_regen_pairs(
     run_id: str,
     candidate_pairs: 'set[tuple[Any, Any]]',
     debt_unknown: bool,
-) -> None:
+) -> bool:
     """Persist this run's pending candidate pairs (Phase 11 Plan 12,
     G-11-37 mechanism B) via ``run_ledger_note_pending`` -- an UPDATE of
     ``run_ledger.notes`` by run_id, right after the memory write.
@@ -1711,20 +1711,61 @@ def _note_pending_regen_pairs(
     *debt_unknown* marks the note as overflowed (UNKNOWN for the next
     run's reducer): when the debt this run inherited was itself unknown,
     the pairs recorded here are not guaranteed to cover everything a
-    killed run left stranded. Fail-open: never raises, one WARNING.
+    killed run left stranded. Returns True only when the UPDATE matched
+    this run's row (PR #435 feedback); a False makes the finish hooks
+    mark the debt UNKNOWN. Fail-open: never raises, one WARNING.
     """
     try:
         pairs_json, overflow = _memory_candidate.pairs_to_json(
             candidate_pairs
         )
-        _mem_writer.run_ledger_note_pending(
+        noted = bool(_mem_writer.run_ledger_note_pending(
             run_id, pairs_json, bool(overflow or debt_unknown),
-        )
+        ))
+        if not noted:
+            logging.warning(
+                "⚠️ pipeline_memory pending regen-debt note not "
+                "confirmed (no run_ledger row matched); this run's debt "
+                "is recorded as unknown."
+            )
+        return noted
     except Exception as exc:  # noqa: BLE001 - fail-open hook
         logging.warning(
             "⚠️ pipeline_memory pending regen-debt note failed "
             f"(non-fatal): {type(exc).__name__}"
         )
+        return False
+
+
+def _ledger_debt_unconfirmed(
+    started: bool, candidate_ready: bool, noted: bool,
+) -> bool:
+    """True when this run's ``run_ledger`` row cannot be trusted to carry
+    its regeneration debt (PR #435 feedback): the start row was never
+    confirmed, or the pending note was attempted (*candidate_ready*) but
+    matched no row. Both finish hooks then report ``regen_debt_unknown``
+    so the next run skips the shadow verdict and resolves full, instead
+    of trusting an older clean row. Pure."""
+    return (not started) or (bool(candidate_ready) and not noted)
+
+
+def _ledger_start_fallback_kwargs(
+    started: bool, start_at: 'str | None',
+) -> dict[str, Any]:
+    """``run_ledger_finish`` kwargs for the start-row confirmation (PR
+    #435 feedback). Always records ``run_ledger_start_confirmed`` in
+    notes; when the start was NOT confirmed also passes ``started_at``
+    (the attempted start time, else now) so the finish upsert can never
+    insert a NULL-``started_at`` row the debt reader would skip. Pure
+    apart from the clock read; never raises."""
+    if started:
+        return {"run_ledger_start_confirmed": True}
+    return {
+        "run_ledger_start_confirmed": False,
+        "started_at": start_at or datetime.datetime.now(
+            datetime.timezone.utc
+        ).isoformat(),
+    }
 
 
 def _memory_write_may_have_advanced_unseen(mem_result: dict) -> bool:
@@ -2748,6 +2789,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # PR #435 feedback: True once MAX_GROUPS truncates ``groups`` -- the
     # finish hook then cannot clear debt from the (incomplete) map.
     _mem_groups_truncated = False
+    # PR #435 feedback: was this run's run_ledger row confirmed (start
+    # upsert written, pending note matched it)? Unconfirmed -> both finish
+    # hooks report the debt UNKNOWN and pass a fallback started_at.
+    _mem_ledger_started = False
+    _mem_ledger_noted = False
+    _mem_ledger_start_at = None
     # Greptile P1 (PR #351): False until _run_memory_write_phase confirms
     # every sheet this run -- gates the 11-05 shadow comparator and is
     # persisted as run_ledger.notes.mem_confirmed at both finish sites.
@@ -2976,11 +3023,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # "full" here -- every run WAS a full read).
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
-                _mem_writer.run_ledger_start(
+                _mem_ledger_start_at = datetime.datetime.now(
+                    datetime.timezone.utc
+                ).isoformat()
+                _mem_ledger_started = _mem_writer.run_ledger_start(
                     _mem_run_id,
                     mode=_resolved_mode,
                     release=os.getenv('SENTRY_RELEASE', '') or '',
-                )
+                ) is True
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory run_ledger_start failed "
@@ -3242,7 +3292,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # (incremental: set from _phase2_result["candidate_pairs"]
                 # above -- the identical affected | debt union.)
                 _mem_candidate_ready = True
-                _note_pending_regen_pairs(
+                # PR #435 feedback: the note is an UPDATE of the start
+                # row; retry a start that was not confirmed once so a
+                # killed run still leaves its pending pairs behind.
+                if not _mem_ledger_started:
+                    _mem_ledger_started = _mem_writer.run_ledger_start(
+                        _mem_run_id,
+                        mode=_resolved_mode,
+                        release=os.getenv('SENTRY_RELEASE', '') or '',
+                    ) is True
+                _mem_ledger_noted = _note_pending_regen_pairs(
                     _mem_run_id, _mem_candidate_pairs,
                     _mem_regen_debt is None or _mem_regen_unknown,
                 )
@@ -5866,6 +5925,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # uploads) are carried to the next run as regeneration
                 # debt. Any error here reports the debt UNKNOWN (next run
                 # skips / resolves full; scope only widens).
+                # PR #435 feedback: an unconfirmed start row also passes a
+                # fallback started_at so this row is never NULL-started.
+                _finish_kwargs.update(_ledger_start_fallback_kwargs(
+                    _mem_ledger_started, _mem_ledger_start_at,
+                ))
                 try:
                     _dbt_scoped = not _mem_writer.streak_eligible_from_env()
                     _finish_kwargs.update(_regen_debt_finish_kwargs(
@@ -5881,6 +5945,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             _mem_regen_unknown
                             or not _mem_candidate_ready
                             or (_mem_regen_debt is None and _dbt_scoped)
+                            or _ledger_debt_unconfirmed(
+                                _mem_ledger_started, _mem_candidate_ready,
+                                _mem_ledger_noted,
+                            )
                         ),
                         inherited_unknown=_mem_regen_debt is None,
                         coverage_complete=_regen_debt_coverage_complete(
@@ -6249,7 +6317,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # carries its FULL pending set (no confirmation attempted).
                 # Unknown when row_state may have advanced without a
                 # returned affected set, or when the inherited debt was
-                # itself unknowable.
+                # itself unknowable, or (PR #435 feedback) when this run's
+                # run_ledger row was never confirmed.
+                _finish_kwargs.update(_ledger_start_fallback_kwargs(
+                    _mem_ledger_started, _mem_ledger_start_at,
+                ))
                 try:
                     _finish_kwargs.update(_regen_debt_failure_kwargs(
                         _mem_candidate_pairs,
@@ -6259,6 +6331,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 and _mem_regen_debt is None)
                             or (not _mem_candidate_ready
                                 and _mem_rows_sent > 0)
+                            or _ledger_debt_unconfirmed(
+                                _mem_ledger_started, _mem_candidate_ready,
+                                _mem_ledger_noted,
+                            )
                         ),
                     ))
                 except Exception:
