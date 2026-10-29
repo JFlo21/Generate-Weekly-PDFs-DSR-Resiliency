@@ -1,20 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 11-incremental-read-affected-group-regeneration
 source: 11-01-SUMMARY.md, 11-02-SUMMARY.md, 11-03-SUMMARY.md, 11-04-SUMMARY.md, 11-05-SUMMARY.md, 11-06-SUMMARY.md, 11-07-SUMMARY.md, 11-08-SUMMARY.md, 11-VERIFICATION.md
 started: 2026-09-14T01:45:56Z
-updated: 2026-09-14T18:20:00Z
+updated: 2026-10-29T18:27:53.012Z
 ---
 
 ## Current Test
 
-number: 37
-name: Fresh post-fix production_frequent parity streak (re-verification 2026-09-14)
-expected: |
-  ≥5 consecutive clean `production_frequent` parity passes observed via an owner-taken
-  `get_parity_streak()` reading AFTER commit `04c618a` reaches the branch the cron executes.
-awaiting: user response (tests 1–36 passed 2026-09-14T07:02:20Z; this item was added by the
-  post-gap-closure re-verification and cannot be observed until the fix ships)
+[testing complete]
 
 ## Tests
 
@@ -249,15 +243,17 @@ expected: |
   zero divergence (no `actual_not_in_candidate` or other mismatch), re-establishing the
   ROADMAP SC2 / INC-04 gate condition. Owner recorded "not yet observable — 0 eligible runs"
   at 2026-09-14T18:00:54Z; this item stays open until a genuine post-fix reading exists.
-result: [pending]
+result: issue
+reported: "Claude-taken reading 2026-10-29 (Supabase poeyztlmsawfoqlanucc, run_ledger, runs after 2026-09-14T20:04:03Z, read-only SELECT): get_parity_streak semantics yield streak 0 -- newest-first walk: 4 skipped, 1 pass (40785498316.1), then a fail (manual 40757294483.1, streak_eligible true) stops the scan. Post-fix totals (status=success): production_frequent 108 pass / 17 fail / 96 skipped; weekend_maintenance 24/2/16; manual 3/3/1; weekly_comprehensive 4/0/2. Never 5 consecutive passes without a fail in recent window. Every inspected fail is group-side actual_not_in_candidate, now BIDIRECTIONAL (only_in_actual AND only_in_candidate, e.g. 40584456830.1 actual-only 110126_91427660_USER, candidate-only 110126_91901564_USER; 40529545400.1 candidate-only 4 groups incl. 3 weeks of one WR), USER and HELPER variants, read verdict pass or skipped. The 11-09 WR-sanitize fix did not close the divergence class. RUN_MEMORY_INCREMENTAL_ENABLED still OFF (fallback_reason flag_off), so no production billing impact."
+severity: major
 source: 11-VERIFICATION.md (2026-09-14T18:15:32Z) human_verification item 1
 
 ## Summary
 
 total: 37
 passed: 36
-issues: 0
-pending: 1
+issues: 1
+pending: 0
 skipped: 0
 blocked: 0
 
@@ -272,4 +268,11 @@ blocked: 0
 
 ## Gaps
 
-[none yet]
+- gap_id: G-11-37
+  truth: ">=5 consecutive clean production_frequent parity passes (get_parity_streak) after the 11-09 fix reached master, zero actual_not_in_candidate divergence"
+  status: failed
+  reason: "Claude-taken live reading 2026-10-29: streak 0; 22 post-fix fail verdicts (17 production_frequent); bidirectional group-side actual_not_in_candidate divergence on USER/HELPER variant groups persists after 04c618a/1c52d10"
+  severity: major
+  test: 37
+  artifacts: []
+  missing: []
