@@ -495,5 +495,219 @@ class MainWiringTests(unittest.TestCase):
         self.assertIn('"regen_debt_carried"', src)
 
 
+
+# ── Task 2: confirm or carry each pending pair at finish ────────────────
+
+class UnconfirmedPairsTests(unittest.TestCase):
+    def test_pair_with_all_groups_confirmed_is_cleared(self):
+        pending = {("1", "w")}
+        group_pairs = {"g1": ("1", "w"), "g2": ("1", "w")}
+        self.assertEqual(
+            mc.unconfirmed_pairs(pending, group_pairs, {"g1", "g2"}, False),
+            set(),
+        )
+
+    def test_pair_with_one_unconfirmed_group_is_carried(self):
+        pending = {("1", "w")}
+        group_pairs = {"g1": ("1", "w"), "g2": ("1", "w")}
+        self.assertEqual(
+            mc.unconfirmed_pairs(pending, group_pairs, {"g1"}, False),
+            {("1", "w")},
+        )
+
+    def test_zero_group_pair_cleared_unscoped_carried_scoped(self):
+        pending = {("9", "w")}
+        self.assertEqual(
+            mc.unconfirmed_pairs(pending, {}, set(), scoped=False), set(),
+        )
+        self.assertEqual(
+            mc.unconfirmed_pairs(pending, {}, set(), scoped=True),
+            {("9", "w")},
+        )
+
+    def test_groups_of_non_pending_pairs_are_ignored(self):
+        pending = {("1", "w")}
+        group_pairs = {"g1": ("1", "w"), "other": ("2", "w")}
+        self.assertEqual(
+            mc.unconfirmed_pairs(pending, group_pairs, {"g1"}, False),
+            set(),
+        )
+
+    def test_internal_error_returns_full_pending(self):
+        pending = {("1", "w")}
+        self.assertEqual(
+            mc.unconfirmed_pairs(pending, None, None, False), pending,
+        )
+
+
+class FinishKwargsTests(unittest.TestCase):
+    """``_regen_debt_finish_kwargs`` / ``_regen_debt_failure_kwargs``: the
+    pure builders behind the two run_ledger_finish call sites."""
+
+    def _kw(self, **over):
+        base = dict(
+            candidate_pairs={("1", "w")},
+            groups={"g1": _group("1", "w")},
+            skip_keys=set(),
+            upload_ok={},
+            deferred_records=[],
+            upload_tasks=[],
+            no_target_groups=set(),
+            scoped=False,
+            debt_unknown=False,
+        )
+        base.update(over)
+        return orch._regen_debt_finish_kwargs(**base)
+
+    def test_upload_failure_in_success_run_carries_the_pair(self):
+        out = self._kw(
+            upload_ok={"g1": False},
+            deferred_records=[{"group_key": "g1"}],
+            upload_tasks=[{"group_key": "g1"}],
+        )
+        self.assertEqual(out["regen_debt_pairs"], [["1", "w"]])
+        self.assertFalse(out["regen_debt_unknown"])
+
+    def test_time_budget_stop_carries_the_pair(self):
+        # g1 in groups, neither skipped nor uploaded nor generated.
+        out = self._kw()
+        self.assertEqual(out["regen_debt_pairs"], [["1", "w"]])
+
+    def test_hash_skip_clears_the_pair(self):
+        out = self._kw(skip_keys={"g1"})
+        self.assertEqual(out["regen_debt_pairs"], [])
+
+    def test_successful_upload_clears_the_pair(self):
+        out = self._kw(
+            upload_ok={"g1": True},
+            deferred_records=[{"group_key": "g1"}],
+            upload_tasks=[{"group_key": "g1"}],
+        )
+        self.assertEqual(out["regen_debt_pairs"], [])
+
+    def test_withheld_generated_group_counts_as_confirmed(self):
+        # Generated but no upload task: never observable.
+        out = self._kw(deferred_records=[{"group_key": "g1"}])
+        self.assertEqual(out["regen_debt_pairs"], [])
+
+    def test_no_target_row_group_counts_as_confirmed(self):
+        out = self._kw(no_target_groups={"g1"})
+        self.assertEqual(out["regen_debt_pairs"], [])
+
+    def test_scoped_run_carries_zero_group_pair_unscoped_clears(self):
+        pending = {("9", "w")}
+        self.assertEqual(
+            self._kw(candidate_pairs=pending, groups={}, scoped=True)[
+                "regen_debt_pairs"], [["9", "w"]],
+        )
+        self.assertEqual(
+            self._kw(candidate_pairs=pending, groups={}, scoped=False)[
+                "regen_debt_pairs"], [],
+        )
+
+    def test_unknown_flag_passes_through(self):
+        self.assertTrue(self._kw(debt_unknown=True)["regen_debt_unknown"])
+
+    def test_inherited_unknown_widens_pending_to_every_group_pair(self):
+        # Inherited debt was unknowable: a stranded group outside this
+        # run's candidate must still be carried if it is not confirmed.
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={"g1": _group("7", "w")},
+            inherited_unknown=True,
+        )
+        self.assertEqual(out["regen_debt_pairs"], [["7", "w"]])
+
+    def test_overflow_reports_empty_list_and_flag(self):
+        many = {(str(i), "w") for i in range(mc.REGEN_DEBT_MAX_PAIRS + 1)}
+        out = self._kw(candidate_pairs=many, groups={}, scoped=True)
+        self.assertEqual(out["regen_debt_pairs"], [])
+        self.assertTrue(out["regen_debt_overflow"])
+
+    def test_internal_error_marks_unknown(self):
+        out = orch._regen_debt_finish_kwargs(
+            candidate_pairs=None, groups=object(), skip_keys=None,
+            upload_ok=None, deferred_records=None, upload_tasks=None,
+            no_target_groups=None, scoped=False, debt_unknown=False,
+        )
+        self.assertTrue(out["regen_debt_unknown"])
+
+    def test_failure_path_carries_full_pending_without_confirmation(self):
+        out = orch._regen_debt_failure_kwargs(
+            {("1", "w"), ("2", "w")}, debt_unknown=False,
+        )
+        self.assertEqual(
+            out["regen_debt_pairs"], [["1", "w"], ["2", "w"]],
+        )
+        self.assertFalse(out["regen_debt_unknown"])
+        self.assertTrue(
+            orch._regen_debt_failure_kwargs(set(), debt_unknown=True)[
+                "regen_debt_unknown"]
+        )
+
+
+class UnknownFlagRuleTests(unittest.TestCase):
+    def test_unknown_iff_unconfirmed_sheets_with_rows_sent(self):
+        f = orch._memory_write_may_have_advanced_unseen
+        self.assertTrue(f({"sheets_unconfirmed": 1, "rows_sent": 5}))
+        self.assertFalse(f({"sheets_unconfirmed": 1, "rows_sent": 0}))
+        self.assertFalse(f({"sheets_unconfirmed": 0, "rows_sent": 5}))
+        self.assertFalse(f({}))
+
+
+class AttachmentRepairTagTests(unittest.TestCase):
+    def test_tags_only_in_actual_groups_that_hit_the_repair_site(self):
+        out = orch._attachment_repair_only_in_actual(
+            actual_hashes={"a": "1", "b": "2", "c": "3"},
+            candidate_hashes={"c": "3"},
+            repair_keys={"a", "c", "zzz"},
+        )
+        self.assertEqual(out, ["a"])
+
+    def test_capped_at_ten_and_stringified(self):
+        actual = {(i, "x"): "h" for i in range(25)}
+        out = orch._attachment_repair_only_in_actual(
+            actual, {}, set(actual),
+        )
+        self.assertEqual(len(out), 10)
+        self.assertTrue(all(isinstance(x, str) for x in out))
+
+    def test_verdict_inputs_unchanged(self):
+        actual = {"a": "1"}
+        cand = {}
+        orch._attachment_repair_only_in_actual(actual, cand, {"a"})
+        self.assertEqual(
+            parity.compare_shadow_parity(cand, actual)["verdict"], "fail",
+        )
+
+
+class FinishWiringTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.src = inspect.getsource(orch.main)
+
+    def test_both_finish_sites_carry_debt_kwargs(self):
+        self.assertIn("_regen_debt_finish_kwargs(", self.src)
+        self.assertIn("_regen_debt_failure_kwargs(", self.src)
+
+    def test_skip_and_repair_sites_record_membership(self):
+        src = self.src
+        skip_i = src.index("Skip (unchanged + attachment exists)")
+        rep_i = src.index(
+            "Regenerating despite same hash (attachment missing)"
+        )
+        self.assertIn(
+            "_mem_confirmed_skip_keys.add(group_key)",
+            src[skip_i - 400:skip_i + 600],
+        )
+        self.assertIn(
+            "_mem_attachment_repair_keys.add(group_key)",
+            src[rep_i - 700:rep_i + 400],
+        )
+
+    def test_shadow_reports_attachment_repair_tag(self):
+        self.assertIn("only_in_actual_attachment_repair", self.src)
+
+
 if __name__ == "__main__":
     unittest.main()
