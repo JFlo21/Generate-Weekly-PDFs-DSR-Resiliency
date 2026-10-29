@@ -1,9 +1,10 @@
 ---
 phase: 11-incremental-read-affected-group-regeneration
-verified: 2026-09-14T18:15:32Z
+verified: 2026-10-29T00:00:00Z
 status: human_needed
 score: 6/8 must-haves verified
 covered_files:
+  - .github/workflows/weekly-excel-generation.yml
   - .planning/phases/11-incremental-read-affected-group-regeneration/11-01-PLAN.md
   - .planning/phases/11-incremental-read-affected-group-regeneration/11-01-SUMMARY.md
   - .planning/phases/11-incremental-read-affected-group-regeneration/11-02-PLAN.md
@@ -24,255 +25,160 @@ covered_files:
   - .planning/phases/11-incremental-read-affected-group-regeneration/11-09-SUMMARY.md
   - .planning/phases/11-incremental-read-affected-group-regeneration/11-10-PLAN.md
   - .planning/phases/11-incremental-read-affected-group-regeneration/11-10-SUMMARY.md
-  - .planning/phases/11-incremental-read-affected-group-regeneration/11-CONTEXT.md
-  - .planning/phases/11-incremental-read-affected-group-regeneration/11-UAT.md
-  - .planning/phases/11-incremental-read-affected-group-regeneration/11-SECURITY.md
-  - .planning/phases/11-incremental-read-affected-group-regeneration/11-VALIDATION.md
-  - .planning/phases/11-incremental-read-affected-group-regeneration/deferred-items.md
-  - .planning/todos/pending/2026-09-14-inc02-user-variant-candidate-divergence.md
-  - .planning/REQUIREMENTS.md
-  - .planning/ROADMAP.md
-  - pipeline/orchestrate.py
-  - pipeline/fetch.py
-  - pipeline/parity.py
   - pipeline/cleanup.py
   - pipeline/config.py
+  - pipeline/discovery.py
+  - pipeline/fetch.py
+  - pipeline/orchestrate.py
+  - pipeline/parity.py
   - pipeline_memory/reader.py
   - pipeline_memory/writer.py
-  - pipeline/discovery.py
-  - docs/run-memory-write-flip-checklist.md
-  - memory-bank/living-ledger.md
-  - .github/workflows/weekly-excel-generation.yml
-  - tests/test_incremental_read.py
-  - tests/test_parity_shadow.py
-  - tests/test_deep_run_reconciliation.py
-  - tests/test_pipeline_memory_shadow.py
-  - tests/test_own04_documentation.py
   - tests/fixtures/incremental/user_variant_candidate_miss.json
-covered_digest: "unavailable: gsd-tools installation on this host (older CLI shape, no `runtime-identity`/`verification.fingerprint` verbs, no local gsd-core/bin/gsd-tools.cjs found) cannot produce a fingerprint; not hand-written per instructions"
+  - tests/test_deep_run_reconciliation.py
+  - tests/test_incremental_read.py
+  - tests/test_own04_documentation.py
+  - tests/test_parity_shadow.py
+  - tests/test_pipeline_memory_shadow.py
+covered_digest: "v4:sha256:90c2874d2822fc8e994180a08980fbda362ff64c1b57a709aea841fe8b003713"
 behavior_unverified: 2
 overrides_applied: 1
 overrides:
   - must_have: "reading group rows from row_state"
-    reason: "D-04 Option C (row_state decides regeneration membership; a scoped full Smartsheet re-fetch supplies content; the generation pipeline is unmodified) achieves the phase's practical intent — only touched groups are regenerated — without the billing-integrity risk of a row_state-sourced content path. Option B (raw-column schema extension) is deferred, gated on Option C running clean for >=5 consecutive production_frequent runs (11-CONTEXT.md D-05)."
+    reason: "D-04 Option C (row_state decides regeneration membership; a scoped full Smartsheet re-fetch supplies content; the generation pipeline is unmodified) achieves the phase's practical intent -- only touched groups are regenerated -- without the billing-integrity risk of a row_state-sourced content path. Option B (raw-column schema extension) is deferred, gated on Option C running clean for >=5 consecutive production_frequent runs (11-CONTEXT.md D-05)."
     accepted_by: "Juan Flores"
     accepted_at: "2026-09-14T17:36:08Z"
 re_verification:
-  previous_status: gaps_found
-  previous_score: 5/8
-  gaps_closed:
-    - "Gap 1 (row_state-sourcing clause, INC-02): Juan accepted the D-05 Option C deferral as an explicit ACCEPTED OVERRIDE (Plan 11-10 Task 1, 2026-09-14T17:36:08Z). Counted as satisfied-by-override in this pass's score."
-    - "Gap 2's code defect (USER-variant candidate-set divergence): confirmed root-caused and fixed by Plan 11-09 (commit 04c618a) — pipeline/orchestrate.py::_resolve_row_wr_week now delegates its WR derivation to pipeline_memory.writer._sanitized_wr, the same function that produces row_state.wr. Verified in this pass: diff since plan_head_before bc57e52 touches only this one function in pipeline/orchestrate.py; UserVariantCandidateParityTests (5 tests) and AffectedPairKeyContractTests (5 tests, 15 subtests) pass; full suite 2426 passed / 1 skipped / 610 subtests, zero regressions from the pre-fix baseline."
-  gaps_remaining:
-    - "Gap 2's evidence requirement (ROADMAP SC2 / INC-04's fresh ≥5-consecutive-pass production_frequent parity streak, taken AFTER the fix) is NOT closed — it is explicitly NOT YET OBSERVABLE. The fix (commit 04c618a) is unpushed/unmerged on branch plan/phase-13; the scheduled production_frequent workflow runs the default branch, so 0 post-fix parity-evaluated runs exist. This is an owner-supplied observation (2026-09-14T18:00:54Z, Plan 11-10 Task 3), not a code defect — reclassified in this pass from FAILED to ⚠️ PRESENT_BEHAVIOR_UNVERIFIED / human_needed because the underlying code is now fixed and tested, but the live-data zero-divergence claim cannot be verified until the fix reaches the branch the cron executes and ≥5 runs accumulate."
+  previous_status: human_needed
+  previous_score: 6/8
+  gaps_closed: []
+  gaps_remaining: []
   regressions: []
+  delta_since_previous: "Only change in covered inputs: tests/test_parity_shadow.py (commit 873932b, test-only env restore, 9 insertions / 1 deletion). Separately, the Gap 2 fix (04c618a) has since reached master as 1c52d10 (PR #409, merged 2026-09-14T20:04:03Z), which removes the precondition that blocked the live parity reading."
 gaps: []
 behavior_unverified_items:
   - truth: "INC-02a: the D-04 incremental candidate selector's affected-pair scope matches the full run's actually-regenerated set with zero divergence against live production data, post-fix"
-    test: "Merge/land commit 04c618a (plan 11-09's fix) onto the branch the scheduled production_frequent workflow executes, let live production_frequent runs execute, and take a pipeline_memory.reader.get_parity_streak() reading"
-    expected: "get_parity_streak() reports pass verdicts with zero actual_not_in_candidate (or any other) divergence across the observed runs since the fix shipped"
-    why_human: "This is a live-production, multi-run observation that cannot be computed, simulated, or inferred from static code — the reproduction test proves the fix corrects the confirmed root cause in isolation, but does not itself constitute the live-data proof the roadmap goal requires. The owner has already stated (2026-09-14T18:00:54Z) that 0 such runs exist yet because the fix has not reached the branch the cron executes."
-  - truth: "ROADMAP SC2 / INC-04: for ≥5 consecutive scheduled production_frequent runs, the incremental candidate set equals the shadow full-run output set, sustained — required before RUN_MEMORY_INCREMENTAL_ENABLED can default ON"
-    test: "Same as above — a fresh pipeline_memory.reader.get_parity_streak() reading taken after the fix has run live for ≥5 consecutive production_frequent runs"
-    expected: "Streak of ≥5 consecutive pass verdicts, currently held (not merely achieved once in the past)"
-    why_human: "Identical live-production dependency as the item above; the prior 5/5 streak (2026-08-31) was reset to zero by the two live FAILs this fix addresses, and per D-09 only a fresh, currently-held streak taken after the fix satisfies this gate. The owner explicitly declined to have this value computed or inferred (2026-09-14T18:00:54Z verbatim reading: 'Not yet observable... No streak count is supplied.')."
+    test: "Take a pipeline_memory.reader.get_parity_streak() reading (Supabase project poeyztlmsawfoqlanucc, run_ledger rows with notes.execution_type = production_frequent) newest-first over runs since 2026-09-14T20:04:03Z"
+    expected: "Pass verdicts with zero actual_not_in_candidate (or any other) divergence across the post-fix runs"
+    why_human: "Live multi-run production observation. The verifier host has no SUPABASE credentials (0 SUPABASE env vars), and per owner direction the value is never computed, simulated, or inferred from code. The reproduction test proves the fix against the confirmed root cause in isolation; it is not the live-data proof."
+  - truth: "ROADMAP SC2 / INC-04: for >=5 consecutive scheduled production_frequent runs the incremental candidate set equals the shadow full-run output set, currently held"
+    test: "Same reading as above, requiring a streak >= 5 consecutive pass verdicts counted after the fix"
+    expected: "get_parity_streak() >= 5, currently held (the prior 5/5 streak from 2026-08-31 was reset to zero by the two live FAILs the fix addresses; per D-09 only a fresh post-fix streak counts)"
+    why_human: "Same live-production dependency; the evidence lives in Supabase run_ledger, not in the repo."
 human_verification:
-  - test: "Merge plan 11-09's fix (commit 04c618a) to the branch the scheduled production_frequent workflow executes; let ≥5 consecutive production_frequent runs complete; take a pipeline_memory.reader.get_parity_streak() reading"
-    expected: "≥5 consecutive pass verdicts with zero divergence, confirming the D-04 selector is correct against live data post-fix and re-establishing the ROADMAP SC2 / INC-04 gate condition"
-    why_human: "Live, multi-run production observation outside the codebase's static analysis reach; owner has already recorded this as not-yet-observable (0 eligible runs) as of 2026-09-14T18:00:54Z"
+  - test: "Run get_parity_streak() (or the equivalent run_ledger query) against Supabase poeyztlmsawfoqlanucc. Count consecutive production_frequent pass verdicts newest-first, only for runs created after 2026-09-14T20:04:03Z (fix on master). Record the number in 11-UAT.md test 37."
+    expected: ">=5 consecutive pass verdicts with zero divergence. If any fail verdict appears post-fix, that is a blocking defect (ROADMAP SC2) and must be root-caused before RUN_MEMORY_INCREMENTAL_ENABLED is ever flipped."
+    why_human: "Production data read that only the owner (with Supabase access) can take. The precondition that blocked this on 2026-09-14 (fix not on the cron's branch) is now met: roughly 200 workflow runs have executed on master since the merge."
 ---
 
 # Phase 11: Incremental Read + Affected-Group Regeneration Verification Report
 
 **Phase Goal:** Frequent runs read only changed rows and rebuild only touched (WR, week)
 files, reading group rows from `row_state`; the weekly deep run reconciles fully.
-**Verified:** 2026-09-14T18:15:32Z
+**Verified:** 2026-10-29
 **Status:** human_needed
-**Re-verification:** Yes — after gap closure (plans 11-09, 11-10; superseding
-`11-VERIFICATION.md` verified 2026-09-14T15:51:01Z, status `gaps_found`, score 5/8).
+**Re-verification:** Yes. Re-run to refresh a stale fingerprint (the prior report's covered digest no longer matched after the test-only commit `873932b`) and to re-check the codebase; no gaps were open.
 
 ## Goal Achievement
 
-**Headline finding:** Both gaps from the prior verification pass now carry an explicit,
-dated disposition instead of being open, untracked shortfalls. Gap 1 (row_state-sourcing
-clause) is closed by an owner-accepted override — D-04 Option C is judged to satisfy the
-phase's practical intent. Gap 2's underlying code defect (USER-variant groups silently
-dropped from the incremental candidate set) is root-caused and fixed with a fixture-backed
-reproduction test (RED before, GREEN after) and a bidirectional contract test; the fix is
-confined to one function (`pipeline/orchestrate.py::_resolve_row_wr_week`, confirmed by a
-scoped diff) and the full regression suite is green with zero regressions (2426 passed / 1
-skipped / 610 subtests). However, Gap 2's *evidence* requirement — a fresh, currently-held
-≥5-consecutive-pass `production_frequent` parity streak taken after the fix — is honestly
-**not yet observable**: the fix is unpushed/unmerged on `plan/phase-13`, the scheduled
-workflow runs the default branch, and 0 post-fix parity-evaluated runs exist. This is not a
-code gap; it is a live-production observation only the owner can take, and it has been
-recorded verbatim rather than computed or inferred. Because this observation is still
-outstanding, the phase's literal "zero divergence, sustained" success criterion (ROADMAP
-SC2) is not yet re-established — it moves from FAILED (an active, uninvestigated defect) to
-PRESENT_BEHAVIOR_UNVERIFIED (a fixed, tested defect awaiting live re-confirmation).
+**Headline.** The codebase delivers the phase goal in mechanism. The one open item is
+live-production evidence, not code. The Gap 2 selector fix is now on `master`
+(`1c52d10`, PR #409, merged 2026-09-14T20:04:03Z; `git show origin/master:pipeline/orchestrate.py`
+contains `wr_key = _mem_writer._sanitized_wr(row)` at line 1644). GitHub shows about 200
+`weekly-excel-generation.yml` runs on `master` since that merge (193 scheduled successes,
+4 manual successes, 2 cancelled, 1 in progress or unset). So the precondition that made the
+streak unobservable on 2026-09-14 is satisfied, but the parity verdicts live in Supabase
+`run_ledger`, which this verifier cannot read (no credentials on the host; owner policy
+forbids inferring the value). The streak reading therefore remains an owner action.
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | INC-01: Frequent-run delta-read primitive (`ifVersionAfter`+`rowsModifiedSince`) costs exactly one call for an unchanged sheet, two for a changed one, and every failure/version-less-abbreviated-response escalates to a full read, never "unchanged" | ✓ VERIFIED | Unchanged since prior pass (regression check: `pipeline/fetch.py`, `pipeline/orchestrate.py` untouched by plans 11-09/11-10 — confirmed by scoped diff). `pipeline/fetch.py:154,198`; `pipeline/orchestrate.py:946-1133`. |
-| 2 | INC-02a: Only the (WR, week) groups touched by changed rows (incl. the moved-week prior pair) are regrouped/regenerated/uploaded — the affected-pair scope selector is correct against live data with zero divergence | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | Root cause confirmed and fixed (`_resolve_row_wr_week` now calls `pipeline_memory.writer._sanitized_wr` directly, `pipeline/orchestrate.py:1649`); reproduction test `UserVariantCandidateParityTests` (5 tests) fails before the fix with the exact live symptom and passes after; bidirectional contract test `AffectedPairKeyContractTests` (5 tests, 15 subtests) pins the fix across 8 WR shapes/4 week shapes. But the fix is unmerged and 0 post-fix live runs exist — see `behavior_unverified_items`. |
-| 3 | INC-02b: Group rows for a regenerated group are read from `pipeline_memory.row_state`, not re-fetched from Smartsheet | PASSED (override) | Override accepted by Juan Flores, 2026-09-14T17:36:08Z (see frontmatter `overrides:`). D-04 Option C ships instead: `row_state` decides membership only; content is a scoped full Smartsheet re-fetch. Code unchanged since prior pass (confirmed: `grouping.py`/`pricing.py`/`attribution.py`/`excel.py` still import nothing from `pipeline_memory`, grep zero hits). |
-| 4 | INC-03: The weekly deep run (`EXECUTION_TYPE=weekly_comprehensive`) performs a full read and reconciles: deletions (`row_state.deleted_at`), `group_state` repair, `sheet_registry.column_mapping` refresh, formula-only changes | ✓ VERIFIED | Unchanged since prior pass (regression check: files untouched by 11-09/11-10). `pipeline_memory/writer.py:1060`, `reader.py:407`; live evidence from `11-UAT.md` test 3 unchanged. |
-| 5 | ROADMAP SC2: For ≥5 consecutive scheduled runs the incremental candidate set equals the shadow full-run output set (currently, ongoing) | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED | Mechanism unchanged and verified (`pipeline/parity.py`). The 2 live FAILs that broke the prior 5/5 streak (2026-08-31) are addressed at the code level by the same fix as truth 2 above. Per D-09, only a *fresh, currently-held* post-fix streak satisfies this criterion — owner-supplied reading (2026-09-14T18:00:54Z, transcribed verbatim below) confirms 0 eligible runs exist yet. Not marked verified per explicit instruction. |
-| 6 | ROADMAP SC3: Weekly deep run detects a deleted row and a formula-only change and repairs `row_state`/`group_state` (fixture + one live verification) | ✓ VERIFIED | Unchanged since prior pass (regression check: fixtures/tests untouched by 11-09/11-10). |
-| 7 | ROADMAP SC4: Local JSON caches + the two attachment pre-fetch phases are removed only after SC2's evidence; frequent-run wall clock measured before/after (baseline 94 min, run 32743959053) | ✓ VERIFIED | Unchanged since prior pass (regression check: sequencing/removal facts untouched by this closure round). |
-| 8 | INC-05: `hash_history.json`, `discovery_cache.json`, `billing_audit_frozen_rows.json`, the two attachment pre-fetch phases, and the six workflow cache steps are retired; `group_state` is the sole skip gate and attachment-id source | ✓ VERIFIED | Unchanged since prior pass (regression check: `pipeline/config.py`, `.github/workflows/weekly-excel-generation.yml` untouched by 11-09/11-10 — confirmed by scoped diff). |
+| 1 | INC-01: delta-read primitive costs one call for an unchanged sheet, two for a changed one; failure or version-less responses escalate to a full read, never "unchanged" | VERIFIED | `pipeline/fetch.py` `compute_rows_modified_since` (l.168) and the `if_version_after` probe then `rows_modified_since` fetch (l.202-273). `tests/test_incremental_read.py` passes in this run. Flag gate: `RUN_MEMORY_INCREMENTAL_ENABLED` default `'0'` (`pipeline/config.py:527`). |
+| 2 | INC-02a: only (WR, week) groups touched by changed rows (including the moved-week prior pair) are regrouped, regenerated, uploaded; selector correct against live data with zero divergence | PRESENT_BEHAVIOR_UNVERIFIED | Code: `_resolve_row_wr_week` delegates to `_mem_writer._sanitized_wr` and `_coerce_date` (`pipeline/orchestrate.py:1649-1654`), same function that produces `row_state.wr`; fix is on master. Tests: `UserVariantCandidateParityTests` and `AffectedPairKeyContractTests` pass (317 passed, 37 subtests across the four phase test files, this run). Live zero-divergence proof not taken (see Human Verification). |
+| 3 | INC-02b: group rows for a regenerated group are read from `row_state` | PASSED (override) | Override accepted by Juan Flores, 2026-09-14T17:36:08Z (frontmatter). Option C stays: `row_state` decides membership, content is a scoped Smartsheet re-fetch. Verified `pipeline/grouping.py`, `pricing.py`, `attribution.py`, `excel.py` import nothing from `pipeline_memory` (grep: 0). |
+| 4 | INC-03: weekly deep run (`weekly_comprehensive`) does a full read and reconciles deletions, `group_state` repair, `column_mapping` refresh, formula-only changes | VERIFIED | `pipeline_memory/writer.py` row-deletion marking (`deleted_at`, idempotent, `is_("deleted_at","null")` guard, l.1063-1146); `tests/test_deep_run_reconciliation.py` passes; live evidence in `11-UAT.md` test 3 (runs 33359937884.1 and 34086148733.1, 21 rows with `deleted_at`). |
+| 5 | ROADMAP SC2: for >=5 consecutive scheduled runs the incremental candidate set equals the shadow full-run output set (currently held) | PRESENT_BEHAVIOR_UNVERIFIED | Mechanism intact (`pipeline/parity.py`, `pipeline_memory/reader.py:691 get_parity_streak`, tests pass). Prior streak was reset by two live FAILs (34648318434.1, 34541106039.1) that Gap 2 fixed. No post-fix reading has been recorded anywhere in the repo; not counted as verified. |
+| 6 | ROADMAP SC3: weekly deep run detects a deleted row and a formula-only change and repairs `row_state` / `group_state` (fixture plus one live verification) | VERIFIED | Fixtures in `tests/test_deep_run_reconciliation.py` pass; live verification in `11-UAT.md` test 3 and tests 24-28. |
+| 7 | ROADMAP SC4: local JSON caches and the two attachment pre-fetch phases removed only after SC2 evidence; wall clock measured before/after | VERIFIED | Sequencing and wall-clock record unchanged from the prior pass (Plan 11-08); no conflicting change in the diff `bc57e52..HEAD`. |
+| 8 | INC-05: `hash_history.json`, `discovery_cache.json`, `billing_audit_frozen_rows.json`, the pre-fetch phases, and the six workflow cache steps are retired; `group_state` sole skip gate | VERIFIED | Workflow now has exactly one `actions/cache` step (pip, l.158-160) and no `discovery_cache` or frozen-rows references. `TIME_BUDGET_MINUTES` 165 below `timeout-minutes: 180` intact. |
 
-**Score:** 6/8 truths verified (2 present-but-behavior-unverified)
+**Score:** 6/8 truths verified (2 present-but-behavior-unverified).
+
+Note on SC4/INC-05 ordering: SC4 requires removal only after SC2 evidence. SC2 was met (5/5 streak, 2026-08-31) when INC-05 shipped, and was later reset by a defect. This is a historical ordering that held at the time; the reset does not un-ring the removal. It is the reason the fresh streak matters before the incremental flag is flipped, not before anything already shipped.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `pipeline/orchestrate.py::_resolve_row_wr_week` | Delegates WR derivation to `pipeline_memory.writer._sanitized_wr` (Plan 11-09 fix) | ✓ VERIFIED | Confirmed at line 1649 (`wr_key = _mem_writer._sanitized_wr(row)`); scoped diff since `plan_head_before` (`bc57e52`) touches only this function in `pipeline/orchestrate.py` (37 added / 15 removed lines per 11-09-SUMMARY, independently confirmed via `git log --oneline bc57e52..HEAD -- pipeline/orchestrate.py` returning only commit `04c618a`). |
-| `tests/fixtures/incremental/user_variant_candidate_miss.json` | Synthetic cassette reproducing the live USER-variant miss | ✓ VERIFIED | Exists; consumed by `UserVariantCandidateParityTests`. |
-| `tests/test_parity_shadow.py::UserVariantCandidateParityTests` | Reproduction test (RED before fix, GREEN after) | ✓ VERIFIED | 5 tests, all pass in this verification pass (fresh run: `pytest tests/test_parity_shadow.py::UserVariantCandidateParityTests -q` → 5 passed). |
-| `tests/test_incremental_read.py::AffectedPairKeyContractTests` | Bidirectional WR/week contract test | ✓ VERIFIED | 5 tests / 15 subtests, all pass in this verification pass. |
-| `.planning/todos/pending/2026-09-14-inc02-user-variant-candidate-divergence.md` | Tracked todo for the previously-untracked defect | ✓ VERIFIED | Exists in `pending/` (confirmed not yet moved to `done/`, correctly — the streak evidence that would justify that move does not exist yet). |
-| `.planning/phases/11-incremental-read-affected-group-regeneration/deferred-items.md` | `## 11-09` section documenting the fix and the accepted WR-normalization-collision residual | ✓ VERIFIED | Section present, confirmed by direct read. |
-| `memory-bank/living-ledger.md` | Dated `## [2026-09-14 18:00]` entry recording the durable "one shared derivation" rule | ✓ VERIFIED | Entry present at line 9661; append-only (previous final heading still intact). |
-| `.planning/REQUIREMENTS.md` INC-02/INC-04 | Dated notes reflecting the override acceptance and the streak-reset/fresh-reading requirement | ✓ VERIFIED | Both dated blockquote notes present and consistent with `11-VERIFICATION.md`'s prior gap language and this pass's disposition. |
-| All Phase 11 artifacts from the prior verification pass (`pipeline_memory/reader.py`, `writer.py`, `pipeline/fetch.py`, `parity.py`, `cleanup.py`, `config.py`, workflow file) | Unchanged | ✓ VERIFIED (regression check) | Confirmed via scoped diff (`git diff --stat` over `pipeline/`, `pipeline_memory/`, `.github/workflows/`, `requirements.txt`, `pipeline_memory/schema.sql` between `bc57e52` and `HEAD` shows changes confined to `pipeline/orchestrate.py` only). |
+| `pipeline/orchestrate.py::_resolve_row_wr_week` | WR derivation via `_sanitized_wr` | VERIFIED | l.1649; only commit touching `pipeline/`, `pipeline_memory/`, workflow since `bc57e52` is `04c618a`. |
+| `tests/fixtures/incremental/user_variant_candidate_miss.json` | Cassette for the live miss | VERIFIED | Present, consumed by the parity test. |
+| `tests/test_parity_shadow.py::UserVariantCandidateParityTests` | Repro test | VERIFIED | Passes. `873932b` (test-only) restores env after fixture tests, 9 insertions / 1 deletion. |
+| `tests/test_incremental_read.py::AffectedPairKeyContractTests` | Bidirectional WR/week contract | VERIFIED | Passes. |
+| `pipeline/fetch.py`, `pipeline/parity.py`, `pipeline/cleanup.py`, `pipeline/config.py`, `pipeline_memory/reader.py`, `pipeline_memory/writer.py` | Phase 11 mechanisms | VERIFIED | Present, substantive, unchanged since the prior pass. |
+| `.planning/todos/pending/2026-09-14-inc02-user-variant-candidate-divergence.md` | Tracked defect | VERIFIED (stays pending) | Correctly not moved to `done/` until a real reading exists. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|-----|-----|--------|---------|
-| `pipeline/orchestrate.py::_resolve_row_wr_week` | `pipeline_memory/writer.py::_sanitized_wr` | Direct function call | ✓ WIRED | `orchestrate.py:1649`; confirmed a real call, not merely imported. This is the fix's entire wiring surface. |
-| `pipeline/orchestrate.py` | `pipeline/grouping.py`/`pricing.py`/`attribution.py`/`excel.py` | Unmodified generation pipeline, called on PHASE 2b's re-fetched (Smartsheet-sourced) rows | ✓ WIRED (content still Smartsheet-sourced, not `row_state`-sourced — accepted override, see frontmatter) | Confirmed unchanged; these four modules import nothing from `pipeline_memory` (grep, zero hits), consistent with Gap 1's accepted override. |
-| All other Phase 11 key links from the prior verification pass | — | — | ✓ WIRED (regression check) | Unchanged; not independently re-traced this pass since no code outside `_resolve_row_wr_week` changed. |
+| `_resolve_row_wr_week` | `pipeline_memory.writer._sanitized_wr` / `_coerce_date` | direct call | WIRED | `orchestrate.py:1649-1654`. |
+| `_run_memory_write_phase` affected set | `_filter_groups_to_affected` | applied after `group_source_rows()` | WIRED | `orchestrate.py` (l.1660ff), groups survive whole or are dropped. |
+| `RUN_MEMORY_INCREMENTAL_ENABLED` | flag gate in delta-read and orchestrator | env, default `'0'` | WIRED | `config.py:527`; `orchestrate.py:1051-1057`, `4570`. |
+| Generation modules | `pipeline_memory` | none (accepted Option C) | NOT CONNECTED BY DESIGN | Matches the accepted override. |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Gap 2 reproduction test (RED-before/GREEN-after fix) | `pytest tests/test_parity_shadow.py::UserVariantCandidateParityTests -q` | 5 passed | ✓ PASS |
-| Bidirectional WR/week contract pinning the fix | `pytest tests/test_incremental_read.py::AffectedPairKeyContractTests -q` | 5 passed, 15 subtests passed | ✓ PASS |
-| Full regression suite, zero regressions from pre-fix baseline | `pytest tests/ -q` | 2426 passed, 1 skipped, 610 subtests passed | ✓ PASS |
-| No debt markers introduced in gap-closure files | `grep -n "TBD\|FIXME\|XXX"` over `pipeline/orchestrate.py`, `tests/test_parity_shadow.py`, `tests/test_incremental_read.py`, `tests/test_own04_documentation.py`, the new todo file | zero hits | ✓ PASS |
-| Fix confined to `_resolve_row_wr_week` (no protected-area drift) | `git log --oneline bc57e52..HEAD -- pipeline/orchestrate.py` | only `04c618a` | ✓ PASS |
+| Phase 11 test files | `pytest tests/test_parity_shadow.py tests/test_incremental_read.py tests/test_deep_run_reconciliation.py tests/test_own04_documentation.py` | 317 passed, 37 subtests passed | PASS |
+| Full regression (supplied by orchestrator, not re-run by this verifier) | `pytest tests/` | 2426 passed, 1 skipped | accepted as given |
+| Debt markers in phase code | grep for TBD, FIXME, XXX\|FIXME\|XXX` over `pipeline/orchestrate.py`, `fetch.py`, `parity.py`, `cleanup.py`, `pipeline_memory/reader.py`, `writer.py`, two test files | 0 hits | PASS |
+| Fix reached default branch | `git show origin/master:pipeline/orchestrate.py` grep; `gh pr view 409` | present at l.1644; PR MERGED 2026-09-14T20:04:03Z into `master` | PASS |
 
 ### Probe Execution
 
-N/A — no `scripts/*/tests/probe-*.sh` files exist in this repository; unchanged from the prior pass.
+N/A. No `scripts/*/tests/probe-*.sh` files exist and none are declared by the plans.
 
 ### Requirements Coverage
 
-| Requirement | Source Plan | Description | Status | Evidence |
-|-------------|-------------|--------------|--------|----------|
-| INC-01 | 11-02 | Frequent runs use `ifVersionAfter`+`rowsModifiedSince`; unchanged sheets cost 1 call, 0 rows | ✓ SATISFIED | Truth 1, unchanged. |
-| INC-02 | 11-03, 11-04, 11-09, 11-10 | Only touched (WR, week) groups regenerated; rows sourced from `row_state` | ⚠️ PARTIALLY SATISFIED | Sourcing sub-clause: PASSED via accepted override (truth 3). "Correct against live data, zero divergence" sub-clause: code fixed and tested but live re-confirmation pending (truth 2, ⚠️ PRESENT_BEHAVIOR_UNVERIFIED). REQUIREMENTS.md checkbox remains unticked, correctly reflecting this mixed state. |
-| INC-03 | 11-06 | Weekly deep run: full read + reconciliation (deletions, formula-only, column_mapping refresh) | ✓ SATISFIED | Truth 4, unchanged. |
-| INC-04 | 11-01, 11-05, 11-07, 11-09, 11-10 | Shadow parity proof behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF); ≥5 consecutive passes before defaulting ON | ⚠️ PARTIALLY SATISFIED | Mechanism verified; root-cause of the prior streak-breaking defect fixed and tested; fresh post-fix streak explicitly NOT YET OBSERVABLE (truth 5, ⚠️ PRESENT_BEHAVIOR_UNVERIFIED). `RUN_MEMORY_INCREMENTAL_ENABLED` correctly remains OFF. |
-| INC-05 | 11-08 | Local caches + pre-fetch phases retired only after INC-04 evidence; `group_state` holds attachment ids | ✓ SATISFIED | Truth 8, unchanged. |
+| Requirement | Source Plans | Description | Status | Evidence |
+|-------------|--------------|-------------|--------|----------|
+| INC-01 | 11-02 | Delta read via `ifVersionAfter` + `rowsModifiedSince` | SATISFIED | Truth 1. |
+| INC-02 | 11-03, 11-04, 11-09, 11-10 | Touched groups only; rows from `row_state` | PARTIAL | Sourcing clause satisfied by accepted override (truth 3); "correct against live data" pending live reading (truth 2). REQUIREMENTS.md checkbox `[ ]` and traceability `Pending` correctly reflect this. |
+| INC-03 | 11-06 | Weekly deep-run reconciliation | SATISFIED | Truths 4 and 6. |
+| INC-04 | 11-01, 11-05, 11-07, 11-09, 11-10 | Parity proof behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF), >=5 consecutive passes before default ON | MECHANISM SATISFIED; GATE EVIDENCE PENDING | Flag default OFF verified. Fresh streak not recorded (truth 5). |
+| INC-05 | 11-08 | Retire caches and pre-fetch; `group_state` holds attachment ids | SATISFIED | Truth 8. |
 
-**Orphan check:** REQUIREMENTS.md maps exactly INC-01..INC-05 to Phase 11; all five are claimed by a plan's `requirements:` frontmatter (unchanged from the prior pass; plans 11-09/11-10 carry `requirements-completed: []` by design — they are gap-closure/records-only plans, not new requirement claims). No orphaned requirements found.
+All five IDs (INC-01..INC-05) appear in plan `requirements:` frontmatter and in REQUIREMENTS.md; no orphans. Plans 11-09 and 11-10 carry `requirements-completed: []` by design.
+
+**Documentation discrepancy (WARNING, not a code gap).** `.planning/REQUIREMENTS.md` shows INC-04 as `[x]` with traceability "Complete" (l.270, l.466), while the INC-04 note directly beneath it says the gate condition is not held until a fresh post-fix streak exists. The checkbox reflects mechanism delivery; the gate evidence is outstanding. The owner may prefer to leave INC-04 unticked or annotated until test 37 resolves. No edit made (read-only run).
 
 ### Anti-Patterns Found
 
-None. `TBD`/`FIXME`/`XXX` scan across the gap-closure files (`pipeline/orchestrate.py`, `tests/test_parity_shadow.py`, `tests/test_incremental_read.py`, `tests/test_own04_documentation.py`, the new todo file) returned zero hits, consistent with the prior pass's clean scan of the rest of the phase's files (unchanged this round).
+| File | Line | Pattern | Severity | Impact |
+|------|------|---------|----------|--------|
+| `.github/workflows/weekly-excel-generation.yml` | 669 | `generated_docs/hash_history.json` still listed in an `upload-artifact` path list | Info | Retired file; `upload-artifact` ignores missing paths. Harmless leftover, not an INC-05 violation (no cache step, no code read). |
 
-### Documentation Discrepancy (resolved)
-
-The prior verification pass flagged `STATE.md`'s "INC-01 through INC-05 are all complete"
-line as overstating the picture. That literal line no longer appears in `.planning/STATE.md`
-(only as a historical quote inside `docs/CHANGELOG_CONTEXT.md`, referencing the prior
-verification itself) — no further action needed.
-
-### Gap Closure Record (2026-09-14)
-
-#### Gap 1 — Row-state sourcing: ACCEPTED OVERRIDE
-
-Juan explicitly accepted the D-05 Option C override at Plan 11-10 Task 1's blocking decision
-checkpoint (reply: `accept`; attribution: `Juan Flores`; acceptance timestamp:
-`2026-09-14T17:36:08Z`). The `overrides:` entry recorded in this file's frontmatter above
-reproduces the exact YAML this report's own "Suggested Override (Gap 1)" section prescribed.
-This does not implement Option B (still deferred under D-05, gated on a clean ≥5-run
-`production_frequent` streak, and `pipeline_memory/schema.sql` remains a protected area untouched
-by this closure) and does not authorize any change to `RUN_MEMORY_INCREMENTAL_ENABLED`. Whether
-the accepted override ticks INC-02's checkbox is a re-verification decision, not a records edit —
-this closure record leaves that checkbox state to the next verification pass.
-
-#### Gap 2 — USER-variant candidate-set divergence: CODE FIXED, streak pending
-
-Plan 11-09 confirmed the cause: `pipeline/orchestrate.py::_resolve_row_wr_week` derived its WR
-component independently of `pipeline_memory.writer._sanitized_wr` (the function that actually
-produces `row_state.wr`), so a raw WR containing a sanitizer-affected character (the live class:
-an embedded space) resolved to two different strings on the group side versus the row-state side,
-silently dropping a genuine USER-variant primary group from the D-04 incremental candidate set —
-exactly the symptom in the two live parity FAILs (runs 34648318434.1, 34541106039.1). The fix
-(commit `04c618a`) makes `_resolve_row_wr_week` call `pipeline_memory.writer._sanitized_wr`
-directly instead of re-implementing its contract, confined to that one function. The reproduction
-test `tests/test_parity_shadow.py::UserVariantCandidateParityTests` failed before the fix with the
-exact live symptom (`verdict: fail`, `reason: actual_not_in_candidate`) and passes after it; the
-bidirectional contract test `tests/test_incremental_read.py::AffectedPairKeyContractTests` pins
-the fix across 8 WR shapes and 4 week shapes. `RUN_MEMORY_INCREMENTAL_ENABLED` was not touched and
-stays OFF (D-11). The previously-untracked defect is now tracked in three places:
-`.planning/todos/pending/2026-09-14-inc02-user-variant-candidate-divergence.md`, this phase's
-`deferred-items.md` (`## 11-09` section), and a dated `memory-bank/living-ledger.md` entry.
-
-Only a fresh, currently-held ≥5 consecutive-pass `production_frequent` streak taken AFTER this fix
-shipped can re-establish that the ROADMAP SC2 / INC-04 gate condition is held — that observation
-is owner-supplied, not computed, and is recorded below.
-
-#### Post-Fix Parity Streak Observation
-
-**Owner-supplied reading (2026-09-14T18:00:54Z), verbatim:** Not yet observable. 0
-parity-evaluated `production_frequent` runs have executed since plan 11-09's fix. The fix
-(commit `04c618a`, on branch `plan/phase-13`) is unpushed and unmerged; the scheduled workflow
-runs the default branch, so no post-fix run exists yet. No streak count is supplied. The D-09
-streak re-confirmation stays PENDING until ≥5 clean post-fix `production_frequent` runs exist;
-INC-04 remains unticked.
-
-**Outcome:** NOT YET OBSERVABLE — fewer than five parity-evaluated `production_frequent` runs
-exist since the fix (0 available). This is a valid PENDING outcome, not a shortfall count against
-the streak itself: no run has had the opportunity to evaluate parity against the fixed selector
-yet, because the fix has not reached the branch the scheduled workflow executes. Per D-09 (as
-amended 2026-08-29), this subsection stays explicitly PENDING with this reason, and plan 11-09's
-tracked todo (`.planning/todos/pending/2026-09-14-inc02-user-variant-candidate-divergence.md`)
-stays in `pending/` until a real `pipeline_memory.reader.get_parity_streak()` reading lands.
-
-**What this observation does and does not authorize:** This reading does not authorize any
-change to `RUN_MEMORY_INCREMENTAL_ENABLED`. The flip remains a separate operator-gated PR under
-D-11, requiring its own fresh ≥5-run streak re-check immediately before merge — not this reading,
-which reports zero eligible runs. The INC-04 / ROADMAP SC2 gate condition is NOT held as of this
-observation date.
-
-This section was filled by Plan 11-10 Task 3 by direct transcription of the owner-supplied reading
-above; the executor did not query, compute, simulate, or infer this value from Supabase, Actions
-history, or any earlier SUMMARY.
+No TBD/grep for TBD, FIXME, XXX/XXX markers in phase files.
 
 ### Human Verification Required
 
-1. **Fresh post-fix production_frequent parity streak**
-   - **Test:** After commit `04c618a` (plan 11-09's fix) reaches the branch the scheduled
-     `production_frequent` workflow executes, let ≥5 consecutive runs complete, then take a
-     `pipeline_memory.reader.get_parity_streak()` reading.
-   - **Expected:** ≥5 consecutive pass verdicts with zero divergence (no `actual_not_in_candidate`
-     or any other mismatch), re-establishing the ROADMAP SC2 / INC-04 gate condition.
-   - **Why human:** Live, multi-run production observation over a real scheduled cron cannot be
-     computed, simulated, or inferred from the codebase alone. The owner has already recorded this
-     as not-yet-observable (0 eligible runs) as of 2026-09-14T18:00:54Z — this item stays open
-     until a genuine post-fix reading exists.
+#### 1. Fresh post-fix production_frequent parity streak (11-UAT.md test 37)
+
+**Test:** With Supabase access, run `pipeline_memory.reader.get_parity_streak()` (or equivalent `run_ledger` query: `notes.execution_type = production_frequent`, newest first, `pass` increments, `fail` resets, `skipped` ignored) and count only runs created after 2026-09-14T20:04:03Z.
+**Expected:** >= 5 consecutive pass verdicts, zero `actual_not_in_candidate` or other divergence. Record the count in `11-UAT.md` test 37.
+**Why human:** Live production data in Supabase; no credentials on the verifier host, and the value must never be inferred. The earlier blocker (fix not on the cron's branch) is cleared, so the reading can be taken now.
 
 ### Gaps Summary
 
-No open code gaps remain from the prior verification pass. Gap 1 is closed by an explicit,
-dated, owner-accepted override. Gap 2's code defect is root-caused, fixed, and tested with
-zero regressions across the full suite (2426 passed / 1 skipped / 610 subtests). What remains
-open is not a gap in the codebase but a live-production evidence requirement the codebase
-cannot self-certify: a fresh ≥5-consecutive-pass `production_frequent` parity streak taken
-after the fix ships to the branch the cron executes. This is recorded as a human-verification
-item, not a gap, and the overall status is `human_needed` rather than `passed` for exactly
-this reason. No `RUN_MEMORY_INCREMENTAL_ENABLED` flip is authorized by this pass.
+No open code gaps. Gap 1 stays closed by the owner-accepted override; Gap 2's code fix is on `master`
+and covered by passing reproduction and contract tests. Status is `human_needed` solely because
+ROADMAP SC2 / INC-04 ("zero divergence, currently held") requires a live parity reading that the
+codebase cannot self-certify. A failing post-fix streak would reopen Gap 2 as a blocking defect.
+This report authorizes no change to `RUN_MEMORY_INCREMENTAL_ENABLED`, which remains OFF.
 
 ---
 
-*Verified: 2026-09-14T18:15:32Z*
-*Verifier: Claude (gsd-verifier)*
+_Verified: 2026-10-29_
+_Verifier: Claude (gsd-verifier)_
