@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
-current_phase: 11
-current_phase_name: Incremental Read + Affected-Group Regeneration
+current_phase: 15
+current_phase_name: Foreman Notes and Smartsheet color carry-over (GF pilot)
 status: executing
 stopped_at: Phase 15 context gathered
-last_updated: "2026-10-29T21:16:01.789Z"
+last_updated: "2026-10-29T23:27:54.967Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: 0647bb937db843fcd4421b8b2405cadd34b12683
+state_head: 31b73a529b3eaf83356dc21e956cc99e9e1f58d9
 progress:
   total_phases: 15
   completed_phases: 14
-  total_plans: 87
+  total_plans: 94
   completed_plans: 86
-  percent: 93
+  percent: 91
 ---
 
 # Project State
@@ -35,7 +35,7 @@ pipeline.
 
 ## Current Position
 
-Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
+Phase: 15 (Foreman Notes and Smartsheet color carry-over (GF pilot)) — READY TO EXECUTE
 Plan: 7 of 10
 Status: Ready to execute
 
@@ -98,7 +98,7 @@ Last activity: 2026-09-14 — Phase 11 execution started
 - **Phase 05 implication:** the portal STILL shows sample data because `api.ts` reads the removed Express `/api`, not Supabase. Phase 05 must wire `getRuns`/`getArtifacts`/`search`/downloads to read `poeyztlmsawfoqlanucc` directly (`supabase.from('artifacts')` + `createSignedUrl`). Auth + data are co-located in this one project (correct architecture).
 
 ```
-Progress: [████████████████████] 74/74 plans ([█████████░] 93%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
+Progress: [████████████████████] 74/74 plans ([█████████░] 91%) (v1.3 complete; v1.4 Phase 10 closed 2026-08-25 — 6/6 plans; Phase 11 closed 2026-08-31 — 8/8 plans, INC-05 retirement shipped; Phase 11.1 closed 2026-09-02 — 4/4 plans, runtime regressions remediated, canary SC-1 met; Phase 12 closed 2026-09-10 — 10/10 plans, verify-work passed; Phase 14 closed 2026-09-10 — 14/14 plans, PR #402 merged)
 ```
 
 ## Performance Metrics
