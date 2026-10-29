@@ -462,5 +462,38 @@ class KilledRunReplayTests(unittest.TestCase):
         self.assertIn("40751825583", inspect.getsource(type(self)))
 
 
+
+class MainWiringTests(unittest.TestCase):
+    """Source-inspection pins for the main() wiring (the convention
+    tests/test_incremental_read.py uses for logic too deep in main())."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = inspect.getsource(orch.main)
+
+    def test_debt_is_read_before_run_ledger_start(self):
+        src = self.src
+        self.assertEqual(src.count("get_recent_run_ledger_rows("), 1)
+        self.assertLess(
+            src.index("get_recent_run_ledger_rows("),
+            src.index("run_ledger_start("),
+        )
+        self.assertIn("_mem_ledger_rows = _mem_reader", src)
+
+    def test_pending_note_follows_the_memory_write(self):
+        src = self.src
+        self.assertEqual(src.count("_note_pending_regen_pairs("), 1)
+        self.assertGreater(
+            src.index("_note_pending_regen_pairs("),
+            src.index("_mem_regen_unknown = True"),
+        )
+
+    def test_shadow_filters_by_candidate_pairs_and_skips_on_unknown(self):
+        src = self.src
+        self.assertIn("groups, _mem_candidate_pairs,", src)
+        self.assertIn('"reason": "regen_debt_unknown"', src)
+        self.assertIn('"regen_debt_carried"', src)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -194,6 +194,52 @@ def run_ledger_start(run_id: str, mode: str,
     _bump_counter("run_ledger_written")
 
 
+def run_ledger_note_pending(run_id: str, pairs: list, overflow: bool) -> None:
+    """Record this run's pending candidate pairs in ``run_ledger.notes``.
+
+    Phase 11 Plan 12 (G-11-37 mechanism B). Called right after the memory
+    write (``row_state`` has advanced; no group hash has) so that if the
+    run is cancelled, times out, or is hard-killed, the NEXT run can carry
+    these pairs as regeneration debt. NEVER raises.
+
+    An UPDATE filtered by ``run_id`` -- never an upsert or insert: it can
+    never create a row (a failed ``run_ledger_start`` leaves no row, and an
+    inserted row would have ``started_at`` NULL, which a DESC order puts
+    first and which would falsely trip D-02 trigger 6), and it needs no
+    ``mode`` (the NOT NULL 23502 trap in ``run_ledger_finish`` applies to
+    inserts only). It touches ``notes`` alone, so ``status`` /
+    ``started_at`` survive, and it deliberately omits ``execution_type`` so
+    a killed row stays invisible to ``reader.get_parity_streak`` exactly as
+    before. ``run_ledger_finish`` replaces ``notes`` wholesale, which is
+    intended: its ``regen_debt_pairs`` supersedes this pending note.
+    """
+    client = get_client()
+    if client is None:
+        return
+    if not _client_write_enabled():
+        return
+
+    notes = {
+        "regen_pending_pairs": pairs,
+        "regen_pending_overflow": bool(overflow),
+    }
+
+    def _invoke():
+        return (
+            client.schema("pipeline_memory")
+            .table("run_ledger")
+            .update({"notes": notes})
+            .eq("run_id", run_id)
+            .execute()
+        )
+
+    result = with_retry(_invoke, op="run_ledger_note_pending")
+    if result is None:
+        _bump_counter("run_ledger_errored")
+        return
+    _bump_counter("run_ledger_written")
+
+
 # Direct ``run_ledger`` columns ``run_ledger_finish`` accepts by keyword.
 # Anything else passed in ``**counters`` (e.g. the per-sheet memory-write
 # counters wired in a later plan) is folded into the JSON ``notes`` column

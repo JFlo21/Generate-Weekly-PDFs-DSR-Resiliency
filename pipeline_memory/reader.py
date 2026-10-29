@@ -279,6 +279,48 @@ def get_last_run_ledger_status() -> dict | None:
     return row
 
 
+def get_recent_run_ledger_rows(limit: int = 20) -> list[dict] | None:
+    """Return up to *limit* recent ``run_ledger`` rows, newest first.
+
+    Phase 11 Plan 12 (G-11-37 mechanism B, regeneration debt): one bounded
+    SELECT of ``run_id, started_at, finished_at, status, notes`` ordered
+    ``started_at`` descending with NULLs last, so a row whose
+    ``started_at`` is NULL can never be read as the newest run. Called
+    BEFORE this run's own ``run_ledger_start``, so it never sees itself.
+    ``pipeline.memory_candidate.regen_debt_from_ledger_rows`` reduces the
+    rows to the carried debt.
+
+    Uses its own ``op="run_ledger_recent_rows"`` breaker. Returns ``None``
+    on any failure or a ``None`` client (the caller treats that as UNKNOWN
+    debt -- never as "no debt"); an empty list means the table has no rows.
+    """
+    client = get_client()
+    if client is None:
+        return None
+
+    def _invoke():
+        return (
+            client.schema("pipeline_memory")
+            .table("run_ledger")
+            .select("run_id,started_at,finished_at,status,notes")
+            .order("started_at", desc=True, nullsfirst=False)
+            .limit(limit)
+            .execute()
+        )
+
+    result = with_retry(_invoke, op="run_ledger_recent_rows")
+    if result is None:
+        return None
+    rows = getattr(result, "data", None)
+    if rows is None:
+        return []
+    if not isinstance(rows, list) or not all(
+        isinstance(r, dict) for r in rows
+    ):
+        return None
+    return rows
+
+
 def map_affected_to_sheets(
     affected_pairs: 'set[tuple[Any, Any]] | list[tuple[Any, Any]]',
 ) -> set:

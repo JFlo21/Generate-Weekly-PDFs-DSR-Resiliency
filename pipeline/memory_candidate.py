@@ -130,3 +130,118 @@ def row_group_hash_fingerprint(row: dict) -> str:
             "row hashed with an empty fingerprint.", type(exc).__name__,
         )
         return ""
+
+
+# ── Regeneration debt (Phase 11 Plan 12, G-11-37 mechanism B) ───────────
+#
+# ``row_state`` advances during the memory write, BEFORE any upload, and
+# the affected set is "changed this run" only. A run that is cancelled,
+# times out, or fails an upload strands groups whose durable group hash
+# never advanced; the next run's row diff no longer contains them although
+# the full run regenerates them. The D-04 candidate must therefore be
+# ``affected | carried debt``.
+#
+# No DDL: the carrier is ``pipeline_memory.run_ledger.notes`` (JSONB).
+# Each run records its pending candidate pairs right after the memory
+# write (``regen_pending_pairs``) and, at finish, the subset it could not
+# confirm (``regen_debt_pairs``). The next run reduces the chain back to
+# the most recent ``success`` row. Debt that cannot be established is
+# UNKNOWN (``None``): the shadow verdict is ``skipped`` and the incremental
+# path resolves to full mode -- scope can only widen (T-11-18).
+
+# Module constants, not env vars (plan 11-12, Claude's discretion): the cap
+# bounds the JSONB size; the scan limit bounds the one extra SELECT.
+REGEN_DEBT_MAX_PAIRS = 5000
+REGEN_DEBT_SCAN_LIMIT = 20
+
+
+def _pairs_from_json(raw):
+    """Return a set of ``(wr, week)`` tuples, or ``None`` if malformed."""
+    if not isinstance(raw, (list, tuple)):
+        return None
+    out = set()
+    for item in raw:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return None
+        out.add((item[0], item[1]))
+    return out
+
+
+def regen_debt_from_ledger_rows(rows):
+    """Reduce newest-first ``run_ledger`` rows to the carried debt.
+
+    Walks rows newest to oldest, unioning each row's pairs, and stops at
+    the first ``success`` row (older rows are ignored). Returns a set of
+    ``(wr, week)`` tuples, or ``None`` (UNKNOWN) when debt cannot be
+    established: ``rows`` is not a list, a row is not a dict, a pair is
+    malformed, a row carries ``regen_pending_overflow`` /
+    ``regen_debt_overflow`` / ``regen_debt_unknown`` true, a finished
+    ``success`` row predates this feature (no ``regen_debt_pairs``), a
+    non-success row has neither ``regen_debt_pairs`` nor
+    ``regen_pending_pairs`` (killed before its pending note), or no
+    ``success`` row exists inside ``rows``. A row with ``started_at`` NULL
+    is skipped, never treated as the newest run. Never raises.
+    """
+    try:
+        if not isinstance(rows, (list, tuple)):
+            return None
+        debt = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                return None
+            if row.get("started_at") is None:
+                continue
+            notes = row.get("notes")
+            if not isinstance(notes, dict):
+                notes = {}
+            if (
+                notes.get("regen_pending_overflow")
+                or notes.get("regen_debt_overflow")
+                or notes.get("regen_debt_unknown")
+            ):
+                return None
+            if "regen_debt_pairs" in notes:
+                raw = notes.get("regen_debt_pairs")
+            elif row.get("status") != "success" and (
+                "regen_pending_pairs" in notes
+            ):
+                raw = notes.get("regen_pending_pairs")
+            else:
+                return None
+            pairs = _pairs_from_json(raw)
+            if pairs is None:
+                return None
+            debt |= pairs
+            if row.get("status") == "success":
+                return debt
+        return None
+    except Exception:  # noqa: BLE001 - never-raise contract
+        return None
+
+
+def pairs_to_json(pairs):
+    """``(wr, week)`` pairs -> ``(sorted [[wr, week], ...], overflow)``.
+
+    Above :data:`REGEN_DEBT_MAX_PAIRS` returns ``([], True)`` -- an
+    overflowed list is UNKNOWN debt for the reader, never a truncated one.
+    Never raises (an internal error is reported as overflow, the safe
+    direction).
+    """
+    try:
+        pairs = set(pairs or ())
+        if len(pairs) > REGEN_DEBT_MAX_PAIRS:
+            return [], True
+        ordered = sorted(
+            pairs, key=lambda p: (str(p[0]), "" if p[1] is None else str(p[1])),
+        )
+        return [[p[0], p[1]] for p in ordered], False
+    except Exception:  # noqa: BLE001 - never-raise contract
+        return [], True
+
+
+def shadow_candidate_pairs(affected, debt):
+    """D-04 candidate = affected | carried debt. Caller handles debt None."""
+    try:
+        return set(affected or ()) | set(debt or ())
+    except Exception:  # noqa: BLE001 - never-raise contract
+        return set()
