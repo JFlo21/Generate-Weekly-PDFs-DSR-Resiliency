@@ -131,7 +131,7 @@ class SchemaPriorPairBranchTests(unittest.TestCase):
 
     def test_schema_block_is_insert_only_over_snapshot(self):
         """Every non-comment snapshot line survives, in order; the only
-        additions are the six expected prior_wr lines."""
+        additions are the eight expected prior_wr lines."""
         snap = _lines(_block(_strip_comments(_read(_SNAPSHOT))))
         cur = _lines(self.block)
         it = iter(cur)
@@ -145,16 +145,19 @@ class SchemaPriorPairBranchTests(unittest.TestCase):
                 self.fail(f"pre-change line lost or reordered: {want!r}")
         extras.extend(it)  # anything after the last snapshot line
         self.assertEqual(
-            len(extras), 6,
-            f"expected exactly 6 inserted non-comment lines, got {extras}",
+            sorted(extras),
+            sorted([
+                ", rs.wr AS prior_wr",
+                "p.prior_wr,",
+                "UNION",
+                "SELECT c.prior_wr, c.prior_week_ending",
+                "FROM changed AS c",
+                "WHERE c.prior_wr IS NOT NULL",
+                "AND c.prior_week_ending IS NOT NULL",
+                "AND c.prior_wr IS DISTINCT FROM c.wr",
+            ]),
+            f"unexpected inserted non-comment lines: {extras}",
         )
-        for line in extras:
-            self.assertTrue(
-                "prior_wr" in line
-                or line in ("UNION", "FROM changed AS c"),
-                f"unexpected inserted line: {line!r}",
-            )
-
 
 class MigrationFileTests(unittest.TestCase):
     def setUp(self):

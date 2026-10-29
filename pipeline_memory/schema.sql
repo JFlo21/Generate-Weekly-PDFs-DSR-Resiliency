@@ -324,6 +324,16 @@ CREATE TABLE IF NOT EXISTS pipeline_memory.run_ledger (
 -- AFTER pipeline_memory/helper2_columns_migration.sql has added the
 -- columns -- the INSERT list references them. APPLIED to production
 -- 2026-09-09 02:21:29Z (migration 20260909022129, D-14-13-VERIFIED).
+-- G-11-37 mechanism C (Phase 11 plan 11-14, owner-approved ADDITIVE change
+-- 2026-10-29): a row whose Work Request # changed used to return only
+-- (NEW wr, prior week), never (PRIOR wr, prior week), so the OLD WR's group
+-- missed the INC-02 candidate. The `prior` CTE now also carries rs.wr as
+-- prior_wr and a third UNION branch returns (prior_wr, prior_week_ending)
+-- when the stored WR differs from the new one. The two existing return
+-- branches are kept as-is, so no previously returned pair disappears (the
+-- output is a strict superset). Signature, grants, search_path pin, and
+-- every column list are unchanged. Live apply is gated on the owner's
+-- pre-apply SQL review; rollback: pipeline_memory/upsert_rows_bulk_prior_pair_migration.sql.
 CREATE OR REPLACE FUNCTION pipeline_memory.upsert_rows_bulk(
     p_sheet_id BIGINT,
     p_run_id   TEXT,
@@ -374,6 +384,7 @@ BEGIN
         SELECT rs.row_id,
                rs.content_hash AS prior_hash,
                rs.week_ending  AS prior_week_ending
+               , rs.wr AS prior_wr
         FROM pipeline_memory.row_state AS rs
         WHERE rs.sheet_id = p_sheet_id
           AND rs.row_id IN (SELECT i.row_id FROM incoming AS i)
@@ -383,6 +394,7 @@ BEGIN
             i.*,
             p.prior_hash,
             p.prior_week_ending,
+            p.prior_wr,
             (p.row_id IS NULL) AS is_new
         FROM incoming AS i
         LEFT JOIN prior AS p ON p.row_id = i.row_id
@@ -546,6 +558,12 @@ BEGIN
     )
     SELECT c.wr, c.week_ending
     FROM changed AS c
+    UNION
+    SELECT c.prior_wr, c.prior_week_ending
+    FROM changed AS c
+    WHERE c.prior_wr IS NOT NULL
+      AND c.prior_week_ending IS NOT NULL
+      AND c.prior_wr IS DISTINCT FROM c.wr
     UNION
     SELECT c.wr, c.prior_week_ending
     FROM changed AS c
