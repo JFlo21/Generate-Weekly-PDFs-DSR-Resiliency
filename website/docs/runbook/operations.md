@@ -273,10 +273,25 @@ stops reproducing it, `resurfaced` if it comes back after acknowledgement.
 |---|---|---|---|
 | `AUDIT_MEMORY_ENABLED` | `Generate reports` step env | **not set today** (code default `'0'`, off) | Persisting the three findings above into `pipeline_memory.audit_finding` / `audit_finding_event`. Does not change what `audit_billing_changes.py` computes, the run's `risk_level`, Excel generation, uploads, or the process exit code. |
 
-**With the flag off, `pipeline_memory.audit_finding` and
-`audit_finding_event` stay empty.** If you query the views below and see
-zero rows, check this flag first before suspecting a defect — it does not
-mean nothing was found, it means nothing was written.
+**With the flag off, nothing is written.** If the flag has never been
+on, `pipeline_memory.audit_finding`, `audit_finding_event` and the views
+below are empty: zero rows means nothing was written, not that nothing
+was found, so check this flag first before suspecting a defect. If the
+flag was on and is turned off again (rollback), the findings already
+stored stay in both tables and stay visible in the views, but they stop
+updating: no new findings, no `last_seen_run` change, and nothing moves
+to `fixed` until the flag is turned back on.
+
+**When a finding moves to `fixed`.** Only when the check that raised it
+re-evaluated every row of that work request + week this run and did not
+reproduce it. Anything less leaves the finding exactly as it was: a run
+whose audit reported an error, a check that was switched off or failed
+part-way, a row that check could not evaluate (no rate for the CU,
+zero quantity, unreadable price), a source sheet whose read failed, or —
+in incremental mode — any group outside the run's changed set (a
+price-variance finding is never closed by an incremental run). Each run
+logs one `🧮 Audit-memory counters:` line (counts only) showing how many
+findings were dropped or skipped and whether the upsert failed.
 
 ### Reading open findings and per-WR history
 
