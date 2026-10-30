@@ -115,12 +115,14 @@ def compute_effective_scope(
 def memory_writes_possible() -> bool:
     """True when any pipeline_memory / hash-store write path could run.
 
-    NOTE: plan 15-05 Task 2's call-site inventory is the authority for this
-    expression; it must be extended there if another write flag is found.
+    Authority: the plan 15-05 call-site inventory of ``pipeline/orchestrate.py``.
+    ``AUDIT_MEMORY_ENABLED`` is included because the audit-findings upsert is
+    gated on that flag alone (not on TEST_MODE).
     """
     return bool(
         config.SUPABASE_HASH_STORE_WRITE_ENABLED
         or (config.RUN_MEMORY_WRITE_ENABLED and not config.TEST_MODE)
+        or getattr(config, "AUDIT_MEMORY_ENABLED", False)
     )
 
 
