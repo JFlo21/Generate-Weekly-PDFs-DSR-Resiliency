@@ -683,24 +683,31 @@ def row_notes_component(row: Any) -> str | None:
 
 
 def group_notes_token(sorted_rows: Any, row_identity: Any) -> str:
-    """16-hex digest of (row identity, normalised note) pairs for a pilot
-    group.
+    """16-hex digest of (Smartsheet row, row identity, normalised note)
+    entries for a pilot group.
 
     ``row_identity`` is a caller-supplied callable (change_detection passes its
-    own identity join so this module needs no change_detection import). Returns
-    ``''`` for a non-pilot group. Pairs are sorted, so any row permutation --
-    including identity ties with different notes -- yields the same digest.
-    An all-blank pilot group yields a deterministic non-empty constant (OQ-4).
+    own identity so this module needs no change_detection import). Returns
+    ``''`` for a non-pilot group. The row ids bind each note to its row, so a
+    note that moves between rows that tie on identity changes the digest.
+    Entries are sorted, so any row permutation yields the same digest.
+    An all-blank pilot group yields a deterministic non-empty digest of its
+    rows (OQ-4).
     """
     try:
         if not is_pilot_group(sorted_rows):
             return ""
-        pairs = sorted(
+        entries = sorted(
             [
-                str(row_identity(r)), norm_note(r.get(NOTES_KEY))
+                str(r.get("__source_sheet_id", "")),
+                str(r.get("__row_id", "")),
+                str(row_identity(r)),
+                norm_note(r.get(NOTES_KEY)),
             ] for r in sorted_rows
         )
-        payload = json.dumps(pairs, ensure_ascii=False, separators=(",", ":"))
+        payload = json.dumps(
+            entries, ensure_ascii=False, separators=(",", ":"),
+        )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
     except Exception as exc:  # noqa: BLE001
         logging.warning(

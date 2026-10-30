@@ -189,18 +189,31 @@ _FRAME_SCRUB_LOCATIONS = frozenset({
 })
 
 
-def _scrub_sheet_drop_frame_vars(event: Any) -> Any:
-    """``before_send`` hook: strip frame-local ``vars`` from the discovery
-    sheet-drop event ONLY.
+def _notes_may_be_in_frames() -> bool:
+    """Whether frame locals can hold ``Foreman Notes`` text.
 
-    Gated on the ``error_location`` tag so ``include_local_variables`` stays
-    intact for every other event (debugging non-PII errors still gets locals).
-    This is the load-bearing PII scrub for ``sentry_capture_sheet_drop`` — the
-    thread-stacktrace ``vars`` that ``attach_stacktrace=True`` adds only exist
-    at ``before_send`` time, after scope processors have run.
+    While the column is mapped, any frame holding source rows carries it, on
+    any event, so no list of locations can cover it. Fails closed.
+    """
+    try:
+        from pipeline import foreman_notes as _fn
+        return _fn.mapping_enabled()
+    except Exception:  # noqa: BLE001 - an unknown state must scrub
+        return True
+
+
+def _scrub_sheet_drop_frame_vars(event: Any) -> Any:
+    """``before_send`` hook: strip frame-local ``vars`` from the tagged
+    source-row events, and from EVERY event while notes are mapped.
+
+    Gated so ``include_local_variables`` stays intact for every other event
+    (debugging non-PII errors still gets locals). This is the load-bearing PII
+    scrub for ``sentry_capture_sheet_drop`` — the thread-stacktrace ``vars``
+    that ``attach_stacktrace=True`` adds only exist at ``before_send`` time,
+    after scope processors have run.
     """
     _location = (event.get("tags") or {}).get("error_location")
-    if _location in _FRAME_SCRUB_LOCATIONS:
+    if _location in _FRAME_SCRUB_LOCATIONS or _notes_may_be_in_frames():
         _strip_frame_vars(event)
     return event
 
@@ -816,8 +829,9 @@ def init_sentry() -> None:
             # PII guard (Codex P1, PR #281): strip frame-local vars from the
             # discovery sheet-drop event. MUST happen here — attach_stacktrace
             # appends thread-frame vars after scope processors run, so this is
-            # the only stage that sees them. Gated by tag; other events keep
-            # include_local_variables for debugging.
+            # the only stage that sees them. Gated by tag and by the Foreman
+            # Notes mapping; other events keep include_local_variables for
+            # debugging.
             event = _scrub_sheet_drop_frame_vars(event)
 
             return event

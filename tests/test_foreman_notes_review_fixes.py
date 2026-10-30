@@ -91,6 +91,26 @@ class SentryFrameScrubTests(unittest.TestCase):
         frame = out["exception"]["values"][0]["stacktrace"]["frames"][0]
         self.assertIn("vars", frame)
 
+    def test_every_event_is_stripped_while_notes_are_mapped(self):
+        for location in ("group_processing", "main", "audit_system", None):
+            with self.subTest(location=location), \
+                    mock.patch.object(_fn, "EFFECTIVE_SCOPE", "pilot"):
+                out = _scrub_sheet_drop_frame_vars(_event(location))
+                self.assertNotIn(_SECRET, repr(out))
+
+    def test_thread_frames_are_stripped_while_notes_are_mapped(self):
+        event = _event("group_processing")
+        event["threads"] = event.pop("exception")
+        with mock.patch.object(_fn, "EFFECTIVE_SCOPE", "pilot"):
+            out = _scrub_sheet_drop_frame_vars(event)
+        self.assertNotIn(_SECRET, repr(out))
+
+    def test_unknown_mapping_state_fails_closed(self):
+        with mock.patch.object(
+                _fn, "mapping_enabled", side_effect=RuntimeError("boom")):
+            out = _scrub_sheet_drop_frame_vars(_event("group_processing"))
+        self.assertNotIn(_SECRET, repr(out))
+
 
 class PartialGfReadTests(unittest.TestCase):
     def test_short_read_fails_closed(self):
@@ -168,6 +188,66 @@ class LegacyHashNotesTests(_StateCase):
         b = self._hash("note two")
         self.assertNotEqual(a, off)
         self.assertNotEqual(a, b)
+
+
+def _bound_rows(first_note, second_note, **second_fields):
+    """Two Smartsheet rows that tie on the shared fields."""
+    base = _legacy_rows("")[0]
+    first = {**base, "__source_sheet_id": 5001, "__row_id": 1,
+             _fn.NOTES_KEY: first_note}
+    second = {**base, "__source_sheet_id": 5001, "__row_id": 2,
+              _fn.NOTES_KEY: second_note, **second_fields}
+    return [first, second]
+
+
+def _pipe_rows(first_note, second_note):
+    """Two rows whose joined identities match only through a ``|``."""
+    base = _legacy_rows("")[0]
+    return [
+        {**base, "CU": "A|B", "Quantity": "C", _fn.NOTES_KEY: first_note},
+        {**base, "CU": "A", "Quantity": "B|C", _fn.NOTES_KEY: second_note},
+    ]
+
+
+class NotesRowBindingTests(_StateCase):
+    """A note that moves to another row must regenerate the workbook."""
+
+    def setUp(self):
+        super().setUp()
+        _fn.set_state(_pilot_state(wrs=("90001",)))
+
+    @staticmethod
+    def _hash(rows, *, extended):
+        with mock.patch.object(
+                generate_weekly_pdfs, "EXTENDED_CHANGE_DETECTION", extended):
+            return _cd.calculate_data_hash(rows)
+
+    def test_legacy_swap_between_rows_that_differ_by_price(self):
+        price = {"Units Total Price": "$90.00"}
+        a = self._hash(_bound_rows("one", "two", **price), extended=False)
+        b = self._hash(_bound_rows("two", "one", **price), extended=False)
+        self.assertNotEqual(a, b)
+
+    def test_extended_swap_between_rows_that_tie_on_every_field(self):
+        a = self._hash(_bound_rows("one", "two"), extended=True)
+        b = self._hash(_bound_rows("two", "one"), extended=True)
+        self.assertNotEqual(a, b)
+
+    def test_pipe_in_a_field_cannot_hide_a_swap(self):
+        for extended in (False, True):
+            with self.subTest(extended=extended):
+                a = self._hash(_pipe_rows("one", "two"), extended=extended)
+                b = self._hash(_pipe_rows("two", "one"), extended=extended)
+                self.assertNotEqual(a, b)
+
+    def test_row_order_does_not_change_the_hash(self):
+        rows = _bound_rows("one", "two")
+        for extended in (False, True):
+            with self.subTest(extended=extended):
+                self.assertEqual(
+                    self._hash(rows, extended=extended),
+                    self._hash(rows[::-1], extended=extended),
+                )
 
 
 if __name__ == "__main__":

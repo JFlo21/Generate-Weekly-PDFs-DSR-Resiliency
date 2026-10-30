@@ -258,8 +258,9 @@ def canonical_foreman(group_rows: list[dict]) -> Any:
 
 def _legacy_row_identity(row: dict) -> str:
     """Row identity for the legacy-mode notes digest: the legacy hash's own
-    fields, so two rows differing only by note stay distinguishable."""
-    return "|".join((
+    fields, so two rows differing only by note stay distinguishable. ``repr``
+    keeps a ``|`` inside a field from colliding with a field boundary."""
+    return repr((
         str(row.get('Work Request #', '')),
         str(row.get('CU', '')),
         str(row.get('Quantity', '')),
@@ -528,7 +529,7 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     # and _extended_row_fields are deliberately untouched.
     _notes_token = _fn.group_notes_token(
         sorted_rows,
-        lambda r: "|".join(_extended_row_fields(r, group_variant)),
+        lambda r: repr(_extended_row_fields(r, group_variant)),
     )
     if _notes_token:
         meta_parts.append(f"NOTES_FP={_notes_token}")
