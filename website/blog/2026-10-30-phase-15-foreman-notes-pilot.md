@@ -26,7 +26,7 @@ The owner asked for field notes and the colours the foremen see in Smartsheet to
 ## How it affects you
 
 - **Nothing changes in production until the upload switch is approved.** `FOREMAN_NOTES_UPLOAD` defaults to off, and `FOREMAN_NOTES_PILOT_GFS` defaults to empty (zero pilot groups).
-- **New settings:** `FOREMAN_NOTES_SCOPE` (`off`/`pilot`/`all`, default `pilot`), `FOREMAN_NOTES_PILOT_GFS`, `FOREMAN_NOTES_UPLOAD`, `FOREMAN_NOTES_GF_WR_COLUMN_ID`, `FOREMAN_NOTES_GF_COLUMN_ID`. The allowlist lives in a local `.env` or a repository variable, never in the repository. See [Foreman Notes pilot](/docs/reference/environment#foreman-notes-pilot).
+- **New settings:** `FOREMAN_NOTES_SCOPE` (`off`/`pilot`/`all`, default `pilot`), `FOREMAN_NOTES_PILOT_GFS`, `FOREMAN_NOTES_UPLOAD`, `FOREMAN_NOTES_GF_WR_COLUMN_ID`, `FOREMAN_NOTES_GF_COLUMN_ID`. The allowlist lives in a local `.env` or a repository secret, never in the repository. See [Foreman Notes pilot](/docs/reference/environment#foreman-notes-pilot).
 - **Rehearse first.** Run the dry run on your own machine; the exact command and what to check are on the [runbook page](/docs/runbook/foreman-notes-pilot#dry-run-do-this-first). If a pipeline_memory write flag is left on, the dry run falls back to today's output with one WARNING; that is the guard, not a bug.
 - **At rollout** (a separate, approved workflow change): every pilot GF file is re-sent once and every source sheet takes one full validation (mapping marker `helper2-v1+fn1`), so expect a longer first run.
 - **Rollback:** `FOREMAN_NOTES_SCOPE=off`. The next run re-validates once and pilot files regenerate in today's shape.

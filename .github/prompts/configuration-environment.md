@@ -48,9 +48,10 @@ on the Smartsheet-sourced cells; every other workbook is cell-identical to today
   with one WARNING). This is the CONFIGURED scope; the EFFECTIVE scope is resolved as below.
 - `FOREMAN_NOTES_PILOT_GFS` — comma-separated General Foreman allowlist, matched case- and
   whitespace-insensitively; a name that itself contains a comma is unsupported. The code default is
-  EMPTY (zero pilot groups, fail-closed). The value is set in env / a repository variable and is never
+  EMPTY (zero pilot groups, fail-closed). The value is set in env / a repository secret and is never
   written into this repository: the operator's local `.env` for the dry run (loaded by the facade's
-  `load_dotenv()`, never committed), a GitHub Actions repository variable at rollout.
+  `load_dotenv()`, never committed), the GitHub Actions repository secret `FOREMAN_NOTES_PILOT_GFS`
+  at rollout (a secret, not a variable, so the names are masked in this public repo's run logs).
 - `FOREMAN_NOTES_UPLOAD` (default off; truthy `1`/`true`/`yes`/`on`) — the rollout switch. Pilot output
   reaches the pre-planned pricing sheet only when this is on.
 - `FOREMAN_NOTES_GF_WR_COLUMN_ID` / `FOREMAN_NOTES_GF_COLUMN_ID` (defaults `5180541294563204` /
@@ -75,8 +76,8 @@ TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<pilot WR> RUN_MEMORY_WRITE_ENABLED=0 
 ```
 
 *Rollout and rollback.* Turning `FOREMAN_NOTES_UPLOAD` on in the scheduled cron is a separate, explicitly
-approved workflow env change (not part of Phase 15): it also creates the `FOREMAN_NOTES_PILOT_GFS`
-repository variable and passes it to the job env. Enabling re-sends every pilot GF file once (notes-only
+approved workflow env change (not part of Phase 15): it passes the `FOREMAN_NOTES_PILOT_GFS`
+repository secret (created 2026-10-29) to the job env as `${{ secrets.FOREMAN_NOTES_PILOT_GFS }}`. Enabling re-sends every pilot GF file once (notes-only
 edits then re-send; colour-only edits never do) and makes every source sheet take one full validation
 (mapping marker `helper2-v1+fn1`). Rollback: `FOREMAN_NOTES_SCOPE=off` (or switch the upload variable
 off); the next run re-validates once and pilot files regenerate in today's shape.
