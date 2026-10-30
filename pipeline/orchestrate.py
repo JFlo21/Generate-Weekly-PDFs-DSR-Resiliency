@@ -1794,6 +1794,7 @@ def _regen_debt_finish_kwargs(
     debt_unknown: bool,
     inherited_unknown: bool = False,
     coverage_complete: bool = True,
+    excluded_groups: 'set[Any] | frozenset[Any]' = frozenset(),
 ) -> dict[str, Any]:
     """``run_ledger_finish`` kwargs carrying this run's regeneration debt
     (Phase 11 Plan 12, G-11-37 mechanism B) for a run that FINISHED.
@@ -1802,8 +1803,10 @@ def _regen_debt_finish_kwargs(
     unchanged, uploaded (or already matched), or is never observable
     (generated but withheld / no target-sheet row) -- the same
     never-observable set ``_shadow_parity_input_sets`` drops. Anything else
-    (upload failed, group never reached because the time budget stopped
-    the loop, ``skip_upload``) stays debt. *inherited_unknown*: the debt
+    (upload failed, generation error, group never reached because the time
+    budget stopped the loop, ``skip_upload``) stays debt -- for every group
+    this run built, inside the candidate set or not, except
+    *excluded_groups* (quarantined WR collisions). *inherited_unknown*: the debt
     this run started from was itself unknowable, so every group pair of
     this run is treated as pending too (a stranded group outside the
     candidate must still be carried if it is not confirmed).
@@ -1834,13 +1837,16 @@ def _regen_debt_finish_kwargs(
         pending = set(candidate_pairs)
         if inherited_unknown:
             pending |= set(group_pairs.values())
-        # PR #435 (Codex P2): a group regenerated outside the candidate
-        # (missing attachment, group-hash global change) whose upload was
-        # attempted but not confirmed is still owed a regeneration.
-        attempted = uploadable | set(upload_ok)
+        # PR #435 follow-up (Codex P2): every group this run built but did
+        # not confirm is owed a regeneration -- a failed upload, a
+        # generation error, or a group the time budget never reached --
+        # even outside the candidate set (attachment repair, group-hash
+        # globals change). *excluded_groups* (quarantined WR-collision
+        # groups) are left out: no run regenerates them until the source
+        # data is fixed, so carrying them would never clear.
         pending |= {
-            group_pairs[gk] for gk in attempted - confirmed
-            if gk in group_pairs
+            pair for gk, pair in group_pairs.items()
+            if gk not in confirmed and gk not in excluded_groups
         }
         carried = _memory_candidate.unconfirmed_pairs(
             pending, group_pairs, confirmed, scoped,
@@ -2872,6 +2878,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # Set-membership records only; no control flow reads them in the loop.
     _mem_confirmed_skip_keys = set()
     _mem_attachment_repair_keys = set()
+    # Groups skipped for a sanitized-WR collision (never regenerable this
+    # run); left out of the finish-time regeneration debt.
+    _mem_quarantined_group_keys = set()
     _mem_group_upload_ok = {}
     # PR #435 feedback: True once MAX_GROUPS truncates ``groups`` -- the
     # finish hook then cannot clear debt from the (incomplete) map.
@@ -4351,6 +4360,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         f"above for the full raw-value list)."
                     )
                     _groups_skipped += 1
+                    _mem_quarantined_group_keys.add(group_key)
                     continue
                 # CR-01 gap closure (Site 1 — main-loop identifier /
                 # history_key / file_identifier): the identity is the ONE
@@ -6080,6 +6090,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             _fetch.get_last_full_read_failed_sheet_ids(),
                             RES_GROUPING_MODE,
                         ),
+                        excluded_groups=_mem_quarantined_group_keys,
                     ))
                 except Exception:
                     _finish_kwargs.update(

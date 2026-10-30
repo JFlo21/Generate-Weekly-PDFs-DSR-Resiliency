@@ -1199,6 +1199,51 @@ class PR435BotFollowupTests(unittest.TestCase):
         )
         self.assertEqual(out["regen_debt_pairs"], [])
 
+    def test_generation_error_outside_candidate_is_carried(self):
+        """Codex P2 follow-up: a group outside the candidate set that
+        failed in generation has no upload task and no skip; it is still
+        owed a regeneration."""
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={"g9": _group("9", "2026-11-08")},
+            skip_keys=set(),
+        )
+        self.assertEqual(
+            [tuple(p) for p in out["regen_debt_pairs"]],
+            [("9", "2026-11-08")],
+        )
+        self.assertFalse(out["regen_debt_unknown"])
+
+    def test_group_never_reached_is_carried_unchanged_is_not(self):
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={
+                "reached": _group("1", "2026-11-01"),
+                "unreached": _group("2", "2026-11-08"),
+            },
+            skip_keys={"reached"},
+        )
+        self.assertEqual(
+            [tuple(p) for p in out["regen_debt_pairs"]],
+            [("2", "2026-11-08")],
+        )
+
+    def test_quarantined_group_is_not_carried(self):
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={"q": _group("7", "2026-11-08")},
+            skip_keys=set(),
+            excluded_groups={"q"},
+        )
+        self.assertEqual(out["regen_debt_pairs"], [])
+
+    def test_main_records_quarantined_groups_and_passes_them(self):
+        src = inspect.getsource(orch.main)
+        self.assertIn("_mem_quarantined_group_keys.add(group_key)", src)
+        self.assertIn(
+            "excluded_groups=_mem_quarantined_group_keys", src,
+        )
+
     def test_both_finish_sites_union_reconcile_pairs(self):
         # Two finish sites plus the post-reconciliation pending note.
         src = inspect.getsource(orch.main)
