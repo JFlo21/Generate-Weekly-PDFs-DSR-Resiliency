@@ -170,6 +170,54 @@ No TBD/grep for TBD, FIXME, XXX/XXX markers in phase files.
 **Expected:** >= 5 consecutive pass verdicts, zero `actual_not_in_candidate` or other divergence. Record the count in `11-UAT.md` test 37.
 **Why human:** Live production data in Supabase; no credentials on the verifier host, and the value must never be inferred. The earlier blocker (fix not on the cron's branch) is cleared, so the reading can be taken now.
 
+#### G-11-37 Post-Deploy Observation
+
+Recorded 2026-10-30 under plan 11-15 (D-09 as amended 2026-10-29 by the owner, PR #435):
+Phase 11 closes on ONE post-deploy run that passes the billing-impact check; the
+`get_parity_streak()` reading is recorded as-is and is not a gate.
+
+**Task 1: billing-impact check: PASS.** The first production run after #435 (plans
+11-11..11-14) merged to master (squash 4345656, 2026-10-30T05:37:25Z) was the owner's manual
+`workflow_dispatch` run **41013512543** (head d1bff65; ledger run_id `41013512543.1`, full
+mode, `success`, 06:21:08Z to 07:13:34Z). The two runs before it were scheduled runs on
+pre-merge code.
+
+| Run | "Uploaded:" | "Generating Excel file" | "Skip (unchanged" | time-budget stop | `rows_changed` | `groups_generated` | parity |
+|---|---|---|---|---|---|---|---|
+| 41013512543 (post-merge) | 8 | 8 | 3520 | 0 | 6378 | 8 | `skipped` (`regen_debt_unknown`) |
+| 40984589513 | 7 | 7 | 3518 | 0 | 11 | 7 | `pass` |
+| 40971347102 | 10 | 10 | 3513 | 0 | 14 | 10 | `pass` |
+
+- Upload and generated counts (8) sit within the prior range (7 to 10).
+- Every generated group has an ordinary cause. All 83 `row_event` inserts of the run fall on
+  exactly the 7 `(wr, week_ending)` pairs behind the 8 generated files (one WR has a primary and
+  a helper file, all week ending 2026-11-01), so each regenerated because new rows changed its
+  group hash. The re-key touched 3,355 pairs (256,001 `row_event` updates) and regenerated none
+  of them.
+- The only ERROR line is the standing data-entry report (154 groups / 137 WRs with no
+  target-sheet row), which is identical in both prior runs.
+- Expected, not a defect: the one-time `row_state` re-key and a first-run `skipped` verdict.
+  Observation: the ledger's `rows_changed` is 6,378, while `row_event` holds 256,001 update
+  events for the run; 11-11-SUMMARY expected `rows_changed` near the live row count. This is
+  recorded as-is with no billing effect.
+
+**Task 2: streak reading (owner-requested, read-only, recorded as-is).** Taken
+2026-10-30T07:16:29Z via `pipeline_memory.reader.get_parity_streak()`:
+
+```
+{"streak": 0, "rows_examined": 12, "contributing_run_ids": [],
+ "stopped_run_id": "40757294483.1", "stopped_verdict": "fail"}
+```
+
+Not a closing gate (D-09 as amended). The stopping run 40757294483 is a pre-G-11-37-fix run
+(cited as a fixture in 11-12); no post-deploy run failed.
+
+**Context.** 11-13 owner decision (2026-10-29): trigger-6 runs are `skipped`, and `manual`
+runs with `streak_eligible` true keep counting. 11-14 was applied live on 2026-10-29
+(migration 20261029205414). `RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF; its default flip
+remains a separate operator-gated PR (D-11), still blocked by
+`2026-10-29-inc02-incremental-globals-fallback-trigger.md`.
+
 ### Gaps Summary
 
 No open code gaps. Gap 1 stays closed by the owner-accepted override; Gap 2's code fix is on `master`
