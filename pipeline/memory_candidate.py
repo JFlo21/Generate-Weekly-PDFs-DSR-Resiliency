@@ -288,7 +288,7 @@ def unconfirmed_pairs(
         pending = set(pending)
         if not coverage_complete:
             return pending
-        keys_by_pair = {}
+        keys_by_pair: dict[Pair, list[Any]] = {}
         for gk, pair in group_pairs.items():
             if pair in pending:
                 keys_by_pair.setdefault(pair, []).append(gk)

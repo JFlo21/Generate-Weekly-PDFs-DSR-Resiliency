@@ -727,7 +727,7 @@ def build_reaudited_pairs(
         week_ending = _week_ending_iso(row.get("Weekly Reference Logged Date"))
         rows_by_pair.setdefault((wr, week_ending), []).append(index)
 
-    pairs = []
+    pairs: list[dict[str, Any]] = []
     for check_id in executed:
         if eligible_row_indices is None:
             check_pairs = list(rows_by_pair)

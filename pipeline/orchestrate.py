@@ -1904,7 +1904,7 @@ def _shadow_fallback_skip(
     last_run_status: dict[str, Any] | None,
     ledger_rows: list[dict[str, Any]] | None,
     current_fp: str,
-) -> dict[str, str] | None:
+) -> dict[str, str | None] | None:
     """Shadow skip decision for runs the incremental path would not run.
 
     Phase 11 Plan 13 (G-11-37, owner decision 2026-10-29): returns
