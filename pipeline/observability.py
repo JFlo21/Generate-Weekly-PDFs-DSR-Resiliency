@@ -179,6 +179,16 @@ def _strip_frame_vars(event: Any, hint: Any = None) -> Any:
     return event
 
 
+# Events whose frames hold raw source-row data. Phase 15 (PR #436):
+# ``sheet_row_processing`` fires while ``row_data`` may carry the free-text
+# ``Foreman Notes`` cell, and SENTRY_ENABLE_LOGS=false does not cover
+# exception events.
+_FRAME_SCRUB_LOCATIONS = frozenset({
+    "discovery_sheet_drop",
+    "sheet_row_processing",
+})
+
+
 def _scrub_sheet_drop_frame_vars(event: Any) -> Any:
     """``before_send`` hook: strip frame-local ``vars`` from the discovery
     sheet-drop event ONLY.
@@ -189,7 +199,8 @@ def _scrub_sheet_drop_frame_vars(event: Any) -> Any:
     thread-stacktrace ``vars`` that ``attach_stacktrace=True`` adds only exist
     at ``before_send`` time, after scope processors have run.
     """
-    if (event.get("tags") or {}).get("error_location") == "discovery_sheet_drop":
+    _location = (event.get("tags") or {}).get("error_location")
+    if _location in _FRAME_SCRUB_LOCATIONS:
         _strip_frame_vars(event)
     return event
 

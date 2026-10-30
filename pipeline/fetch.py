@@ -39,6 +39,7 @@ from pipeline.config import (
     PARALLEL_WORKERS,
     PER_CELL_DEBUG_ENABLED,
 )
+from pipeline import foreman_notes as _fn
 from pipeline.types import normalize_helper_value
 from pipeline.retry import smartsheet_call_with_retry
 from pipeline.pricing import (
@@ -681,6 +682,10 @@ def get_all_source_rows(client, source_sheets):
                         logging.info(f"🔍 DEBUG: Processing row with {len(row.cells)} cells (sheet row #{sheet_row_counter+1})")
                         for cell in row.cells:
                             mapped_name = reverse_column_map.get(cell.column_id)
+                            # Phase 15 (PR #436): free-text notes never
+                            # reach the per-cell debug log.
+                            if mapped_name == _fn.NOTES_KEY:
+                                continue
                             if mapped_name:
                                 val = cell.display_value if cell.display_value is not None else cell.value
                                 if val is not None:

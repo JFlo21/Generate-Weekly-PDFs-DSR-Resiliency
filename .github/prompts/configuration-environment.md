@@ -72,7 +72,7 @@ always `off`.
 honoured only with `TEST_MODE`:
 
 ```bash
-TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<pilot WR> RUN_MEMORY_WRITE_ENABLED=0 SUPABASE_HASH_STORE_WRITE_ENABLED=0 PYTHONUTF8=1 python generate_weekly_pdfs.py
+TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<pilot WR> RUN_MEMORY_WRITE_ENABLED=0 AUDIT_MEMORY_ENABLED=0 SUPABASE_HASH_STORE_WRITE_ENABLED=0 PYTHONUTF8=1 python generate_weekly_pdfs.py
 ```
 
 *Rollout and rollback.* Turning `FOREMAN_NOTES_UPLOAD` on in the scheduled cron is a separate, explicitly

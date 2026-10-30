@@ -256,6 +256,19 @@ def canonical_foreman(group_rows: list[dict]) -> Any:
         canonical_sorted_rows(group_rows, extended=True))
 
 
+def _legacy_row_identity(row: dict) -> str:
+    """Row identity for the legacy-mode notes digest: the legacy hash's own
+    fields, so two rows differing only by note stay distinguishable."""
+    return "|".join((
+        str(row.get('Work Request #', '')),
+        str(row.get('CU', '')),
+        str(row.get('Quantity', '')),
+        str(row.get('Snapshot Date', '')),
+        str(row.get('Pole #', '')),
+        str(row.get('Work Type', '')),
+    ))
+
+
 def calculate_data_hash(group_rows: list[dict]) -> str:
     """Calculate a hash of the group data to detect changes.
 
@@ -269,7 +282,9 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         Uses original minimal fields so hash stability is preserved for rollbacks.
 
     Phase 15: for General Foreman PILOT groups the extended path also mixes
-    a NOTES_FP meta token (Foreman Notes digest); the legacy path is untouched.
+    a NOTES_FP meta token (Foreman Notes digest). The legacy path appends
+    the same token after its per-row bytes; off / non-pilot groups are
+    byte-identical in both modes.
 
     Extended (default):
         Incorporates additional business-critical fields so regenerated Excel
@@ -382,6 +397,14 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
                 f"{is_checked(row.get('Units Completed?'))}"  # CRITICAL: Include completion status
             )
             hasher.update(row_data.encode('utf-8'))
+        # Phase 15 (PR #436): pilot groups carry the notes digest in
+        # legacy mode too; '' for off / non-pilot keeps their hash
+        # byte-identical.
+        _legacy_notes = _fn.group_notes_token(
+            sorted_rows, _legacy_row_identity,
+        )
+        if _legacy_notes:
+            hasher.update(f"\nNOTES_FP={_legacy_notes}".encode('utf-8'))
         return hasher.hexdigest()[:16]
 
     # Extended mode: Use incremental hashing

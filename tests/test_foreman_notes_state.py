@@ -199,10 +199,11 @@ class LoadGfMapTests(unittest.TestCase):
         self.assertNotIn('90003', got)
         self.assertEqual(got['90004'], 'avery example')
 
-    def test_short_read_warns(self):
+    def test_short_read_warns_and_fails_closed(self):
         client = _client(_sheet([_row('90003', 'Avery Example')], total=5))
         with self.assertLogs(level='WARNING'):
-            fn.load_gf_map(client, SHEET, WR_COL, GF_COL)
+            got = fn.load_gf_map(client, SHEET, WR_COL, GF_COL)
+        self.assertIsNone(got)
 
 
 class InitializeTests(unittest.TestCase):

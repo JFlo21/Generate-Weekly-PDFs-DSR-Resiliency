@@ -90,7 +90,7 @@ pilot groups. `WR_FILTER` is honoured only together with `TEST_MODE`, and
 `TEST_MODE` with a real token still performs real reads.
 
 ```bash
-TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<pilot WR> RUN_MEMORY_WRITE_ENABLED=0 SUPABASE_HASH_STORE_WRITE_ENABLED=0 PYTHONUTF8=1 python generate_weekly_pdfs.py
+TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<pilot WR> RUN_MEMORY_WRITE_ENABLED=0 AUDIT_MEMORY_ENABLED=0 SUPABASE_HASH_STORE_WRITE_ENABLED=0 PYTHONUTF8=1 python generate_weekly_pdfs.py
 ```
 
 Nothing is uploaded and nothing is written to Supabase. Open the workbook in

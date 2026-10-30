@@ -266,10 +266,14 @@ def load_gf_map(
         rows = getattr(sheet, "rows", None) or []
         total = getattr(sheet, "total_row_count", len(rows))
         if isinstance(total, int) and len(rows) < total:
+            # PR #436: a partial read could hide a WR's second General
+            # Foreman, so the lookup fails closed (no pilot groups).
             logging.warning(
-                "Foreman notes: GF lookup read %d of %d rows (unknown WRs are non-pilot)",
+                "Foreman notes: GF lookup read %d of %d rows; "
+                "no pilot groups",
                 len(rows), total,
             )
+            return None
         seen: dict[str, set] = {}
         for row in rows:
             wr = gf = None
@@ -574,6 +578,10 @@ def attach_group_styles(client: Any, group_rows: Any, sheet_maps: dict) -> int:
                         "Foreman notes: style fetch failed (%s) for %d rows",
                         type(exc).__name__, len(chunk),
                     )
+                # PR #436: a failed or omitted row is cached as plain, so
+                # a row shared by several variant groups is fetched once.
+                for rid in chunk:
+                    _STYLE_CACHE.setdefault((sheet_id, int(rid)), None)
         attached = 0
         for row in group_rows:
             key = _cache_key(row)

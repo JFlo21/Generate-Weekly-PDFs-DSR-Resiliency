@@ -405,7 +405,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **FN-02**: The pilot is selected by a separate comma-separated General Foreman allowlist
   setting with NO name default in code (empty default = zero pilot groups, fail-closed, logged
   as a count only). The three pilot GFs (aliases GF-1, GF-2, GF-3) are supplied only via the
-  local `.env` for the dry run and a GitHub Actions repository variable at rollout - public-repo
+  local `.env` for the dry run and a GitHub Actions repository secret at rollout - public-repo
   identifier rule, living ledger `[2026-08-27 21:10]` / `[2026-08-28 18:45]` (D-15-02).
 
 - [x] **FN-03**: The General Foreman is resolved once per run from the `General Foreman` column
