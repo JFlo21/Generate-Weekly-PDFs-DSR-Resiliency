@@ -64,6 +64,20 @@
   width: auto;
 }
 
+/* The navbar stays near-black in both colour modes, so everything inside it
+   needs light-on-dark colours: the stock light-mode ones are dark on dark.
+   This covers the menu button, the theme toggle and the mobile menu. */
+.navbar {
+  --ifm-menu-color: var(--ifm-navbar-link-color);
+  /* The active link sits on the chip below, so this has to clear AA there. */
+  --ifm-menu-color-active: #f17285;
+  --ifm-menu-color-background-active: rgba(255, 255, 255, 0.08);
+  --ifm-menu-color-background-hover: rgba(255, 255, 255, 0.08);
+  --ifm-menu-link-sublist-icon-filter: invert(100%) sepia(94%) saturate(17%)
+    hue-rotate(223deg) brightness(104%) contrast(98%);
+  color: var(--ifm-navbar-link-color);
+}
+
 /* Keep the title text readable alongside the logo on the dark navbar. */
 .navbar__title {
   color: var(--ifm-navbar-link-color);
