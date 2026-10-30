@@ -128,7 +128,7 @@ def row_group_hash_fingerprint(row: dict) -> str:
         # predicate -- a third element only for PILOT rows, so off /
         # non-pilot fingerprints stay byte-identical.
         notes = _fn.row_notes_component(row)
-        payload = [fields, derivation] if notes is None else [
+        payload: list[Any] = [fields, derivation] if notes is None else [
             fields, derivation, notes,
         ]
         canonical = json.dumps(
