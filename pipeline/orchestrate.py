@@ -730,6 +730,15 @@ def _run_memory_write_phase(
         )
         return result
 
+    # Phase 15 (T-15-27): a dry-run pilot must never persist pilot-flavoured
+    # state. Inside the existing gate above, so this never evaluates (and
+    # never logs) when the write is already disabled.
+    if _fn.memory_write_blocked('row_state'):
+        result["unconfirmed_reason"] = (
+            "run-memory write blocked (dry-run foreman notes pilot)"
+        )
+        return result
+
     _phase_start = datetime.datetime.now()
 
     # Pre-flight sub-budget guard -- mirrors the attachment pre-fetch
@@ -1716,6 +1725,10 @@ def _note_pending_regen_pairs(
     this run's row (PR #435 feedback); a False makes the finish hooks
     mark the debt UNKNOWN. Fail-open: never raises, one WARNING.
     """
+    # Phase 15 (T-15-27): caller-gated (main()'s RUN_MEMORY_WRITE_ENABLED and
+    # not TEST_MODE gate); the guard never evaluates when that gate is closed.
+    if _fn.memory_write_blocked('run_ledger'):
+        return False
     try:
         pairs_json, overflow = _memory_candidate.pairs_to_json(
             candidate_pairs
@@ -2418,6 +2431,11 @@ def _reconcile_deep_run_deletions(
         "affected_pairs": set(),
     }
 
+    # Phase 15 (T-15-27): caller-gated (deep-run gate in main() requires
+    # RUN_MEMORY_WRITE_ENABLED and not TEST_MODE); never evaluates otherwise.
+    if _fn.memory_write_blocked('row_state'):
+        return result
+
     for sheet in source_sheets:
         sheet_id = sheet.get("id")
         if sheet_id in failed_sheet_ids:
@@ -2558,6 +2576,10 @@ def _run_audit_memory_phase(
     result: dict[str, Any] = {"findings_emitted": 0, "rpc_result": None}
 
     if not (AUDIT_MEMORY_ENABLED and audit_results):
+        return result
+
+    # Phase 15 (T-15-27): inside the AUDIT_MEMORY_ENABLED gate above.
+    if _fn.memory_write_blocked('audit_findings'):
         return result
 
     _mem_audit_findings.reset_counters()
@@ -3171,11 +3193,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _mem_ledger_start_at = datetime.datetime.now(
                     datetime.timezone.utc
                 ).isoformat()
-                _mem_ledger_started = _mem_writer.run_ledger_start(
-                    _mem_run_id,
-                    mode=_resolved_mode,
-                    release=os.getenv('SENTRY_RELEASE', '') or '',
-                ) is True
+                if not _fn.memory_write_blocked('run_ledger'):
+                    _mem_ledger_started = _mem_writer.run_ledger_start(
+                        _mem_run_id,
+                        mode=_resolved_mode,
+                        release=os.getenv('SENTRY_RELEASE', '') or '',
+                    ) is True
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory run_ledger_start failed "
@@ -3258,15 +3281,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         _adopted, _watermarks,
                         label="Frequent-run full-validation",
                     )
-                _mem_writer.upsert_sheet_registry(
-                    _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
-                    _fetch.get_last_sheet_versions(),
-                    capture_times=_registry_capture_times,
-                    full_read_sheets=_registry_full_read_ids,
-                    column_mapping_sheets=_registry_mapping_sheets,
-                    watermarks=_watermarks,
-                    mapping_schema_by_sheet=_registry_marker_sheets,
-                )
+                if not _fn.memory_write_blocked('sheet_registry'):
+                    _mem_writer.upsert_sheet_registry(
+                        _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                        _fetch.get_last_sheet_versions(),
+                        capture_times=_registry_capture_times,
+                        full_read_sheets=_registry_full_read_ids,
+                        column_mapping_sheets=_registry_mapping_sheets,
+                        watermarks=_watermarks,
+                        mapping_schema_by_sheet=_registry_marker_sheets,
+                    )
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory sheet_registry upsert (pass 1) "
@@ -3441,11 +3465,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # row; retry a start that was not confirmed once so a
                 # killed run still leaves its pending pairs behind.
                 if not _mem_ledger_started:
-                    _mem_ledger_started = _mem_writer.run_ledger_start(
-                        _mem_run_id,
-                        mode=_resolved_mode,
-                        release=os.getenv('SENTRY_RELEASE', '') or '',
-                    ) is True
+                    if not _fn.memory_write_blocked('run_ledger'):
+                        _mem_ledger_started = _mem_writer.run_ledger_start(
+                            _mem_run_id,
+                            mode=_resolved_mode,
+                            release=os.getenv('SENTRY_RELEASE', '') or '',
+                        ) is True
                 _mem_ledger_noted = _note_pending_regen_pairs(
                     _mem_run_id, _mem_candidate_pairs,
                     _mem_regen_debt is None or _mem_regen_unknown,
@@ -3471,15 +3496,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             try:
                 if _is_deep_run:
                     _log_column_mapping_drift(_registry_sheets, _watermarks)
-                _mem_writer.upsert_sheet_registry(
-                    _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
-                    _fetch.get_last_sheet_versions(),
-                    capture_times=_registry_capture_times,
-                    full_read_sheets=_registry_full_read_ids,
-                    column_mapping_sheets=_registry_mapping_sheets,
-                    watermarks=_watermarks,
-                    mapping_schema_by_sheet=_registry_marker_sheets,
-                )
+                if not _fn.memory_write_blocked('sheet_registry'):
+                    _mem_writer.upsert_sheet_registry(
+                        _registry_sheets, _mem_run_id, _resolve_mem_sheet_kind,
+                        _fetch.get_last_sheet_versions(),
+                        capture_times=_registry_capture_times,
+                        full_read_sheets=_registry_full_read_ids,
+                        column_mapping_sheets=_registry_mapping_sheets,
+                        watermarks=_watermarks,
+                        mapping_schema_by_sheet=_registry_marker_sheets,
+                    )
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory sheet_registry upsert (pass 2) "
@@ -4806,17 +4832,18 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                     group_rows[0].get('__variant', 'primary')
                                     if group_rows else 'primary'
                                 )
-                                _billing_audit_writer.emit_run_fingerprint(
-                                    wr=wr_num,
-                                    week_ending=_week_snap,
-                                    content_hash=_agg_content_hash,
-                                    assignment_fp=_fp,
-                                    completed_count=_completed,
-                                    total_count=len(_agg_fp_rows),
-                                    release=_billing_audit_release_env,
-                                    run_id=_billing_audit_run_id_env,
-                                    variant=_group_variant,
-                                )
+                                if not _fn.memory_write_blocked('billing_audit_hash'):
+                                    _billing_audit_writer.emit_run_fingerprint(
+                                        wr=wr_num,
+                                        week_ending=_week_snap,
+                                        content_hash=_agg_content_hash,
+                                        assignment_fp=_fp,
+                                        completed_count=_completed,
+                                        total_count=len(_agg_fp_rows),
+                                        release=_billing_audit_release_env,
+                                        run_id=_billing_audit_run_id_env,
+                                        variant=_group_variant,
+                                    )
                             _bas.set_data("rows", len(group_rows))
                             _bas.set_data("freeze_candidates", len(_rows_to_freeze))
                             _bas.set_data("variant", variant)
@@ -5690,44 +5717,45 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     SUPABASE_HASH_STORE_WRITE_ENABLED
                     and _deferred_hash_upserts
                 ):
-                    _hashes_flushed = 0
-                    _hashes_withheld = 0
-                    for _rec in _deferred_hash_upserts:
-                        if not _group_upload_ok.get(_rec['group_key']):
-                            _hashes_withheld += 1
-                            if _group_had_error.get(_rec['group_key']):
-                                try:
-                                    _billing_audit_writer.upsert_group_hash(
-                                        _rec['wr_num'], _rec['week_iso'],
-                                        _rec['variant'],
-                                        _rec['identifier'],
-                                        'withheld:' + _rec['data_hash'],
-                                    )
-                                except Exception:
-                                    logging.exception(
-                                        "E hash invalidation failed "
-                                        "(non-fatal)")
-                            continue
-                        try:
-                            _billing_audit_writer.upsert_group_hash(
-                                _rec['wr_num'], _rec['week_iso'],
-                                _rec['variant'], _rec['identifier'],
-                                _rec['data_hash'],
+                    if not _fn.memory_write_blocked('hash_store'):
+                        _hashes_flushed = 0
+                        _hashes_withheld = 0
+                        for _rec in _deferred_hash_upserts:
+                            if not _group_upload_ok.get(_rec['group_key']):
+                                _hashes_withheld += 1
+                                if _group_had_error.get(_rec['group_key']):
+                                    try:
+                                        _billing_audit_writer.upsert_group_hash(
+                                            _rec['wr_num'], _rec['week_iso'],
+                                            _rec['variant'],
+                                            _rec['identifier'],
+                                            'withheld:' + _rec['data_hash'],
+                                        )
+                                    except Exception:
+                                        logging.exception(
+                                            "E hash invalidation failed "
+                                            "(non-fatal)")
+                                continue
+                            try:
+                                _billing_audit_writer.upsert_group_hash(
+                                    _rec['wr_num'], _rec['week_iso'],
+                                    _rec['variant'], _rec['identifier'],
+                                    _rec['data_hash'],
+                                )
+                                _hashes_flushed += 1
+                            except Exception:
+                                logging.exception(
+                                    "E hash write failed (non-fatal)")
+                        if _hashes_withheld:
+                            logging.warning(
+                                f"⚠️ Durable hash withheld for {_hashes_withheld} "
+                                f"group(s) whose upload did not complete — they "
+                                f"will regenerate next run"
                             )
-                            _hashes_flushed += 1
-                        except Exception:
-                            logging.exception(
-                                "E hash write failed (non-fatal)")
-                    if _hashes_withheld:
-                        logging.warning(
-                            f"⚠️ Durable hash withheld for {_hashes_withheld} "
-                            f"group(s) whose upload did not complete — they "
-                            f"will regenerate next run"
+                        logging.info(
+                            f"🧾 Durable hash store: {_hashes_flushed} flushed, "
+                            f"{_hashes_withheld} withheld"
                         )
-                    logging.info(
-                        f"🧾 Durable hash store: {_hashes_flushed} flushed, "
-                        f"{_hashes_withheld} withheld"
-                    )
 
                 # Phase 10 (MEM-01/MEM-03): group_state flush -- THIRD and
                 # LAST, placed after both existing flushes so it can never
@@ -5748,47 +5776,48 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     # flushes above from having already completed (T-10-11
                     # -- they execute strictly before this block in source
                     # order, so they are unaffected either way).
-                    try:
-                        _mem_group_records, _mem_group_withheld = (
-                            _build_group_state_flush(
-                                _deferred_group_state, _group_upload_ok,
-                                _upload_tasks, _mem_attachment_side_channel,
-                            )
-                        )
-                        # Phase 11 Plan 08 (INC-05, D-12): history_updates
-                        # (frozen run_summary.json key) previously counted
-                        # local hash-history JSON cache entries actually
-                        # written after upload success; group_state.content_hash
-                        # is now that record, so the count moves here -- one per
-                        # group _build_group_state_flush determined should
-                        # be persisted (mirrors the retired json write,
-                        # which also counted on the decision, not on a
-                        # disk-write success check).
-                        history_updates += len(_mem_group_records)
-                        if _mem_group_withheld:
-                            _mem_writer.bump_group_state_withheld(
-                                _mem_group_withheld
-                            )
+                    if not _fn.memory_write_blocked('group_state'):
                         try:
-                            _mem_writer.upsert_group_state(
-                                _mem_group_records, _mem_run_id,
+                            _mem_group_records, _mem_group_withheld = (
+                                _build_group_state_flush(
+                                    _deferred_group_state, _group_upload_ok,
+                                    _upload_tasks, _mem_attachment_side_channel,
+                                )
+                            )
+                            # Phase 11 Plan 08 (INC-05, D-12): history_updates
+                            # (frozen run_summary.json key) previously counted
+                            # local hash-history JSON cache entries actually
+                            # written after upload success; group_state.content_hash
+                            # is now that record, so the count moves here -- one per
+                            # group _build_group_state_flush determined should
+                            # be persisted (mirrors the retired json write,
+                            # which also counted on the decision, not on a
+                            # disk-write success check).
+                            history_updates += len(_mem_group_records)
+                            if _mem_group_withheld:
+                                _mem_writer.bump_group_state_withheld(
+                                    _mem_group_withheld
+                                )
+                            try:
+                                _mem_writer.upsert_group_state(
+                                    _mem_group_records, _mem_run_id,
+                                )
+                            except Exception:
+                                logging.warning(
+                                    "⚠️ pipeline_memory group_state flush "
+                                    "failed unexpectedly (non-fatal); "
+                                    "group_state not written this run."
+                                )
+                            logging.info(
+                                f"🧾 group_state: {len(_mem_group_records)} "
+                                f"flushed, {_mem_group_withheld} withheld"
                             )
                         except Exception:
                             logging.warning(
                                 "⚠️ pipeline_memory group_state flush "
-                                "failed unexpectedly (non-fatal); "
+                                "computation failed unexpectedly (non-fatal); "
                                 "group_state not written this run."
                             )
-                        logging.info(
-                            f"🧾 group_state: {len(_mem_group_records)} "
-                            f"flushed, {_mem_group_withheld} withheld"
-                        )
-                    except Exception:
-                        logging.warning(
-                            "⚠️ pipeline_memory group_state flush "
-                            "computation failed unexpectedly (non-fatal); "
-                            "group_state not written this run."
-                        )
 
         # Validation summary
         summaries = validate_group_totals(groups)
@@ -6164,7 +6193,8 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _finish_kwargs["mem_deep_run_rows_deleted"] = (
                         _reconcile_rows_marked_deleted
                     )
-                _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
+                if not _fn.memory_write_blocked('run_ledger'):
+                    _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory run_ledger_finish failed "
@@ -6544,7 +6574,8 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _finish_kwargs["mem_deep_run_rows_deleted"] = (
                         _reconcile_rows_marked_deleted
                     )
-                _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
+                if not _fn.memory_write_blocked('run_ledger'):
+                    _mem_writer.run_ledger_finish(_mem_run_id, **_finish_kwargs)
             except Exception as _mem_exc:
                 logging.warning(
                     "⚠️ pipeline_memory run_ledger_finish (failure path) "
