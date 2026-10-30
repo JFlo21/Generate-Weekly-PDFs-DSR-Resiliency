@@ -1111,5 +1111,58 @@ class LedgerStartConfirmationOrchestrateTests(unittest.TestCase):
         self.assertEqual(src.count("_ledger_start_fallback_kwargs("), 2)
 
 
+
+class PR435BotFollowupTests(unittest.TestCase):
+    """PR #435 bot-thread follow-ups: inherited unknown debt survives an
+    incomplete run, and deep-run deletion pairs join the carried debt."""
+
+    def _kw(self, **over):
+        base = dict(
+            candidate_pairs={("1", "2026-11-01")},
+            groups={"g1": _group("1", "2026-11-01")},
+            skip_keys={"g1"},
+            upload_ok={},
+            deferred_records=[],
+            upload_tasks=[],
+            no_target_groups=set(),
+            scoped=False,
+            debt_unknown=False,
+        )
+        base.update(over)
+        return orch._regen_debt_finish_kwargs(**base)
+
+    def test_inherited_unknown_with_incomplete_coverage_stays_unknown(self):
+        out = self._kw(inherited_unknown=True, coverage_complete=False)
+        self.assertTrue(out["regen_debt_unknown"])
+
+    def test_inherited_unknown_with_complete_coverage_becomes_known(self):
+        out = self._kw(inherited_unknown=True, coverage_complete=True)
+        self.assertFalse(out["regen_debt_unknown"])
+
+    def test_known_debt_with_incomplete_coverage_stays_known(self):
+        out = self._kw(inherited_unknown=False, coverage_complete=False)
+        self.assertFalse(out["regen_debt_unknown"])
+
+    def test_reconcile_pair_with_failed_upload_is_carried(self):
+        out = self._kw(
+            candidate_pairs={("1", "2026-11-01"), ("2", "2026-11-08")},
+            groups={
+                "g1": _group("1", "2026-11-01"),
+                "g2": _group("2", "2026-11-08"),
+            },
+            skip_keys={"g1"},
+            upload_ok={"g2": False},
+        )
+        self.assertEqual(
+            [tuple(p) for p in out["regen_debt_pairs"]],
+            [("2", "2026-11-08")],
+        )
+
+    def test_both_finish_sites_union_reconcile_pairs(self):
+        src = inspect.getsource(orch.main)
+        self.assertEqual(
+            src.count("_mem_candidate_pairs | _reconcile_affected_pairs"), 2,
+        )
+
 if __name__ == "__main__":
     unittest.main()

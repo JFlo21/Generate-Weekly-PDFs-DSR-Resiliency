@@ -24,10 +24,12 @@ run and its `last_seen_run` is not bumped.
 
 Such findings are left untouched and are never closed:
 
-- An incremental (scoped) run closes nothing at all
-  (`closing_row_indices(..., scope_row_indices=...)` returns `None` for every
-  check): no WR is known complete, and the RPC matches a `week_ending IS NULL`
-  finding against any re-audited week of its WR.
+- An incremental (scoped) run persists and closes nothing at all:
+  `_run_audit_memory_phase` returns before building payloads, because no WR is
+  known complete -- a partial WR pool can raise a false price-variance finding or
+  resolve a different week, and the RPC matches a `week_ending IS NULL` finding
+  against any re-audited week of its WR. (`closing_row_indices(...,
+  scope_row_indices=...)` also returns `None` for every check, as a second guard.)
 - A full run sends a check's pairs for a WR only when that check evaluated every
   row of the WR (`build_reaudited_pairs`, WR-complete rule).
 - The RPC's `fixed` branch is a JOIN against `p_reaudited_pairs`, so a group with

@@ -291,8 +291,9 @@ stays open after any of these, and closes on the next full run that
 checks the whole WR:
 
 - the run was incremental (`RUN_MEMORY_INCREMENTAL_ENABLED`, a weekday
-  `production_frequent` run): incremental runs record and refresh
-  findings but never close any, for every check;
+  `production_frequent` run): incremental runs read only some sheets, so
+  they neither record nor close findings (the log says `Audit-memory:
+  incremental run -- findings not persisted`);
 - the run's audit reported an error, or the check was switched off or
   failed part-way;
 - the check could not evaluate one of the WR's rows (no rate for the CU,
@@ -300,8 +301,9 @@ checks the whole WR:
 - a source sheet's read failed or was partial.
 
 Every other run type (the Monday `weekly_comprehensive` deep run,
-weekend and manual runs) is a full run, so open findings are re-checked
-at least weekly. Each run logs one `🧮 Audit-memory counters:` line
+weekend and manual runs) is a full run, so findings are recorded and
+re-checked at least weekly. Today `RUN_MEMORY_INCREMENTAL_ENABLED` is
+off, so every run is a full run. Each run logs one `🧮 Audit-memory counters:` line
 (counts only) showing how many findings were dropped or skipped and
 whether the upsert failed.
 

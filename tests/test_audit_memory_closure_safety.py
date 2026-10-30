@@ -373,6 +373,31 @@ def test_incremental_scope_closes_nothing_for_any_check():
     assert _hook_pairs(rows, _FULL_COVERAGE_3, candidate) == []
 
 
+def test_incremental_run_persists_nothing():
+    """PR #435 (bot thread): a partial WR pool can raise a false
+    price-variance finding or resolve a different week, so a scoped run
+    neither builds payloads nor calls the RPC."""
+    rows = [_row(wr="111", __source_sheet_id=1)]
+    audit_results = {"data_integrity_issues": [{
+        "type": "data_consistency_issue", "row_index": 0,
+        "work_request": "111", "issues": ["Missing CU"],
+        "severity": "low",
+    }]}
+    with mock.patch.object(orchestrate, "AUDIT_MEMORY_ENABLED", True),          mock.patch.object(
+             orchestrate._mem_audit_findings, "build_finding_payloads",
+         ) as mock_build,          mock.patch.object(
+             orchestrate._mem_audit_findings, "upsert_audit_findings",
+         ) as mock_upsert:
+        result = orchestrate._run_audit_memory_phase(
+            audit_results, rows, "run-1",
+            audit_coverage=_FULL_COVERAGE_3,
+            scope_pairs={orchestrate._resolve_row_wr_week(rows[0])},
+        )
+    assert not mock_build.called
+    assert not mock_upsert.called
+    assert result["rpc_result"] is None
+
+
 def test_closing_row_indices_scoped_run_is_none_for_every_check():
     eligible = audit_findings.closing_row_indices(
         _FULL_COVERAGE_3, scope_row_indices=[0],

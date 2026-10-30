@@ -1842,7 +1842,12 @@ def _regen_debt_finish_kwargs(
         return {
             "regen_debt_pairs": pairs_json,
             "regen_debt_overflow": overflow,
-            "regen_debt_unknown": bool(debt_unknown),
+            # PR #435: inherited unknown debt cannot be cleared by a run
+            # whose groups map is incomplete -- a stranded pair on an
+            # unread sheet would otherwise drop out of the debt for good.
+            "regen_debt_unknown": bool(debt_unknown) or (
+                bool(inherited_unknown) and not coverage_complete
+            ),
         }
     except Exception:  # noqa: BLE001 - never-raise; unknown is safe
         return {
@@ -2474,9 +2479,11 @@ def _run_audit_memory_phase(
     - *scope_pairs* (incremental mode only: the run's candidate
       ``(wr, week)`` pairs, ``_resolve_row_wr_week`` form) marks a scoped
       run: PHASE 2b read only the candidates' sheets, so no WR is known
-      complete and NOTHING closes (a ``week_ending IS NULL`` finding
-      matches any re-audited week of its WR in the RPC). Findings are
-      still upserted. ``None`` (full mode) closes per WR-complete pairs.
+      complete. Nothing is upserted or closed (a partial WR pool can
+      raise a false price-variance finding or resolve a different
+      week, and a ``week_ending IS NULL`` finding matches any re-audited
+      week of its WR in the RPC). ``None`` (full mode) upserts and closes
+      per WR-complete pairs.
       Open findings are re-checked on the next full run (follow-up:
       .planning/todos/pending/
       2026-10-29-audit-memory-open-findings-incremental-recheck.md).
@@ -2503,18 +2510,23 @@ def _run_audit_memory_phase(
             _mem_audit_findings.record_non_authoritative_audit()
             return result
 
+        if scope_pairs is not None:
+            # PR #435: an incremental run read only the candidates'
+            # sheets, so a WR's rows may be partial. Payload week
+            # resolution and the WR-pooled price check need the whole
+            # WR, so nothing is persisted or closed; the next full run
+            # (at least the weekly deep run) records and closes.
+            logging.info(
+                "🧮 Audit-memory: incremental run -- findings not "
+                "persisted (full runs record and close)."
+            )
+            return result
+
         payloads = _mem_audit_findings.build_finding_payloads(
             audit_results, all_rows, run_id,
         )
-        scope_row_indices = None
-        if scope_pairs is not None:
-            scope_row_indices = [
-                index for index, row in enumerate(all_rows)
-                if _resolve_row_wr_week(row) in scope_pairs
-            ]
         eligible = _mem_audit_findings.closing_row_indices(
             audit_coverage if source_read_complete else None,
-            scope_row_indices=scope_row_indices,
         )
         reaudited_pairs = _mem_audit_findings.build_reaudited_pairs(
             all_rows, _mem_audit_findings.executed_checks(),
@@ -3505,7 +3517,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             try:
                 # PR #435: closure needs the detectors' per-row coverage
                 # (a mocked/absent audit system yields none -> closes
-                # nothing); an incremental (scoped) run closes nothing.
+                # nothing); an incremental (scoped) run persists nothing.
                 _audit_mem_coverage = None
                 _cov_fn = getattr(audit_system, "memory_eval_coverage", None)
                 if callable(_cov_fn):
@@ -6005,7 +6017,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 try:
                     _dbt_scoped = not _mem_writer.streak_eligible_from_env()
                     _finish_kwargs.update(_regen_debt_finish_kwargs(
-                        candidate_pairs=_mem_candidate_pairs,
+                        # PR #435: deep-run deletion pairs are owed a
+                        # regeneration too; carry them if unconfirmed.
+                        candidate_pairs=(
+                            _mem_candidate_pairs | _reconcile_affected_pairs
+                        ),
                         groups=groups or {},
                         skip_keys=_mem_confirmed_skip_keys,
                         upload_ok=_mem_group_upload_ok,
@@ -6396,7 +6412,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 ))
                 try:
                     _finish_kwargs.update(_regen_debt_failure_kwargs(
-                        _mem_candidate_pairs,
+                        _mem_candidate_pairs | _reconcile_affected_pairs,
                         debt_unknown=(
                             _mem_regen_unknown
                             or (_mem_candidate_ready

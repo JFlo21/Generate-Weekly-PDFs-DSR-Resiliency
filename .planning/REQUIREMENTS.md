@@ -333,7 +333,8 @@ CU pricing, rate recalculation, and billing formulas do not change.
   *(2026-10-29, PR #435: reverted to Pending. Full runs meet it. On an incremental run
   (`RUN_MEMORY_INCREMENTAL_ENABLED`) only the candidate pairs' sheets are re-fetched, so an
   open finding whose rows sit only on unchanged sheets is not re-checked that run: it is
-  never closed (an incremental run closes nothing; a full run closes a WR's findings only
+  never closed (an incremental run persists and closes nothing -- a partial WR pool can
+  raise a false price-variance finding; a full run closes a WR's findings only
   when the check evaluated every row of that WR, because a NULL-week finding matches any
   week of its WR) but its `last_seen_run` is not bumped until the next full run. Re-checking them is tracked in
   `.planning/todos/pending/2026-10-29-audit-memory-open-findings-incremental-recheck.md`
