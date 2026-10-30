@@ -41,11 +41,14 @@ const config: Config = {
   // stop the runbook from deploying.
   onBrokenLinks: 'warn',
 
+  // Both are required: without them a ```mermaid fence renders as plain code.
   markdown: {
+    mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: 'warn',
     },
   },
+  themes: ['@docusaurus/theme-mermaid'],
 
   i18n: {
     defaultLocale: 'en',
@@ -139,6 +142,16 @@ const config: Config = {
         },
       ],
       copyright: `© ${new Date().getFullYear()} Linetec Services — A Centuri Company. Generated with Docusaurus, updated on every merge to master.`,
+    },
+    // Mermaid's default shrinks wide charts to fit the column (labels drop to
+    // about 5px). Keep real size and scroll sideways: see src/css/custom.css.
+    // wrappingWidth is the node label limit (default 200px clips). Edge labels
+    // clip at 200px regardless, so keep each edge label line under about 25
+    // characters with <br/> in the chart source.
+    mermaid: {
+      options: {
+        flowchart: { useMaxWidth: false, wrappingWidth: 800 },
+      },
     },
     prism: {
       theme: prismThemes.github,

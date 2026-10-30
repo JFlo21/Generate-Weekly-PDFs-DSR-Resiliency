@@ -22,12 +22,12 @@ flowchart LR
     C -- no --> S[skip]
     C -- yes --> D[openpyxl workbook<br/>pipeline/excel.py]
     D --> E[generated_docs/*.xlsx]
-    E -->|replace attachment on the WR row| T[(Target sheet<br/>+ PPP sheet for ReducedSub)]
-    B <-->|frozen attribution, durable group hashes,<br/>run fingerprints| BA[(Supabase billing_audit)]
-    B <-->|writes: run ledger, sheet watermarks,<br/>row + group state, parity verdict<br/>reads: watermarks, last-run status,<br/>changed-row ids| PM[(Supabase pipeline_memory)]
+    E -->|replace attachment<br/>on the WR row| T[(Target sheet<br/>+ PPP sheet for ReducedSub)]
+    B <-->|frozen attribution,<br/>durable group hashes,<br/>run fingerprints| BA[(Supabase billing_audit)]
+    B <-->|writes: run ledger,<br/>sheet watermarks,<br/>row + group state,<br/>parity verdict<br/>reads: watermarks,<br/>last-run status,<br/>changed-row ids| PM[(Supabase pipeline_memory)]
     B --> R[run_summary.json]
     R --> N[scripts/notion_sync.py → Notion]
-    E -->|scripts/publish_artifacts_to_supabase.py| PA[(Supabase artifacts → portal-v2)]
+    E -->|scripts/publish_artifacts<br/>_to_supabase.py| PA[(Supabase artifacts → portal-v2)]
     B -.errors.-> X[(Sentry)]
 ```
 

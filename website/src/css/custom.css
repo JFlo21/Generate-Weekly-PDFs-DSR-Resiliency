@@ -70,3 +70,11 @@
   font-weight: 600;
   letter-spacing: 0.01em;
 }
+
+/* Wide Mermaid charts scroll inside their own box, never the whole page. */
+.docusaurus-mermaid-container {
+  overflow-x: auto;
+}
+.docusaurus-mermaid-container svg {
+  max-width: none;
+}
