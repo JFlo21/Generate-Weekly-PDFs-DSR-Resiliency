@@ -313,6 +313,88 @@ class TestFetchSnapshotProvenanceCharacterization(SnapshotStoreTestBase):
         )
 
 
+class TestFetchSnapshotProvenanceKeyGuard(SnapshotStoreTestBase):
+    """Regression lock for the narrowing guard ahead of the provenance
+    ``int()`` key cast (todo
+    ``2026-08-25-fix-snapshot-store-int-arg-type.md``, Class-A mypy
+    ``arg-type`` finding at ``snapshot_store.py:370``).
+
+    The guard is a static-typing narrowing only -- the runtime skip for
+    a missing/``None``/non-numeric ``sheet_id``/``row_id`` already holds
+    via the surrounding ``except (TypeError, ValueError): continue``.
+    These cases pass against BOTH the pre-guard and post-guard code;
+    they exist to pin the behavior so the guard change can never widen
+    or narrow which rows get skipped.
+    """
+
+    def test_missing_sheet_id_key_is_skipped(self) -> None:
+        """A row with no ``sheet_id`` key at all is skipped and does
+        not appear in the returned mapping."""
+        client, _table = _make_fake_client(
+            select_response=[{'row_id': 2, 'wr': 'WR1'}]
+        )
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            rows, status = fetch_snapshot_provenance([(1, 2)])
+        self.assertEqual(rows, {})
+        self.assertEqual(status, 'no_row')
+
+    def test_none_row_id_is_skipped(self) -> None:
+        """A row whose ``row_id`` value is ``None`` is skipped and does
+        not appear in the returned mapping."""
+        client, _table = _make_fake_client(
+            select_response=[{'sheet_id': 1, 'row_id': None, 'wr': 'WR1'}]
+        )
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            rows, status = fetch_snapshot_provenance([(1, 2)])
+        self.assertEqual(rows, {})
+        self.assertEqual(status, 'no_row')
+
+    def test_non_numeric_sheet_id_and_row_id_still_skipped_no_raise(
+        self,
+    ) -> None:
+        """A row whose ``sheet_id``/``row_id`` are non-numeric strings
+        is still skipped exactly as today, and never raises."""
+        client, _table = _make_fake_client(
+            select_response=[
+                {'sheet_id': 'not-a-sheet-id', 'row_id': 'not-a-row-id'}
+            ]
+        )
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            rows, status = fetch_snapshot_provenance([(1, 2)])
+        self.assertEqual(rows, {})
+        self.assertEqual(status, 'no_row')
+
+    def test_well_formed_matching_row_is_still_returned(self) -> None:
+        """A well-formed row whose ``(sheet_id, row_id)`` is in the
+        wanted set is still returned; the no-match reason code for an
+        unrelated request is unchanged."""
+        client, _table = _make_fake_client(
+            select_response=[{'sheet_id': 1, 'row_id': 2, 'wr': 'WR1'}]
+        )
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client
+        ):
+            rows, status = fetch_snapshot_provenance([(1, 2)])
+        self.assertEqual(status, 'success')
+        self.assertEqual(rows[(1, 2)]['wr'], 'WR1')
+
+        client2, _table2 = _make_fake_client(
+            select_response=[{'sheet_id': 9, 'row_id': 9}]
+        )
+        with mock.patch(
+            'billing_audit.snapshot_store.get_client', return_value=client2
+        ):
+            rows2, status2 = fetch_snapshot_provenance([(1, 2)])
+        self.assertEqual(rows2, {})
+        self.assertEqual(status2, 'no_row')
+
+
 class TestUpsertSnapshotProvenanceCharacterization(SnapshotStoreTestBase):
     """U1-U4 (RESEARCH C.3): ``upsert_snapshot_provenance``."""
 

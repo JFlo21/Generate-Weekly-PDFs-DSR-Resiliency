@@ -16,6 +16,13 @@ re-exported by the `generate_weekly_pdfs.py` facade). Env var NAMES only — nev
   sheet with all six Helper #2 columns mapped. Wired into the workflow `env:` block as
   `${{ vars.HELPER2_ENABLED || '0' }}` (`D-14-14-ENABLE`): the repo variable `HELPER2_ENABLED` is the
   on/off switch for scheduled runs — see `website/docs/runbook/foreman-helper-2.md`.
+- `AUDIT_MEMORY_ENABLED` (default `'0'`, truthy `1`/`true`/`yes`/`on`) — Phase 13 default-off flag;
+  ships dormant. Gates only whether the three WR-scoped findings `audit_billing_changes.py` already
+  computes are also persisted into `pipeline_memory.audit_finding` / `audit_finding_event` via
+  `pipeline_memory.upsert_audit_findings`. Independent of `RUN_MEMORY_WRITE_ENABLED` and
+  `RUN_MEMORY_INCREMENTAL_ENABLED` — none of the three implies another. Fail-open on its own
+  `audit_finding_upsert` circuit-breaker op; never changes the audit engine's output, `risk_level`,
+  Excel generation, uploads, or exit code — see `website/docs/runbook/operations.md`.
 - `TEST_MODE`, `FORCE_GENERATION`, `WR_FILTER` (comma list), `MAX_GROUPS`
 - `RESET_HASH_HISTORY=true` for full CI regeneration — forces the `pipeline_memory.group_state`-backed
   change detection to treat every group as changed (D-02 trigger 5)

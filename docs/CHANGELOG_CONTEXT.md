@@ -22,6 +22,226 @@ regenerated from it (it was missing three post-2026-09-02 guardrails). GitNexus 
 (`.gitnexus/`, untracked) for impact/trace queries. Docs-only; no pipeline behavior change. Owner
 follow-ups: freeze `AGENTS.md` by hand; decide the two over-cap rule files. Ledger `[2026-10-29 10:45]`.
 
+## 2026-09-14 — Phase 11 gap-closure executed (`/gsd:execute-phase 11 --gaps-only`) → re-verify `human_needed` 6/8
+
+Sequential executors on `plan/phase-13` (worktree base diverged from `origin/HEAD`, auto-degraded). **11-09 (Gap 2):**
+hypothesis confirmed — `pipeline/orchestrate.py::_resolve_row_wr_week` built its WR key with `str(wr).split('.')[0]`
+and no `_WR_SANITIZE` / 50-char truncation, so any WR the `row_state` writer sanitizes (embedded space, etc.) never
+matched its own affected pair and the USER-variant group silently left the D-04 candidate set. Fix delegates to
+`pipeline_memory.writer._sanitized_wr` (one shared derivation; `04c618a`, 37+/15− lines in that one function);
+RED fixture test first (`1feedeb`), defect filed as todo + deferred-items + ledger (`1ba2293`), one Rule-1
+deviation (`a604931`: a ledger test located "newest entry" by file position — pinned to its `D-12-C` marker).
+Suite 2426 passed / 1 skipped / 610 subtests (+10, zero regressions); 6-gate harness green; grouping / pricing /
+attribution / excel / workflows / schema byte-identical; `RUN_MEMORY_INCREMENTAL_ENABLED` untouched (OFF).
+**11-10 (records only):** Juan accepted the D-05 Option C override at a blocking-human checkpoint
+(`accepted_by: Juan Flores`, `accepted_at: 2026-09-14T17:36:08Z`) → `11-VERIFICATION.md` frontmatter
+`overrides_applied: 1` + matching INC-02/INC-04 notes in `REQUIREMENTS.md` (`5240d85`); the post-fix parity streak was
+recorded verbatim as **not yet observable — 0 post-fix `production_frequent` runs** because the fix is unpushed /
+unmerged and the cron runs the default branch (`5c8293d`); INC-02/INC-04 deliberately left unticked. Tail gates:
+wave-post drift/UI gates clear; incremental code review `3e9dc0a` (8 files, 0 Critical / 2 Warning / 2 Info —
+`.claude/project-state.md` over its 120-line cap; two tautological contract tests; WR-01/IN-01/IN-02 still open);
+regression = full suite green; verifier `1aa5f2a` = `human_needed` 6/8 (no code gaps; one live-data item persisted
+as `11-UAT.md` test 37). Phase 11 NOT marked complete. **Fix shipped as PR #409** — `fix/phase-11-gap2-selector` off
+`origin/master` with the four 11-09 commits cherry-picked (one ledger-append conflict resolved; suite 2348 green);
+the 11-10 records ride the Phase 13 PR. Next: merge #409, wait for ≥5 clean runs, `/gsd-verify-work 11`.
+
+## 2026-09-14 — Phase 11 gap-closure plans 11-09 / 11-10 created (`/gsd:plan-phase 11 --gaps`)
+
+`11-VERIFICATION.md` (`gaps_found` 5/8) drove two additive plans, committed `44efdfc`; plans 11-01..11-08 are
+untouched. **11-09 (Gap 2, real defect):** a tracer task must reproduce the live `actual_not_in_candidate`
+USER-variant parity miss (runs 34648318434.1 / 34541106039.1) with a fixture-backed test that is RED against
+unfixed code before any production edit; the fix stays inside the D-04 selector (`_filter_groups_to_affected`
+/ `_resolve_row_wr_week`), keeps Option C (row_state = membership only), touches none of grouping/pricing/
+attribution/excel/schema/workflows, and files the defect as tracked. Leading hypothesis for the executor to
+confirm: the orchestrator's `wr_key` derivation skips the `_sanitized_wr` normalisation that `row_state.wr`
+stores. **11-10 (Gap 1, override-eligible):** the D-05 override is written into the VERIFICATION frontmatter
+only after a blocking human checkpoint; status/score/gaps are left for a real re-verification; the ≥5-run
+clean parity streak is transcribed from an owner reading, never computed. `RUN_MEMORY_INCREMENTAL_ENABLED`
+stays OFF throughout. Next: `/gsd:execute-phase 11 --gaps-only`.
+
+## 2026-09-13 — Milestone v1.4 re-audit: still `gaps_found`, sole blocker is the missing 11-VERIFICATION.md
+
+`/gsd:audit-milestone` re-run at HEAD `b7b9853` (supersedes the 09-12 audit `b6053bd`). Integration checker
+re-confirmed all 5 E2E flows and every file:line anchor (only doc commits landed in between). What moved:
+SECURITY.md 2/6 → 6/6 (0 open threats); Nyquist 2/6 → 3/6 (10, 11, 13; 11.1/12/14 still `draft`). What did
+not: Phase 11 has no goal-backward VERIFICATION.md, so INC-01..04 stay `partial` (INC-02 also D-05
+approved-partial) and the score holds at 19/23. Operator item: `AUDIT_MEMORY_ENABLED` still absent from
+`weekly-excel-generation.yml` env — AUD-01..03 dormant in CI. Closure: `/gsd:verify-work 11`, then
+`/gsd:validate-phase 11.1`, `12`, `14`, then re-audit. Commit `859c98c`; nothing pushed.
+
+## 2026-09-13 — Phase 14 (Foreman Helper #2 / HLP-01..06) security gate closed: `14-SECURITY.md`, 70/70 closed
+
+`/gsd:secure-phase 14` (State B). All fourteen plans carried plan-time `<threat_model>` blocks — 70 entries:
+62 tabular STRIDE rows in 14-01..14-11, four bulleted numbered threats in 14-12, and two unnumbered bullets
+each in 14-13 and 14-14 (assigned `T-14-13-0n` / `T-14-14-0n`; severities assigned and marked). L1 grep-level
+evidence found every mitigation present: helper2 identifiers pass through `_RE_SANITIZE_HELPER_NAME` before
+any filename or key; `normalize_helper_value` rejects blanks and formula-error tokens; `_null_if_named_sentinel`
+gates the `p_helper2` freeze parameter and the all-sentinel short-circuit; `_PII_LOG_MARKERS` covers the
+Helper #2 column family and new lines log reason codes only; the discovery `helper2-v1` marker is an additive
+sixth admission condition that can only reject and degrades toward full validation; the cleanup orphan gate
+and `normalize_variant` carry the three helper2 variants as a sibling family with a flag-off retention test;
+grouping emits subcontractor shadow keys only, excel dispatches on dedicated `elif` branches, upload routes
+`reduced_sub_helper2` to the second leg, change detection sub-buckets by helper2 identity; the O-14-A
+helper2-wins conflict rule is applied once per leg with a counter and no exception path; the freeze and fill
+RPCs write per-role columns with a `is_sentinel_value` WHERE gate and a contract-tested SET list, and all
+three production applies (14-09, 14-11, 14-12) were owner-delegated at `blocking-human` gates and proven by
+recorded read-backs; `HELPER2_ENABLED` defaults to `'0'` in code and in the workflow (wired later via
+owner-merged #390). Fourteen `accept` rows became AR-14-01..04. `threats_open: 0`, `status: verified`,
+short-circuit applied (no `gsd-security-auditor` spawn). Commit `c96a141`; nothing pushed. v1.4 SECURITY.md
+coverage is now complete across phases 11, 11.1, 12, 13, 14.
+
+## 2026-09-12 — Phase 12 (Ownership / OWN-01..04) security gate closed: `12-SECURITY.md`, 61/61 closed
+
+`/gsd:secure-phase 12` (State B). All ten plans carried plan-time `<threat_model>` blocks — 61 entries, of which
+the ten identical `T-12-SC` supply-chain rows collapse to one and the reused IDs (T-12-20..28 in plans 04/07/08,
+T-12-30 in 06/09) are disambiguated with a `(Pnn)` suffix rather than renumbered. L1 grep-level evidence found
+every mitigation present: the `--apply` path filters `current_value` and `proposed_value` through
+`is_sentinel_claimer` plus the extension regex, refuses to run without a same-day
+`attribution_snapshot_backup_<YYYYMMDD>` (exit 3), chunks reads and the RPC at 500, and stamps
+`backfill_source` / `backfill_run_id`; the RPC keeps `is_sentinel_value` in all three UPDATE WHERE clauses,
+raises on invalid role / sentinel / extension-bearing values, uses a typed `jsonb_to_recordset` list with zero
+`EXECUTE format`, `SET search_path = ''`, and `REVOKE ... FROM PUBLIC, anon, authenticated` +
+`GRANT EXECUTE ... TO service_role` (live ACL `{postgres, service_role}` per 12-09); the CR-01 cleanup gate is
+narrowed to the sanitized-error allowlist with the `_O_Brien` / `_Contractor__Smith` regression table; the
+enums import is lazy inside `_is_row_attachment`; the cell-history workflow is `contents: read`, isolated
+concurrency group, every dispatch input env-bound with zero `${{` in `run:` blocks, 3,000-request cap; source 5
+is fenced out of production by the allowlist structural test; `generated_docs/own03_*` is git-ignored; docs
+tests forbid real names and stale flags. Two medium `accept` dispositions became AR-12-01 (artifact carries
+names, 30-day retention) and AR-12-02 (post-apply regeneration burst bounded by `TIME_BUDGET_MINUTES`).
+`threats_open: 0`, `status: verified`, short-circuit applied (no `gsd-security-auditor` spawn). Commit
+`61b40d3`; nothing pushed. Remaining v1.4 SECURITY.md gap: 14.
+
+## 2026-09-12 — Phase 11.1 (Post-INC-05 Remediation) security gate closed: `11.1-SECURITY.md`, 18/18 closed
+
+`/gsd:secure-phase 11.1` (State B). Plans 01, 02 and 04 carried plan-time `<threat_model>` blocks (16 entries;
+IDs T-11.1-06..09 were assigned twice, attachment pre-seed vs bounded discovery read, both kept and
+disambiguated by plan). Plan 03 — the PR #378 frozen-row cache warm start — was a gap-closure plan authored
+without a threat model, so two retroactive entries were derived from `pipeline/grouping.py`,
+`pipeline/attribution.py` and `tests/test_freeze_row_cache_warm_start.py` (success-only key publication,
+seeded rows never freeze candidates, canary run 33634833356) rather than leaving that surface unregistered.
+L1 grep-level evidence found every mitigation present: registry-version skip requires exact version equality
+plus the `Weekly Reference Logged Date` marker; the skip-index builder never raises and never touches
+`_failed_validation_sids`; attachment pre-seed seeds only from a this-run listing, empty-seeds only on a fully
+successful listing, buckets on the real `AttachmentParentType.ROW` enum, honours a `total_count` ceiling, and
+sits inside an outer try/except; the bounded discovery read uses `row_numbers=[1,2,3]` with no `column_ids`;
+worker caps unchanged at 8; no dependency-manifest commits since 2026-08-31 (supply-chain entry). Two low
+`accept` dispositions became AR-11.1-01..02. `threats_open: 0`, `status: verified`, short-circuit applied (no
+`gsd-security-auditor` spawn). Commit `ad24b01`; nothing pushed. Remaining v1.4 SECURITY.md gaps: 12, 14.
+
+## 2026-09-12 — Phase 11 (Incremental Read) security gate closed: `11-SECURITY.md`, 45/45 threats closed
+
+`/gsd:secure-phase 11` (State B: no prior SECURITY.md; all eight PLAN.md files carried a `<threat_model>`
+block, so `register_authored_at_plan_time: true`). The register unions T-11-01..T-11-44 across plans 01-08
+(45 entries — the ID `T-11-06` was assigned twice at plan time, ledger-append in plan 01 and watermark
+integrity in plan 02; both kept, disambiguated by plan) plus the SUMMARY `## Threat Flags` sections of
+11-04..11-08, none of which raised a new surface. L1 grep-level classification found every mitigation present
+in the implementation or pinned by a named test (watermark capture-time subtraction, fail-open-to-full-mode
+with `fallback_reason`, `keep_historical=True` on incremental cleanup, `.in_()` bound parameters, the
+never-vacuous parity pass, read-only shadow, zero-row deletion guard, on-demand streak derivation, workflow
+invariants `timeout-minutes: 180` > `TIME_BUDGET_MINUTES: 165`, secret-pattern scans of the flip checklist and
+Living Ledger clean). Five low-severity `accept` dispositions (T-11-04/09/21/22/34, all "same `service_role`
+client, Phase 10 RLS + REVOKE posture unchanged") became AR-11-01..05. T-11-13's prune surface was retired
+outright by plan 08 and T-11-43 closes on the owner's cited 2026-08-31 `retire-now` re-authorisation with a
+real 5/5 `get_parity_streak()` reading (`human_judgment`, not re-derived live). `threats_open: 0` at ASVS L1
+with `block_on: high`, so the short-circuit rule applied and no `gsd-security-auditor` subagent was spawned.
+Frontmatter `status: verified`. Commit `7965507`; nothing pushed. Phase 11 now has VALIDATION + SECURITY;
+still no goal-backward VERIFICATION.md. Remaining v1.4 SECURITY.md gaps: phases 11.1, 12, 14.
+
+## 2026-09-12 — Phase 11 (Incremental Read) Nyquist validation closed: `11-VALIDATION.md` compliant, 0 gaps
+
+`/gsd:validate-phase 11` (State A: the plan-time `11-VALIDATION.md` had sat in `draft` since 2026-08-26 with a
+placeholder Per-Task map, which is why the v1.4 milestone audit listed Phase 11 as NOT-VALIDATED). The map was
+rebuilt from the eight SUMMARY `coverage` blocks (30 rows keyed D1..D6 / T-11-xx) and every referenced test
+class was confirmed to exist and run: the four Phase 11 modules (`test_incremental_read.py`,
+`test_parity_shadow.py`, `test_deep_run_reconciliation.py`, `test_pipeline_memory_shadow.py`) pass 383 tests in
+~3 s, the full suite is 2416 passed / 1 skipped / 595 subtests, and `py_compile` is clean. INC-01..05 all
+classify COVERED, so the user gate and `gsd-nyquist-auditor` spawn were skipped and no test files were added.
+INC-02's D-05 owner-approved partial (≥5 production incremental runs) and the parity-streak / deep-run /
+wall-clock observations stay in the Manual-Only table. Frontmatter now `status: validated`,
+`nyquist_compliant: true`, `wave_0_complete: true`. Commit `ccdaa08`; nothing pushed. This closes the audit's
+Nyquist gap for Phase 11 only — the phase still has no SECURITY.md (`/gsd:secure-phase 11` next) and no
+goal-backward VERIFICATION.md, which the audit accepted as a documentation-coverage gap rather than a code gap.
+
+## 2026-09-12 — Milestone v1.4 audit: `gaps_found` (Phase 11 unverified), integration 5/5 clean
+
+`/gsd:audit-milestone` over v1.4 (phases 10, 11, 11.1, 12, 13, 14; 23 requirements). Three-source cross-reference
+(VERIFICATION.md × SUMMARY frontmatter × REQUIREMENTS.md traceability): 19/23 satisfied, 4 partial — all four
+are Phase 11's INC-01..04 because that phase never produced a VERIFICATION.md (INC-02 is also the D-05
+owner-approved partial). No requirement is unsatisfied and none is orphaned. A Sonnet integration checker
+traced the five E2E flows read-only and found no cross-phase wiring breaks; it confirmed Helper #2 rows ride the
+Phase 12 ownership ladder, the `upsert_rows_bulk` RPC carries all four `helper2_*` columns, the audit-memory
+RPC contract matches `schema.sql`, and the retired JSON caches have no live references. Nyquist: 10 and 13
+compliant, 11/11.1/12/14 still `draft`; SECURITY.md present only for 10 and 13. Eighteen tech-debt items
+aggregated (the actionable two: wire `AUDIT_MEMORY_ENABLED` into the workflow with approval; fix the stale
+ROADMAP Phase 13 progress row). Reports committed at `b6053bd`; nothing pushed.
+
+## 2026-09-12 — Phase 13 (Audit Memory) Nyquist validation closed: `13-VALIDATION.md` compliant, 0 gaps
+
+`/gsd:validate-phase 13` (State A: the plan-time `13-VALIDATION.md` existed in `draft` with all 14 per-task rows
+pending). Every automated command in the Per-Task Verification Map was re-run in-session rather than inherited
+from SUMMARY claims: `test_audit_findings.py` 59 passed, `test_audit_findings_sql_contract.py` 15 passed, the
+`-k key_derivation` (7) and `-k lifecycle` (5) selectors match real tests, `test_snapshot_store.py` 42 passed,
+the schema.sql dynamic-SQL grep gate has no matches, `scripts/run_6_gates.sh` reports ALL 6 GATES PASSED with the
+synthetic dry run emitting zero `audit_memory_error`, and `npm --prefix website run build` succeeds with no broken
+links. AUD-01/AUD-02/AUD-03 all classify COVERED; the two owner-executed manual rows (live DDL apply and the
+7-run synthetic view read-back, 13-05) are recorded as complete in the Manual-Only table. No gaps, so the
+user gate and the `gsd-nyquist-auditor` spawn were skipped per the workflow and no test files were added.
+Frontmatter now `status: validated`, `nyquist_compliant: true`, `wave_0_complete: true`; audit trail appended.
+Commit `e320155`; nothing pushed. The verify:post Nyquist step is satisfied; Phase 13 still waits on the
+release build for UAT test 1 and the live wall-clock observation.
+
+## 2026-09-12 — Phase 13 (Audit Memory) security gate closed: `13-SECURITY.md`, 41/41 threats closed
+
+`/gsd:secure-phase 13` (State B: no prior SECURITY.md, all six PLAN.md files carried a `<threat_model>`
+block, no SUMMARY.md threat flags). ASVS level 1 with `block_on: high`, so the plan-time register was
+verified at grep depth against `plan/phase-13` @ `e6c5b1c` and the auditor subagent was skipped per the
+short-circuit rule. All 41 STRIDE threats closed: 33 mitigated with code/test evidence (typed
+`jsonb_to_recordset` lists and no dynamic SQL; `SET search_path = ''` on `upsert_audit_findings` and
+`acknowledge_finding`; RLS + `service_role_all` on both new tables; `security_invoker` views with
+`anon`/`authenticated` revoked; fail-open writer on the dedicated `audit_finding_upsert` breaker inside the
+orchestrator's own `try/except`; 15-test Python↔SQL contract suite; recipe/literal lockstep tests) and 8
+accepted as AR-13-01..03 (six no-install supply-chain rows, retry idempotency via the `finding_key` PK,
+the unbounded `finding_history_by_wr` scan deferred to D-CD-05). `threats_open: 0`, `status: verified`;
+one non-blocking residual note recorded (the orchestrator's audit-memory failure log line prints the raw
+exception text while only the Sentry context is redacted — matches the existing audit block; revisit only if
+`SENTRY_ENABLE_LOGS` is enabled). Commit `2047a67`; nothing pushed. The verify:post security step is now
+satisfied; Phase 13 remains `partial` on UAT until the code ships and the flag is observed live.
+
+## 2026-09-11 — Phase 13 (Audit Memory) executed: 6/6 plans, DDL live, pending human verification
+
+`/gsd:execute-phase 13` on `plan/phase-13` ran all five waves sequentially on the main tree (worktree isolation
+auto-degraded because HEAD had diverged from `origin/HEAD`). Two owner checkpoints resolved in-session: the
+finding-key recipe (`versioned-recipe, recipe confirmed` — leading `v1` token, D-01 field order, Python-only
+hashing) and the 13-05 DDL apply, which the owner delegated to the Supabase connector: migration
+`audit_memory_findings_lifecycle_views` (v`20260912023008`) on `poeyztlmsawfoqlanucc`, then a live
+opened→seen→fixed→reopened→acknowledged→resurfaced read-back with the smoke rows deleted (0 residual).
+Net code: `pipeline_memory/audit_findings.py` + 74 tests, the D-08 `upsert_audit_findings` RPC, the two
+AUD-03 views and `acknowledge_finding`, `AUDIT_MEMORY_ENABLED` (default off) wired into `orchestrate.py`;
+side fixes from folded todos (`snapshot_store.py` None-guard, mypy baseline 71→70). Gates after every wave:
+full suite green (final 2416 passed / 1 skipped), schema-drift and UI gates clear. `13-REVIEW.md` (`5505228`):
+3 Warning / 1 Info, none blocking. `13-VERIFICATION.md` (`e13a6ba`): `human_needed` 13/14 — success
+criterion 2 (wall clock proportional to affected groups + open findings) needs live observation once the flag
+is on; persisted to `13-UAT.md`. Phase NOT marked complete; next `/gsd-verify-work 13`. Lesson: a
+Sonnet executor lost uncommitted work to `git checkout -- <file>` mid-task (13-04) — later prompts forbid it.
+
+## 2026-09-11 — Phase 13 (Audit Memory) planning started: research + validation strategy committed
+
+`/gsd:plan-phase 13` on `plan/phase-13`: `13-RESEARCH.md` (`d265800`) verified the two code facts flagged at
+discuss time — `_detect_price_anomalies` is fed `all_rows` and pools per-WR across `week_ending` values, so
+the D-CD-01 NULL-week key fallback is the routine path, not an edge; `_validate_data_consistency` emits eight
+stable literal English sentences (not slug codes), so the key contract needs a wording-pin test;
+`_detect_rate_sanity_mismatches` already emits `wr`/`cu`/`work_type`. All needed `pipeline_memory` /
+`billing_audit` patterns (bulk-upsert RPC, per-op breaker + `_breaker_lock`, fail-open writer, env-flag
+kill switch, reapply-safe DDL in `pipeline_memory/schema.sql`) exist — net-new work is the finding-key
+derivation and the D-08 transition RPC. `13-VALIDATION.md` (`46dda31`) seeds the Nyquist contract
+(Wave 0: `tests/test_audit_findings.py`; AUD-03 view content is an owner SQL checkpoint after DDL apply,
+D-11). Planning then completed the same day: `13-PATTERNS.md` (5/5 analogs), six PLAN.md files across five waves
+(`2c53d32`), plan checker PASSED with one informational advisory (full-suite runs kept per CLAUDE.md), requirements
+3/3, decision coverage 11/11 (after a format-only fix to the D-03 bullet so the GSD parser reads it), post-planning
+gap analysis 19/19. Notable planner choices for the owner: a versioned finding-key recipe token (decision checkpoint
+at 13-01 Task 1); the Gate-4 mypy hardening todo deferred to a named backlog entry; WR-04 found already landed and
+planned as verify-and-archive. No production code touched. Next: `/gsd:execute-phase 13`.
+
 ## 2026-09-11 — PR #402 follow-ups decided (D-14-FOLLOWUPS): breaker half-open shipped, keep_historical deferred
 
 Juan decided both parked follow-ups. Breaker: `billing_audit.client.close_circuit()` closes an open per-op breaker
@@ -1133,3 +1353,45 @@ variants on the first scheduled run after the merge, no other hash moves. Synthe
 `keep_historical` in the SUB-09 off-contract gate): `.planning/todos/pending/2026-09-10-pr402-review-followups.md`.
 Ledger `[2026-09-10 17:00]`, `[2026-09-10 20:15]`, `[2026-09-10 20:45]`. Records: PR #402 → `6e6e1e8`; write-back
 PR #403.
+
+## 2026-09-14 — Phase 11 UAT complete (`/gsd:verify-work 11`, `ea5a82f`)
+
+First conversational UAT for Phase 11 (incremental read / affected-group regeneration). All 8 SUMMARYs carry
+`coverage:` blocks, so 31 deliverables auto-passed on their pinned tests and 5 owner-judgment checkpoints were
+validated by the agent at Juan's direction: (1) flip-checklist content; (2) live `parity_verdict`/`parity_details`
+on production_frequent `run_ledger` rows plus the Sentry error-level fail emission (GENERATE-WEEKLY-EXCEL-AH, 9 events,
+counts + run id only); (3) weekly deep-run deletion reconciliation observed live (6 and 15 rows `deleted_at` inside the
+08-31 and 09-07 weekly windows; column_mapping refresh and group_state repair rest on pinned tests); (4) the INC-05
+`defer` → `retire-now` owner decision trail in 11-07/11-08 and PR #373; (5) the 5/5 streak re-derived from
+`run_ledger` as of the 08-31 reading, identical run ids, 54 min before 11-08's first commit. Fixed the malformed
+coverage `kind` on 11-08 T-11-43. Result: 36 pass / 0 issues; commit-claim fields absent on all 8 SUMMARYs
+(pre-#3968 legacy, warning only). Advancement remains policy-blocked on the missing `11-VERIFICATION.md` —
+`/gsd:execute-phase 11` resumes at that gate. Noted for the D-05 streak: two recent `fail` verdicts are group-side
+`actual_not_in_candidate` misses on USER-variant groups.
+
+## 2026-09-14 — Phase 11 verification gate (`/gsd:execute-phase 11`, `1880362`): gaps_found 5/8
+
+Resumed Phase 11 at the phase gates via the #2868 route (all 8 SUMMARYs present, no VERIFICATION.md, no plans
+re-run). Security gate already closed (`11-SECURITY.md`, 0 open). Regression gate: full `pytest tests/` at HEAD
+— 2416 passed, 1 skipped, 595 subtests, 43 s. gsd-verifier goal-backward check produced `11-VERIFICATION.md`
+with **gaps_found, 5/8 must-haves**. Verified: INC-01 delta read, INC-03 deep-run reconciliation (live deletions
+observed), the shadow-parity comparator (never-vacuous-pass proven), the INC-05 cache/pre-fetch retirement, and
+the wall-clock discipline. Gap 1: the ROADMAP goal's literal "reading group rows from `row_state`" is not
+implemented — CONTEXT.md D-05 (2026-08-26) shipped Option C (membership-only) and deferred Option B; REQUIREMENTS
+already carries INC-02 as Pending, so this is a documented owner deferral awaiting either Option B or an explicit
+override entry. Gap 2: two recent live `production_frequent` runs show `actual_not_in_candidate` parity fails on
+USER-variant groups, i.e. the D-04 candidate selector misses groups the full run produces; untracked in
+`.planning/`, resets the ≥5 consecutive-pass streak, no production impact while the incremental flag stays OFF.
+Phase 11 was therefore not re-marked complete; STATE.md's "INC-01 through INC-05 are all complete" line was
+corrected to INC-02 Pending. Code review was scoped to the 30 files the Phase 11 SUMMARYs declare (the git-diff
+base `82ce830^` predates phases 11.1/12/14 merged into the same history, which would have inflated scope to 222
+already-reviewed files); `11-REVIEW.md` (`697eda9`): 29 files, 0 Critical / 1 Warning / 2 Info — WR-01 in
+`pipeline/fetch.py` (`_is_abbreviated_response` cannot tell a zero-row full response from an abbreviated delta
+probe, so a whole-sheet deletion is missed by the frequent run until the weekly deep run's unconditional full
+read; fix sketch: disambiguate on a full-response-only attribute such as `columns`), IN-01 11 dead
+`pipeline.attribution` imports in `orchestrate.py` left by the INC-05 retirement, IN-02 ~375 test-only prune
+helpers in `attribution.py` (mark/archive, do not delete). Advisory; no source changed. Tooling: `~/.claude/gsd-core` resolves to the plugin cache 1.14.0, a partial install
+missing `lib/state.cjs`; the run used the intact 1.13.0 build. Side task: PR #408 Greptile issue fixed on
+`docs/post-407-pointers` (`60638d7`) — STATE/HANDOFF/continue-here/project-state stamps aligned to the PR #407
+merge time. Next: `/gsd:plan-phase 11 --gaps` (or override gap 1 + todo for gap 2), validate-phase 11.1/12/14,
+v1.4 re-audit.

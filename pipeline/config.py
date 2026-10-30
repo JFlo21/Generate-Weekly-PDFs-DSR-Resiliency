@@ -537,6 +537,20 @@ RUN_MEMORY_INCREMENTAL_ENABLED = os.getenv(
 # safety). Not self-scaling -- the run cadence is locked by 10-CONTEXT D-07.
 SAFETY_WINDOW_MINUTES = int(os.getenv('SAFETY_WINDOW_MINUTES', '15') or 15)
 
+# Phase 13 (AUD-01): audit-memory write flag -- the direct analog of
+# RUN_MEMORY_WRITE_ENABLED (D-09). Default OFF -- ship dormant. Gates
+# independently of both RUN_MEMORY_* flags above: this flag governs only
+# whether an emitted audit_billing_changes.py finding is also persisted to
+# the new pipeline_memory.audit_finding / audit_finding_event tables via
+# pipeline_memory.upsert_audit_findings; it never affects RUN_MEMORY_WRITE_
+# ENABLED's row_state/row_event/group_state/run_ledger writes or vice
+# versa. Re-read live in pipeline_memory.client._audit_write_enabled() as
+# defence in depth -- both this constant AND that live re-read must be
+# true for a write to happen, so no direct writer call can bypass the flag.
+AUDIT_MEMORY_ENABLED = os.getenv(
+    'AUDIT_MEMORY_ENABLED', '0'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # Phase 11 Plan 05 (INC-04, CONTEXT.md D-07/D-08): sub-budget for the
 # shadow-incremental parity block (pipeline/parity.py) -- mirrors
 # RUN_MEMORY_WRITE_MAX_MINUTES and the sub-budget pattern the retired

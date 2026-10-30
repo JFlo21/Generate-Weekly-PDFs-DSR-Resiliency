@@ -101,7 +101,7 @@ coverage:
     description: "The streak authorisation is re-confirmed at execution time, not just cited from a stale record."
     requirement: "INC-05"
     verification:
-      - kind: manual
+      - kind: other
         ref: "11-07-SUMMARY.md 'Task 2 -- DECISION RE-OPENED (2026-08-31)' -- real get_parity_streak() = 5/5 read on merged master #372 = d9bd2b2, before this branch's first commit"
         status: pass
     human_judgment: true

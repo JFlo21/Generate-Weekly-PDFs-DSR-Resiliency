@@ -255,6 +255,14 @@ CU pricing, rate recalculation, and billing formulas do not change.
   > alternative (Option B: raw-column schema extension + read-time enrichment) is
   > gated on this hybrid running clean for ≥5 consecutive `production_frequent` runs
   > (CONTEXT.md D-05).
+  > **[2026-09-14] ACCEPTED OVERRIDE (Phase 11 Plan 10):** Juan explicitly accepted the
+  > D-05 Option C deferral above as satisfying this clause's practical intent, recorded
+  > as an `overrides:` entry in `11-VERIFICATION.md`'s frontmatter (`accepted_by: "Juan
+  > Flores"`, `accepted_at: "2026-09-14T17:36:08Z"`). Option B (raw-column schema
+  > extension) remains deferred under D-05, gated on a clean ≥5-run
+  > `production_frequent` streak; `pipeline_memory/schema.sql` stays a protected area
+  > untouched by this override. Whether the accepted override ticks the checkbox above
+  > is left to the next re-verification pass.
 
 - [x] **INC-03**: The weekly deep run performs a full read + reconciliation (deletions,
   formula-only changes) and refreshes `sheet_registry.column_mapping`.
@@ -262,6 +270,18 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **INC-04**: Behind `RUN_MEMORY_INCREMENTAL_ENABLED` (default OFF) with parity
   proof: incremental output set == full-run output set for ≥5 consecutive scheduled
   runs before the flag defaults ON.
+  > **[2026-09-14] Streak reset, fix shipped, fresh reading pending (Phase 11 Plan
+  > 09/10):** two live `production_frequent` runs (34648318434.1, 34541106039.1)
+  > produced `actual_not_in_candidate` parity FAILs, resetting the D-09
+  > `get_parity_streak()` count to zero (`11-VERIFICATION.md` Gap 2). Plan 11-09 fixed
+  > the confirmed cause (`pipeline/orchestrate.py::_resolve_row_wr_week`, commit
+  > `04c618a`) with a passing reproduction test and a bidirectional contract test. A
+  > fresh, currently-held ≥5 consecutive-pass `production_frequent` streak taken AFTER
+  > the fix is required before the INC-04 / ROADMAP SC2 gate condition is considered
+  > held again (D-09 as amended); that owner-supplied reading is recorded in
+  > `11-VERIFICATION.md`'s `#### Post-Fix Parity Streak Observation` subsection.
+  > `RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF; the flip remains a separate
+  > operator-gated PR under D-11.
 
 - [x] **INC-05**: `hash_history.json`, `discovery_cache.json`,
   `billing_audit_frozen_rows.json` and the attachment pre-fetch phases are retired only
@@ -274,17 +294,22 @@ CU pricing, rate recalculation, and billing formulas do not change.
   backfill_cell_history → sentinel, recorded with provenance columns on
   `attribution_snapshot`; sentinels (`Unknown Foreman`, `#NO MATCH`) are never stored
   as names.
-  > Re-scoped per D-12-A: the originally specified `wr_week_ownership` table and its
-  > `last_known_before_week` rung were not built; the table is deferred to Phase 13.
+  > Closed per D-13-A (2026-09-11): the `wr_week_ownership` table, its view, and the
+  > `last_known_before_week` rung are permanently dropped, not deferred. OWN-01 is
+  > satisfied by the `resolve_claimer` ladder over `billing_audit.attribution_snapshot`
+  > plus the `backfill_source` / `backfill_run_id` provenance columns, validated live
+  > 2026-09-05. A future consumer would add a derived read-only view in its own phase.
 
 - [x] **OWN-02**: `freeze_row` / `resolve_claimer` treat the sentinel as no-claimer (the
   2026-08-24 defect) and Subproject B/C/D partition by the frozen `attribution_snapshot`
   claimer.
   > Shipped 2026-09-01 (policy A); originally written as "partition by
-  > `wr_week_ownership`" — see D-12-A.
+  > `wr_week_ownership`" — superseded by D-13-A (2026-09-11): no such table was built;
+  > Subproject B/C/D partition directly by the frozen `attribution_snapshot` claimer.
 
 - [x] **OWN-03**: One-time, dry-run-first backfill from `public.artifacts` filenames,
   non-sentinel `attribution_snapshot`, and the Supabase hash store (`group_content_hash`
+
   + `group_state` identifier tokens — never a JSON file, D-12-B);
   the `Unknown Foreman` rows with recoverable evidence are remediated and their
   `_User_Unknown_Foreman` attachments replaced. Validated against a known-good sample
@@ -300,14 +325,33 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 ### Audit memory (Phase 13)
 
-- [ ] **AUD-01**: `audit_finding` / `audit_finding_event` persist every finding with a
+- [x] **AUD-01**: `audit_finding` / `audit_finding_event` persist every finding with a
   stable key and lifecycle open → fixed | resurfaced | acknowledged | suppressed.
 
 - [ ] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
   not reproduced on a re-audited group transition to `fixed` with the fixing run id.
+  *(2026-10-29, PR #435: reverted to Pending. Full runs meet it. On an incremental run
+  (`RUN_MEMORY_INCREMENTAL_ENABLED`) only the candidate pairs' sheets are re-fetched, so an
+  open finding whose rows sit only on unchanged sheets is not re-checked that run: it is
+  never closed (an incremental run persists and closes nothing -- a partial WR pool can
+  raise a false price-variance finding; a full run closes a WR's findings only
+  when the check evaluated every row of that WR, because a NULL-week finding matches any
+  week of its WR) but its `last_seen_run` is not bumped until the next full run. Re-checking them is tracked in
+  `.planning/todos/pending/2026-10-29-audit-memory-open-findings-incremental-recheck.md`
+  and must land before AUD-02 is claimed with incremental reads on. Until then such
+  findings are re-checked on the next full run: trigger 7 makes every run except
+  `production_frequent` (the Monday `weekly_comprehensive` deep run, weekend and manual
+  runs) resolve full, so each open finding is re-checked at least weekly -- pinned by
+  `tests/test_incremental_read.py::test_every_non_frequent_execution_type_resolves_full`.
+  Both flags are off in production today.)*
 
 - [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
   queryable per WR.
+  *(2026-10-29, PR #435: reverted to Pending. Phase 13 v1 shipped the SQL views only —
+  `pipeline_memory.open_findings` and `pipeline_memory.finding_history_by_wr`, which
+  cover "open + resurfaced only" and "history queryable per WR". The Excel/portal
+  visual surface is deferred (D-07; ROADMAP Phase 13 backlog entry), so this
+  requirement is not complete.)*
 
 ### Foreman Helper #2 (Phase 14)
 
@@ -444,9 +488,9 @@ Which phases cover which requirements.
 | OWN-02 | Phase 12 | Complete |
 | OWN-03 | Phase 12 | Complete |
 | OWN-04 | Phase 12 | Complete |
-| AUD-01 | Phase 13 | Pending |
+| AUD-01 | Phase 13 | Complete |
 | AUD-02 | Phase 13 | Pending |
-| AUD-03 | Phase 13 | Pending |
+| AUD-03 | Phase 13 | Pending (v1 SQL views only; Excel/portal surface deferred, D-07 — 2026-10-29) |
 | HLP-01 | Phase 14 | Complete |
 | HLP-02 | Phase 14 | Complete |
 | HLP-03 | Phase 14 | Complete |
@@ -464,4 +508,4 @@ Which phases cover which requirements.
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-09-10 — OWN-01..04 Complete (Phase 12 closed; D-12-A/C/E scope notes) · 2026-09-09 (HLP-01..07 Complete) · 2026-08-24 — appended v1.4 MEM-01..04 / INC-01..05 / OWN-01..04 / AUD-01..03 (Supabase Run Memory), mapped to Phases 10–13; merged from `.planning/milestones/v1.4-REQUIREMENTS.md` so plan-phase's requirements-coverage gate can see them; 2026-09-08 — HLP-01..07 (Foreman Helper #2, Phase 14) HLP-01..07 Complete (HLP-06 closed by 14-12 on 2026-09-09, D-14-13-VERIFIED).*
+*Last updated: 2026-10-29 — AUD-03 reverted to Pending (PR #435: v1 shipped SQL views only; visual surface deferred) · 2026-09-10 — OWN-01..04 Complete (Phase 12 closed; D-12-A/C/E scope notes) · 2026-09-09 (HLP-01..07 Complete) · 2026-08-24 — appended v1.4 MEM-01..04 / INC-01..05 / OWN-01..04 / AUD-01..03 (Supabase Run Memory), mapped to Phases 10–13; merged from `.planning/milestones/v1.4-REQUIREMENTS.md` so plan-phase's requirements-coverage gate can see them; 2026-09-08 — HLP-01..07 (Foreman Helper #2, Phase 14) HLP-01..07 Complete (HLP-06 closed by 14-12 on 2026-09-09, D-14-13-VERIFIED).*

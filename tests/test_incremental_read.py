@@ -582,6 +582,30 @@ class ModeResolutionTests(unittest.TestCase):
         self.assertEqual(mode, "full")
         self.assertIn("trigger7", reason)
 
+    def test_every_non_frequent_execution_type_resolves_full(self):
+        """PR #435 (AUD-02): open audit findings are re-checked only on
+        full runs (an incremental run's closure scope is its candidate
+        pairs). Trigger 7 guarantees every execution type the workflow
+        emits other than production_frequent -- including the Monday
+        weekly_comprehensive deep run -- resolves full, so every open
+        finding is re-checked at least weekly even with incremental on.
+        """
+        from pipeline.orchestrate import resolve_run_mode
+
+        source = _make_source()
+        watermarks = _healthy_watermark(source["id"], source["column_mapping"])
+        for exec_type in (
+            "weekly_comprehensive", "weekend_maintenance", "manual",
+            "scheduled",
+        ):
+            with self.subTest(execution_type=exec_type):
+                mode, reason, _ = resolve_run_mode(
+                    [source], watermarks, self._clean_last_run(),
+                    **_healthy_kwargs(execution_type=exec_type),
+                )
+                self.assertEqual(mode, "full")
+                self.assertIn("trigger7", reason)
+
     def test_never_raises_on_unexpected_exception(self):
         from pipeline.orchestrate import resolve_run_mode
 

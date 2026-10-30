@@ -36,16 +36,27 @@
 -- schema and the Python code share an implicit contract that this
 -- file documents. See the closing comment block for the full list.
 --
--- SCOPE (Phase 10 / MEM-01..03 only -- see .planning/phases/
+-- SCOPE (Phase 10 / MEM-01..03 -- see .planning/phases/
 -- 10-run-memory-foundation-shadow-writes/COVERAGE.md): this file ships
 -- the five MEM-01 tables (sheet_registry, row_state, row_event,
 -- group_state, run_ledger) and the upsert_rows_bulk write RPC. It does
--- NOT ship ``wr_week_ownership`` or ``audit_finding`` /
--- ``audit_finding_event`` from the design-spec draft -- those are
--- scoped to Phases 12/13 by CONTEXT.md <domain>. It does NOT modify
--- ``billing_audit/schema.sql`` or ``billing_audit.group_content_hash``
--- (D-03) -- retiring the existing hash store is explicitly deferred to
--- Phase 11+ after parity.
+-- NOT modify ``billing_audit/schema.sql`` or
+-- ``billing_audit.group_content_hash`` (D-03) -- retiring the existing
+-- hash store is explicitly deferred to Phase 11+ after parity.
+--
+-- SCOPE (Phase 13 / AUD-01..03 -- see .planning/phases/
+-- 13-audit-memory/13-CONTEXT.md): this file ALSO ships
+-- ``audit_finding`` and ``audit_finding_event`` (findings persisted
+-- from ``audit_billing_changes.py`` across runs), the
+-- ``upsert_audit_findings`` and ``acknowledge_finding`` functions, and
+-- the ``open_findings`` / ``finding_history_by_wr`` views.
+-- ``wr_week_ownership`` from the design-spec draft is PERMANENTLY
+-- DROPPED as decision **D-13-A** -- not deferred to a later phase.
+-- OWN-01 is satisfied instead by the ``resolve_claimer`` ladder over
+-- ``billing_audit.attribution_snapshot`` plus its ``backfill_source`` /
+-- ``backfill_run_id`` provenance columns (validated live 2026-09-05).
+-- No ``wr_week_ownership`` table, view, or ``last_known_before_week``
+-- rung will ever be built under that name.
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS pipeline_memory;
@@ -313,6 +324,16 @@ CREATE TABLE IF NOT EXISTS pipeline_memory.run_ledger (
 -- AFTER pipeline_memory/helper2_columns_migration.sql has added the
 -- columns -- the INSERT list references them. APPLIED to production
 -- 2026-09-09 02:21:29Z (migration 20260909022129, D-14-13-VERIFIED).
+-- G-11-37 mechanism C (Phase 11 plan 11-14, owner-approved ADDITIVE change
+-- 2026-10-29): a row whose Work Request # changed used to return only
+-- (NEW wr, prior week), never (PRIOR wr, prior week), so the OLD WR's group
+-- missed the INC-02 candidate. The `prior` CTE now also carries rs.wr as
+-- prior_wr and a third UNION branch returns (prior_wr, prior_week_ending)
+-- when the stored WR differs from the new one. The two existing return
+-- branches are kept as-is, so no previously returned pair disappears (the
+-- output is a strict superset). Signature, grants, search_path pin, and
+-- every column list are unchanged. Live apply is gated on the owner's
+-- pre-apply SQL review; rollback: pipeline_memory/upsert_rows_bulk_prior_pair_migration.sql.
 CREATE OR REPLACE FUNCTION pipeline_memory.upsert_rows_bulk(
     p_sheet_id BIGINT,
     p_run_id   TEXT,
@@ -363,6 +384,7 @@ BEGIN
         SELECT rs.row_id,
                rs.content_hash AS prior_hash,
                rs.week_ending  AS prior_week_ending
+               , rs.wr AS prior_wr
         FROM pipeline_memory.row_state AS rs
         WHERE rs.sheet_id = p_sheet_id
           AND rs.row_id IN (SELECT i.row_id FROM incoming AS i)
@@ -372,6 +394,7 @@ BEGIN
             i.*,
             p.prior_hash,
             p.prior_week_ending,
+            p.prior_wr,
             (p.row_id IS NULL) AS is_new
         FROM incoming AS i
         LEFT JOIN prior AS p ON p.row_id = i.row_id
@@ -536,6 +559,12 @@ BEGIN
     SELECT c.wr, c.week_ending
     FROM changed AS c
     UNION
+    SELECT c.prior_wr, c.prior_week_ending
+    FROM changed AS c
+    WHERE c.prior_wr IS NOT NULL
+      AND c.prior_week_ending IS NOT NULL
+      AND c.prior_wr IS DISTINCT FROM c.wr
+    UNION
     SELECT c.wr, c.prior_week_ending
     FROM changed AS c
     WHERE c.prior_week_ending IS NOT NULL
@@ -667,6 +696,476 @@ SELECT cron.schedule(
     $$SELECT pipeline_memory.purge_row_event_slice();$$
 );
 
+-- ── audit_finding / audit_finding_event ──────────────────────
+-- Phase 13 (AUD-01, plan 13-01 vertical slice): persists findings
+-- emitted by ``audit_billing_changes.py`` across runs so a fixed issue
+-- can be observed to transition, not just re-detected from scratch
+-- every 2 hours. NEW, INDEPENDENT of ``run_ledger`` -- no foreign key
+-- to it (audit_finding rows exist regardless of whether
+-- RUN_MEMORY_WRITE_ENABLED is on; the two flags gate independently,
+-- D-01/prohibitions).
+--
+-- finding_key arrives PRE-COMPUTED from Python
+-- (``pipeline_memory.audit_findings.compute_finding_key``, D-01's
+-- versioned sha256 recipe) and is NEVER recomputed or re-derived here
+-- (ASVS V6 -- one authoritative hashing side, so a Python-computed key
+-- can never disagree with a SQL-computed one).
+CREATE TABLE IF NOT EXISTS pipeline_memory.audit_finding (
+    finding_key      TEXT        PRIMARY KEY,
+    recipe_version   TEXT        NOT NULL,
+    check_id         TEXT        NOT NULL,
+    wr               TEXT,
+    week_ending      DATE,
+    cu               TEXT,
+    work_type        TEXT,
+    issue_codes      TEXT[],
+    severity         TEXT,
+    status           TEXT        NOT NULL
+        CHECK (status IN ('open', 'fixed', 'acknowledged', 'suppressed',
+                           'resurfaced')),
+    evidence         JSONB,
+    first_seen_run   TEXT,
+    last_seen_run    TEXT,
+    fixed_run        TEXT,
+    acknowledged_by  TEXT,
+    acknowledged_at  TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Append-only, mirrors row_event's shape: one row per observed
+-- transition, never updated or deleted by application code.
+CREATE TABLE IF NOT EXISTS pipeline_memory.audit_finding_event (
+    event_id     BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    finding_key  TEXT        NOT NULL,
+    run_id       TEXT        NOT NULL,
+    observed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    transition   TEXT        NOT NULL
+        CHECK (transition IN ('opened', 'seen', 'fixed', 'reopened',
+                               'resurfaced', 'acknowledged', 'suppressed')),
+    actor        TEXT,
+    note         TEXT,
+    after_image  JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_finding_status
+    ON pipeline_memory.audit_finding (status);
+CREATE INDEX IF NOT EXISTS idx_audit_finding_wr_week
+    ON pipeline_memory.audit_finding (wr, week_ending);
+CREATE INDEX IF NOT EXISTS idx_audit_finding_event_key_observed
+    ON pipeline_memory.audit_finding_event (finding_key, observed_at);
+
+-- ── upsert_audit_findings (RPC) ───────────────────────────────
+-- Plan 13-04 (AUD-02): the COMPLETE D-08 transition table, applied
+-- atomically in one plpgsql invocation (mirrors upsert_rows_bulk,
+-- D-CD-03). Every transition below writes exactly one
+-- audit_finding_event row; first_seen_run is set on INSERT only and
+-- appears in NO update set list anywhere in this function.
+--
+-- finding_key arrives PRE-COMPUTED from Python
+-- (pipeline_memory.audit_findings.compute_finding_key, D-01's versioned
+-- sha256 recipe) and is NEVER recomputed or re-derived here (ASVS V6 --
+-- one authoritative hashing side, so a Python-computed key can never
+-- disagree with a SQL-computed one).
+--
+-- An empty p_reaudited_pairs array closes nothing BY CONSTRUCTION: the
+-- 'fixed' branch (the to_fix/fixed_upd/fixed_logged CTEs below) is
+-- expressed as a JOIN against the jsonb_to_recordset(p_reaudited_pairs)
+-- recordset, so an empty array produces an empty join result -- never a
+-- NOT EXISTS over the whole table, which could vacuously match rows an
+-- empty caller payload never intended to touch.
+--
+-- Per-check scoping (Pitfall 5, 13-RESEARCH.md): p_reaudited_pairs is
+-- keyed by (check_id, wr, week_ending), never merely (wr, week_ending)
+-- -- RATE_SANITY_AUDIT_ENABLED can disable rate_sanity_mismatch for an
+-- entire run while the other two checks still run, so a
+-- rate_sanity_mismatch finding must never transition to 'fixed' off a
+-- pair whose check_id names a DIFFERENT check that happened to re-audit
+-- the same (wr, week_ending).
+--
+-- Transition table (D-08), by branch below:
+--   new finding_key                       -> INSERT status='open',
+--                                             event 'opened'
+--   existing key, prior status acknowledged -> 'resurfaced', event
+--                                             'resurfaced'
+--   existing key, prior status fixed        -> 'open' (fixed_run
+--                                             cleared), event 'reopened'
+--   existing key, prior status suppressed   -> unchanged, event 'seen'
+--   existing key, prior status open/
+--     resurfaced                            -> unchanged, event 'seen'
+--   (every "existing key" row above also sets last_seen_run = p_run_id,
+--    updated_at = NOW(), and refreshes the mutable non-identity columns
+--    severity/evidence from the payload -- identity columns and
+--    first_seen_run are never overwritten)
+--   key ABSENT from p_findings, status open/resurfaced, its check_id
+--     ran this run (present in p_reaudited_pairs) AND its (wr,
+--     week_ending) group was re-audited -- with a stored NULL
+--     week_ending matching on check_id + wr alone (D-CD-01 pooled-week
+--     rule) -- -> 'fixed', fixed_run = p_run_id, event 'fixed'.
+--     last_seen_run is deliberately NOT bumped here: the finding was
+--     not seen this run, it was concluded absent.
+--   everything else (including any finding whose check_id never
+--     appears in p_reaudited_pairs at all)  -> untouched: no status
+--     change, no last_seen_run bump, no event row.
+--
+-- SECURITY (T-13-04-01/T-13-04-02, ASVS V5/V6): explicit typed
+-- jsonb_to_recordset(...) column lists for BOTH jsonb parameters, never
+-- dynamic SQL and never trusting client-shaped jsonb structurally
+-- (mirrors upsert_rows_bulk's T-10-03 precedent). LANGUAGE plpgsql with
+-- SET search_path = '' -- every object reference below is therefore
+-- schema-qualified. VOLATILE (the default; this RPC writes).
+--
+-- Order-independence: every transition is expressed as a set-based CTE
+-- over the whole incoming/pairs recordsets, never a per-row loop or an
+-- ORDER BY, so the result is independent of the order of the findings
+-- and pairs arrays in the caller's payload (must-have truth).
+--
+-- Concurrency/idempotency: the whole transition set runs inside this
+-- one plpgsql function invocation (one transaction), so a retried or
+-- interrupted call leaves either the pre-call state or the fully
+-- applied state; finding_key's PRIMARY KEY makes a duplicate finding
+-- row impossible even under concurrent calls (T-13-04-08, accepted --
+-- pipeline_memory/client.py's breaker still lacks the PR #407 lock
+-- fix, a separately tracked follow-up, not this plan's scope).
+CREATE OR REPLACE FUNCTION pipeline_memory.upsert_audit_findings(
+    p_run_id          TEXT,
+    p_findings        JSONB,
+    p_reaudited_pairs JSONB
+)
+RETURNS TABLE (opened INT, seen INT, fixed INT, resurfaced INT, reopened INT)
+LANGUAGE plpgsql
+VOLATILE
+SET search_path = ''
+AS $$
+DECLARE
+    _opened     INT := 0;
+    _seen       INT := 0;
+    _fixed      INT := 0;
+    _resurfaced INT := 0;
+    _reopened   INT := 0;
+BEGIN
+    WITH incoming AS (
+        SELECT
+            q.finding_key, q.recipe_version, q.check_id, q.wr,
+            q.week_ending, q.cu, q.work_type, q.issue_codes, q.severity,
+            q.evidence
+        FROM jsonb_to_recordset(p_findings) AS q(
+            finding_key     TEXT,
+            recipe_version  TEXT,
+            check_id        TEXT,
+            wr              TEXT,
+            week_ending     DATE,
+            cu              TEXT,
+            work_type       TEXT,
+            issue_codes     TEXT[],
+            severity        TEXT,
+            evidence        JSONB
+        )
+    ),
+    pairs AS (
+        SELECT r.check_id, r.wr, r.week_ending
+        FROM jsonb_to_recordset(p_reaudited_pairs) AS r(
+            check_id    TEXT,
+            wr          TEXT,
+            week_ending DATE
+        )
+    ),
+    existing AS (
+        SELECT af.finding_key, af.status AS prior_status
+        FROM pipeline_memory.audit_finding AS af
+        WHERE af.finding_key IN (SELECT i.finding_key FROM incoming AS i)
+    ),
+    upserted AS (
+        INSERT INTO pipeline_memory.audit_finding (
+            finding_key, recipe_version, check_id, wr, week_ending, cu,
+            work_type, issue_codes, severity, status, evidence,
+            first_seen_run, last_seen_run
+        )
+        SELECT
+            i.finding_key, i.recipe_version, i.check_id, i.wr,
+            i.week_ending, i.cu, i.work_type, i.issue_codes, i.severity,
+            'open', i.evidence, p_run_id, p_run_id
+        FROM incoming AS i
+        ON CONFLICT (finding_key) DO UPDATE SET
+            severity = EXCLUDED.severity,
+            evidence = EXCLUDED.evidence,
+            status = CASE pipeline_memory.audit_finding.status
+                         WHEN 'acknowledged' THEN 'resurfaced'
+                         WHEN 'fixed'        THEN 'open'
+                         ELSE pipeline_memory.audit_finding.status
+                     END,
+            fixed_run = CASE
+                            WHEN pipeline_memory.audit_finding.status = 'fixed'
+                            THEN NULL
+                            ELSE pipeline_memory.audit_finding.fixed_run
+                        END,
+            last_seen_run = p_run_id,
+            updated_at = NOW()
+        RETURNING
+            pipeline_memory.audit_finding.finding_key AS finding_key,
+            (xmax = 0) AS is_new
+    ),
+    logged AS (
+        INSERT INTO pipeline_memory.audit_finding_event (
+            finding_key, run_id, transition
+        )
+        SELECT
+            u.finding_key,
+            p_run_id,
+            CASE
+                WHEN u.is_new THEN 'opened'
+                WHEN e.prior_status = 'acknowledged' THEN 'resurfaced'
+                WHEN e.prior_status = 'fixed' THEN 'reopened'
+                ELSE 'seen'
+            END
+        FROM upserted AS u
+        LEFT JOIN existing AS e ON e.finding_key = u.finding_key
+        RETURNING transition
+    ),
+    -- 'fixed' branch: a JOIN against the p_reaudited_pairs recordset,
+    -- never a NOT EXISTS over the whole table -- an empty
+    -- p_reaudited_pairs array therefore joins to nothing and closes
+    -- nothing (see the header comment above).
+    to_fix AS (
+        SELECT DISTINCT af.finding_key
+        FROM pipeline_memory.audit_finding AS af
+        JOIN pairs AS p
+            ON p.check_id = af.check_id
+           AND p.wr = af.wr
+           AND (af.week_ending IS NULL OR p.week_ending = af.week_ending)
+        WHERE af.status IN ('open', 'resurfaced')
+          AND NOT EXISTS (
+              SELECT 1 FROM incoming AS i WHERE i.finding_key = af.finding_key
+          )
+    ),
+    fixed_upd AS (
+        UPDATE pipeline_memory.audit_finding AS af
+        SET status = 'fixed',
+            fixed_run = p_run_id,
+            updated_at = NOW()
+        FROM to_fix AS tf
+        WHERE af.finding_key = tf.finding_key
+        RETURNING af.finding_key
+    ),
+    fixed_logged AS (
+        INSERT INTO pipeline_memory.audit_finding_event (
+            finding_key, run_id, transition
+        )
+        SELECT fu.finding_key, p_run_id, 'fixed'
+        FROM fixed_upd AS fu
+        RETURNING 1
+    )
+    SELECT
+        (SELECT COUNT(*) FROM logged WHERE transition = 'opened'),
+        (SELECT COUNT(*) FROM logged WHERE transition = 'seen'),
+        (SELECT COUNT(*) FROM fixed_logged),
+        (SELECT COUNT(*) FROM logged WHERE transition = 'resurfaced'),
+        (SELECT COUNT(*) FROM logged WHERE transition = 'reopened')
+    INTO _opened, _seen, _fixed, _resurfaced, _reopened;
+
+    RETURN QUERY SELECT _opened, _seen, _fixed, _resurfaced, _reopened;
+END;
+$$;
+
+-- Explicit EXECUTE contract (PR #435): Postgres grants EXECUTE on a new
+-- function to PUBLIC by default, which would leave this write RPC
+-- callable by anon/authenticated via PostgREST (RLS still blocks the
+-- row writes, but the call itself should never be reachable). Mirrors
+-- acknowledge_finding's REVOKE and upsert_rows_bulk's GRANT: REVOKE
+-- from PUBLIC first, then GRANT the pipeline's only writer. Live apply:
+-- pipeline_memory/upsert_audit_findings_grant_migration.sql (owner-
+-- approved, NOT applied by this file's presence in the repo).
+REVOKE ALL ON FUNCTION pipeline_memory.upsert_audit_findings(TEXT, JSONB, JSONB)
+    FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pipeline_memory.upsert_audit_findings(TEXT, JSONB, JSONB)
+    TO service_role;
+
+-- ── RLS -- service-role only, audit_finding / audit_finding_event ────
+-- Plan 13-05. Mirrors the RLS block above (the five MEM-01 tables,
+-- schema.sql:577-605) exactly: ENABLE ROW LEVEL SECURITY, then a
+-- drop-then-create service_role_all policy so this section stays
+-- reapply-safe like every other statement in this file.
+--
+-- No per-table REVOKE is duplicated here for these two tables: the
+-- schema-wide `REVOKE ALL ... FROM anon, authenticated` and the
+-- `ALTER DEFAULT PRIVILEGES IN SCHEMA pipeline_memory REVOKE ALL ON
+-- TABLES FROM anon, authenticated` statements above already cover
+-- every table created afterward in this file (audit_finding and
+-- audit_finding_event both are), by the same belt-and-suspenders
+-- default-privileges mechanism documented there.
+ALTER TABLE pipeline_memory.audit_finding       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_memory.audit_finding_event ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS service_role_all ON pipeline_memory.audit_finding;
+CREATE POLICY service_role_all ON pipeline_memory.audit_finding
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS service_role_all ON pipeline_memory.audit_finding_event;
+CREATE POLICY service_role_all ON pipeline_memory.audit_finding_event
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ── open_findings / finding_history_by_wr (views, AUD-03) ────────────
+-- Plan 13-05. Both declared as invoker-rights views (see each CREATE
+-- VIEW's own WITH clause below) so each view evaluates under the
+-- CALLER's privileges rather than the view owner's -- combined with
+-- the service_role-only RLS policy above, a
+-- caller without service_role reads zero rows even if it somehow
+-- reached the view (T-13-05-01). Views are NOT covered by the
+-- `ALTER DEFAULT PRIVILEGES ... ON TABLES` REVOKE statement above for
+-- any object that already existed before that statement last ran, so
+-- both REVOKEs below are stated explicitly rather than relied on via
+-- statement ordering.
+--
+-- open_findings: status IN ('open', 'resurfaced') only -- a fixed,
+-- acknowledged, or suppressed finding never appears here. The ORDER BY
+-- is TOTAL: severity rank, then last_seen_run DESC, then finding_key as
+-- the tiebreak, so two rows that compare equal on the first two keys
+-- still order identically across calls.
+CREATE OR REPLACE VIEW pipeline_memory.open_findings
+WITH (security_invoker = true) AS
+SELECT
+    af.finding_key,
+    af.recipe_version,
+    af.check_id,
+    af.wr,
+    af.week_ending,
+    af.cu,
+    af.work_type,
+    af.issue_codes,
+    af.severity,
+    CASE af.severity
+        WHEN 'high'   THEN 1
+        WHEN 'medium' THEN 2
+        WHEN 'low'    THEN 3
+        ELSE 4
+    END AS severity_rank,
+    af.status,
+    af.evidence,
+    af.first_seen_run,
+    af.last_seen_run,
+    af.created_at,
+    af.updated_at
+FROM pipeline_memory.audit_finding AS af
+WHERE af.status IN ('open', 'resurfaced')
+ORDER BY severity_rank, af.last_seen_run DESC, af.finding_key;
+
+REVOKE ALL ON pipeline_memory.open_findings FROM anon, authenticated;
+
+-- finding_history_by_wr: every finding LEFT JOINed to its events, so a
+-- finding with zero audit_finding_event rows (nothing has happened to
+-- it since it opened) still appears, with NULL event columns -- an
+-- INNER JOIN would silently drop it. The view carries no WR filter;
+-- callers filter with `WHERE wr = '...'` at query time.
+CREATE OR REPLACE VIEW pipeline_memory.finding_history_by_wr
+WITH (security_invoker = true) AS
+SELECT
+    af.finding_key,
+    af.recipe_version,
+    af.check_id,
+    af.wr,
+    af.week_ending,
+    af.cu,
+    af.work_type,
+    af.issue_codes,
+    af.severity,
+    af.status,
+    af.evidence,
+    af.first_seen_run,
+    af.last_seen_run,
+    af.fixed_run,
+    af.acknowledged_by,
+    af.acknowledged_at,
+    af.created_at,
+    af.updated_at,
+    afe.event_id,
+    afe.run_id      AS event_run_id,
+    afe.transition,
+    afe.observed_at,
+    afe.actor,
+    afe.note
+FROM pipeline_memory.audit_finding AS af
+LEFT JOIN pipeline_memory.audit_finding_event AS afe
+    ON afe.finding_key = af.finding_key;
+
+REVOKE ALL ON pipeline_memory.finding_history_by_wr FROM anon, authenticated;
+
+-- ── acknowledge_finding (RPC, D-05) ───────────────────────────────────
+-- The ONLY manual-transition path for a finding: sets status to
+-- 'acknowledged' or 'suppressed' and writes the matching
+-- audit_finding_event row in the SAME call, so a manual transition can
+-- never be recorded without its event -- D-05's whole reason for this
+-- helper existing. service_role only: no portal page, no
+-- workflow_dispatch input, and no Smartsheet surface exists for this
+-- in Phase 13 -- Juan calls it directly from the Supabase SQL editor.
+--
+-- Raises (never silently no-ops) when p_transition is outside the
+-- acknowledged/suppressed set, or when no audit_finding row matches
+-- p_finding_key -- an owner typo must surface immediately, not vanish.
+--
+-- run_id stored on the written audit_finding_event row is a manual-
+-- transition sentinel ('manual:' || actor), never a real pipeline
+-- run_id, so a manual acknowledge/suppress is always distinguishable
+-- from a pipeline-driven transition in finding_history_by_wr.
+--
+-- SECURITY (T-13-05-02, ASVS V5/V6): SET search_path = '', every
+-- object reference schema-qualified, no dynamic SQL. EXECUTE is
+-- explicitly revoked from PUBLIC below -- Postgres auto-grants EXECUTE
+-- on a new function to PUBLIC by default (unlike tables/views), which
+-- would otherwise leave this owner-only helper callable by anon/
+-- authenticated via PostgREST even though the RLS policy above would
+-- still block the actual row mutation.
+CREATE OR REPLACE FUNCTION pipeline_memory.acknowledge_finding(
+    p_finding_key TEXT,
+    p_actor       TEXT,
+    p_transition  TEXT,
+    p_note        TEXT
+)
+RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SET search_path = ''
+AS $$
+BEGIN
+    IF p_transition NOT IN ('acknowledged', 'suppressed') THEN
+        RAISE EXCEPTION
+            'acknowledge_finding: p_transition must be acknowledged or suppressed, got %',
+            p_transition;
+    END IF;
+
+    UPDATE pipeline_memory.audit_finding
+    SET status          = p_transition,
+        acknowledged_by = p_actor,
+        acknowledged_at = NOW(),
+        updated_at      = NOW()
+    WHERE finding_key = p_finding_key;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION
+            'acknowledge_finding: no audit_finding row for finding_key %',
+            p_finding_key;
+    END IF;
+
+    INSERT INTO pipeline_memory.audit_finding_event (
+        finding_key, run_id, transition, actor, note
+    ) VALUES (
+        p_finding_key,
+        'manual:' || COALESCE(p_actor, 'unknown'),
+        p_transition,
+        p_actor,
+        p_note
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pipeline_memory.acknowledge_finding(TEXT, TEXT, TEXT, TEXT)
+    FROM PUBLIC;
+-- PR #435 (Greptile P1): the REVOKE left only the owner able to call it,
+-- so the service-role procedure got permission denied. Live apply:
+-- pipeline_memory/acknowledge_finding_grant_migration.sql (owner-approved,
+-- NOT applied by this file's presence in the repo).
+GRANT EXECUTE ON FUNCTION pipeline_memory.acknowledge_finding(TEXT, TEXT, TEXT, TEXT)
+    TO service_role;
+
 -- ============================================================
 -- Python <-> SQL contract (D-03): adding or renaming a column here
 -- requires updating pipeline_memory/writer.py in the SAME PR. The DDL
@@ -682,4 +1181,23 @@ SELECT cron.schedule(
 --     groups_generated, notes (finish). on_conflict="run_id".
 --   upsert_rows_bulk RPC parameters: p_sheet_id, p_run_id, p_rows
 --     (wired against real row payloads starting plan 10-02).
+--   upsert_audit_findings RPC parameters (plan 13-04, verified against
+--     pipeline_memory/audit_findings.py and
+--     tests/test_audit_findings_sql_contract.py): p_run_id, p_findings,
+--     p_reaudited_pairs.
+--   p_findings jsonb_to_recordset column list: finding_key,
+--     recipe_version, check_id, wr, week_ending, cu, work_type,
+--     issue_codes, severity, evidence -- matches
+--     pipeline_memory.audit_findings.build_finding_payloads' emitted
+--     dict keys one for one (a given check's payload omits whichever of
+--     cu/work_type/issue_codes it does not use; jsonb_to_recordset
+--     fills the absent key as NULL).
+--   p_reaudited_pairs jsonb_to_recordset element shape: check_id, wr,
+--     week_ending -- matches
+--     pipeline_memory.audit_findings.build_reaudited_pairs' emitted
+--     dict keys one for one.
+--   audit_finding.status CHECK set: open, fixed, acknowledged,
+--     suppressed, resurfaced.
+--   audit_finding_event.transition CHECK set: opened, seen, fixed,
+--     reopened, resurfaced, acknowledged, suppressed.
 -- ============================================================

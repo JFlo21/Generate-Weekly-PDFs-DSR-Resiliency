@@ -260,7 +260,7 @@ def get_last_run_ledger_status() -> dict | None:
             client.schema("pipeline_memory")
             .table("run_ledger")
             .select("status,finished_at")
-            .order("started_at", desc=True)
+            .order("started_at", desc=True, nullsfirst=False)
             .limit(1)
             .execute()
         )
@@ -277,6 +277,57 @@ def get_last_run_ledger_status() -> dict | None:
     if not isinstance(row, dict):
         return None
     return row
+
+
+def get_recent_run_ledger_rows(limit: int = 20) -> list[dict] | None:
+    """Return up to *limit* recent ``run_ledger`` rows, newest first.
+
+    Phase 11 Plan 12 (G-11-37 mechanism B, regeneration debt): one bounded
+    SELECT of ``run_id, started_at, finished_at, status, notes`` ordered
+    ``started_at`` descending with NULLs last, so a row whose
+    ``started_at`` is NULL can never be read as the newest run. Called
+    BEFORE this run's own ``run_ledger_start``, so it never sees itself.
+    ``pipeline.memory_candidate.regen_debt_from_ledger_rows`` reduces the
+    rows to the carried debt.
+
+    A NULL-``started_at`` row sorts behind all history and the reducer
+    skips it, so it must never carry debt (PR #435 feedback). The writer
+    side guarantees that: when a run's ``run_ledger_start`` is not
+    confirmed, ``orchestrate.main`` passes a fallback ``started_at`` to
+    ``run_ledger_finish`` (the row is ordered normally and its debt read)
+    and reports that run's debt ``regen_debt_unknown`` (the next run is
+    skipped / resolves full instead of trusting an older clean row). Only
+    legacy rows can still be NULL-started.
+
+    Uses its own ``op="run_ledger_recent_rows"`` breaker. Returns ``None``
+    on any failure or a ``None`` client (the caller treats that as UNKNOWN
+    debt -- never as "no debt"); an empty list means the table has no rows.
+    """
+    client = get_client()
+    if client is None:
+        return None
+
+    def _invoke():
+        return (
+            client.schema("pipeline_memory")
+            .table("run_ledger")
+            .select("run_id,started_at,finished_at,status,notes")
+            .order("started_at", desc=True, nullsfirst=False)
+            .limit(limit)
+            .execute()
+        )
+
+    result = with_retry(_invoke, op="run_ledger_recent_rows")
+    if result is None:
+        return None
+    rows = getattr(result, "data", None)
+    if rows is None:
+        return []
+    if not isinstance(rows, list) or not all(
+        isinstance(r, dict) for r in rows
+    ):
+        return None
+    return rows
 
 
 def map_affected_to_sheets(
@@ -754,7 +805,7 @@ def get_parity_streak(limit: int = _PARITY_STREAK_DEFAULT_LIMIT) -> dict | None:
             client.schema("pipeline_memory")
             .table("run_ledger")
             .select("run_id,started_at,status,notes")
-            .order("started_at", desc=True)
+            .order("started_at", desc=True, nullsfirst=False)
             .limit(limit)
             .execute()
         )

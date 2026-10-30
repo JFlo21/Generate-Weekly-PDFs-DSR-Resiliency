@@ -62,6 +62,10 @@ from pipeline.retry import smartsheet_call_with_retry
 # rule's scope; see pipeline_memory/__init__.py). Off by default via
 # RUN_MEMORY_WRITE_ENABLED; every call site below is fail-open.
 from pipeline_memory import writer as _mem_writer
+# Phase 13 (AUD-01): audit-memory write path -- independent of _mem_writer
+# above (own kill switch, own flag AUDIT_MEMORY_ENABLED). Off by default;
+# every call site below is fail-open.
+from pipeline_memory import audit_findings as _mem_audit_findings
 # Phase 11 Plan 02 (INC-01): the package's first READ surface, used by
 # resolve_run_mode() below. Same independence rationale as _mem_writer.
 from pipeline_memory import reader as _mem_reader
@@ -69,6 +73,9 @@ from pipeline_memory import reader as _mem_reader
 # proof -- computes and compares only, never acts. See pipeline/parity.py
 # module docstring for the full contract.
 from pipeline import parity as _parity
+# Phase 11 Plan 11 (G-11-37 mechanism A): pure inputs to the D-04
+# incremental candidate set (row group-hash fingerprint).
+from pipeline import memory_candidate as _memory_candidate
 
 # Named re-export imports (byte-exact from the facade) so every bare sibling
 # reference inside main()/testmode resolves identically (W1-W5 pattern). The
@@ -80,6 +87,7 @@ from pipeline.config import (  # noqa: E402
     ATTACHMENT_REQUIRED_FOR_SKIP,
     NO_TARGET_ROW_MAX_MISS_RATIO,
     ATTRIBUTION_BULK_PREFETCH_FALLBACK,
+    AUDIT_MEMORY_ENABLED,
     AUDIT_SHEET_ID,
     DEBUG_ESSENTIAL_ROWS,
     DEBUG_SAMPLE_ROWS,
@@ -814,6 +822,14 @@ def _run_memory_write_phase(
             row['__mem_units_total_price'] = (
                 None if _raw_utp in (None, '')
                 else _pricing.parse_price(_raw_utp)
+            )
+            # G-11-37 mechanism A: fingerprint of every per-row input to
+            # the GROUP hash / group key that HASH_FIELDS does not carry
+            # (Job #, Dept #, Foreman Assigned?, ...). Double-underscore
+            # key -- invisible to excel.py's column sampler and to
+            # calculate_data_hash(), same convention as __mem_quantity.
+            row['__mem_group_fp'] = (
+                _memory_candidate.row_group_hash_fingerprint(row)
             )
 
         try:
@@ -1683,6 +1699,298 @@ def _filter_groups_to_affected(
     return filtered
 
 
+def _note_pending_regen_pairs(
+    run_id: str,
+    candidate_pairs: 'set[tuple[Any, Any]]',
+    debt_unknown: bool,
+) -> bool:
+    """Persist this run's pending candidate pairs (Phase 11 Plan 12,
+    G-11-37 mechanism B) via ``run_ledger_note_pending`` -- an UPDATE of
+    ``run_ledger.notes`` by run_id, right after the memory write.
+
+    *debt_unknown* marks the note as overflowed (UNKNOWN for the next
+    run's reducer): when the debt this run inherited was itself unknown,
+    the pairs recorded here are not guaranteed to cover everything a
+    killed run left stranded. Returns True only when the UPDATE matched
+    this run's row (PR #435 feedback); a False makes the finish hooks
+    mark the debt UNKNOWN. Fail-open: never raises, one WARNING.
+    """
+    try:
+        pairs_json, overflow = _memory_candidate.pairs_to_json(
+            candidate_pairs
+        )
+        noted = bool(_mem_writer.run_ledger_note_pending(
+            run_id, pairs_json, bool(overflow or debt_unknown),
+        ))
+        if not noted:
+            logging.warning(
+                "⚠️ pipeline_memory pending regen-debt note not "
+                "confirmed (no run_ledger row matched); this run's debt "
+                "is recorded as unknown."
+            )
+        return noted
+    except Exception as exc:  # noqa: BLE001 - fail-open hook
+        logging.warning(
+            "⚠️ pipeline_memory pending regen-debt note failed "
+            f"(non-fatal): {type(exc).__name__}"
+        )
+        return False
+
+
+def _ledger_debt_unconfirmed(
+    started: bool, candidate_ready: bool, noted: bool,
+) -> bool:
+    """True when this run's ``run_ledger`` row cannot be trusted to carry
+    its regeneration debt (PR #435 feedback): the start row was never
+    confirmed, or the pending note was attempted (*candidate_ready*) but
+    matched no row. Both finish hooks then report ``regen_debt_unknown``
+    so the next run skips the shadow verdict and resolves full, instead
+    of trusting an older clean row. Pure."""
+    return (not started) or (bool(candidate_ready) and not noted)
+
+
+def _ledger_start_fallback_kwargs(
+    started: bool, start_at: 'str | None',
+) -> dict[str, Any]:
+    """``run_ledger_finish`` kwargs for the start-row confirmation (PR
+    #435 feedback). Always records ``run_ledger_start_confirmed`` in
+    notes; when the start was NOT confirmed also passes ``started_at``
+    (the attempted start time, else now) so the finish upsert can never
+    insert a NULL-``started_at`` row the debt reader would skip. Pure
+    apart from the clock read; never raises."""
+    if started:
+        return {"run_ledger_start_confirmed": True}
+    return {
+        "run_ledger_start_confirmed": False,
+        "started_at": start_at or datetime.datetime.now(
+            datetime.timezone.utc
+        ).isoformat(),
+    }
+
+
+def _memory_write_may_have_advanced_unseen(mem_result: dict) -> bool:
+    """True when the memory write may have advanced ``row_state`` without
+    its pairs reaching the returned affected set (some sheet unconfirmed
+    AND rows were sent) -- the regeneration debt is then unknowable."""
+    try:
+        return (
+            mem_result.get("sheets_unconfirmed", 0) > 0
+            and mem_result.get("rows_sent", 0) > 0
+        )
+    except Exception:  # noqa: BLE001 - safe direction
+        return True
+
+
+def _regen_debt_finish_kwargs(
+    *,
+    candidate_pairs: 'set[tuple[Any, Any]]',
+    groups: dict[Any, list[dict[str, Any]]],
+    skip_keys: set,
+    upload_ok: dict,
+    deferred_records: list[dict[str, Any]],
+    upload_tasks: list[dict[str, Any]],
+    no_target_groups: set,
+    scoped: bool,
+    debt_unknown: bool,
+    inherited_unknown: bool = False,
+    coverage_complete: bool = True,
+) -> dict[str, Any]:
+    """``run_ledger_finish`` kwargs carrying this run's regeneration debt
+    (Phase 11 Plan 12, G-11-37 mechanism B) for a run that FINISHED.
+
+    A pending pair is confirmed when every one of its groups was skipped as
+    unchanged, uploaded (or already matched), or is never observable
+    (generated but withheld / no target-sheet row) -- the same
+    never-observable set ``_shadow_parity_input_sets`` drops. Anything else
+    (upload failed, group never reached because the time budget stopped
+    the loop, ``skip_upload``) stays debt. *inherited_unknown*: the debt
+    this run started from was itself unknowable, so every group pair of
+    this run is treated as pending too (a stranded group outside the
+    candidate must still be carried if it is not confirmed).
+    *coverage_complete* False (see :func:`_regen_debt_coverage_complete`)
+    carries every pending pair: an incomplete *groups* map cannot prove a
+    pair done. PURE; never raises -- an internal error reports
+    ``regen_debt_unknown`` True.
+    """
+    try:
+        group_pairs = {
+            gk: _resolve_row_wr_week(rows[0])
+            for gk, rows in groups.items() if rows
+        }
+        uploadable = {
+            t.get('group_key') for t in (upload_tasks or [])
+            if isinstance(t, dict)
+        }
+        withheld = {
+            rec.get('group_key') for rec in (deferred_records or [])
+            if rec.get('group_key') not in uploadable
+        }
+        confirmed = (
+            set(skip_keys)
+            | {gk for gk, ok in upload_ok.items() if ok}
+            | withheld
+            | set(no_target_groups)
+        )
+        pending = set(candidate_pairs)
+        if inherited_unknown:
+            pending |= set(group_pairs.values())
+        # PR #435 (Codex P2): a group regenerated outside the candidate
+        # (missing attachment, group-hash global change) whose upload was
+        # attempted but not confirmed is still owed a regeneration.
+        attempted = uploadable | set(upload_ok)
+        pending |= {
+            group_pairs[gk] for gk in attempted - confirmed
+            if gk in group_pairs
+        }
+        carried = _memory_candidate.unconfirmed_pairs(
+            pending, group_pairs, confirmed, scoped,
+            coverage_complete=coverage_complete,
+        )
+        pairs_json, overflow = _memory_candidate.pairs_to_json(carried)
+        return {
+            "regen_debt_pairs": pairs_json,
+            "regen_debt_overflow": overflow,
+            # PR #435: inherited unknown debt cannot be cleared by a run
+            # whose groups map is incomplete -- a stranded pair on an
+            # unread sheet would otherwise drop out of the debt for good.
+            "regen_debt_unknown": bool(debt_unknown) or (
+                bool(inherited_unknown) and not coverage_complete
+            ),
+        }
+    except Exception:  # noqa: BLE001 - never-raise; unknown is safe
+        return {
+            "regen_debt_pairs": [],
+            "regen_debt_overflow": False,
+            "regen_debt_unknown": True,
+        }
+
+
+def _regen_debt_coverage_complete(
+    groups_truncated: bool,
+    failed_sheet_ids: 'set[Any] | None',
+    grouping_mode: str,
+) -> bool:
+    """True when this run's ``groups`` map holds EVERY group a production
+    full run would build for each pair it contains (PR #435 feedback).
+
+    False when MAX_GROUPS truncated the map, any source sheet's read
+    failed or was partial (``fetch.get_last_full_read_failed_sheet_ids``;
+    ``None`` = unknowable), or ``RES_GROUPING_MODE`` is not ``both`` (a
+    ``primary`` / ``helper`` run builds a different group set). Debt is
+    then carried, never cleared. Never raises (False on error).
+    """
+    try:
+        if groups_truncated:
+            return False
+        if failed_sheet_ids is None or len(failed_sheet_ids) > 0:
+            return False
+        return str(grouping_mode).strip().lower() == "both"
+    except Exception:  # noqa: BLE001 - safe direction
+        return False
+
+
+def _regen_debt_failure_kwargs(
+    candidate_pairs: 'set[tuple[Any, Any]]', debt_unknown: bool,
+) -> dict[str, Any]:
+    """Failure-path counterpart: the FULL pending set is carried (no
+    confirmation is attempted for a run that died). Never raises."""
+    try:
+        pairs_json, overflow = _memory_candidate.pairs_to_json(
+            candidate_pairs
+        )
+        return {
+            "regen_debt_pairs": pairs_json,
+            "regen_debt_overflow": overflow,
+            "regen_debt_unknown": bool(debt_unknown),
+        }
+    except Exception:  # noqa: BLE001
+        return {
+            "regen_debt_pairs": [],
+            "regen_debt_overflow": False,
+            "regen_debt_unknown": True,
+        }
+
+
+def _shadow_fallback_skip(
+    source_sheets: list[dict[str, Any]],
+    watermarks: dict[Any, dict[str, Any]],
+    last_run_status: dict[str, Any] | None,
+    ledger_rows: list[dict[str, Any]] | None,
+    current_fp: str,
+) -> dict[str, str | None] | None:
+    """Shadow skip decision for runs the incremental path would not run.
+
+    Phase 11 Plan 13 (G-11-37, owner decision 2026-10-29): returns
+    ``None`` when the shadow comparison may proceed, else
+    ``{"reason": "would_fallback_full:<why>", "would_fallback_reason":
+    <detail>}``. The group-hash GLOBALS check runs first: a changed (or
+    unknowable) fingerprint regenerates every affected group without any
+    row change, so no row-delta candidate can contain them. Then the pure
+    ``resolve_run_mode`` is asked, with the production flag ON and
+    ``production_frequent`` (trigger 7 is never modelled; ``manual`` runs
+    keep counting), whether the real path would have run FULL (triggers
+    4/5/6). Never raises: an internal error is unknowable -> skipped.
+    """
+    try:
+        prior_fp = _memory_candidate.prior_globals_fingerprint(ledger_rows)
+        if not current_fp or prior_fp is None:
+            return {
+                "reason": "would_fallback_full:group_hash_globals_unknown",
+                "would_fallback_reason": (
+                    "group-hash globals fingerprint unavailable "
+                    "(current or previous successful run)"
+                ),
+            }
+        if current_fp != prior_fp:
+            return {
+                "reason": "would_fallback_full:group_hash_globals_changed",
+                "would_fallback_reason": (
+                    "EXTENDED_CHANGE_DETECTION / RATE_CUTOFF_DATE / rates "
+                    "fingerprint changed since the previous successful run"
+                ),
+            }
+        would_mode, would_reason, _ = resolve_run_mode(
+            source_sheets,
+            watermarks,
+            last_run_status,
+            incremental_enabled=True,
+            execution_type="production_frequent",
+            reset_hash_history=RESET_HASH_HISTORY,
+            regen_weeks=REGEN_WEEKS,
+            reset_wr_list=RESET_WR_LIST,
+            force_generation=FORCE_GENERATION,
+        )
+        reason = _memory_candidate.shadow_fallback_skip_reason(
+            would_mode, would_reason,
+            _memory_candidate.SHADOW_MODELS_TRIGGER6,
+        )
+        if reason is None:
+            return None
+        return {"reason": reason, "would_fallback_reason": would_reason}
+    except Exception as exc:  # noqa: BLE001 - never-raise contract
+        return {
+            "reason": "would_fallback_full:shadow_model_error",
+            "would_fallback_reason": type(exc).__name__,
+        }
+
+
+def _attachment_repair_only_in_actual(
+    actual_hashes: dict, candidate_hashes: dict, repair_keys: set,
+) -> list[str]:
+    """Stringified, sorted, capped-at-10 group keys that are
+    only_in_actual (generated and observable but not in the candidate)
+    AND regenerated solely because their attachment was missing -- an
+    externally deleted attachment, distinguishable from a selector miss.
+    Computed from the two FULL hash dicts, not from the comparator's own
+    truncated ``only_in_actual`` list. Observability only; never raises.
+    """
+    try:
+        only = set(actual_hashes) - set(candidate_hashes)
+        return sorted(str(k) for k in (only & set(repair_keys)))[:10]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _run_phase2_incremental(
     client: Any,
     source_sheets: list[dict[str, Any]],
@@ -1690,6 +1998,10 @@ def _run_phase2_incremental(
     per_sheet_reasons: dict[Any, str],
     mem_run_id: str,
     session_start: datetime.datetime,
+    *,
+    regen_debt: (
+        'frozenset[tuple[Any, Any]] | set[tuple[Any, Any]] | None'
+    ) = frozenset(),
 ) -> dict[str, Any]:
     """Phase 11 Plan 04 (D-04 Option C): PHASE 2a delta read -> the
     UNMODIFIED ``_run_memory_write_phase`` -> affected-set -> sheet
@@ -1704,6 +2016,17 @@ def _run_phase2_incremental(
     single full ``get_all_source_rows`` call over EVERY source sheet:
     the regeneration scope can only ever be too WIDE, never too narrow
     (T-11-18).
+
+    D-04 candidate = affected | carried regeneration debt (Phase 11 Plan
+    12, G-11-37 mechanism B): *regen_debt* holds ``(wr, week)`` pairs an
+    earlier interrupted / partly-failed run stranded. They join the
+    ``map_affected_to_sheets`` input and the returned ``candidate_pairs``
+    (``affected`` stays the memory write's own set, for counters). ``None``
+    means the debt is UNKNOWN and returns the full-mode fallback
+    ``trigger_regen_debt_unknown`` BEFORE any read or memory write (scope
+    can only widen -- T-11-18). The default ``frozenset()`` leaves every
+    pre-11-12 caller unchanged. ``RUN_MEMORY_INCREMENTAL_ENABLED`` is OFF
+    in production, so this path is not yet live.
 
     Per-sheet dispatch (``per_sheet_reasons`` from ``resolve_run_mode``):
       - a sheet flagged ``trigger3_auth_error`` is SKIPPED entirely this
@@ -1752,6 +2075,15 @@ def _run_phase2_incremental(
           -- PHASE 2a/2b observability counters (notes-only, never a new
           ``run_summary.json`` key); present only when ok is True.
     """
+    if regen_debt is None:
+        return {
+            "ok": False,
+            "fallback_reason": (
+                "trigger_regen_debt_unknown: regeneration debt carried "
+                "from earlier runs could not be established (cannot "
+                "confirm; resolving this run to full mode)"
+            ),
+        }
     try:
         skip_ids = {
             sid for sid, reason in per_sheet_reasons.items()
@@ -1910,8 +2242,14 @@ def _run_phase2_incremental(
                 )
                 affected |= _prior_pairs
 
-        if affected:
-            mapped_sheet_ids = _mem_reader.map_affected_to_sheets(affected)
+        # D-04 candidate = affected | carried regeneration debt, joined
+        # AFTER the identity-lost widening above.
+        candidate_pairs = set(affected) | set(regen_debt)
+
+        if candidate_pairs:
+            mapped_sheet_ids = _mem_reader.map_affected_to_sheets(
+                candidate_pairs
+            )
             if not mapped_sheet_ids:
                 return {
                     "ok": False,
@@ -1938,6 +2276,7 @@ def _run_phase2_incremental(
             "fallback_reason": None,
             "all_rows": all_rows,
             "affected": affected,
+            "candidate_pairs": candidate_pairs,
             "mem_result": mem_result,
             "delta_rows_count": len(delta_rows),
             "delta_sheets_changed": delta_sheets_changed,
@@ -2095,6 +2434,133 @@ def _reconcile_deep_run_deletions(
             result["affected_pairs"] |= pairs
 
     return result
+
+
+def _run_audit_memory_phase(
+    audit_results: dict[str, Any],
+    all_rows: list[dict[str, Any]],
+    run_id: str,
+    *,
+    audit_coverage: Any = None,
+    scope_pairs: 'set[tuple[Any, Any]] | None' = None,
+    source_read_complete: bool = True,
+) -> dict[str, Any]:
+    """Phase 13 (AUD-01): persist audit-billing-changes findings to
+    ``pipeline_memory.audit_finding`` -- OBSERVABILITY only, entirely
+    additive to today's audit run. Independent of ``RUN_MEMORY_WRITE_
+    ENABLED`` / ``_mem_writer`` -- own flag (``AUDIT_MEMORY_ENABLED``),
+    own kill switch (``pipeline_memory.audit_findings``/``client.py``
+    import nothing from ``billing_audit``).
+
+    Builds payloads for every memory-backed finding in *audit_results*
+    (``pipeline_memory.audit_findings.build_finding_payloads``), computes
+    this run's per-check re-audited-pair set (AUD-02, D-10 --
+    ``pipeline_memory.audit_findings.build_reaudited_pairs`` over
+    *all_rows* and ``executed_checks()``), and upserts both via a single
+    ``upsert_audit_findings`` RPC call. The re-audited-pair set is the
+    SOLE authority for which findings may transition to ``fixed`` this
+    run (plan 13-04) -- an empty set (e.g. an empty *all_rows*) closes
+    nothing, never "everything was fixed".
+
+    Self-gated on ``AUDIT_MEMORY_ENABLED`` and a truthy *audit_results*
+    (the same module-level constant + condition ``main()``'s call site
+    already checks -- defense-in-depth, mirrors ``_run_memory_write_
+    phase``'s self-gate) so this function is directly callable -- and
+    testable -- with zero ``pipeline_memory.audit_findings`` calls when
+    the flag is off, independent of how ``main()`` itself is invoked.
+
+    NEVER raises -- the caller (``main()``) wraps this call in its own
+    outer try/except, mirroring every other ``pipeline_memory`` hook in
+    this module (e.g. ``_reconcile_deep_run_deletions`` above).
+
+    Closure safety (PR #435) -- a finding may only close when its pair +
+    check was actually and successfully evaluated this run:
+
+    - An *audit_results* carrying an ``error`` key (``audit_financial_
+      data`` caught an exception and returned partial lists) is
+      non-authoritative: nothing is upserted or closed; a counter and a
+      WARNING record the skip.
+    - *audit_coverage* (``BillingAudit.memory_eval_coverage()``) names,
+      per check, the rows that check evaluated. A pair closes for a check
+      only when EVERY row of the pair was evaluated by it; ``None`` or
+      anything malformed closes nothing (findings are still upserted).
+    - *scope_pairs* (incremental mode only: the run's candidate
+      ``(wr, week)`` pairs, ``_resolve_row_wr_week`` form) marks a scoped
+      run: PHASE 2b read only the candidates' sheets, so no WR is known
+      complete. Nothing is upserted or closed (a partial WR pool can
+      raise a false price-variance finding or resolve a different
+      week, and a ``week_ending IS NULL`` finding matches any re-audited
+      week of its WR in the RPC). ``None`` (full mode) upserts and closes
+      per WR-complete pairs.
+      Open findings are re-checked on the next full run (follow-up:
+      .planning/todos/pending/
+      2026-10-29-audit-memory-open-findings-incremental-recheck.md).
+    - *source_read_complete* ``False`` (a sheet's read failed or was only
+      partial this run, ``pipeline.fetch.get_last_full_read_failed_
+      sheet_ids``) persists and closes nothing, like a scoped run: the
+      failed sheet's missing rows may belong to any WR, so a WR-pooled
+      finding (``price_variance_anomaly``) or a payload's resolved week
+      could rest on a partial pool and open or resurface a false
+      finding; and a pair whose remaining rows were evaluated must not
+      close.
+
+    The module's skip/error counters are reset at this run boundary and
+    logged once per run (counts only); ``result["counters"]`` carries
+    them for the caller's breadcrumb -- never ``run_summary.json``.
+
+    Returns a dict of summary counts for the caller's breadcrumb
+    (``findings_emitted``, ``rpc_result`` when the RPC ran, ``counters``).
+    """
+    result: dict[str, Any] = {"findings_emitted": 0, "rpc_result": None}
+
+    if not (AUDIT_MEMORY_ENABLED and audit_results):
+        return result
+
+    _mem_audit_findings.reset_counters()
+    try:
+        if "error" in audit_results:
+            _mem_audit_findings.record_non_authoritative_audit()
+            return result
+
+        if scope_pairs is not None:
+            # PR #435: an incremental run read only the candidates'
+            # sheets, so a WR's rows may be partial. Payload week
+            # resolution and the WR-pooled price check need the whole
+            # WR, so nothing is persisted or closed; the next full run
+            # (at least the weekly deep run) records and closes.
+            logging.info(
+                "🧮 Audit-memory: incremental run -- findings not "
+                "persisted (full runs record and close)."
+            )
+            return result
+
+        if not source_read_complete:
+            # PR #435 (Greptile P1 / Codex P2): a failed or partial sheet
+            # read leaves some WRs' row pools incomplete, and which WRs is
+            # unknown, so nothing is persisted or closed this run.
+            logging.info(
+                "🧮 Audit-memory: source read incomplete -- findings not "
+                "persisted (the next complete full run records and "
+                "closes)."
+            )
+            return result
+
+        payloads = _mem_audit_findings.build_finding_payloads(
+            audit_results, all_rows, run_id,
+        )
+        eligible = _mem_audit_findings.closing_row_indices(audit_coverage)
+        reaudited_pairs = _mem_audit_findings.build_reaudited_pairs(
+            all_rows, _mem_audit_findings.executed_checks(),
+            eligible_row_indices=eligible,
+        )
+        rpc_result = _mem_audit_findings.upsert_audit_findings(
+            run_id, payloads, reaudited_pairs,
+        )
+        result["findings_emitted"] = len(payloads)
+        result["rpc_result"] = rpc_result
+        return result
+    finally:
+        result["counters"] = _mem_audit_findings.log_run_counters()
 
 
 def _repair_group_state_for_affected_pairs(
@@ -2383,6 +2849,39 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     _mem_rows_sent = 0
     _mem_rows_changed = 0
     _mem_affected = set()
+    # Phase 11 Plan 12 (G-11-37 mechanism B, regeneration debt): hoisted
+    # for the same documented reason as the _mem_* counters above.
+    # _mem_ledger_rows is a NAMED main()-scoped variable on purpose: plan
+    # 11-13 reuses these same rows without a second SELECT. None debt =
+    # UNKNOWN (shadow 'skipped' / incremental resolves to full).
+    _mem_ledger_rows = None
+    # Phase 11 Plan 13: hoisted so the shadow can model D-02 trigger 6 even
+    # when the resolve try block below failed (None == trigger 6, the same
+    # reading resolve_run_mode gives an unreadable last status).
+    _last_run_status = None
+    _mem_globals_fp = ''
+    _mem_regen_debt = None
+    _mem_candidate_pairs = set()
+    # True once _mem_candidate_pairs has been computed from a memory write
+    # that returned its affected set; _mem_regen_unknown is True when row_state
+    # may have advanced WITHOUT a returned affected set (debt unknowable).
+    _mem_candidate_ready = False
+    _mem_regen_unknown = False
+    # Group keys the loop skipped as unchanged / regenerated only because the
+    # attachment was missing, and groups whose every upload leg succeeded.
+    # Set-membership records only; no control flow reads them in the loop.
+    _mem_confirmed_skip_keys = set()
+    _mem_attachment_repair_keys = set()
+    _mem_group_upload_ok = {}
+    # PR #435 feedback: True once MAX_GROUPS truncates ``groups`` -- the
+    # finish hook then cannot clear debt from the (incomplete) map.
+    _mem_groups_truncated = False
+    # PR #435 feedback: was this run's run_ledger row confirmed (start
+    # upsert written, pending note matched it)? Unconfirmed -> both finish
+    # hooks report the debt UNKNOWN and pass a fallback started_at.
+    _mem_ledger_started = False
+    _mem_ledger_noted = False
+    _mem_ledger_start_at = None
     # Greptile P1 (PR #351): False until _run_memory_write_phase confirms
     # every sheet this run -- gates the 11-05 shadow comparator and is
     # persisted as run_ledger.notes.mem_confirmed at both finish sites.
@@ -2559,6 +3058,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     _sheet_ids_for_watermarks
                 )
                 _last_run_status = _mem_reader.get_last_run_ledger_status()
+                # Phase 11 Plan 12: carried regeneration debt (G-11-37
+                # mechanism B). One bounded newest-first SELECT, before
+                # run_ledger_start so it never sees this run.
+                _mem_ledger_rows = _mem_reader.get_recent_run_ledger_rows(
+                    _memory_candidate.REGEN_DEBT_SCAN_LIMIT
+                )
+                _mem_regen_debt = _memory_candidate.regen_debt_from_ledger_rows(
+                    _mem_ledger_rows
+                )
                 _resolved_mode, _resolved_fallback_reason, _per_sheet_reasons = (
                     resolve_run_mode(
                         source_sheets,
@@ -2602,11 +3110,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # "full" here -- every run WAS a full read).
         if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
             try:
-                _mem_writer.run_ledger_start(
+                _mem_ledger_start_at = datetime.datetime.now(
+                    datetime.timezone.utc
+                ).isoformat()
+                _mem_ledger_started = _mem_writer.run_ledger_start(
                     _mem_run_id,
                     mode=_resolved_mode,
                     release=os.getenv('SENTRY_RELEASE', '') or '',
-                )
+                ) is True
             except Exception:
                 logging.warning(
                     "⚠️ pipeline_memory run_ledger_start failed "
@@ -2728,6 +3239,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _phase2_result = _run_phase2_incremental(
                     client, source_sheets, _watermarks, _per_sheet_reasons,
                     _mem_run_id, session_start,
+                    regen_debt=_mem_regen_debt,
                 )
                 span.set_data("ok", _phase2_result.get("ok", False))
             if _phase2_result.get("ok"):
@@ -2743,7 +3255,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _incremental_mapped_sheet_count = (
                     _phase2_result["mapped_sheet_count"]
                 )
-                _incremental_empty_affected_run = not _mem_affected
+                # Phase 11 Plan 12: the incremental candidate is affected |
+                # carried regeneration debt, identical to what the shadow
+                # measures; "legitimately empty" means no candidate at all.
+                _mem_candidate_pairs = set(
+                    _phase2_result.get("candidate_pairs") or _mem_affected
+                )
+                _incremental_empty_affected_run = not _mem_candidate_pairs
                 _mem_sheets_written = _mem_result["sheets_written"]
                 _mem_sheets_errored = _mem_result["sheets_errored"]
                 _mem_rows_sent = _mem_result["rows_sent"]
@@ -2767,6 +3285,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _resolved_fallback_reason = _phase2_result.get(
                     "fallback_reason"
                 )
+                # Phase 11 Plan 12: only a pre-write fallback leaves
+                # row_state untouched; any other may have advanced it
+                # without returning the affected set.
+                if not str(_resolved_fallback_reason or "").startswith((
+                    "trigger_delta_probe_escalation",
+                    "trigger_regen_debt_unknown",
+                )):
+                    _mem_regen_unknown = True
                 logging.warning(
                     "⚠️ PHASE 2a/2b incremental read fell back to full "
                     f"mode: {_resolved_fallback_reason}"
@@ -2815,6 +3341,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     "sheets_written": 0, "sheets_errored": 0,
                     "rows_sent": 0, "rows_changed": 0, "affected": set(),
                 }
+                # Phase 11 Plan 12: the phase raised AFTER it may have
+                # advanced row_state; no affected set came back.
+                _mem_regen_unknown = True
             _mem_sheets_written = _mem_result["sheets_written"]
             _mem_sheets_errored = _mem_result["sheets_errored"]
             _mem_rows_sent = _mem_result["rows_sent"]
@@ -2826,6 +3355,49 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             _mem_memory_unconfirmed_reason = _mem_result.get(
                 "unconfirmed_reason"
             )
+            # Phase 11 Plan 12: an unconfirmed sheet with rows sent may have
+            # advanced row_state without its pairs reaching _mem_affected.
+            if _memory_write_may_have_advanced_unseen(_mem_result):
+                _mem_regen_unknown = True
+
+        # Phase 11 Plan 12 (G-11-37 mechanism B): the D-04 candidate is
+        # affected | carried regeneration debt, and the pending pairs are
+        # recorded in run_ledger.notes right after the memory write so an
+        # interrupted run still hands them to the next one. A write that
+        # raised, or left sheets unconfirmed, has no trustworthy affected set:
+        # its note is flagged overflowed so the next run treats the debt as
+        # UNKNOWN, never a vacuous pass. Fail-open; touches no generation,
+        # grouping or upload input.
+        if RUN_MEMORY_WRITE_ENABLED and not TEST_MODE:
+            try:
+                if _resolved_mode == 'full':
+                    _mem_candidate_pairs = (
+                        _memory_candidate.shadow_candidate_pairs(
+                            _mem_affected, _mem_regen_debt or set(),
+                        )
+                    )
+                # (incremental: set from _phase2_result["candidate_pairs"]
+                # above -- the identical affected | debt union.)
+                _mem_candidate_ready = True
+                # PR #435 feedback: the note is an UPDATE of the start
+                # row; retry a start that was not confirmed once so a
+                # killed run still leaves its pending pairs behind.
+                if not _mem_ledger_started:
+                    _mem_ledger_started = _mem_writer.run_ledger_start(
+                        _mem_run_id,
+                        mode=_resolved_mode,
+                        release=os.getenv('SENTRY_RELEASE', '') or '',
+                    ) is True
+                _mem_ledger_noted = _note_pending_regen_pairs(
+                    _mem_run_id, _mem_candidate_pairs,
+                    _mem_regen_debt is None or _mem_regen_unknown,
+                )
+            except Exception:
+                logging.warning(
+                    "⚠️ regen-debt candidate computation failed "
+                    "(non-fatal); next run treats debt as unknown."
+                )
+                _mem_regen_unknown = True
 
         # Phase 10 (MEM-01): sheet_registry shadow write, PASS 2. Now that
         # Phase 2 has fetched every sheet, pipeline.fetch's version-
@@ -2902,6 +3474,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _reconcile_rows_marked_deleted = _reconcile_result[
                     'rows_marked_deleted'
                 ]
+                # PR #435 (Copilot): mark_rows_deleted has already
+                # committed, so the next deep run cannot rediscover these
+                # pairs (deleted_at IS NOT NULL). Re-note the pending set
+                # with them before any later kill point; a failed note
+                # makes the finish record the debt as unknown.
+                if (
+                    _reconcile_affected_pairs
+                    and _mem_candidate_ready
+                    and _mem_ledger_started
+                ):
+                    _mem_ledger_noted = _note_pending_regen_pairs(
+                        _mem_run_id,
+                        _mem_candidate_pairs | _reconcile_affected_pairs,
+                        _mem_regen_debt is None or _mem_regen_unknown,
+                    )
                 if _reconcile_rows_marked_deleted:
                     logging.info(
                         f"🗑️ Deep-run reconciliation: "
@@ -2954,6 +3541,62 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
         else:
             logging.info("🚀 Audit system disabled for testing")
+
+        # ── Audit-memory write path (Phase 13, AUD-01) ──────────────
+        # Own try/except, placed AFTER the audit-engine block above (not
+        # inside it) -- entirely additive, never alters audit_results or
+        # the risk-level computation. Gated on AUDIT_MEMORY_ENABLED
+        # (independent of RUN_MEMORY_WRITE_ENABLED) and a truthy
+        # audit_results, mirroring the AUDIT_SYSTEM_AVAILABLE gate style
+        # above.
+        if AUDIT_MEMORY_ENABLED and audit_results:
+            try:
+                # PR #435: closure needs the detectors' per-row coverage
+                # (a mocked/absent audit system yields none -> closes
+                # nothing); an incremental (scoped) run persists nothing.
+                _audit_mem_coverage = None
+                _cov_fn = getattr(audit_system, "memory_eval_coverage", None)
+                if callable(_cov_fn):
+                    _audit_mem_coverage = _cov_fn()
+                _audit_mem_scope = (
+                    set(_mem_candidate_pairs)
+                    if _resolved_mode == 'incremental' else None
+                )
+                _audit_mem_read_complete = not (
+                    _fetch.get_last_full_read_failed_sheet_ids()
+                )
+                _audit_mem_result = _run_audit_memory_phase(
+                    audit_results, all_rows, _mem_run_id,
+                    audit_coverage=_audit_mem_coverage,
+                    scope_pairs=_audit_mem_scope,
+                    source_read_complete=_audit_mem_read_complete,
+                )
+                _audit_mem_summary = _mem_audit_findings.summarize_upsert_result(
+                    _audit_mem_result["rpc_result"]
+                )
+                sentry_add_breadcrumb(
+                    "audit_memory", "Audit-memory upsert completed",
+                    data={
+                        "findings_emitted": _audit_mem_result[
+                            "findings_emitted"
+                        ],
+                        **_audit_mem_summary,
+                        **(_audit_mem_result.get("counters") or {}),
+                    },
+                )
+            except Exception as e:
+                logging.warning(f"⚠️ Audit-memory write failed: {e}")
+                sentry_capture_with_context(
+                    exception=e,
+                    context_name="audit_memory_error",
+                    context_data={
+                        "total_rows": len(all_rows),
+                        "error_type": type(e).__name__,
+                        "error_message": _redact_exception_message(e),
+                    },
+                    tags={"error_location": "audit_memory", "subsystem": "pipeline_memory"},
+                    fingerprint=["audit-memory", type(e).__name__]
+                )
 
         # ── Snapshot-date drift audit (260812-jqx) ──────────────────
         # Pre-grouping seam: runs upstream of every Weekly Reference
@@ -3012,7 +3655,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # second grouping/Excel codepath (D-04's central promise).
             if _resolved_mode == 'incremental':
                 _pre_filter_group_count = len(groups) if groups else 0
-                groups = _filter_groups_to_affected(groups, _mem_affected)
+                groups = _filter_groups_to_affected(groups, _mem_candidate_pairs)
                 _post_filter_group_count = len(groups) if groups else 0
                 span.set_data(
                     "pre_filter_group_count", _pre_filter_group_count
@@ -3052,6 +3695,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         if MAX_GROUPS and len(groups) > MAX_GROUPS:
             logging.info(f"✂️ Limiting processing to first {MAX_GROUPS} groups for test run")
             groups = dict(list(groups.items())[:MAX_GROUPS])
+            _mem_groups_truncated = True
         
         # Process groups
         snapshot_date = datetime.datetime.now()
@@ -4230,11 +4874,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         if can_skip:
                             logging.info(f"⏩ Skip (unchanged + attachment exists) {variant} WR {wr_num} week {week_raw} hash {data_hash}")
                             _groups_skipped += 1
+                            _mem_confirmed_skip_keys.add(group_key)
                             sentry_add_breadcrumb("group", f"Skipped unchanged group", level="info", data={
                                 "wr": wr_num, "week": week_raw, "variant": variant, "hash": data_hash,
                             })
                             continue
                         else:
+                            _mem_attachment_repair_keys.add(group_key)
                             logging.info(f"🔁 Regenerating {variant} WR {wr_num} week {week_raw} despite unchanged hash (attachment missing or verification failed)")
                             sentry_add_breadcrumb("group", f"Regenerating despite same hash (attachment missing)", level="warning", data={
                                 "wr": wr_num, "week": week_raw, "variant": variant,
@@ -4466,6 +5112,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # unexpected bug here can never affect Excel generation, upload,
         # or cleanup, which have ALL already completed processing their
         # decisions for this run's groups by this point in source order.
+        # Phase 11 Plan 13: fingerprint of the group-hash globals, final
+        # now that PHASE 2 has rebound the rates fingerprint. Persisted in
+        # run_ledger.notes by both finish paths; the next run's shadow
+        # compares against it. '' (error) is treated as unknown.
+        try:
+            _mem_globals_fp = (
+                _memory_candidate.group_hash_globals_fingerprint()
+            )
+        except Exception:
+            _mem_globals_fp = ''
         if (
             _resolved_mode == 'full'
             and RUN_MEMORY_WRITE_ENABLED
@@ -4544,9 +5200,56 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         "reason": "memory_write_unconfirmed",
                         "detail": _mem_memory_unconfirmed_reason,
                     }
+                elif _mem_regen_debt is None or not _mem_candidate_ready:
+                    # Phase 11 Plan 12 (G-11-37 mechanism B): the candidate
+                    # must include regeneration debt carried from earlier
+                    # runs. When that debt cannot be established (legacy or
+                    # killed-before-note ledger rows, an overflowed list, a
+                    # read failure) the comparison cannot execute: D-07
+                    # 'skipped' with a reason, never a vacuous 'pass'.
+                    logging.warning(
+                        "⏩ Skipping shadow parity check: regeneration debt "
+                        "from earlier runs is unknown this run."
+                    )
+                    sentry_add_breadcrumb(
+                        "pipeline_memory",
+                        "Shadow parity check skipped, regen debt unknown",
+                        level="warning",
+                        data={"reason": "regen_debt_unknown"},
+                    )
+                    _parity_verdict = "skipped"
+                    _parity_details = {"reason": "regen_debt_unknown"}
+                elif (
+                    _shadow_fb := _shadow_fallback_skip(
+                        source_sheets, _watermarks, _last_run_status,
+                        _mem_ledger_rows, _mem_globals_fp,
+                    )
+                ) is not None:
+                    # Phase 11 Plan 13 (owner decision 2026-10-29): the
+                    # real incremental path would have run FULL (D-02
+                    # triggers 4/5/6) or a group-hash global changed, so
+                    # the comparison is neither a pass nor a fail (D-07).
+                    logging.info(
+                        "⏩ Skipping shadow parity check: "
+                        f"{_shadow_fb['reason']} "
+                        f"({_shadow_fb['would_fallback_reason']})."
+                    )
+                    sentry_add_breadcrumb(
+                        "pipeline_memory",
+                        "Shadow parity check skipped, would fall back full",
+                        level="info",
+                        data={"reason": _shadow_fb["reason"]},
+                    )
+                    _parity_verdict = "skipped"
+                    _parity_details = {
+                        "reason": _shadow_fb["reason"],
+                        "would_fallback_reason": (
+                            _shadow_fb["would_fallback_reason"]
+                        ),
+                    }
                 else:
                     _shadow_candidate_groups = _filter_groups_to_affected(
-                        groups, _mem_affected,
+                        groups, _mem_candidate_pairs,
                     )
                     _shadow_candidate_hashes = {
                         gk: _shadow_group_hashes.get(gk)
@@ -4596,10 +5299,22 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         _shadow_group_result["verdict"],
                         _shadow_read_result["read_verdict"],
                     )
+                    # Phase 11 Plan 12: tag only_in_actual groups that
+                    # regenerated solely because their attachment was
+                    # missing (observability only; the verdict above is
+                    # already final). The shadow runs after the group loop
+                    # and before uploads, so the repair set is populated.
+                    _shadow_group_result[
+                        "only_in_actual_attachment_repair"
+                    ] = _attachment_repair_only_in_actual(
+                        _shadow_actual_hashes, _shadow_candidate_hashes,
+                        _mem_attachment_repair_keys,
+                    )
                     _parity_details = {
                         "group": _shadow_group_result,
                         "read": _shadow_read_result,
                         "actual_withheld_excluded": _shadow_withheld_excluded,
+                        "regen_debt_carried": len(_mem_regen_debt),
                     }
                     if _parity_verdict == "fail":
                         logging.error(
@@ -4843,6 +5558,16 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
 
             with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
                 upload_results = list(executor.map(_upload_one, _upload_tasks))
+
+            # Phase 11 Plan 12: record per-group upload success (a
+            # reduced_sub fan-out needs EVERY leg) for the regen-debt
+            # confirmation at run_ledger_finish. Record only.
+            for _dbt_task, _dbt_res in zip(_upload_tasks, upload_results):
+                _dbt_gk = _dbt_task.get('group_key')
+                _mem_group_upload_ok[_dbt_gk] = (
+                    _mem_group_upload_ok.get(_dbt_gk, True)
+                    and _dbt_res in ('uploaded', 'skipped')
+                )
 
             _groups_uploaded = sum(1 for r in upload_results if r == 'uploaded')
             _upload_errors = sum(1 for r in upload_results if r == 'error')
@@ -5315,10 +6040,57 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
                 if _resolved_fallback_reason:
                     _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                # Phase 11 Plan 12 (G-11-37 mechanism B): the pending
+                # pairs this run could not confirm (failed / never-reached
+                # uploads) are carried to the next run as regeneration
+                # debt. Any error here reports the debt UNKNOWN (next run
+                # skips / resolves full; scope only widens).
+                # PR #435 feedback: an unconfirmed start row also passes a
+                # fallback started_at so this row is never NULL-started.
+                _finish_kwargs.update(_ledger_start_fallback_kwargs(
+                    _mem_ledger_started, _mem_ledger_start_at,
+                ))
+                try:
+                    _dbt_scoped = not _mem_writer.streak_eligible_from_env()
+                    _finish_kwargs.update(_regen_debt_finish_kwargs(
+                        # PR #435: deep-run deletion pairs are owed a
+                        # regeneration too; carry them if unconfirmed.
+                        candidate_pairs=(
+                            _mem_candidate_pairs | _reconcile_affected_pairs
+                        ),
+                        groups=groups or {},
+                        skip_keys=_mem_confirmed_skip_keys,
+                        upload_ok=_mem_group_upload_ok,
+                        deferred_records=_deferred_group_state,
+                        upload_tasks=_upload_tasks,
+                        no_target_groups=set(_no_target_row_groups),
+                        scoped=_dbt_scoped,
+                        debt_unknown=(
+                            _mem_regen_unknown
+                            or not _mem_candidate_ready
+                            or (_mem_regen_debt is None and _dbt_scoped)
+                            or _ledger_debt_unconfirmed(
+                                _mem_ledger_started, _mem_candidate_ready,
+                                _mem_ledger_noted,
+                            )
+                        ),
+                        inherited_unknown=_mem_regen_debt is None,
+                        coverage_complete=_regen_debt_coverage_complete(
+                            _mem_groups_truncated,
+                            _fetch.get_last_full_read_failed_sheet_ids(),
+                            RES_GROUPING_MODE,
+                        ),
+                    ))
+                except Exception:
+                    _finish_kwargs.update(
+                        regen_debt_pairs=[], regen_debt_overflow=False,
+                        regen_debt_unknown=True,
+                    )
                 # Phase 11 Plan 05 (INC-04, D-07/D-08): only present when
                 # the shadow parity block actually ran this run (None
                 # default means "never a fabricated verdict" -- see the
                 # _parity_verdict hoist comment near the top of main()).
+                _finish_kwargs["group_hash_globals_fp"] = _mem_globals_fp or ''
                 if _parity_verdict is not None:
                     _finish_kwargs["parity_verdict"] = _parity_verdict
                     _finish_kwargs["parity_details"] = _parity_details
@@ -5665,10 +6437,40 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 )
                 if _resolved_fallback_reason:
                     _finish_kwargs["fallback_reason"] = _resolved_fallback_reason
+                # Phase 11 Plan 12 (G-11-37 mechanism B): a run that died
+                # carries its FULL pending set (no confirmation attempted).
+                # Unknown when row_state may have advanced without a
+                # returned affected set, or when the inherited debt was
+                # itself unknowable, or (PR #435 feedback) when this run's
+                # run_ledger row was never confirmed.
+                _finish_kwargs.update(_ledger_start_fallback_kwargs(
+                    _mem_ledger_started, _mem_ledger_start_at,
+                ))
+                try:
+                    _finish_kwargs.update(_regen_debt_failure_kwargs(
+                        _mem_candidate_pairs | _reconcile_affected_pairs,
+                        debt_unknown=(
+                            _mem_regen_unknown
+                            or (_mem_candidate_ready
+                                and _mem_regen_debt is None)
+                            or (not _mem_candidate_ready
+                                and _mem_rows_sent > 0)
+                            or _ledger_debt_unconfirmed(
+                                _mem_ledger_started, _mem_candidate_ready,
+                                _mem_ledger_noted,
+                            )
+                        ),
+                    ))
+                except Exception:
+                    _finish_kwargs.update(
+                        regen_debt_pairs=[], regen_debt_overflow=False,
+                        regen_debt_unknown=True,
+                    )
                 # Phase 11 Plan 05 (INC-04, D-07/D-08): only present when
                 # the shadow parity block actually ran this run (None
                 # default means "never a fabricated verdict" -- see the
                 # _parity_verdict hoist comment near the top of main()).
+                _finish_kwargs["group_hash_globals_fp"] = _mem_globals_fp or ''
                 if _parity_verdict is not None:
                     _finish_kwargs["parity_verdict"] = _parity_verdict
                     _finish_kwargs["parity_details"] = _parity_details

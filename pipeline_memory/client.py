@@ -132,6 +132,22 @@ def _write_enabled() -> bool:
     )
 
 
+def _audit_write_enabled() -> bool:
+    """Re-read ``AUDIT_MEMORY_ENABLED`` live from the environment.
+
+    Independent of ``RUN_MEMORY_WRITE_ENABLED`` / ``_write_enabled()`` --
+    this is the audit-memory write path's OWN gate (Phase 13, AUD-01),
+    read live on every call exactly like its sibling. Defence in depth:
+    ``pipeline.config.AUDIT_MEMORY_ENABLED`` is the orchestrator's gate
+    (read once at import time); this is the writer's own re-read, so a
+    direct call into ``pipeline_memory.audit_findings`` (bypassing the
+    orchestrator's gate) still cannot write when the env var is off.
+    """
+    return os.getenv("AUDIT_MEMORY_ENABLED", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 def _sentry_breadcrumb(category: str, message: str, level: str = "info",
                        data: dict | None = None) -> None:
     """Emit a Sentry breadcrumb without self-importing the pipeline.

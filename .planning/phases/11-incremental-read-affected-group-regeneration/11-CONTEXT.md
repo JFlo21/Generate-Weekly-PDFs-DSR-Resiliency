@@ -100,6 +100,10 @@ canonicalized-content standard; `group_state` attachment-id proof deferred to th
   diff, not a special case (`units_completed ∈ HASH_FIELDS`, `writer.py` 460-477). —
   **Reversibility:** reversible — flag OFF (D-11) returns to the existing full path; no
   migration, no contract change.
+  **AMENDED 2026-10-29 by the owner (Juan), G-11-37 plan 11-14:** one additive
+  `CREATE OR REPLACE FUNCTION pipeline_memory.upsert_rows_bulk` change (prior-WR return
+  branch, no table DDL, rollback in `pipeline_memory/upsert_rows_bulk_prior_pair_migration.sql`)
+  is approved; live apply only after the exact SQL is shown to the owner.
 - **D-05:** **INC-02's "rows come from `row_state`, not Smartsheet" clause is deliberately
   NOT satisfied this phase** — `row_state` stays membership-only. Rationale: `row_state`
   carries the 16 hash-relevant fields while `grouping.py` / `excel.py` read dozens more,
@@ -162,7 +166,16 @@ canonicalized-content standard; `group_state` attachment-id proof deferred to th
   pass; same discipline as `compare_control_run.py`).
 - **D-09 (AMENDED 2026-08-29 by the owner, PR #372: the counted types are `production_frequent`,
   `weekend_maintenance`, and `manual` when `notes.streak_eligible` is true; a `pass` counts only on a
-  `success` row; only the weekly deep run stays outside the streak. Original text follows.)**
+  `success` row; only the weekly deep run stays outside the streak. AMENDED 2026-10-29 by the owner
+  (Juan), G-11-37 plan 11-13: a run whose previous run_ledger row is unfinished or not success
+  (D-02 trigger 6) gets parity_verdict skipped (would_fallback_full:trigger6) and neither counts
+  nor resets; manual runs with streak_eligible true keep counting. AMENDED again 2026-10-29 by the
+  owner (Juan), PR #435: plan 11-15 closes Phase 11 on ONE post-deploy run that passes the billing-impact
+  check (run success; no unexpected regenerations, uploads or errors). The `get_parity_streak()` reading
+  is recorded as-is (a first-run `skipped` verdict is expected) and is no longer a ≥5 closing gate;
+  bugs found later are fixed forward. The `RUN_MEMORY_INCREMENTAL_ENABLED` flip stays separately
+  blocked (todo `2026-10-29-inc02-incremental-globals-fallback-trigger.md`) and still requires its own
+  owner decision. Original text follows.)**
   **Streak = consecutive parity-evaluated `production_frequent` runs.** "≥5
   consecutive scheduled runs" is computed by scanning the newest `run_ledger` rows whose
   `notes.execution_type == 'production_frequent'` backward: `pass` counts, `fail` resets,
@@ -215,6 +228,7 @@ canonicalized-content standard; `group_state` attachment-id proof deferred to th
   `pipeline/orchestrate.py` changes are additive and flag-gated; `pytest tests/ -v` (1525
   passed / 135 subtests baseline) and `python -m py_compile generate_weekly_pdfs.py` gate
   every plan.
+- **D-04 amendment (2026-10-29, owner):** see the D-04 AMENDED note — the one additive `upsert_rows_bulk` change (plan 11-14) is approved; live apply only after the exact SQL is shown to the owner.
 
 ### Claude's Discretion
 - Exact names/defaults of the new config constants (`SAFETY_WINDOW_MINUTES=15`,

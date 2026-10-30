@@ -117,8 +117,8 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 - [x] **Phase 12: Ownership — last known foreman as of the week** (completed 2026-09-10) — claim-time
   ownership ladder in `resolve_claimer` over `attribution_snapshot` (observed_in_week →
   backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel, with provenance
-  columns; no `wr_week_ownership` table — deferred per D-12-A, which names Phase 13; it is not
-  yet on the Phase 13 contract), sentinel-never-a-name
+  columns; no `wr_week_ownership` table — permanently dropped per D-13-A, Phase 13 built no
+  table, view, or cross-week rung), sentinel-never-a-name
   fix in `freeze_row`/`resolve_claimer` (shipped 2026-09-01, owner policy A), dry-run-first
   backfill applied live 2026-09-05 (1,758 rows / 30 WRs / 76 pairs; `#NO MATCH` deferred per
   D-12-C) and the amended Foundation A contract documented. (OWN-01..04 complete)
@@ -148,10 +148,10 @@ Full phase details in main ROADMAP.md Phase 2 section below (archived inline).
 | 08. smartsheet-python-sdk 4.0.0 Compatibility Migration | v1.2 | 2/2 | Complete    | 2026-07-22 |
 | 09. Engine Modularization (pipeline package split) | v1.3 | 9/9 | ✅ Complete | 2026-08-25 |
 | 10. Run-Memory Foundation (shadow writes) | v1.4 | 6/6 | ✅ Complete | 2026-08-25 |
-| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | ✅ Complete | 2026-08-31 |
+| 11. Incremental Read + Affected-Group Regeneration | v1.4 | 8/8 | In Progress|  |
 | 11.1. Post-INC-05 Runtime Remediation (INSERTED) | v1.4 | 4/4 | ✅ Complete | 2026-09-02 |
 | 12. Ownership — last known foreman as of the week | v1.4 | 10/10 | ✅ Complete | 2026-09-10 |
-| 13. Audit Memory | v1.4 | 0/? | Draft |  |
+| 13. Audit Memory | v1.4 | 0/? | In Progress|  |
 | 14. Foreman Helper #2 | v1.4 | 14/14 | ✅ Complete | 2026-09-10 |
 
 ---
@@ -620,7 +620,7 @@ files, reading group rows from `row_state`; the weekly deep run reconciles fully
 4. Local JSON caches and the two attachment pre-fetch phases are removed only after (2);
    frequent-run wall clock measured before/after (baseline 94 min, run 32743959053).
 
-**Plans:** 8/8 plans executed
+**Plans:** 14/15 plans executed (8/8 executed; 2 gap-closure plans added 2026-09-14 for `11-VERIFICATION.md` gaps 1-2; 5 gap-closure plans added 2026-10-29 for UAT gap G-11-37)
 
 Plans:
 **Wave 1**
@@ -654,6 +654,19 @@ Plans:
 **Wave 8** *(blocked on Wave 7's approved decision; its own PR, never bundled)*
 
 - [x] 11-08-PLAN.md — INC-05 retirement: local JSON caches, attachment pre-fetch, six workflow cache steps, before/after wall clock, Phase 11 Living Ledger entry (wave 8, autonomous:false)
+
+**Gap closure** *(added 2026-09-14 from `11-VERIFICATION.md` — status `gaps_found`, 5/8 must-haves; plans are additive, 11-01..11-08 untouched)*
+
+- [x] 11-09-PLAN.md — Gap 2: reproduce, root-cause and surgically fix the live USER-variant candidate-set divergence in the D-04 affected-set selector (runs 34648318434.1 / 34541106039.1), plus the tracked-defect records (wave 1, gap_closure)
+- [x] 11-10-PLAN.md — Gap 1: record the D-05 Option C override for INC-02's `row_state`-sourcing clause with owner sign-off, and transcribe the owner-run post-fix ≥5-run parity streak observation (D-09) (wave 2, gap_closure, autonomous:false)
+
+**Gap closure G-11-37** *(added 2026-10-29 from `11-UAT.md` test 37 — post-fix streak 0, `actual_not_in_candidate` persists; root cause `.planning/debug/inc02-candidate-divergence-post-fix.md`)*
+
+- [x] 11-11-PLAN.md — Mechanism A: hash-only group-hash fingerprint folded into `row_state.content_hash` (no DDL, `HASH_FIELDS`/RPC unchanged; one-time re-key, no Excel/upload effect) (wave 1, gap_closure)
+- [x] 11-12-PLAN.md — Mechanism B: regeneration debt carried in `run_ledger.notes` into the next run's D-04 candidate; unknown debt -> skipped / full (wave 2, gap_closure)
+- [x] 11-13-PLAN.md — Record owner decision (Juan 2026-10-29: trigger-6 runs skipped, manual keeps counting); shadow models D-02 full fallbacks + group-hash globals; blocking pre-flip globals todo (wave 3, gap_closure)
+- [x] 11-14-PLAN.md — Mechanism C: additive `upsert_rows_bulk` branch returning the prior (wr, week) pair on a WR move; protected DDL behind owner approval, with rollback (wave 4, gap_closure, autonomous:false)
+- [ ] 11-15-PLAN.md — Post-deploy records: burst-run billing-impact check + owner ≥5 streak reading (wave 5, gap_closure, autonomous:false)
 
 ### Phase 11.1: Post-INC-05 Runtime Remediation (INSERTED)
 
@@ -782,10 +795,13 @@ Plans:
 
 - **D-12-A** — Phase 12 ships NO `wr_week_ownership` table. OWN-01's ladder is satisfied by
   `billing_audit.attribution_snapshot` + `resolve_claimer` plus the new `backfill_source` /
-  `backfill_run_id` provenance columns; the table is deferred to Phase 13. The ladder as
+  `backfill_run_id` provenance columns. The ladder as
   implemented is `observed_in_week → backfill_artifacts → backfill_hash_history →
   backfill_cell_history → sentinel`, with no cross-week rung; `operator` is a provenance tag
   for manual overrides, not a rung (REQUIREMENTS.md OWN-01 re-worded to match, 2026-09-11).
+  **Closed by D-13-A (2026-09-11):** the table originally deferred here is permanently
+  dropped, not built by Phase 13 or any later phase — Phase 13 built no table, view, or
+  cross-week rung; a future consumer would add a derived read-only view in its own phase.
 
 - **D-12-B** — source 4 (`backfill_hash_history`) reads the Supabase hash store
   (`billing_audit.group_content_hash` + `pipeline_memory.group_state`), NOT a JSON file. No
@@ -833,6 +849,60 @@ on spec §8 **#6** (audit finding key definition and who may `acknowledge`).
 
 2. Audit wall clock on frequent runs is proportional to affected groups + open findings.
 3. Audit Excel/portal shows open + resurfaced only; per-WR history is queryable in SQL.
+   > Re-scoped by D-07 (2026-09-11): Phase 13 ships the SQL half only — the
+   > `pipeline_memory.open_findings` and `pipeline_memory.finding_history_by_wr` views. The
+   > Excel/portal visual surface is a tracked backlog item (see below), decided after observing
+   > real finding volume in shadow.
+
+**Decisions:** D-13-A (2026-09-11) — `wr_week_ownership` (carried forward from D-12-A) is
+permanently dropped, not deferred; OWN-01 stays satisfied by the `resolve_claimer` ladder.
+
+**Backlog (deferred from Phase 13):**
+
+- **AUD-03 visual surface** — the generated audit workbook, a read-only portal-v2 page, or
+  the `_log_to_audit_sheet` summary row (D-07, 2026-09-11). Decision trigger: observed real
+  finding volume in shadow. The two SQL views (`pipeline_memory.open_findings`,
+  `pipeline_memory.finding_history_by_wr`) are the Phase 13 surface; no automated harness for
+  live Supabase view content exists in this repository today, so a future visual-surface
+  phase should bring one.
+
+- **Gate-4 mypy hardening follow-up** — split out of Phase 13 under the 13-CONTEXT.md
+  Folded-Todos authorization, scoped to `scripts/` and `tests/test_facade_harness.py` only;
+  tracked by `.planning/todos/pending/2026-08-25-harden-check-mypy-delta-followups.md`.
+
+**Plans:** 6/6 plans executed (5 waves)
+
+Plans:
+**Wave 1**
+
+- [x] 13-01-PLAN.md — Tracer: one check type end-to-end (flag, client gate, `pipeline_memory/audit_findings.py`, the two tables and the RPC skeleton, the orchestrate hook) behind an owner `checkpoint:decision` on the finding-key recipe *(wave 1)*
+- [x] 13-02-PLAN.md — Folded-todo hygiene: the `snapshot_store` Class-A arg-type fix, an exact one-line mypy re-baseline with its ledger entry, and closure of the Phase 10 review todos *(wave 1, parallel)*
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 13-03-PLAN.md — Check-type expansion: the `price_variance_anomaly` multi-week rule (D-CD-01), the `data_consistency_issue` sorted-set rule (D-CD-02), exhaustive recipe dispatch, and the load-bearing message-string pin *(wave 2)*
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 13-04-PLAN.md — Full D-08 transition table in the `upsert_audit_findings` RPC plus the per-check re-audited-pair scoping that gates closing (AUD-02), with a lockstep Python-to-SQL contract test *(wave 3)*
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 13-05-PLAN.md — The two SQL views, `acknowledge_finding`, RLS/revoke coverage, the D-13-A header closure, then the owner DDL apply and live read-back checkpoints *(wave 4)*
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 13-06-PLAN.md — Docs: D-13-A closure across the spec/REQUIREMENTS/ROADMAP, the two backlog entries, operator documentation for `AUDIT_MEMORY_ENABLED` and the SQL surface, and the finding-key ledger entry *(wave 5)*
+
+### Phase 15: Foreman Notes and Smartsheet color carry-over (GF pilot)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 11 for MERGE only (11-15 reading); planning/coding may run in parallel (owner, 2026-10-29)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 15 to break down)
 
 ---
 
@@ -970,10 +1040,12 @@ Plans:
   `sheet_registry.mapping_schema` DDLs are applied to production alongside the RPC and read back on
   synthetic rows; `HELPER2_ENABLED` is wired into the scheduled workflow as a repo-variable flip;
   HLP-06 is Complete (7/7)
+
 - [x] 14-13-PLAN.md — O-14-E fix: `discovery` exposes the last discovery skip sids; `orchestrate`
   derives the `mapping_schema` marker per sheet (fully validated this run AND mapping written this
   call) and passes `mapping_schema_by_sheet` on both `sheet_registry` upserts — the caller pin that
   14-07's writer contract lacked (PR #395 → `d079e81`)
+
 - [x] 14-14-PLAN.md — O-14-E closure without the Monday deep run: frequent runs adopt the freshly
   validated `column_mapping` (+ marker) for every sheet fully validated this run, drift logged with
   the `Frequent-run full-validation` label BEFORE the first registry write; skip-admitted sheets

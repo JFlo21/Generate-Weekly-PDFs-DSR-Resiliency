@@ -122,6 +122,12 @@ create table pipeline_memory.run_ledger (
 );
 
 -- Audit memory: a finding lives until it is observed fixed
+-- [2026-09-11] SUPERSEDED by D-01 (Phase 13, owner-confirmed): this draft key template
+-- (`sha(check_id|wr|week|cu|pole|...)`) assumed uniform placeholder fields no check actually
+-- emits. The shipped recipe is a versioned, per-check natural key (FINDING_KEY_RECIPE_VERSION
+-- first, then check_id, then that check's own identity fields) computed in Python only. The
+-- as-shipped DDL lives in `pipeline_memory/schema.sql`, not here; this draft is left in place
+-- as history, not as the current contract.
 create table pipeline_memory.audit_finding (
   finding_key   text primary key,                 -- sha(check_id|wr|week|cu|pole|...)
   check_id      text not null, severity text not null,
@@ -180,6 +186,14 @@ run(mode):                       # incremental (7x/day) | full (weekly deep run,
   today's code path; memory is never allowed to make the run silently skip work.
 
 ## 5. Ownership ("last known foreman as of the week") — replaces sentinel freezing
+
+> **[2026-09-11] SUPERSEDED and permanently dropped — D-13-A (Phase 13).** The
+> `wr_week_ownership` design below, including its `last_known_before_week` cross-week rung,
+> is not built and will not be built. OWN-01 is satisfied instead by the `resolve_claimer`
+> ladder over `billing_audit.attribution_snapshot` plus the `backfill_source` /
+> `backfill_run_id` provenance columns, shipped in Phase 12 and validated live 2026-09-05.
+> This section is preserved as history; a future consumer wanting a derived view would add
+> it in its own phase.
 
 For each (WR, week_ending):
 
