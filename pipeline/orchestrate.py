@@ -2472,12 +2472,13 @@ def _run_audit_memory_phase(
       only when EVERY row of the pair was evaluated by it; ``None`` or
       anything malformed closes nothing (findings are still upserted).
     - *scope_pairs* (incremental mode only: the run's candidate
-      ``(wr, week)`` pairs, ``_resolve_row_wr_week`` form) restricts
-      closure to rows of those pairs -- PHASE 2b re-fetches whole sheets,
-      so other groups in *all_rows* may be incomplete -- and drops the
-      WR-pooled check. ``None`` (full mode) is unchanged. Open findings on
-      groups outside the re-fetched scope are left untouched, never
-      closed (follow-up: .planning/todos/pending/
+      ``(wr, week)`` pairs, ``_resolve_row_wr_week`` form) marks a scoped
+      run: PHASE 2b read only the candidates' sheets, so no WR is known
+      complete and NOTHING closes (a ``week_ending IS NULL`` finding
+      matches any re-audited week of its WR in the RPC). Findings are
+      still upserted. ``None`` (full mode) closes per WR-complete pairs.
+      Open findings are re-checked on the next full run (follow-up:
+      .planning/todos/pending/
       2026-10-29-audit-memory-open-findings-incremental-recheck.md).
     - *source_read_complete* ``False`` (a sheet's read failed or was only
       partial this run, ``pipeline.fetch.get_last_full_read_failed_
@@ -3504,7 +3505,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             try:
                 # PR #435: closure needs the detectors' per-row coverage
                 # (a mocked/absent audit system yields none -> closes
-                # nothing) and, in incremental mode, the candidate scope.
+                # nothing); an incremental (scoped) run closes nothing.
                 _audit_mem_coverage = None
                 _cov_fn = getattr(audit_system, "memory_eval_coverage", None)
                 if callable(_cov_fn):

@@ -362,18 +362,65 @@ def _hook_pairs(rows, coverage, scope_pairs):
     return mock_upsert.call_args[0][2]
 
 
-def test_incremental_scope_limits_closing_pairs_to_candidate_pairs():
+def test_incremental_scope_closes_nothing_for_any_check():
+    """PR #435 (Copilot): an incremental run read only the candidate
+    pairs' sheets, so no WR is known complete. A finding stored with
+    week_ending NULL matches ANY re-audited week of its WR in the RPC, so
+    every check closes nothing on a scoped run; full runs close."""
     rows = [_row(wr="111"), _row(wr="222"), _row(wr="333")]
     candidate = {orchestrate._resolve_row_wr_week(rows[0])}
 
-    pairs = _hook_pairs(rows, _FULL_COVERAGE_3, candidate)
+    assert _hook_pairs(rows, _FULL_COVERAGE_3, candidate) == []
 
-    assert _pairs_for(pairs, "rate_sanity_mismatch") == {("111", "2026-09-07")}
-    assert _pairs_for(pairs, "data_consistency_issue") == {
-        ("111", "2026-09-07"),
+
+def test_closing_row_indices_scoped_run_is_none_for_every_check():
+    eligible = audit_findings.closing_row_indices(
+        _FULL_COVERAGE_3, scope_row_indices=[0],
+    )
+    assert set(eligible) == set(audit_findings.MEMORY_BACKED_CHECKS)
+    assert all(v is None for v in eligible.values())
+
+
+def test_wr_with_any_unevaluated_row_sends_no_pair_for_any_week():
+    """NULL-week safety: WR 111 spans two weeks; one row of week 2 was
+    not evaluated by the rate check. A NULL-week rate finding for WR 111
+    would match the fully evaluated week 1 pair in the RPC, so the check
+    must send no WR-111 pair at all. WR 222 (fully evaluated) still
+    closes, and other checks that evaluated every row are unaffected."""
+    rows = [
+        _row(wr="111", week="2026-09-07"),
+        _row(wr="111", week="2026-09-14"),
+        _row(wr="111", week="2026-09-14"),
+        _row(wr="222", week="2026-09-07"),
+    ]
+    coverage = {
+        "rate_sanity_mismatch": frozenset({0, 1, 3}),
+        "price_variance_anomaly": frozenset({0, 1, 2, 3}),
+        "data_consistency_issue": frozenset({0, 1, 2, 3}),
     }
-    # WR-pooled check: an incremental row set is never a complete WR pool.
-    assert _pairs_for(pairs, "price_variance_anomaly") == set()
+
+    pairs = _hook_pairs(rows, coverage, None)
+
+    assert _pairs_for(pairs, "rate_sanity_mismatch") == {
+        ("222", "2026-09-07"),
+    }
+    for check in ("price_variance_anomaly", "data_consistency_issue"):
+        assert _pairs_for(pairs, check) == {
+            ("111", "2026-09-07"), ("111", "2026-09-14"),
+            ("222", "2026-09-07"),
+        }
+
+
+def test_build_reaudited_pairs_wr_complete_rule_direct():
+    rows = [
+        _row(wr="111", week="2026-09-07"),
+        _row(wr="111", week="2026-09-14"),
+    ]
+    pairs = audit_findings.build_reaudited_pairs(
+        rows, ["rate_sanity_mismatch"],
+        eligible_row_indices={"rate_sanity_mismatch": frozenset({0})},
+    )
+    assert pairs == []
 
 
 def test_full_mode_scope_none_is_unchanged():
@@ -416,8 +463,9 @@ def test_open_finding_outside_changed_sheets_is_never_closed():
 
     pairs = _hook_pairs(rows, coverage, candidate)
 
-    assert pairs  # the candidate pair itself is still re-audited
-    assert not any(p["wr"] == "999" for p in pairs)
+    # A scoped run closes nothing at all (PR #435), so WR 999's open
+    # finding is untouched until the next full run re-audits it.
+    assert pairs == []
 
 
 def test_incomplete_source_read_closes_nothing_but_still_upserts():

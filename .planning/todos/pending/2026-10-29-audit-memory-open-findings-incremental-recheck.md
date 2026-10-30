@@ -24,9 +24,12 @@ run and its `last_seen_run` is not bumped.
 
 Such findings are left untouched and are never closed:
 
-- Closing pairs come only from rows of the run's candidate pairs
-  (`_run_audit_memory_phase(..., scope_pairs=...)`), and the WR-pooled
-  `price_variance_anomaly` check closes nothing on a scoped run.
+- An incremental (scoped) run closes nothing at all
+  (`closing_row_indices(..., scope_row_indices=...)` returns `None` for every
+  check): no WR is known complete, and the RPC matches a `week_ending IS NULL`
+  finding against any re-audited week of its WR.
+- A full run sends a check's pairs for a WR only when that check evaluated every
+  row of the WR (`build_reaudited_pairs`, WR-complete rule).
 - The RPC's `fixed` branch is a JOIN against `p_reaudited_pairs`, so a group with
   no pair cannot be closed.
 - A full run (every sheet re-fetched, `scope_pairs=None`) re-checks them, and full

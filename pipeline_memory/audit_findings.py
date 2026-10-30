@@ -663,10 +663,13 @@ def closing_row_indices(
     Anything malformed (not a dict, a non-int index, a mocked object)
     resolves to ``None`` -- that check closes nothing this run.
 
-    *scope_row_indices* (incremental mode only) narrows every check to
-    the rows of this run's candidate pairs, and drops ``WR_POOLED_CHECKS``
-    entirely: a scoped row set is never a complete WR pool. ``None`` (full
-    mode) applies no scope. Never raises.
+    *scope_row_indices* (incremental mode only) means this run read only
+    the candidate pairs' sheets, so no WR's row set is known to be
+    complete. Every check then closes nothing (PR #435: a finding stored
+    with ``week_ending IS NULL`` matches ANY re-audited week of its WR in
+    the RPC, so a partial WR must never send a pair). Closure happens on
+    full runs, which re-check every open finding at least weekly.
+    ``None`` (full mode) applies no scope. Never raises.
     """
     if not isinstance(coverage, dict):
         coverage = {}
@@ -676,10 +679,8 @@ def closing_row_indices(
     eligible: dict[str, frozenset[int] | None] = {}
     for check_id in sorted(MEMORY_BACKED_CHECKS):
         indices = _as_row_index_set(coverage.get(check_id))
-        if indices is not None and scope is not None:
-            indices = (
-                None if check_id in WR_POOLED_CHECKS else indices & scope
-            )
+        if scope is not None:
+            indices = None
         eligible[check_id] = indices
     return eligible
 
@@ -696,8 +697,11 @@ def build_reaudited_pairs(
     *eligible_row_indices* (PR #435; ``closing_row_indices``' output) is
     the stricter form every production caller passes: a check emits a
     pair only when EVERY row of that pair in *rows* is in the check's
-    eligible index set. A check that is absent or ``None`` there emits
-    nothing -- its findings stay untouched. ``None`` keeps the legacy
+    eligible index set, and only for a WR whose EVERY row in *rows* is
+    eligible (PR #435: the RPC matches a ``week_ending IS NULL`` finding
+    against any re-audited week of its WR, so a WR the check did not
+    fully evaluate must send no pair at all). A check that is absent or
+    ``None`` there emits nothing -- its findings stay untouched. ``None`` keeps the legacy
     "every row counts" behavior for direct callers.
 
     Never drops a row for an unparseable week -- it still contributes a
@@ -735,9 +739,13 @@ def build_reaudited_pairs(
             eligible = _as_row_index_set(eligible_row_indices.get(check_id))
             if eligible is None:
                 continue
+            incomplete_wrs = {
+                wr for (wr, _week), indices in rows_by_pair.items()
+                if not all(i in eligible for i in indices)
+            }
             check_pairs = [
-                pair for pair, indices in rows_by_pair.items()
-                if all(i in eligible for i in indices)
+                pair for pair in rows_by_pair
+                if pair[0] not in incomplete_wrs
             ]
         pairs.extend(
             {"check_id": check_id, "wr": wr, "week_ending": week_ending}
