@@ -282,16 +282,28 @@ stored stay in both tables and stay visible in the views, but they stop
 updating: no new findings, no `last_seen_run` change, and nothing moves
 to `fixed` until the flag is turned back on.
 
-**When a finding moves to `fixed`.** Only when the check that raised it
-re-evaluated every row of that work request + week this run and did not
-reproduce it. Anything less leaves the finding exactly as it was: a run
-whose audit reported an error, a check that was switched off or failed
-part-way, a row that check could not evaluate (no rate for the CU,
-zero quantity, unreadable price), a source sheet whose read failed, or —
-in incremental mode — any group outside the run's changed set (a
-price-variance finding is never closed by an incremental run). Each run
-logs one `🧮 Audit-memory counters:` line (counts only) showing how many
-findings were dropped or skipped and whether the upsert failed.
+**When a finding moves to `fixed`.** Only on a full run, and only when
+the check that raised it evaluated **every row of that work request,
+across all of its weeks**, and did not reproduce it. (Some findings are
+stored without a week, so one unchecked row in any week of the WR blocks
+closing all of that WR's findings for that check.) A corrected finding
+stays open after any of these, and closes on the next full run that
+checks the whole WR:
+
+- the run was incremental (`RUN_MEMORY_INCREMENTAL_ENABLED`, a weekday
+  `production_frequent` run): incremental runs record and refresh
+  findings but never close any, for every check;
+- the run's audit reported an error, or the check was switched off or
+  failed part-way;
+- the check could not evaluate one of the WR's rows (no rate for the CU,
+  zero quantity, unreadable price);
+- a source sheet's read failed or was partial.
+
+Every other run type (the Monday `weekly_comprehensive` deep run,
+weekend and manual runs) is a full run, so open findings are re-checked
+at least weekly. Each run logs one `🧮 Audit-memory counters:` line
+(counts only) showing how many findings were dropped or skipped and
+whether the upsert failed.
 
 ### Reading open findings and per-WR history
 
