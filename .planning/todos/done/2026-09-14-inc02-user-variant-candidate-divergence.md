@@ -58,3 +58,17 @@ nothing filed anywhere in `.planning/` to drive it toward a fix — exactly the 
 
 This file stays in `pending/` — it is not done until plan 11-10 Task 3's live
 observation lands.
+
+## G-11-37 follow-up (2026-10-30)
+
+Plans 11-11 (hash-domain coverage), 11-12 (regeneration-debt carry), 11-13 (fallback
+modelling and streak rule), 11-14 (prior-WR pair, applied live 2026-10-29) and 11-15 (one-run
+post-deploy check) close this item. #435 merged to master on 2026-10-30. The first post-merge
+run, 41013512543, passed the billing-impact check: 8 uploads, each from new rows, none from
+the re-key. Per D-09 as amended by PR #435, no 5-run streak is required. The as-is streak
+reading (0, stopped at pre-fix run 40757294483.1) is recorded in `11-VERIFICATION.md`
+`#### G-11-37 Post-Deploy Observation`.
+
+Still open, tracked elsewhere: the `RUN_MEMORY_INCREMENTAL_ENABLED` flip stays OFF. It is a
+separate operator-gated PR (D-11) and is blocked by
+`2026-10-29-inc02-incremental-globals-fallback-trigger.md`.

@@ -282,6 +282,12 @@ CU pricing, rate recalculation, and billing formulas do not change.
   > `11-VERIFICATION.md`'s `#### Post-Fix Parity Streak Observation` subsection.
   > `RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF; the flip remains a separate
   > operator-gated PR under D-11.
+  > **[2026-10-30] G-11-37 post-deploy run passed the billing-impact check (plan 11-15):**
+  > run 41013512543 uploaded 8 / generated 8 groups (prior runs 7 and 10), each from new rows,
+  > none from the one-time re-key. Per D-09 as amended by PR #435, Phase 11 closes on this
+  > one run; the as-is `get_parity_streak()` reading (streak 0, stopped at pre-fix run
+  > 40757294483.1) is an observation, not a gate. Evidence: `11-VERIFICATION.md`
+  > `#### G-11-37 Post-Deploy Observation`. `RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF.
 
 - [x] **INC-05**: `hash_history.json`, `discovery_cache.json`,
   `billing_audit_frozen_rows.json` and the attachment pre-fetch phases are retired only
