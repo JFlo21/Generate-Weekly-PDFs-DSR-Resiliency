@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: October 29, 2026 (updated automatically)_
+_Last updated: October 30, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -68,14 +68,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — October 29, 2026
+### 📋 Changelog — October 30, 2026
 
+- ✨ New capability: G-11-37 parity gap closure (11-11..11-14)
 - 📄 Help guides updated: re-verify implementation truth
 - 📄 Help guides updated: align instruction files, run 2
-- 📄 Help guides updated: re-verify implementation truth ()
+- ✨ New capability: G-11-37 parity gap closure (11-11..11-14) ()
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log 659c8ce &#91;skip ci&#93;
+- 📄 Help guides updated: re-verify implementation truth ()
 - 📄 Help guides updated: log d5b4e1b &#91;skip ci&#93;
-- 📄 Help guides updated: align instruction files (run 2) ()
 
 <!-- /runbook-repo -->
 
