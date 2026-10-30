@@ -45,7 +45,8 @@ BASE_SHA_PATH = (
 )
 
 # Fixed inputs -- the golden must not depend on the wall clock or the host.
-WEEK_ENDING = datetime.datetime(2026, 7, 26)  # a Sunday; week = Mon 07/20..Sun 07/26
+# a Sunday; week = Mon 07/20..Sun 07/26
+WEEK_ENDING = datetime.datetime(2026, 7, 26)
 SNAPSHOT_DATE = datetime.datetime(2026, 7, 22)
 WEEK_RAW = "072626"
 WR = "90311"  # invented WR number (public repo: never a real one)
@@ -261,7 +262,9 @@ def dump_workbook(path: str) -> dict[str, Any]:
             if cell.value is None and not has_fill:
                 continue
             value = cell.value
-            if isinstance(value, str) and value.startswith("Report Generated On:"):
+            if isinstance(
+                value, str
+            ) and value.startswith("Report Generated On:"):
                 value = "<generated-at>"
             font = cell.font
             align = cell.alignment
@@ -324,7 +327,9 @@ def hash_digests(rows: list[dict[str, Any]]) -> dict[str, Any]:
     with pinned_env():
         return {
             "data_hash": calculate_data_hash(copy.deepcopy(rows)),
-            "row_fps": [row_group_hash_fingerprint(r) for r in copy.deepcopy(rows)],
+            "row_fps": [
+                row_group_hash_fingerprint(r) for r in copy.deepcopy(rows)
+            ],
         }
 
 
@@ -340,9 +345,12 @@ def capture() -> dict[str, Any]:
     skipped: dict[str, str] = {}
     for name, group_key, rows in build_fixture_groups():
         digests = hash_digests(rows)
-        with tempfile.TemporaryDirectory() as tmp, pinned_env(output_folder=tmp):
+        with tempfile.TemporaryDirectory() as tmp, pinned_env(
+            output_folder=tmp
+        ):
             try:
-                path, filename, wr_numbers, customer, missing = gwp.generate_excel(
+                (path, filename, wr_numbers, customer,
+                 missing) = gwp.generate_excel(
                     group_key, copy.deepcopy(rows), SNAPSHOT_DATE,
                     data_hash=digests["data_hash"],
                 )
@@ -370,7 +378,9 @@ def capture() -> dict[str, Any]:
 
 
 def dumps(record: dict[str, Any]) -> str:
-    return json.dumps(record, ensure_ascii=False, sort_keys=True, indent=1) + "\n"
+    return json.dumps(
+        record, ensure_ascii=False, sort_keys=True, indent=1
+    ) + "\n"
 
 
 def _print_capture() -> int:

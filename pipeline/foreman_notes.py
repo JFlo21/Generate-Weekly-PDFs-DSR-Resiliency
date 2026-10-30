@@ -1,8 +1,11 @@
-"""pipeline.foreman_notes -- pilot-scoped Foreman Notes + Smartsheet colour carry-over.
+"""pipeline.foreman_notes -- pilot-scoped Foreman Notes + Smartsheet colour
+carry-over.
 
-Single responsibility: every Phase 15 decision that is *logic* (effective scope,
+Single responsibility: every Phase 15 decision that is *logic* (effective
+scope,
 General Foreman pilot gating, note normalisation, Smartsheet colour descriptor
-parsing, notes digests) lives here as a pure or never-raising function. Existing
+parsing, notes digests) lives here as a pure or never-raising function.
+Existing
 modules only gain one-line pilot-gated seams that call into this module, so a
 non-pilot group is byte-identical to today's output (FN-01).
 
@@ -12,9 +15,12 @@ Import rule: this module imports only the stdlib,
 ``pipeline.memory_candidate``, ``pipeline.excel``, ``pipeline.discovery`` or
 ``pipeline.orchestrate`` at module import -- those modules import it.
 
-The module is READ-ONLY with respect to Smartsheet (``get_sheet`` only) and never
-logs or emits to Sentry any General Foreman name, WR number, note text or colour
-descriptor -- counts only (CLAUDE.md Sentry PII rule; public-repo identifier rule).
+The module is READ-ONLY with respect to Smartsheet (``get_sheet`` only) and
+never
+logs or emits to Sentry any General Foreman name, WR number, note text or
+colour
+descriptor -- counts only (CLAUDE.md Sentry PII rule; public-repo identifier
+rule).
 """
 from __future__ import annotations
 
@@ -82,9 +88,12 @@ def compute_effective_scope(
     """Resolve the CONFIGURED scope to the EFFECTIVE scope. PURE (logs only).
 
     * invalid configured value -> ``'off'`` (fail-closed, one WARNING);
-    * ``upload_enabled`` (a publishing run, FOREMAN_NOTES_UPLOAD=1) -> configured;
-    * a dry run (``test_mode``) is pilot only when no pipeline_memory / hash-store
-      write path could run; otherwise ``'off'`` with one WARNING so a dry run can
+    * ``upload_enabled`` (a publishing run, FOREMAN_NOTES_UPLOAD=1) ->
+    configured;
+    * a dry run (``test_mode``) is pilot only when no pipeline_memory /
+    hash-store
+      write path could run; otherwise ``'off'`` with one WARNING so a dry run
+      can
       never persist pilot-flavoured fingerprints, markers or hashes;
     * everything else (the production cron) -> ``'off'``.
 
@@ -93,7 +102,8 @@ def compute_effective_scope(
     """
     if configured not in _VALID_SCOPES:
         logging.warning(
-            "Foreman notes: invalid FOREMAN_NOTES_SCOPE; effective scope is off"
+            "Foreman notes: invalid FOREMAN_NOTES_SCOPE; effective scope is "
+            "off"
         )
         return "off"
     if configured == "off":
@@ -104,9 +114,12 @@ def compute_effective_scope(
         return configured
     if test_mode:
         logging.warning(
-            "Foreman notes: dry run requested but a pipeline_memory / hash-store "
-            "write flag is on; effective scope is off. Set the write flags off "
-            "(SUPABASE_HASH_STORE_WRITE_ENABLED=0, RUN_MEMORY_WRITE_ENABLED=0) "
+            "Foreman notes: dry run requested but a pipeline_memory / "
+            "hash-store "
+            "write flag is on; effective scope is off. Set the write flags "
+            "off "
+            "(SUPABASE_HASH_STORE_WRITE_ENABLED=0, "
+            "RUN_MEMORY_WRITE_ENABLED=0) "
             "for a pilot dry run."
         )
     return "off"
@@ -115,7 +128,8 @@ def compute_effective_scope(
 def memory_writes_possible() -> bool:
     """True when any pipeline_memory / hash-store write path could run.
 
-    Authority: the plan 15-05 call-site inventory of ``pipeline/orchestrate.py``.
+    Authority: the plan 15-05 call-site inventory of
+    ``pipeline/orchestrate.py``.
     ``AUDIT_MEMORY_ENABLED`` is included because the audit-findings upsert is
     gated on that flag alone (not on TEST_MODE).
     """
@@ -137,7 +151,8 @@ _BLOCKED_KINDS_LOGGED: set[str] = set()
 
 
 def is_dry_run_pilot() -> bool:
-    """A pilot-scoped run that must not persist anything (TEST_MODE, no upload)."""
+    """A pilot-scoped run that must not persist anything (TEST_MODE, no
+    upload)."""
     return bool(
         EFFECTIVE_SCOPE != "off"
         and config.TEST_MODE
@@ -148,8 +163,10 @@ def is_dry_run_pilot() -> bool:
 def memory_write_blocked(kind: str) -> bool:
     """True when a pipeline_memory write of ``kind`` must be skipped.
 
-    Call this only INSIDE an existing write gate (i.e. when that gate would have
-    let the write run): reaching it during a dry-run pilot means a write path was
+    Call this only INSIDE an existing write gate (i.e. when that gate would
+    have
+    let the write run): reaching it during a dry-run pilot means a write path
+    was
     actually reached. Logs ERROR at most once per ``kind`` per run, naming only
     ``kind`` (never row data).
     """
@@ -158,7 +175,8 @@ def memory_write_blocked(kind: str) -> bool:
     if kind not in _BLOCKED_KINDS_LOGGED:
         _BLOCKED_KINDS_LOGGED.add(kind)
         logging.error(
-            "Foreman notes: blocked pipeline_memory write during dry-run pilot "
+            "Foreman notes: blocked pipeline_memory write during dry-run "
+            "pilot "
             "(kind=%s)", kind,
         )
     return True
@@ -170,7 +188,8 @@ def mapping_enabled() -> bool:
 
 
 def mapping_schema_marker(base: str) -> str:
-    """``base`` unchanged when off; ``base + '+fn1'`` when the mapping is active."""
+    """``base`` unchanged when off; ``base + '+fn1'`` when the mapping is
+    active."""
     return base if not mapping_enabled() else base + "+fn1"
 
 
@@ -225,7 +244,9 @@ def parse_allowlist(raw: Any) -> frozenset:
     """
     if not raw:
         return frozenset()
-    return frozenset(n for n in (normalize_name(p) for p in str(raw).split(",")) if n)
+    return frozenset(
+        n for n in (normalize_name(p) for p in str(raw).split(",")) if n
+    )
 
 
 def norm_wr(raw: Any) -> str:
@@ -260,8 +281,13 @@ def load_gf_map(
             getattr(c, "id", None): getattr(c, "title", None)
             for c in (getattr(sheet, "columns", None) or [])
         }
-        if titles.get(wr_col_id) != _GF_WR_TITLE or titles.get(gf_col_id) != _GF_TITLE:
-            logging.warning("Foreman notes: GF lookup column titles do not match")
+        if (
+            titles.get(wr_col_id) != _GF_WR_TITLE
+            or titles.get(gf_col_id) != _GF_TITLE
+        ):
+            logging.warning(
+                "Foreman notes: GF lookup column titles do not match"
+            )
             return None
         rows = getattr(sheet, "rows", None) or []
         total = getattr(sheet, "total_row_count", len(rows))
@@ -288,10 +314,13 @@ def load_gf_map(
             if not wr:
                 continue
             seen.setdefault(wr, set()).add(gf if have_gf else "")
-        return {wr: next(iter(gfs)) for wr, gfs in seen.items() if len(gfs) == 1}
+        return {
+            wr: next(iter(gfs)) for wr, gfs in seen.items() if len(gfs) == 1
+        }
     except Exception as exc:  # noqa: BLE001 - never raises, fail-closed
         logging.warning(
-            "Foreman notes: GF lookup failed (%s); no pilot groups", type(exc).__name__
+            "Foreman notes: GF lookup failed (%s); no pilot groups",
+            type(exc).__name__,
         )
         return None
 
@@ -302,7 +331,10 @@ def _breadcrumb(**counts: int) -> None:
         import sentry_sdk  # noqa: WPS433 - optional dependency
 
         sentry_sdk.add_breadcrumb(
-            category="foreman_notes", message="initialized", data=counts, level="info"
+            category="foreman_notes",
+            message="initialized",
+            data=counts,
+            level="info",
         )
     except Exception:  # noqa: BLE001
         pass
@@ -320,7 +352,8 @@ def initialize(client: Any) -> FnState:
             allowlist = parse_allowlist(config.FOREMAN_NOTES_PILOT_GFS)
             if not allowlist:
                 logging.warning(
-                    "Foreman notes: pilot allowlist empty (count 0); no pilot groups"
+                    "Foreman notes: pilot allowlist empty (count 0); no pilot "
+                    "groups"
                 )
                 _breadcrumb(allowlist=0, gf_rows=0, pilot_wrs=0)
                 state = FnState(scope=scope)
@@ -332,24 +365,35 @@ def initialize(client: Any) -> FnState:
                     config.FOREMAN_NOTES_GF_COLUMN_ID,
                 )
                 if gf_map is None:
-                    _breadcrumb(allowlist=len(allowlist), gf_rows=0, pilot_wrs=0)
+                    _breadcrumb(
+                        allowlist=len(allowlist), gf_rows=0, pilot_wrs=0
+                    )
                     state = FnState(scope=scope, allowlist=allowlist)
                 else:
-                    pilot = frozenset(w for w, g in gf_map.items() if g in allowlist)
+                    pilot = frozenset(
+                        w for w, g in gf_map.items() if g in allowlist
+                    )
                     logging.info(
                         "Foreman notes: allowlist=%d gf_rows=%d pilot_wrs=%d",
                         len(allowlist), len(gf_map), len(pilot),
                     )
                     _breadcrumb(
-                        allowlist=len(allowlist), gf_rows=len(gf_map), pilot_wrs=len(pilot)
+                        allowlist=len(allowlist),
+                        gf_rows=len(gf_map),
+                        pilot_wrs=len(pilot),
                     )
                     state = FnState(
-                        scope=scope, allowlist=allowlist, pilot_wrs=pilot, gf_loaded=True
+                        scope=scope,
+                        allowlist=allowlist,
+                        pilot_wrs=pilot,
+                        gf_loaded=True,
                     )
         set_state(state)
         return state
     except Exception as exc:  # noqa: BLE001
-        logging.warning("Foreman notes: initialize failed (%s)", type(exc).__name__)
+        logging.warning(
+            "Foreman notes: initialize failed (%s)", type(exc).__name__
+        )
         state = FnState()
         set_state(state)
         return state
@@ -378,7 +422,8 @@ def is_pilot_row(row: Any) -> bool:
 
 
 def is_pilot_group(rows: Any) -> bool:
-    """Pilot membership of a group (first row, matching ``derive_group_wr``)."""
+    """Pilot membership of a group (first row, matching
+    ``derive_group_wr``)."""
     try:
         return bool(rows) and is_pilot_row(rows[0])
     except Exception:  # noqa: BLE001
@@ -406,7 +451,8 @@ STYLE_COLUMNS: tuple = (
 )
 
 # Pinned copy of GET https://api.smartsheet.com/2.0/serverinfo formats.color
-# (verified live 2026-10-29). Index 0 'none' and 3 'transparent' mean no colour.
+# (verified live 2026-10-29). Index 0 'none' and 3 'transparent' mean no
+# colour.
 PALETTE: tuple = (
     "none", "#000000", "#FFFFFF", "transparent", "#FFEBEE", "#FFF3DF",
     "#FFFEE6", "#E7F5E9", "#E2F2FE", "#F4E4F5", "#F2E8DE", "#FFCCD2",
@@ -439,7 +485,8 @@ def _slot_hex(part: str) -> str | None:
 
 
 def parse_descriptor(desc: Any) -> tuple | None:
-    """Parse a 17-slot Smartsheet format descriptor into ``(text_hex, bg_hex)``.
+    """Parse a 17-slot Smartsheet format descriptor into ``(text_hex,
+    bg_hex)``.
 
     ``None`` / ``''`` -> ``None`` (absent). A slot that is empty or palette
     index 0 / 3 yields ``None`` for that slot. Raises ``ValueError`` for more
@@ -460,7 +507,9 @@ def parse_descriptor(desc: Any) -> tuple | None:
     return _slot_hex(parts[_SLOT_TEXT]), _slot_hex(parts[_SLOT_BG])
 
 
-def resolve_cell_style(cell_cf: Any, row_cf: Any, cell_fmt: Any, row_fmt: Any) -> tuple:
+def resolve_cell_style(
+    cell_cf: Any, row_cf: Any, cell_fmt: Any, row_fmt: Any
+) -> tuple:
     """Effective ``(fill_hex, font_hex)`` for one cell.
 
     Per slot precedence: cell conditional > row conditional > cell static >
@@ -468,7 +517,9 @@ def resolve_cell_style(cell_cf: Any, row_cf: Any, cell_fmt: Any, row_fmt: Any) -
     cell closed to ``(None, None)``.
     """
     try:
-        parsed = [parse_descriptor(d) for d in (cell_cf, row_cf, cell_fmt, row_fmt)]
+        parsed = [
+            parse_descriptor(d) for d in (cell_cf, row_cf, cell_fmt, row_fmt)
+        ]
     except ValueError:
         return None, None
     fill = font = None
@@ -483,7 +534,8 @@ def resolve_cell_style(cell_cf: Any, row_cf: Any, cell_fmt: Any, row_fmt: Any) -
 
 
 def build_sheet_column_maps(source_sheets: Any) -> dict:
-    """``{int(sheet_id): {logical_name: column_id}}``; malformed entries skipped."""
+    """``{int(sheet_id): {logical_name: column_id}}``; malformed entries
+    skipped."""
     out: dict = {}
     for source in (source_sheets or []):
         try:
@@ -493,7 +545,8 @@ def build_sheet_column_maps(source_sheets: Any) -> dict:
     return out
 
 
-# (sheet_id, row_id) -> {logical_name: (fill_hex, font_hex)}; one fetch per row per run.
+# (sheet_id, row_id) -> {logical_name: (fill_hex, font_hex)}; one fetch per row
+# per run.
 _STYLE_CACHE: dict = {}
 
 
@@ -591,7 +644,9 @@ def attach_group_styles(client: Any, group_rows: Any, sheet_maps: dict) -> int:
                 attached += 1
         return attached
     except Exception as exc:  # noqa: BLE001
-        logging.warning("Foreman notes: attach styles failed (%s)", type(exc).__name__)
+        logging.warning(
+            "Foreman notes: attach styles failed (%s)", type(exc).__name__
+        )
         return 0
 
 
@@ -604,7 +659,8 @@ _NOTE_MAX = 32767
 
 
 def norm_note(value: Any) -> str:
-    """The ONLY note normaliser: used for hashing, fingerprints and Excel writes.
+    """The ONLY note normaliser: used for hashing, fingerprints and Excel
+    writes.
 
     Illegal XML characters removed, then trimmed, then capped at 32767 chars.
     """
@@ -620,12 +676,15 @@ def row_notes_component(row: Any) -> str | None:
             return None
         return norm_note(row.get(NOTES_KEY))
     except Exception as exc:  # noqa: BLE001
-        logging.warning("Foreman notes: row component failed (%s)", type(exc).__name__)
+        logging.warning(
+            "Foreman notes: row component failed (%s)", type(exc).__name__
+        )
         return None
 
 
 def group_notes_token(sorted_rows: Any, row_identity: Any) -> str:
-    """16-hex digest of (row identity, normalised note) pairs for a pilot group.
+    """16-hex digest of (row identity, normalised note) pairs for a pilot
+    group.
 
     ``row_identity`` is a caller-supplied callable (change_detection passes its
     own identity join so this module needs no change_detection import). Returns
@@ -637,12 +696,16 @@ def group_notes_token(sorted_rows: Any, row_identity: Any) -> str:
         if not is_pilot_group(sorted_rows):
             return ""
         pairs = sorted(
-            [str(row_identity(r)), norm_note(r.get(NOTES_KEY))] for r in sorted_rows
+            [
+                str(row_identity(r)), norm_note(r.get(NOTES_KEY))
+            ] for r in sorted_rows
         )
         payload = json.dumps(pairs, ensure_ascii=False, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
     except Exception as exc:  # noqa: BLE001
-        logging.warning("Foreman notes: group token failed (%s)", type(exc).__name__)
+        logging.warning(
+            "Foreman notes: group token failed (%s)", type(exc).__name__
+        )
         return ""
 
 
@@ -658,5 +721,7 @@ def globals_component() -> str:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
     except Exception as exc:  # noqa: BLE001
-        logging.warning("Foreman notes: globals component failed (%s)", type(exc).__name__)
+        logging.warning(
+            "Foreman notes: globals component failed (%s)", type(exc).__name__
+        )
         return ""

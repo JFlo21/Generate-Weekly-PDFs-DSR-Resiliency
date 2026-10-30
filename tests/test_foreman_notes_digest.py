@@ -5,7 +5,8 @@ import unittest
 
 from pipeline import foreman_notes as fn
 
-IDENT = lambda r: r['CU']  # noqa: E731 - module is tested without change_detection
+# noqa: E731 - module is tested without change_detection
+IDENT = lambda r: r['CU']
 
 
 def _row(cu, note, wr='90003'):
@@ -42,9 +43,13 @@ class RowComponentTests(unittest.TestCase):
 
     def test_pilot_row(self):
         fn.set_state(fn.FnState(scope='pilot', pilot_wrs=frozenset({'90003'})))
-        self.assertEqual(fn.row_notes_component(_row('CU1', ' hello \x01')), 'hello')
+        self.assertEqual(
+            fn.row_notes_component(_row('CU1', ' hello \x01')), 'hello'
+        )
         self.assertEqual(fn.row_notes_component(_row('CU1', None)), '')
-        self.assertEqual(fn.row_notes_component({'Work Request #': '90003'}), '')
+        self.assertEqual(
+            fn.row_notes_component({'Work Request #': '90003'}), ''
+        )
 
 
 class GroupTokenTests(unittest.TestCase):
@@ -110,16 +115,31 @@ class GlobalsComponentTests(unittest.TestCase):
         def comp(**kw):
             fn.set_state(fn.FnState(**kw))
             return fn.globals_component()
-        base = comp(scope='pilot', allowlist=frozenset({'a'}), pilot_wrs=frozenset({'1'}))
+        base = comp(
+            scope='pilot', allowlist=frozenset({'a'}),
+            pilot_wrs=frozenset({'1'})
+        )
         self.assertRegex(base, r'^[0-9a-f]{16}$')
         self.assertEqual(
-            base, comp(scope='pilot', allowlist=frozenset({'a'}), pilot_wrs=frozenset({'1'})))
+            base, comp(
+                scope='pilot', allowlist=frozenset({'a'}),
+                pilot_wrs=frozenset({'1'})
+            ))
         self.assertNotEqual(
-            base, comp(scope='all', allowlist=frozenset({'a'}), pilot_wrs=frozenset({'1'})))
+            base, comp(
+                scope='all', allowlist=frozenset({'a'}),
+                pilot_wrs=frozenset({'1'})
+            ))
         self.assertNotEqual(
-            base, comp(scope='pilot', allowlist=frozenset({'a', 'b'}), pilot_wrs=frozenset({'1'})))
+            base, comp(
+                scope='pilot', allowlist=frozenset({'a', 'b'}),
+                pilot_wrs=frozenset({'1'})
+            ))
         self.assertNotEqual(
-            base, comp(scope='pilot', allowlist=frozenset({'a'}), pilot_wrs=frozenset({'1', '2'})))
+            base, comp(
+                scope='pilot', allowlist=frozenset({'a'}),
+                pilot_wrs=frozenset({'1', '2'})
+            ))
 
 
 class ModuleBoundaryTests(unittest.TestCase):

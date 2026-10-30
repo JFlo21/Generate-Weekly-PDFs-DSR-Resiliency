@@ -52,10 +52,14 @@ HELPER2_ENABLED = os.getenv(
 
 # Activity log-based foreman assignment has been removed - we now use helper column logic only
 
-# Phase 15 (Foreman Notes + Smartsheet colour carry-over, GF pilot; D-15-01/02/03):
-# FOREMAN_NOTES_SCOPE is the CONFIGURED scope (off | pilot | all). It is validated and
-# resolved to the EFFECTIVE scope in pipeline.foreman_notes.compute_effective_scope, so
-# a production cron run (TEST_MODE unset, FOREMAN_NOTES_UPLOAD unset) stays 'off'.
+# Phase 15 (Foreman Notes + Smartsheet colour carry-over, GF pilot;
+# D-15-01/02/03):
+# FOREMAN_NOTES_SCOPE is the CONFIGURED scope (off | pilot | all). It is
+# validated and
+# resolved to the EFFECTIVE scope in
+# pipeline.foreman_notes.compute_effective_scope, so
+# a production cron run (TEST_MODE unset, FOREMAN_NOTES_UPLOAD unset) stays
+# 'off'.
 FOREMAN_NOTES_SCOPE = os.getenv('FOREMAN_NOTES_SCOPE', 'pilot').strip().lower()
 # D-15-04: comma-separated General Foreman allowlist. The code default is EMPTY
 # (zero pilot groups, fail-closed). Real names live only in a local .env or a

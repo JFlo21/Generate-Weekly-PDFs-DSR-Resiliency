@@ -148,7 +148,9 @@ class ForemanNotesBaselineTests(unittest.TestCase):
             diff, f"perturbed-environment capture differs at {diff}")
 
     def test_primary_group_golden_has_merged_ranges(self):
-        self.assertTrue(self.fixture["groups"]["primary"]["workbook"]["merged"])
+        self.assertTrue(
+            self.fixture["groups"]["primary"]["workbook"]["merged"]
+        )
 
     def test_foreman_notes_are_not_rendered_today(self):
         """Today's output ignores the ``Foreman Notes`` key entirely."""

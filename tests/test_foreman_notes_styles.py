@@ -35,7 +35,10 @@ class _Sheets:
         if self.behaviour is not None:
             return self.behaviour(sheet_id, kwargs)
         ids = [int(x) for x in kwargs['row_ids'].split(',')]
-        rows = [NS(id=i, conditional_format=YELLOW, format_=None, cells=[]) for i in ids]
+        rows = [
+            NS(id=i, conditional_format=YELLOW, format_=None, cells=[])
+            for i in ids
+        ]
         return NS(rows=rows)
 
 
@@ -45,7 +48,10 @@ def _client(behaviour=None):
 
 def _group(n, wr='90003', sheet=SHEET, start=1):
     return [
-        {'Work Request #': wr, '__source_sheet_id': sheet, '__row_id': start + i}
+        {
+            'Work Request #': wr, '__source_sheet_id': sheet,
+            '__row_id': start + i
+        }
         for i in range(n)
     ]
 
@@ -60,7 +66,9 @@ class PaletteTests(unittest.TestCase):
         self.assertEqual(fn.PALETTE[30], '#40B14B')
 
     def test_style_columns_contract(self):
-        self.assertEqual([c for c, _ in fn.STYLE_COLUMNS], [1, 2, 3, 4, 5, 6, 8, 9])
+        self.assertEqual(
+            [c for c, _ in fn.STYLE_COLUMNS], [1, 2, 3, 4, 5, 6, 8, 9]
+        )
         self.assertEqual(fn.STYLE_COLUMNS[-1], (9, 'Foreman Notes'))
         self.assertEqual(fn.STYLE_KEY, '__fn_style')
 
@@ -74,13 +82,18 @@ class ParseDescriptorTests(unittest.TestCase):
         self.assertEqual(fn.parse_descriptor(YELLOW), (None, 'FEFF00'))
 
     def test_text_slot(self):
-        self.assertEqual(fn.parse_descriptor(',,,,,,,,27,,,,,,,,'), ('EA352E', None))
+        self.assertEqual(
+            fn.parse_descriptor(',,,,,,,,27,,,,,,,,'), ('EA352E', None)
+        )
 
     def test_none_and_transparent_are_no_colour(self):
-        self.assertEqual(fn.parse_descriptor(',,,,,,,,0,3,,,,,,,'), (None, None))
+        self.assertEqual(
+            fn.parse_descriptor(',,,,,,,,0,3,,,,,,,'), (None, None)
+        )
 
     def test_invalid_raises(self):
-        for bad in (',' * 17, ',,,,,,,,x,,,,,,,,', ',,,,,,,,,42,,,,,,,', ',,,,,,,,,-1,,,,,,,',
+        for bad in (',' * 17, ',,,,,,,,x,,,,,,,,', ',,,,,,,,,42,,,,,,,',
+                    ',,,,,,,,,-1,,,,,,,',
                     ',,,,,,,,,2.0,,,,,,,', 123):
             with self.subTest(bad=bad):
                 with self.assertRaises(ValueError):
@@ -92,16 +105,20 @@ class ParseDescriptorTests(unittest.TestCase):
 
 class ResolveCellStyleTests(unittest.TestCase):
     def test_all_absent(self):
-        self.assertEqual(fn.resolve_cell_style(None, None, None, None), (None, None))
+        self.assertEqual(
+            fn.resolve_cell_style(None, None, None, None), (None, None)
+        )
 
     def test_precedence_per_slot(self):
         cell_cf = ',,,,,,,,,21,,,,,,,'      # bg yellow
         row_cf = ',,,,,,,,,30,,,,,,,'       # bg green
         cell_fmt = ',,,,,,,,27,28,,,,,,,'   # text red, bg orange
         row_fmt = ',,,,,,,,1,2,,,,,,,'      # text black, bg white
-        self.assertEqual(fn.resolve_cell_style(cell_cf, row_cf, cell_fmt, row_fmt),
+        self.assertEqual(fn.resolve_cell_style(cell_cf, row_cf, cell_fmt,
+                                               row_fmt),
                          ('FEFF00', 'EA352E'))
-        self.assertEqual(fn.resolve_cell_style(None, row_cf, cell_fmt, row_fmt),
+        self.assertEqual(fn.resolve_cell_style(None, row_cf, cell_fmt,
+                                               row_fmt),
                          ('40B14B', 'EA352E'))
         self.assertEqual(fn.resolve_cell_style(None, None, cell_fmt, row_fmt),
                          ('FF8D00', 'EA352E'))
@@ -119,7 +136,8 @@ class ResolveCellStyleTests(unittest.TestCase):
             ('FEFF00', None))
 
     def test_invalid_anywhere_fails_whole_cell(self):
-        for args in ((YELLOW, 'garbage', None, None), (None, YELLOW, ',,,,,,,,,99,,,,,,,', None),
+        for args in ((YELLOW, 'garbage', None, None),
+                     (None, YELLOW, ',,,,,,,,,99,,,,,,,', None),
                      ('x', YELLOW, None, None), (None, None, None, ',' * 20)):
             with self.subTest(args=args):
                 self.assertEqual(fn.resolve_cell_style(*args), (None, None))
@@ -156,7 +174,9 @@ class AttachGroupStylesTests(unittest.TestCase):
     def test_off_scope_makes_no_calls(self):
         fn.reset_state()
         client = _client()
-        self.assertEqual(fn.attach_group_styles(client, _group(2), self.maps), 0)
+        self.assertEqual(
+            fn.attach_group_styles(client, _group(2), self.maps), 0
+        )
         self.assertEqual(client.Sheets.calls, [])
 
     def test_pilot_group_attaches_row_level_colour_to_every_column(self):
@@ -169,8 +189,12 @@ class AttachGroupStylesTests(unittest.TestCase):
         self.assertEqual(kw['row_ids'], '1,2')
         self.assertEqual(kw['column_ids'], '11,12,13,14,15,16,17,18')
         for r in rows:
-            self.assertEqual(set(r[fn.STYLE_KEY]), {n for _, n in fn.STYLE_COLUMNS})
-            self.assertTrue(all(v == ('FEFF00', None) for v in r[fn.STYLE_KEY].values()))
+            self.assertEqual(
+                set(r[fn.STYLE_KEY]), {n for _, n in fn.STYLE_COLUMNS}
+            )
+            self.assertTrue(
+                all(v == ('FEFF00', None) for v in r[fn.STYLE_KEY].values())
+            )
 
     def test_column_ids_limited_to_mapped_names(self):
         maps = {SHEET: {'CU': 12, 'Quantity': 16, 'Other': 99}}
@@ -181,7 +205,10 @@ class AttachGroupStylesTests(unittest.TestCase):
     def test_cell_level_overrides_row_level(self):
         def behaviour(sid, kw):
             cell = NS(column_id=16, conditional_format=GREEN, format_=None)
-            return NS(rows=[NS(id=1, conditional_format=YELLOW, format_=None, cells=[cell])])
+            return NS(
+                rows=[NS(id=1, conditional_format=YELLOW, format_=None,
+                         cells=[cell])]
+            )
         client = _client(behaviour)
         rows = _group(1)
         fn.attach_group_styles(client, rows, self.maps)
@@ -200,7 +227,9 @@ class AttachGroupStylesTests(unittest.TestCase):
     def test_chunks_of_100(self):
         client = _client()
         fn.attach_group_styles(client, _group(250), self.maps)
-        chunks = [len(kw['row_ids'].split(',')) for _, kw in client.Sheets.calls]
+        chunks = [
+            len(kw['row_ids'].split(',')) for _, kw in client.Sheets.calls
+        ]
         self.assertEqual(chunks, [100, 100, 50])
 
     def test_one_call_per_sheet(self):
@@ -208,7 +237,9 @@ class AttachGroupStylesTests(unittest.TestCase):
         rows = _group(2) + _group(2, sheet=6002, start=500)
         client = _client()
         fn.attach_group_styles(client, rows, maps)
-        self.assertEqual(sorted(c[0] for c in client.Sheets.calls), [SHEET, 6002])
+        self.assertEqual(
+            sorted(c[0] for c in client.Sheets.calls), [SHEET, 6002]
+        )
 
     def test_exception_leaves_rows_plain_and_does_not_raise(self):
         def boom(sid, kw):
@@ -220,22 +251,32 @@ class AttachGroupStylesTests(unittest.TestCase):
 
     def test_missing_response_row_is_plain(self):
         def behaviour(sid, kw):
-            return NS(rows=[NS(id=1, conditional_format=YELLOW, format_=None, cells=[])])
+            return NS(
+                rows=[NS(id=1, conditional_format=YELLOW, format_=None,
+                         cells=[])]
+            )
         rows = _group(2)
-        self.assertEqual(fn.attach_group_styles(_client(behaviour), rows, self.maps), 1)
+        self.assertEqual(
+            fn.attach_group_styles(_client(behaviour), rows, self.maps), 1
+        )
         self.assertIn(fn.STYLE_KEY, rows[0])
         self.assertNotIn(fn.STYLE_KEY, rows[1])
 
     def test_unknown_sheet_or_missing_ids_skipped(self):
         client = _client()
-        rows = [{'Work Request #': '90003'}, {'Work Request #': '90003', '__source_sheet_id': 1}]
+        rows = [
+            {'Work Request #': '90003'},
+            {'Work Request #': '90003', '__source_sheet_id': 1}
+        ]
         self.assertEqual(fn.attach_group_styles(client, rows, self.maps), 0)
         rows = _group(1, sheet=424242)
         self.assertEqual(fn.attach_group_styles(client, rows, self.maps), 0)
         self.assertEqual(client.Sheets.calls, [])
 
     def test_only_allowed_row_keys_touched(self):
-        allowed = {'__source_sheet_id', '__row_id', fn.STYLE_KEY, 'Work Request #'}
+        allowed = {
+            '__source_sheet_id', '__row_id', fn.STYLE_KEY, 'Work Request #'
+        }
         seen = set()
 
         class Spy(dict):
@@ -275,7 +316,9 @@ class ReadOnlyModuleTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    os.environ.get('FN_LIVE_PROBE') == '1' and os.environ.get('SMARTSHEET_API_TOKEN'),
+    os.environ.get(
+        'FN_LIVE_PROBE'
+    ) == '1' and os.environ.get('SMARTSHEET_API_TOKEN'),
     'live probe is opt-in: FN_LIVE_PROBE=1 and SMARTSHEET_API_TOKEN',
 )
 class LiveRowIdsProbeTests(unittest.TestCase):
@@ -287,14 +330,18 @@ class LiveRowIdsProbeTests(unittest.TestCase):
         base = client.Sheets.get_sheet(sheet_id, page_size=5)
         ids = ','.join(str(r.id) for r in base.rows[:5])
         got = client.Sheets.get_sheet(sheet_id, include='format', row_ids=ids)
-        self.assertTrue(any(getattr(r, 'conditional_format', None) for r in got.rows))
+        self.assertTrue(
+            any(getattr(r, 'conditional_format', None) for r in got.rows)
+        )
 
 
 @unittest.skipUnless(os.environ.get('FN_PALETTE_LIVE') == '1',
                      'palette drift check is opt-in: FN_PALETTE_LIVE=1')
 class LivePaletteDriftTests(unittest.TestCase):
     def test_palette_matches_serverinfo(self):
-        with urllib.request.urlopen('https://api.smartsheet.com/2.0/serverinfo', timeout=30) as r:
+        with urllib.request.urlopen(
+            'https://api.smartsheet.com/2.0/serverinfo', timeout=30
+        ) as r:
             info = json.loads(r.read().decode('utf-8'))
         self.assertEqual(tuple(info['formats']['color']), fn.PALETTE)
 

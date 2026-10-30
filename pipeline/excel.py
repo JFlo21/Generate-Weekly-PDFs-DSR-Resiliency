@@ -783,16 +783,24 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
                 note_cell.data_type = 's'
                 note_cell.font = BODY_FONT
                 note_cell.alignment = Alignment(wrap_text=True, vertical='top')
-                # D-15-09/10: carried fill + font colour only; fail-closed plain.
+                # D-15-09/10: carried fill + font colour only; fail-closed
+                # plain.
                 style = row_data.get(_fn.STYLE_KEY)
                 if not isinstance(style, dict):
                     style = {}
                 for style_col, style_name in _fn.STYLE_COLUMNS:
                     styled = ws.cell(row=crow, column=style_col)
                     try:
-                        fill_hex, font_hex = style.get(style_name, (None, None))
-                        new_fill = PatternFill(start_color=fill_hex, end_color=fill_hex, fill_type='solid') if fill_hex else None
-                        new_font = Font(name='Calibri', size=11, color=font_hex) if font_hex else None
+                        fill_hex, font_hex = style.get(
+                            style_name, (None, None)
+                        )
+                        new_fill = PatternFill(
+                            start_color=fill_hex, end_color=fill_hex,
+                            fill_type='solid'
+                        ) if fill_hex else None
+                        new_font = Font(
+                            name='Calibri', size=11, color=font_hex
+                        ) if font_hex else None
                         if new_fill is not None:
                             styled.fill = new_fill
                         if new_font is not None:

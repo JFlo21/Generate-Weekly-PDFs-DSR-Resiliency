@@ -4832,7 +4832,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                     group_rows[0].get('__variant', 'primary')
                                     if group_rows else 'primary'
                                 )
-                                if not _fn.memory_write_blocked('billing_audit_hash'):
+                                if not _fn.memory_write_blocked(
+                                    'billing_audit_hash'
+                                ):
                                     _billing_audit_writer.emit_run_fingerprint(
                                         wr=wr_num,
                                         week_ending=_week_snap,
@@ -5748,12 +5750,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                     "E hash write failed (non-fatal)")
                         if _hashes_withheld:
                             logging.warning(
-                                f"⚠️ Durable hash withheld for {_hashes_withheld} "
-                                f"group(s) whose upload did not complete — they "
+                                f"⚠️ Durable hash withheld for "
+                                f"{_hashes_withheld} "
+                                f"group(s) whose upload did not complete — "
+                                f"they "
                                 f"will regenerate next run"
                             )
                         logging.info(
-                            f"🧾 Durable hash store: {_hashes_flushed} flushed, "
+                            f"🧾 Durable hash store: {_hashes_flushed} "
+                            f"flushed, "
                             f"{_hashes_withheld} withheld"
                         )
 
@@ -5787,12 +5792,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             # Phase 11 Plan 08 (INC-05, D-12): history_updates
                             # (frozen run_summary.json key) previously counted
                             # local hash-history JSON cache entries actually
-                            # written after upload success; group_state.content_hash
-                            # is now that record, so the count moves here -- one per
-                            # group _build_group_state_flush determined should
-                            # be persisted (mirrors the retired json write,
-                            # which also counted on the decision, not on a
-                            # disk-write success check).
+                            # written after upload success;
+                            # group_state.content_hash is now that record, so
+                            # the count moves here -- one per group
+                            # _build_group_state_flush determined should be
+                            # persisted (mirrors the retired json write, which
+                            # also counted on the decision, not on a disk-write
+                            # success check).
                             history_updates += len(_mem_group_records)
                             if _mem_group_withheld:
                                 _mem_writer.bump_group_state_withheld(

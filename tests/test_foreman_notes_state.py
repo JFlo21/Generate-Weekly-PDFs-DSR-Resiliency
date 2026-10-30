@@ -1,6 +1,7 @@
 """Phase 15 plan 02 Task 1: effective scope, GF map, pilot predicate.
 
-Fictional names only (public repo). No network: fake clients via SimpleNamespace.
+Fictional names only (public repo). No network: fake clients via
+SimpleNamespace.
 """
 import logging
 import os
@@ -32,7 +33,9 @@ def _row(wr, gf, wr_attr='value'):
     return NS(cells=cells)
 
 
-def _sheet(rows, wr_title='Work Request #', gf_title='General Foreman', total=None):
+def _sheet(
+    rows, wr_title='Work Request #', gf_title='General Foreman', total=None
+):
     return NS(
         columns=[_col(WR_COL, wr_title), _col(GF_COL, gf_title)],
         rows=rows,
@@ -144,10 +147,14 @@ class MarkerTests(unittest.TestCase):
     def test_marker_follows_scope(self):
         with mock.patch.object(fn, 'EFFECTIVE_SCOPE', 'off'):
             self.assertFalse(fn.mapping_enabled())
-            self.assertEqual(fn.mapping_schema_marker('helper2-v1'), 'helper2-v1')
+            self.assertEqual(
+                fn.mapping_schema_marker('helper2-v1'), 'helper2-v1'
+            )
         with mock.patch.object(fn, 'EFFECTIVE_SCOPE', 'pilot'):
             self.assertTrue(fn.mapping_enabled())
-            self.assertEqual(fn.mapping_schema_marker('helper2-v1'), 'helper2-v1+fn1')
+            self.assertEqual(
+                fn.mapping_schema_marker('helper2-v1'), 'helper2-v1+fn1'
+            )
 
 
 class NormalizeTests(unittest.TestCase):
@@ -171,13 +178,17 @@ class LoadGfMapTests(unittest.TestCase):
         client = _client(_sheet([_row('90003.0', 'Avery Example'),
                                  _row('90004', ' pat   example')]))
         got = fn.load_gf_map(client, SHEET, WR_COL, GF_COL)
-        self.assertEqual(got, {'90003': 'avery example', '90004': 'pat example'})
+        self.assertEqual(
+            got, {'90003': 'avery example', '90004': 'pat example'}
+        )
         (sid, kwargs), = client.Sheets.calls
         self.assertEqual(sid, SHEET)
         self.assertEqual(kwargs['column_ids'], f'{WR_COL},{GF_COL}')
 
     def test_display_value_fallback(self):
-        client = _client(_sheet([_row('90005', 'Avery Example', wr_attr='display')]))
+        client = _client(
+            _sheet([_row('90005', 'Avery Example', wr_attr='display')])
+        )
         self.assertEqual(fn.load_gf_map(client, SHEET, WR_COL, GF_COL),
                          {'90005': 'avery example'})
 
@@ -215,9 +226,15 @@ class InitializeTests(unittest.TestCase):
 
     def _init(self, scope, allowlist, client):
         with mock.patch.object(fn, 'EFFECTIVE_SCOPE', scope), \
-                mock.patch.object(config, 'FOREMAN_NOTES_PILOT_GFS', allowlist), \
-                mock.patch.object(config, 'FOREMAN_NOTES_GF_WR_COLUMN_ID', WR_COL), \
-                mock.patch.object(config, 'FOREMAN_NOTES_GF_COLUMN_ID', GF_COL):
+                mock.patch.object(
+                    config, 'FOREMAN_NOTES_PILOT_GFS', allowlist
+                ), \
+                mock.patch.object(
+                    config, 'FOREMAN_NOTES_GF_WR_COLUMN_ID', WR_COL
+                ), \
+                mock.patch.object(
+                    config, 'FOREMAN_NOTES_GF_COLUMN_ID', GF_COL
+                ):
             return fn.initialize(client)
 
     def test_off_makes_no_calls(self):
@@ -241,7 +258,9 @@ class InitializeTests(unittest.TestCase):
                                  _row('90004', 'Jordan Sample')]))
         state = self._init('pilot', 'avery  example', client)
         self.assertEqual(len(client.Sheets.calls), 1)
-        self.assertEqual(client.Sheets.calls[0][1]['column_ids'], f'{WR_COL},{GF_COL}')
+        self.assertEqual(
+            client.Sheets.calls[0][1]['column_ids'], f'{WR_COL},{GF_COL}'
+        )
         self.assertTrue(state.gf_loaded)
         self.assertEqual(state.pilot_wrs, frozenset({'90003'}))
         self.assertTrue(fn.is_pilot_row({'Work Request #': '90003.0'}))
@@ -286,7 +305,9 @@ class PilotPredicateTests(unittest.TestCase):
         self.assertFalse(fn.is_pilot_group([]))
 
     def test_same_wr_string_as_derive_row_wr(self):
-        fn.set_state(fn.FnState(scope='pilot', pilot_wrs=frozenset({'90_3', '90003'})))
+        fn.set_state(
+            fn.FnState(scope='pilot', pilot_wrs=frozenset({'90_3', '90003'}))
+        )
         for raw in ('90003.0', 90003, '90 3', 'ab/cd', '', None, 'X' * 80):
             row = {'Work Request #': raw}
             self.assertEqual(fn.norm_wr(raw), derive_row_wr(row))
@@ -296,8 +317,10 @@ class PilotPredicateTests(unittest.TestCase):
 class ImportDefaultsTests(unittest.TestCase):
     def _run(self, extra_env):
         env = {k: v for k, v in os.environ.items()
-               if not k.startswith(('TEST_MODE', 'SKIP_UPLOAD', 'FOREMAN_NOTES',
-                                    'SUPABASE_HASH_STORE_WRITE', 'RUN_MEMORY_WRITE'))}
+               if not k.startswith(('TEST_MODE', 'SKIP_UPLOAD',
+                                    'FOREMAN_NOTES',
+                                    'SUPABASE_HASH_STORE_WRITE',
+                                    'RUN_MEMORY_WRITE'))}
         env.update(extra_env)
         env['SMARTSHEET_API_TOKEN'] = ''
         out = subprocess.run(
@@ -312,16 +335,21 @@ class ImportDefaultsTests(unittest.TestCase):
         self.assertEqual(self._run({'SKIP_UPLOAD': 'true'}), 'off')
         self.assertEqual(self._run({'TEST_MODE': 'true'}), 'off')
         self.assertEqual(
-            self._run({'TEST_MODE': 'true', 'SUPABASE_HASH_STORE_WRITE_ENABLED': '0',
+            self._run({'TEST_MODE': 'true',
+                       'SUPABASE_HASH_STORE_WRITE_ENABLED': '0',
                        'RUN_MEMORY_WRITE_ENABLED': '0'}),
             'pilot')
 
     def test_allowlist_code_default_is_empty(self):
         out = subprocess.run(
             [sys.executable, '-c',
-             'import pipeline.config as c; print(repr(c.FOREMAN_NOTES_PILOT_GFS))'],
+             'import pipeline.config as c; '
+             'print(repr(c.FOREMAN_NOTES_PILOT_GFS))'],
             capture_output=True, text=True, check=True,
-            env={k: v for k, v in os.environ.items() if k != 'FOREMAN_NOTES_PILOT_GFS'},
+            env={
+                k: v for k,
+                v in os.environ.items() if k != 'FOREMAN_NOTES_PILOT_GFS'
+            },
         )
         self.assertEqual(out.stdout.strip().splitlines()[-1], "''")
 

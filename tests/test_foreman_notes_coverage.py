@@ -165,7 +165,9 @@ class NoNotesTextInSupabaseTests(unittest.TestCase):
                 self.assertNotIn("style", name.lower())
 
     def test_hash_only_fields_unchanged_digest_slot(self):
-        self.assertEqual(tuple(mem_writer.HASH_ONLY_FIELDS), ("group_hash_fp",))
+        self.assertEqual(
+            tuple(mem_writer.HASH_ONLY_FIELDS), ("group_hash_fp",)
+        )
 
 
 class GenericRowIterationScanTests(unittest.TestCase):
@@ -219,7 +221,9 @@ class GenericRowIterationScanTests(unittest.TestCase):
                             isinstance(it, ast.Call)
                             and isinstance(it.func, ast.Attribute)
                             and it.func.attr in ("items", "keys", "values")
-                            and self._ROW_NAME.match(ast.unparse(it.func.value))
+                            and self._ROW_NAME.match(
+                                ast.unparse(it.func.value)
+                            )
                         ):
                             hits.add((rel, fn.name))
         return hits

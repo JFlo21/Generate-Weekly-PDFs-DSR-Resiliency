@@ -1,6 +1,7 @@
 """Phase 15 Plan 15-05: pipeline wiring (run-start GF load, pre-render styles).
 
-Two seams in ``pipeline/orchestrate.py`` call into ``pipeline/foreman_notes.py``:
+Two seams in ``pipeline/orchestrate.py`` call into
+``pipeline/foreman_notes.py``:
 ``_fn.initialize(client)`` before PHASE 1 and ``_fn.attach_group_styles(...)``
 just before ``generate_excel``.  Everything here is offline: a recording fake
 client, fictional names (GF-style aliases) and fictional WR numbers only.
@@ -165,7 +166,9 @@ class TracerTests(_Base):
         # Non-pilot workbook: no column I header, no carried fill.
         ws2 = openpyxl.load_workbook(results[OTHER_WR][0]).active
         for r in range(1, ws2.max_row + 1):
-            self.assertNotEqual(ws2.cell(row=r, column=9).value, "Foreman Notes")
+            self.assertNotEqual(
+                ws2.cell(row=r, column=9).value, "Foreman Notes"
+            )
         header2 = next(r for r in range(1, ws2.max_row + 1)
                        if ws2.cell(row=r, column=1).value == "Point Number")
         for col in (1, 2, 3, 4, 5, 6, 8):
@@ -218,7 +221,9 @@ def _calls(node, dotted):
 
 
 def _uses_fn(node):
-    return any(isinstance(x, ast.Name) and x.id == "_fn" for x in ast.walk(node))
+    return any(
+        isinstance(x, ast.Name) and x.id == "_fn" for x in ast.walk(node)
+    )
 
 
 class SeamOrderTests(unittest.TestCase):
@@ -244,7 +249,9 @@ class SeamOrderTests(unittest.TestCase):
             for call in calls:
                 self.assertLess(line, call.lineno, early)
         # not nested inside the REMEDIATE_CLAIMERS branch
-        parents = {c: p for p in ast.walk(main) for c in ast.iter_child_nodes(p)}
+        parents = {
+            c: p for p in ast.walk(main) for c in ast.iter_child_nodes(p)
+        }
         node = init[0]
         while node in parents:
             node = parents[node]
@@ -257,7 +264,9 @@ class SeamOrderTests(unittest.TestCase):
         main = _func("main")
         attach = _calls(main, "_fn.attach_group_styles")
         self.assertEqual(len(attach), 1)
-        parents = {c: p for p in ast.walk(main) for c in ast.iter_child_nodes(p)}
+        parents = {
+            c: p for p in ast.walk(main) for c in ast.iter_child_nodes(p)
+        }
         stmt = attach[0]
         while not isinstance(stmt, ast.stmt):
             stmt = parents[stmt]
@@ -325,8 +334,12 @@ class ZeroImpactTests(_Base):
 
     def test_default_effective_scope_is_off_for_production_env(self):
         if (config.TEST_MODE or config.FOREMAN_NOTES_UPLOAD
-                or os.getenv("TEST_MODE") or os.getenv("FOREMAN_NOTES_UPLOAD")):
-            self.skipTest("test process env sets TEST_MODE/FOREMAN_NOTES_UPLOAD")
+                or os.getenv(
+                    "TEST_MODE"
+                ) or os.getenv("FOREMAN_NOTES_UPLOAD")):
+            self.skipTest(
+                "test process env sets TEST_MODE/FOREMAN_NOTES_UPLOAD"
+            )
         self.assertEqual(fn.EFFECTIVE_SCOPE, "off")
         self.assertEqual(config.FOREMAN_NOTES_PILOT_GFS, "")
 
@@ -349,7 +362,8 @@ _CALLER_GATED = {"_note_pending_regen_pairs", "_reconcile_deep_run_deletions"}
 
 
 def _write_sites():
-    """Every raw pipeline_memory / hash-store write reference in orchestrate."""
+    """Every raw pipeline_memory / hash-store write reference in
+    orchestrate."""
     sites = []
     for n in ast.walk(ORCH_TREE):
         # mark_rows_deleted is bound as a default argument and invoked through
@@ -358,12 +372,17 @@ def _write_sites():
                 and n.func.id == "mark_rows_deleted_fn"):
             sites.append(n.func)
             continue
-        if not (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)):
+        if not (
+            isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+        ):
             continue
         owner, attr = n.value.id, n.attr
         if owner == "_mem_writer" and attr.startswith(_MEM_PREFIXES):
             sites.append(n)
-        elif owner == "_mem_audit_findings" and attr == "upsert_audit_findings":
+        elif (
+            owner == "_mem_audit_findings"
+            and attr == "upsert_audit_findings"
+        ):
             sites.append(n)
         elif owner == "_billing_audit_writer" and attr in (
                 "upsert_group_hash", "emit_run_fingerprint"):
@@ -433,7 +452,9 @@ class WriteGuardDriftTests(unittest.TestCase):
             where = f"{ast.unparse(site)} line {site.lineno}"
             ifs = _enclosing_ifs(site, parents)
             guard_idx = next(
-                (i for i, f in enumerate(ifs) if _has_guard_call(f.test)), None)
+                (
+                    i for i, f in enumerate(ifs) if _has_guard_call(f.test)
+                ), None)
             if guard_idx is not None:
                 outer = ifs[guard_idx + 1:]
                 self.assertTrue(
@@ -592,7 +613,9 @@ class SyntheticRunStaysOffTests(unittest.TestCase):
 
     def test_synthetic_run_has_no_foreman_notes_column(self):
         out_dir = _REPO_ROOT / "generated_docs"
-        before = {p for p in out_dir.rglob("*.xlsx")} if out_dir.exists() else set()
+        before = {
+            p for p in out_dir.rglob("*.xlsx")
+        } if out_dir.exists() else set()
         dirs_before = {p for p in out_dir.rglob("*") if p.is_dir()}
         env = dict(os.environ)
         env.update({

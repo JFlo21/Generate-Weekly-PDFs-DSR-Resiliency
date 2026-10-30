@@ -39,7 +39,9 @@ def _fixture() -> dict:
 
 
 def _groups() -> dict:
-    return {name: (key, rows) for name, key, rows in golden.build_fixture_groups()}
+    return {
+        name: (key, rows) for name, key, rows in golden.build_fixture_groups()
+    }
 
 
 def _pilot_state() -> fn.FnState:
@@ -106,7 +108,9 @@ class TracerTests(_Base):
         ws = openpyxl.load_workbook(path).active
         blocks = self.blocks(ws)
         header_row, first_cu, _total = blocks[0]
-        self.assertEqual(ws.cell(row=header_row, column=9).value, "Foreman Notes")
+        self.assertEqual(
+            ws.cell(row=header_row, column=9).value, "Foreman Notes"
+        )
         self.assertEqual(
             ws.cell(row=first_cu, column=9).value,
             fn.norm_note(golden.NOTE_TEXTS[0]),
@@ -164,7 +168,9 @@ class LayoutTests(_Base):
             h = ws.cell(row=total, column=8)
             i = ws.cell(row=total, column=9)
             self.assertIsInstance(h.value, (int, float))
-            self.assertEqual(h.number_format, numbers.FORMAT_CURRENCY_USD_SIMPLE)
+            self.assertEqual(
+                h.number_format, numbers.FORMAT_CURRENCY_USD_SIMPLE
+            )
             self.assertEqual(h.fill.fgColor.rgb, RED)
             self.assertEqual(i.fill.fill_type, "solid")
             self.assertEqual(i.fill.fgColor.rgb, RED)
@@ -234,7 +240,9 @@ class LayoutTests(_Base):
             # rows[2]: font-only tuple; rows[3]: malformed descriptor values.
             rows[0][fn.STYLE_KEY] = {n: (None, None) for n in STYLE_NAMES}
             rows[2][fn.STYLE_KEY] = {n: (None, "C00000") for n in STYLE_NAMES}
-            rows[3][fn.STYLE_KEY] = {n: ("not-a-colour", None) for n in STYLE_NAMES}
+            rows[
+                3
+            ][fn.STYLE_KEY] = {n: ("not-a-colour", None) for n in STYLE_NAMES}
 
         ws, dump = self.pilot(mutate)
         gold = _fixture()["groups"]["primary"]["workbook"]["cells"]
@@ -242,7 +250,9 @@ class LayoutTests(_Base):
         for r in (16, 17, 24):
             for col in "ABCDEFGH":
                 coord = f"{col}{r}"
-                self.assertEqual(dump["cells"].get(coord), gold.get(coord), coord)
+                self.assertEqual(
+                    dump["cells"].get(coord), gold.get(coord), coord
+                )
         # font-only row: red text, no fill, never bold/italic/underline/strike
         for col in (1, 2, 3, 4, 5, 6, 8):
             cell = ws.cell(row=23, column=col)
@@ -269,7 +279,9 @@ class VariantsTests(_Base):
 
             def styled(rs):
                 for r in rs:
-                    r[fn.STYLE_KEY] = {n: (YELLOW, "C00000") for n in STYLE_NAMES}
+                    r[
+                        fn.STYLE_KEY
+                    ] = {n: (YELLOW, "C00000") for n in STYLE_NAMES}
 
             with self.subTest(group=name, mode="off"):
                 _p, dump = self.render(name)
@@ -282,14 +294,18 @@ class VariantsTests(_Base):
                 ws = openpyxl.load_workbook(path).active
                 blocks = self.blocks(ws)
                 self.assertEqual(len(blocks), 2)
-                expected = [fn.norm_note(r["Foreman Notes"]) or None for r in rows]
+                expected = [
+                    fn.norm_note(r["Foreman Notes"]) or None for r in rows
+                ]
                 got = []
                 for header, first, total in blocks:
                     self.assertEqual(
                         ws.cell(row=header, column=9).value, "Foreman Notes")
                     got += [ws.cell(row=r, column=9).value
                             for r in range(first, total)]
-                self.assertEqual(sorted(map(str, got)), sorted(map(str, expected)))
+                self.assertEqual(
+                    sorted(map(str, got)), sorted(map(str, expected))
+                )
         self.assertEqual(seen, len(fixture["groups"]))
         self.assertEqual(seen, 10 - len(skipped))
 
