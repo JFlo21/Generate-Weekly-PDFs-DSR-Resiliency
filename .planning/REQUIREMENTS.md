@@ -434,7 +434,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
 
 - [x] **FN-10**: Colour-only edits never trigger regeneration (D-15-12).
 
-- [ ] **FN-11**: Pilot rendering runs only on a `TEST_MODE` dry run with every
+- [x] **FN-11**: Pilot rendering runs only on a `TEST_MODE` dry run with every
   `pipeline_memory` write path disabled, or when `FOREMAN_NOTES_UPLOAD` is on; `SKIP_UPLOAD`
   alone keeps the effective scope `off`; a dry run never persists pilot-flavoured state to
   `pipeline_memory`; `SKIP_UPLOAD` / `TEST_MODE` semantics are unchanged (D-15-03).
@@ -563,7 +563,7 @@ Which phases cover which requirements.
 | FN-08 | Phase 15 | Complete |
 | FN-09 | Phase 15 | Complete |
 | FN-10 | Phase 15 | Complete |
-| FN-11 | Phase 15 | Pending |
+| FN-11 | Phase 15 | Complete |
 | FN-12 | Phase 15 | Complete |
 | FN-13 | Phase 15 | Pending |
 
