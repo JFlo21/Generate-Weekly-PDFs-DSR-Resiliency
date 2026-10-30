@@ -416,13 +416,13 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **FN-04**: `Foreman Notes` is mapped by discovery behind a mapping-schema marker bump and
   is identical on full-read and delta-read rows (D-15-08).
 
-- [ ] **FN-05**: Pilot workbooks render column I `Foreman Notes` per CU row, the day header
+- [x] **FN-05**: Pilot workbooks render column I `Foreman Notes` per CU row, the day header
   spans A:I, and the TOTAL row fills column I, all through `safe_merge_cells` (D-15-06).
 
-- [ ] **FN-06**: Pilot workbooks use a landscape fit-to-width print setup; `oddFooter.right.text`
+- [x] **FN-06**: Pilot workbooks use a landscape fit-to-width print setup; `oddFooter.right.text`
   is never written (D-15-07).
 
-- [ ] **FN-07**: Colour carry-over copies fill and font colour only, with per-slot precedence
+- [x] **FN-07**: Colour carry-over copies fill and font colour only, with per-slot precedence
   cell conditional > row conditional > cell static > row static, and fails closed to plain
   `BODY_FONT` when a colour cannot be resolved (D-15-09/10, live probe).
 
@@ -439,7 +439,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   alone keeps the effective scope `off`; a dry run never persists pilot-flavoured state to
   `pipeline_memory`; `SKIP_UPLOAD` / `TEST_MODE` semantics are unchanged (D-15-03).
 
-- [ ] **FN-12**: Every output path - primary, Helper, Helper #2, VAC crew, and the subcontractor
+- [x] **FN-12**: Every output path - primary, Helper, Helper #2, VAC crew, and the subcontractor
   variants - gets the same treatment through the single `generate_excel`.
 
 - [ ] **FN-13**: Merge of Phase 15 is gated on Phase 11 closure (D-15-13).
@@ -557,14 +557,14 @@ Which phases cover which requirements.
 | FN-02 | Phase 15 | Complete |
 | FN-03 | Phase 15 | Complete |
 | FN-04 | Phase 15 | Complete |
-| FN-05 | Phase 15 | Pending |
-| FN-06 | Phase 15 | Pending |
-| FN-07 | Phase 15 | Pending |
+| FN-05 | Phase 15 | Complete |
+| FN-06 | Phase 15 | Complete |
+| FN-07 | Phase 15 | Complete |
 | FN-08 | Phase 15 | Complete |
 | FN-09 | Phase 15 | Complete |
 | FN-10 | Phase 15 | Complete |
 | FN-11 | Phase 15 | Pending |
-| FN-12 | Phase 15 | Pending |
+| FN-12 | Phase 15 | Complete |
 | FN-13 | Phase 15 | Pending |
 
 **Coverage:**
