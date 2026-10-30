@@ -1237,14 +1237,49 @@ class PR435BotFollowupTests(unittest.TestCase):
         )
         self.assertEqual(out["regen_debt_pairs"], [])
 
-    def test_quarantined_pair_already_pending_stays_carried(self):
-        # PR #439: exclusion never narrows debt. Clearing this pair would
-        # drop a regeneration that is still owed once the source is fixed.
+    def test_quarantined_candidate_pair_is_not_carried(self):
+        # PR #439 (Copilot): a quarantined group already in the candidate
+        # set must clear too, not only one outside it.
         out = self._kw(
             candidate_pairs={("7", "2026-11-08")},
             groups={"q": _group("7", "2026-11-08")},
             skip_keys=set(),
             excluded_groups={"q"},
+        )
+        self.assertEqual(out["regen_debt_pairs"], [])
+
+    def test_quarantined_group_with_inherited_unknown_is_not_carried(self):
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={"q": _group("7", "2026-11-08")},
+            skip_keys=set(),
+            excluded_groups={"q"},
+            inherited_unknown=True,
+        )
+        self.assertEqual(out["regen_debt_pairs"], [])
+
+    def test_unconfirmed_sibling_of_quarantined_group_is_carried(self):
+        out = self._kw(
+            candidate_pairs={("7", "2026-11-08")},
+            groups={
+                "q": _group("7", "2026-11-08"),
+                "sibling": _group("7", "2026-11-08"),
+            },
+            skip_keys=set(),
+            excluded_groups={"q"},
+        )
+        self.assertEqual(
+            [tuple(p) for p in out["regen_debt_pairs"]],
+            [("7", "2026-11-08")],
+        )
+
+    def test_quarantined_candidate_stays_carried_on_partial_coverage(self):
+        out = self._kw(
+            candidate_pairs={("7", "2026-11-08")},
+            groups={"q": _group("7", "2026-11-08")},
+            skip_keys=set(),
+            excluded_groups={"q"},
+            coverage_complete=False,
         )
         self.assertEqual(
             [tuple(p) for p in out["regen_debt_pairs"]],
