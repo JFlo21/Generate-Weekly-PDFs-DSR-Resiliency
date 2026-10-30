@@ -27,7 +27,7 @@ flowchart LR
     A["Crews enter units in Smartsheet"] --> B["Robot reads every source sheet<br/>(normal runs: 6–7× on weekdays, 3× Saturday, 4× Sunday, plus one weekly deep run)"]
     B --> C["Groups rows by Work Request + week ending<br/>(+ foreman / helper / crew)"]
     C --> D{"Did this group change<br/>since the last file?"}
-    D -- "No, and the file is still attached" --> E["Skip — nothing to do"]
+    D -- "No, and the file<br/>is still attached" --> E["Skip — nothing to do"]
     D -- "Yes, or the file is missing" --> F["Build the Excel workbook"]
     F --> G["Replace the attachment on the<br/>Work Request's row"]
 ```
