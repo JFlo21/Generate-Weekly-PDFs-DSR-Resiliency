@@ -138,5 +138,123 @@ class TracerTests(_Base):
         self.assertEqual(off, _fixture()["groups"]["primary"]["workbook"])
 
 
+class LayoutTests(_Base):
+    def pilot(self, mutate=None):
+        path, dump = self.render(state=_pilot_state(), mutate=mutate)
+        return openpyxl.load_workbook(path).active, dump
+
+    def test_merged_ranges_are_exactly_the_expected_list(self):
+        ws, dump = self.pilot()
+        golden_merged = _fixture()["groups"]["primary"]["workbook"]["merged"]
+        # Day-header A:H -> A:I. The first day's header row (14) overlaps the
+        # summary merge G14:I14, so safe_merge_cells skips it exactly as it
+        # does today (pre-existing behaviour, not part of this change).
+        expected = sorted(
+            ["A18:G18", "A1:C3", "A21:I21", "A25:G25", "B7:D7", "D2:I2",
+             "D5:I5", "F7:I7", "G10:I10", "G11:I11", "G12:I12", "G13:I13",
+             "G14:I14", "G8:I8", "G9:I9"])
+        self.assertEqual(dump["merged"], expected)
+        self.assertEqual(
+            sorted(set(golden_merged) ^ set(expected)),
+            ["A21:H21", "A21:I21"])
+
+    def test_total_row_layout(self):
+        ws, _dump = self.pilot()
+        for _h, _f, total in self.blocks(ws):
+            h = ws.cell(row=total, column=8)
+            i = ws.cell(row=total, column=9)
+            self.assertIsInstance(h.value, (int, float))
+            self.assertEqual(h.number_format, numbers.FORMAT_CURRENCY_USD_SIMPLE)
+            self.assertEqual(h.fill.fgColor.rgb, RED)
+            self.assertEqual(i.fill.fill_type, "solid")
+            self.assertEqual(i.fill.fgColor.rgb, RED)
+            self.assertIsNone(i.value)
+
+    def test_columns_a_to_h_keep_positions_and_values(self):
+        ws, dump = self.pilot()
+        gold = _fixture()["groups"]["primary"]["workbook"]["cells"]
+        for coord, cell in gold.items():
+            if coord[0] in "ABCDEFGH" and not coord.startswith(("A14", "A21")):
+                self.assertEqual(
+                    dump["cells"].get(coord), cell, coord)
+        self.assertEqual(ws.cell(row=15, column=8).value, "Pricing")
+        self.assertEqual(ws.cell(row=15, column=7).value, "N/A")
+
+    def test_formula_prefixed_notes_are_stored_as_text(self):
+        notes = ["=1+1", "+cmd", "-2+3", "@SUM(A1)"]
+
+        def mutate(rows):
+            for row, note in zip(rows, notes):
+                row["Foreman Notes"] = note
+
+        path, _ = self.render(state=_pilot_state(), mutate=mutate)
+        ws = openpyxl.load_workbook(path).active
+        cells = [
+            ws.cell(row=16, column=9), ws.cell(row=17, column=9),
+            ws.cell(row=23, column=9), ws.cell(row=24, column=9)]
+        for cell, note in zip(cells, notes):
+            with self.subTest(note=note):
+                self.assertEqual(cell.data_type, "s")
+                self.assertEqual(cell.value, note)
+
+    def test_illegal_chars_stripped_and_long_note_capped(self):
+        def mutate(rows):
+            rows[0]["Foreman Notes"] = "bad\x01note"
+            rows[1]["Foreman Notes"] = "x" * 40000
+            rows[2]["Foreman Notes"] = None
+            rows[3]["Foreman Notes"] = "   "
+
+        ws, _ = self.pilot(mutate)
+        self.assertEqual(ws["I16"].value, "badnote")
+        self.assertEqual(len(ws["I17"].value), 32767)
+        self.assertIsNone(ws["I23"].value)
+        self.assertIsNone(ws["I24"].value)
+
+    def test_print_setup_fit_to_width_and_no_footer(self):
+        ws, dump = self.pilot()
+        self.assertTrue(ws.sheet_properties.pageSetUpPr.fitToPage)
+        self.assertEqual(ws.page_setup.fitToWidth, 1)
+        self.assertEqual(ws.page_setup.fitToHeight, 0)
+        self.assertEqual(ws.page_setup.orientation, "landscape")
+        for footer in (ws.oddFooter, ws.evenFooter):
+            for part in (footer.left, footer.center, footer.right):
+                self.assertIn(part.text, (None, ""))
+
+    def test_column_i_width_and_wrap(self):
+        ws, dump = self.pilot()
+        self.assertEqual(dump["widths"]["I"], 50.0)
+        for r in (16, 17, 23, 24):
+            align = ws.cell(row=r, column=9).alignment
+            self.assertTrue(align.wrap_text)
+            self.assertEqual(align.vertical, "top")
+
+    def test_colour_fail_closed_and_font_only(self):
+        def mutate(rows):
+            # rows[0]: (None, None) for every name; rows[1]: no STYLE_KEY;
+            # rows[2]: font-only tuple; rows[3]: malformed descriptor values.
+            rows[0][fn.STYLE_KEY] = {n: (None, None) for n in STYLE_NAMES}
+            rows[2][fn.STYLE_KEY] = {n: (None, "C00000") for n in STYLE_NAMES}
+            rows[3][fn.STYLE_KEY] = {n: ("not-a-colour", None) for n in STYLE_NAMES}
+
+        ws, dump = self.pilot(mutate)
+        gold = _fixture()["groups"]["primary"]["workbook"]["cells"]
+        # rows 16, 17 and 24 (col A-H) equal today's cells
+        for r in (16, 17, 24):
+            for col in "ABCDEFGH":
+                coord = f"{col}{r}"
+                self.assertEqual(dump["cells"].get(coord), gold.get(coord), coord)
+        # font-only row: red text, no fill, never bold/italic/underline/strike
+        for col in (1, 2, 3, 4, 5, 6, 8):
+            cell = ws.cell(row=23, column=col)
+            self.assertIsNone(cell.fill.fill_type)
+            self.assertEqual(cell.font.color.rgb[-6:], "C00000")
+        for cell in (ws.cell(row=23, column=c) for c in range(1, 10)):
+            self.assertFalse(cell.font.b)
+            self.assertFalse(cell.font.i)
+            self.assertFalse(cell.font.u)
+            self.assertFalse(cell.font.strike)
+        self.assertIsNone(ws.cell(row=23, column=7).font.color)
+
+
 if __name__ == "__main__":
     unittest.main()
