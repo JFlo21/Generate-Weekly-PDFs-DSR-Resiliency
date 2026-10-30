@@ -256,5 +256,43 @@ class LayoutTests(_Base):
         self.assertIsNone(ws.cell(row=23, column=7).font.color)
 
 
+class VariantsTests(_Base):
+    def test_variants_off_nonpilot_golden_and_pilot_layout(self):
+        fixture = _fixture()
+        skipped = set(fixture["meta"]["skipped_variants"])
+        seen = 0
+        for name, (key, rows) in _groups().items():
+            if name in skipped:
+                continue
+            seen += 1
+            gold = fixture["groups"][name]["workbook"]
+
+            def styled(rs):
+                for r in rs:
+                    r[fn.STYLE_KEY] = {n: (YELLOW, "C00000") for n in STYLE_NAMES}
+
+            with self.subTest(group=name, mode="off"):
+                _p, dump = self.render(name)
+                self.assertEqual(dump, gold)
+            with self.subTest(group=name, mode="non-pilot"):
+                _p, dump = self.render(name, _non_pilot_state(), styled)
+                self.assertEqual(dump, gold)
+            with self.subTest(group=name, mode="pilot"):
+                path, _d = self.render(name, _pilot_state())
+                ws = openpyxl.load_workbook(path).active
+                blocks = self.blocks(ws)
+                self.assertEqual(len(blocks), 2)
+                expected = [fn.norm_note(r["Foreman Notes"]) or None for r in rows]
+                got = []
+                for header, first, total in blocks:
+                    self.assertEqual(
+                        ws.cell(row=header, column=9).value, "Foreman Notes")
+                    got += [ws.cell(row=r, column=9).value
+                            for r in range(first, total)]
+                self.assertEqual(sorted(map(str, got)), sorted(map(str, expected)))
+        self.assertEqual(seen, len(fixture["groups"]))
+        self.assertEqual(seen, 10 - len(skipped))
+
+
 if __name__ == "__main__":
     unittest.main()
