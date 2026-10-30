@@ -9,6 +9,19 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-10-29 — docs/ai implementation truth re-verified
+
+All five `docs/ai/*` pages fact-checked against `master` and corrected in place: CR-01 and WR-01 are
+fixed (not open), Phase 12 is closed, and line anchors / `CLAUDE.md` section citations are current.
+`README.md` passed unchanged. Docs-only. Ledger `[2026-10-29 12:30]`.
+
+## 2026-10-29 — Instruction files re-aligned; GitNexus index added
+
+`CLAUDE.md` trimmed 152 → 150 lines with no guardrail removed, and `.github/copilot-instructions.md`
+regenerated from it (it was missing three post-2026-09-02 guardrails). GitNexus is indexed locally
+(`.gitnexus/`, untracked) for impact/trace queries. Docs-only; no pipeline behavior change. Owner
+follow-ups: freeze `AGENTS.md` by hand; decide the two over-cap rule files. Ledger `[2026-10-29 10:45]`.
+
 ## 2026-09-14 — Phase 11 gap-closure executed (`/gsd:execute-phase 11 --gaps-only`) → re-verify `human_needed` 6/8
 
 Sequential executors on `plan/phase-13` (worktree base diverged from `origin/HEAD`, auto-degraded). **11-09 (Gap 2):**

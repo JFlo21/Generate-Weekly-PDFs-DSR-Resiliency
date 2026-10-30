@@ -1,4 +1,4 @@
-Repo-local implementation truth — outranks second-brain notes; verified from repo files on 2026-09-02.
+Repo-local implementation truth — outranks second-brain notes; verified from repo files on 2026-09-02; re-verified 2026-10-29 (gsd-doc-verifier).
 
 <!-- This file is repo-local IMPLEMENTATION TRUTH. Verify every claim against real repo files. -->
 
@@ -97,8 +97,8 @@ into the Smartsheet pipeline.
 - **Three row variants, detected per row (never per sheet):** `primary` (default); `helper` when
   `Foreman Helping?` is non-blank and `Helping Foreman Completed Unit?` is checked; `vac_crew` when
   `VAC Crew Helping?` is non-blank and `Vac Crew Completed Unit?` + `Units Completed?` are checked,
-  gated by `sheet_has_vac_crew_columns` (`pipeline/fetch.py:554-570`). VAC-crew rows live in the same
-  sheets as primary/helper rows; `VAC_CREW_FOLDER_IDS` (`pipeline/config.py:317`) is a discovery
+  gated by `sheet_has_vac_crew_columns` (`pipeline/fetch.py` ~631). VAC-crew rows live in the same
+  sheets as primary/helper rows; `VAC_CREW_FOLDER_IDS` (`pipeline/config.py:325`) is a discovery
   folder list, not a row tag.
 - **Helper #2 family (Phase 14, `HELPER2_ENABLED`, default off):** three additional variants, all
   gated behind the flag — `helper2` (plain, mirrors `helper`), `aep_billable_helper2` and
@@ -116,7 +116,7 @@ into the Smartsheet pipeline.
   `__vac_crew_email` (populated, no Excel consumer). Each variant's Excel header reads its own fields
   (`pipeline/excel.py` `elif variant == 'vac_crew'`) — no fallthrough to the primary foreman or `Job #`
   (the April-2026 Arrowhead job-number leak; ledger `[2026-09-02 21:20]`).
-- **Group keys** (`pipeline/grouping.py:76-108`): `MMDDYY_WR`, `MMDDYY_WR_HELPER_<sanitized>`,
+- **Group keys** (`pipeline/grouping.py` `group_source_rows`: docstring ~147-182; the `HELPER2` key is built in code ~903): `MMDDYY_WR`, `MMDDYY_WR_HELPER_<sanitized>`,
   `MMDDYY_WR_HELPER2_<sanitized>`, `MMDDYY_WR_VACCREW[_<sanitized claimer>]`; filenames
   `WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{|_User_<x>|_Helper_<x>|_Helper2_<x>|_VacCrew}_{hash}.xlsx`,
   plus the two Helper #2 subcontractor shadow shapes `_AEPBillable_Helper2_<x>` and
@@ -130,9 +130,12 @@ into the Smartsheet pipeline.
 
 ## Last verified
 
-- Domain model section added 2026-09-02 (align run 1) from `pipeline/fetch.py:554-570`,
-  `pipeline/grouping.py:76-108`, `pipeline/excel.py:345,567`, `pipeline/pricing.py:51-87`,
-  `pipeline/config.py:317`; replaces the retired `memory-bank/systemPatterns.md`.
+- Domain model section added 2026-09-02 (align run 1) from `pipeline/fetch.py`,
+  `pipeline/grouping.py`, `pipeline/excel.py`, `pipeline/pricing.py:51-87` and `pipeline/config.py`;
+  replaces the retired `memory-bank/systemPatterns.md`. Line anchors re-derived 2026-10-29 after
+  Phase 14 moved the code: `fetch.py` ~631 (`sheet_has_vac_crew_columns`), `grouping.py` ~149-180
+  (group-key docstring), `excel.py:389,631` (`elif variant == 'vac_crew'`), `config.py:325`
+  (`VAC_CREW_FOLDER_IDS`). gsd-doc-verifier 2026-10-29: 66/70, the 4 failures were these anchors.
 - Last verified: 2026-09-02 — read `CLAUDE.md`, `README.md` (repo layout table), `pipeline/`,
   `pipeline_memory/`, `billing_audit/` module docstrings, both `schema.sql` files (table/RPC names +
   header comments only), `.github/workflows/weekly-excel-generation.yml` (triggers/timeouts), and

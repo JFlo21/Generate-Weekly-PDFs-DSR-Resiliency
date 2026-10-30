@@ -9679,6 +9679,49 @@ exactly as the full run does. Full suite green (2426 passed / 1 skipped / 610 su
 regressions). The fresh ≥5 consecutive-pass `production_frequent` streak this fix requires before any
 future flag-flip decision remains owner-gated in plan 11-10.
 
+## [2026-10-29 10:45] Instruction-file alignment run 2; GitNexus index added (docs-only)
+
+`/global-project-bootstrap` found the repo fully bootstrapped, and its Step 0 drift check found
+`CLAUDE.md` at 152 lines (cap 150) and a stale `.github/copilot-instructions.md`. Moves:
+`CLAUDE.md` header compressed (provenance line kept, the ledger pointer kept); the TEST_MODE
+two-line validation comment folded into one line with its warning intact ("blank the token or
+TEST_MODE reads every sheet LIVE"); the duplicate status/navigation pointer in "Second-brain
+write-back" now points at "Where to read next", which already lists both. No guardrail text
+removed: every guardrail keyword still greps to `CLAUDE.md`. 152 → 150 lines. The Copilot mirror
+was regenerated from the trimmed file and now carries three guardrails added after 2026-09-02
+(attachment identity from `group_state` with per-row fallback, the `sheet_registry` +
+`helper2-v1` validation-skip conditions, the Sentry `before_send_log` backstop).
+
+Not done, owner-visible: `AGENTS.md` is still unfrozen (367 lines; harness-boundary hook blocks
+ClaudeOS writes, so the Step 3.4 `FROZEN MIRROR` header is a hand step for Juan, although
+`docs/AI_CONTEXT_RESUME.md` already calls it frozen). `.claude/rules/documentation-maintenance.md`
+(65) and `.claude/rules/smartsheet-python-optimization.md` (108) exceed the 60-line rule cap and
+auto-load everywhere; trimming them is owner-controlled policy, so they are left for a decision.
+`/gsd-core:docs-update` (`docs/ai/*` last verified 2026-09-02) was deferred to Phase 11 close.
+`plan/phase-13` and `master` carry divergent `.planning/STATE.md` (phase 11 executing vs phase 13
+planning); this run touched no `.planning/` file. GitNexus 1.6.12 index built with
+`analyze --index-only` (no `CLAUDE.md`/`AGENTS.md`/skill injection; `.gitnexus/` is excluded via
+`.git/info/exclude`, so nothing tracked changed): 8,900 nodes, 18,194 edges, 326 flows.
+
+## [2026-10-29 12:30] docs/ai implementation truth re-verified against master (scoped `/gsd-core:docs-update`)
+
+Owner chose a scoped run over the full `/gsd-core:docs-update` (which would have spawned ~48 agents,
+created `docs/ARCHITECTURE.md` / `CONFIGURATION.md` / `TESTING.md` duplicating `docs/ai/*`, and does
+not touch `.planning/STATE.md`, so it cannot clear the W011/W024 health warnings). gsd-doc-verifier
+first pass: `architecture` 66/70, `implementation-truth` 75/94, `safe-commands` 42/48, `known-bugs`
+11/21, `decisions` 19/22, `README.md` 66/66. Real status corrections: CR-01 (`_is_sentinel_identifier`
+now an `_SANITIZED_ERROR_IDENTIFIERS` allowlist, `pipeline/cleanup.py:98/116`, commit `1f159bc` #388)
+and WR-01 (`AttachmentParentType` import now function-local, `pipeline/orchestrate.py` ~1352) are
+FIXED, not open; OWN-01/03/04 complete; D-12-A ladder as implemented is `observed_in_week →
+backfill_artifacts → backfill_hash_history → backfill_cell_history → sentinel` (`operator` is a
+provenance tag). Everything else was drift: Phase 14 moved line anchors, and the 2026-09-02
+`CLAUDE.md` trim renamed the section headings `docs/ai/*` cited. Fixes were surgical (no
+restructure); the re-verify pass found 6 residual items (1 introduced by the fix round), all fixed
+and grep-checked; every `CLAUDE.md "…"` citation now resolves to a real heading. Follow-ups:
+`architecture.md` (142), `implementation-truth.md` (138), `safe-commands.md` (133) exceed the
+130-line `docs/ai` cap; `portal-v2/README.md` still documents a Vite `/api` proxy that
+`vite.config.ts` no longer has.
+
 ## [2026-10-29 15:10] Phase 11 gap closure G-11-37 (plans 11-11, 11-12, 11-13): the shadow-parity streak was being reset by runs that were not true candidate-selector failures. Live trigger: cancelled run 40751825583, then manual run 40757294483 regenerated ~12 groups against 4 affected pairs.
 **Mechanism A (11-11): the `row_state.content_hash` domain was narrower than the group-hash domain.** Group KEYS derive from `Foreman Assigned?` and the helper / VAC raw columns, and `calculate_data_hash` also reads Dept #, Scope, Customer Name, Job #, Work Order #, CU Description, Unit of Measure, Area and raw Quantity / Snapshot text, none of which were in `HASH_FIELDS`, so an edit to them regenerated a group without moving a row hash. Fix: `pipeline/memory_candidate.py::row_group_hash_fingerprint` is stamped on each row as `__mem_group_fp` and folded into `content_hash` via the writer's hash-only fields (never stored or sent; no DDL; `HASH_FIELDS` stays pinned to the RPC contract). Derived double-underscore keys are excluded and covered through their raw source columns because the delta-read path attaches none of them (mode invariance). Expect a one-time re-key of `row_state` on deploy with no Excel / upload effect; an AST drift test fails when grouping or change-detection reads a key outside the covered sets.
 **Mechanism B (11-12): regeneration debt.** `row_state` advances during the memory write, before uploads, and the affected set is "changed this run" only, so groups stranded by a cancelled, timed-out or partly failed run fell out of the next candidate. Debt rides `run_ledger.notes` (no DDL): `regen_pending_pairs` is a mid-run UPDATE-by-run_id note, replaced at finish by `regen_debt_pairs`, reduced newest-first back to the last `success` row (`regen_debt_from_ledger_rows`). Debt that cannot be established (legacy rows, overflow past 5000 pairs, killed before the note, read failure) is UNKNOWN: the shadow verdict is `skipped` (`regen_debt_unknown`) and the incremental path resolves to full before any read or write, so scope only widens. The first post-deploy run has unknown debt and is therefore `skipped` once.

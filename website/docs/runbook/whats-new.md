@@ -5,43 +5,43 @@ title: What's New
 
 # What's New
 
-_Last updated: September 11, 2026 (updated automatically)_
+_Last updated: October 29, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
+## Parser that will offload grid format information from work request completed packets
+
+> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
+
+### 📋 Changelog — October 29, 2026
+
+- ✅ Problem fixed: cron capacity signal + verification-gated work-request reset
+- 📄 Help guides updated: GitNexus auto-refresh note + prompt-audit fixes to the Lattice knowledge base
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: cron capacity signal + verification-gated work-request reset ()
+- 📄 Help guides updated: GitNexus auto-refresh note + prompt-audit fixes to the Lattice knowledge base ()
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — September 11, 2026
+### 📋 Changelog — October 29, 2026
 
-- ✅ Problem fixed: BUG-035 -- a pre-unlock inspector decision is consumed, not re-confirmed; the webapp unlock refreshes Unlock Authorized At
-- ✅ Problem fixed: BUG-036 follow-up -- fast path keeps the ledger leg and Sentry capture, cache-less callers unchanged, version GETs counted
-- ✅ Problem fixed: BUG-034 -- explicit --only-wr dispatch admits its named WR past the historical active-window cutoff (WR 90214790 never reached the GF Decision Register)
-- ✅ Problem fixed: BUG-036 -- staging pass is write-free when nothing changed, real work first, soft budget so decision sync always runs
-- 📄 Help guides updated: close-out ledger pass -- task 4 done, README refresh, BUG-034 learning
-- 📄 Help guides updated: post-merge ledger pass -- PR merged, migration 0019 amended and still unapplied, next steps
-- ✅ Problem fixed: BUG-033 round 4 -- stamps-only verdict post-0019, by-id fallback read, both contact forms (follow-up to )
-- • ops(claudeos): context-continuity hardening -- policy enforce, lane admin-env fence, phase close-out checklist, dated Render table
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — September 11, 2026
-
-- 📄 Help guides updated: post-merge write-back for PR
-- 📄 Help guides updated: final state pointers after PR
-- 📄 Help guides updated: close Phase 12 — 12-06 Task 4, D-12-E, verify-work
-- 📄 Help guides updated: post-merge write-back for PR
-- ✅ Problem fixed: close code review CR-01/CR-02/WR-01..03 (#HLP-06)
-- • wip(14): pause handoff, decision-first (#HLP-06)
-- 📄 Help guides updated: record code review outcome (#HLP-06)
-- 📄 Help guides updated: Phase 14 code review report (#HLP-06)
+- 📄 Help guides updated: PR lingering Copilot items -- PROJECT.md 40.2 open warnings = WR-05 only; AppShell teardown-key comment adds viewport
+- • Phase 40.2: guidance hardening -- close-button/touch hit targets, tour coordination, deterministic teardown, role-fence test
+- ✅ Problem fixed: stale SPA build watch - banner + safe auto-reload after a deploy (quick 261028-la3)
+- 📄 Help guides updated: Phase 40 runbook Step 5 armed and proven (preview on both services)
+- • Phase 40.1: guided help, device profile, What's New and learning guides (web app)
+- 📄 Help guides updated: Phase 40 merged to master (PR -&gt; 1eec7ca2); runbook Steps 2-3 done
+- ✅ Problem fixed: PR Copilot follow-up (BUG-197) -- no post-record lease loss escapes the web publication; GF chain renews per step
+- ✅ Problem fixed: PR Copilot follow-up -- missing-asset JSON 404, rule globs, stale docs, 0035 draft identity key
 
 <!-- /runbook-repo -->
 
@@ -54,17 +54,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/smartsheet-auditor -->
-## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
-
-> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
-
-### 📋 Changelog — September 11, 2026
-
-- • 📊 Audit: 2026-09-07T07:04:39Z
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/claudeos -->
 ## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
@@ -74,10 +63,76 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/remember-continuity -->
-## ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
 
-> ℹ️ **What this system does:** ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — October 29, 2026
+
+- 📄 Help guides updated: re-verify implementation truth
+- 📄 Help guides updated: align instruction files, run 2
+- 📄 Help guides updated: re-verify implementation truth ()
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log d5b4e1b &#91;skip ci&#93;
+- 📄 Help guides updated: align instruction files (run 2) ()
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/smartsheet-auditor -->
+## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
+
+> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
+
+### 📋 Changelog — October 29, 2026
+
+- • 📊 Audit: 2026-10-26T07:08:11Z
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/docs -->
+## docs
+
+> ℹ️ **What this system does:** Use the starter kit to get your docs deployed and ready to customize.
+
+### 📋 Changelog — October 29, 2026
+
+- • Initial commit from Mintlify hosted docs
+- • Initial commit
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/supabase-smartsheet-promax-offload -->
+## supabase-smartsheet-promax-offload
+
+> ℹ️ **What this system does:** A Python script that automatically syncs data from multiple Smartsheet sheets to a Supabase database table. The script runs continuously and synchronizes data every 2 days (configurable).
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser-workspace -->
+## Cognos-pdf-parser-workspace
+
+> ℹ️ **What this system does:** This private repo holds the AI/GSD planning context for the Linetec PDF Uploader project — the "where I left off" brain that lets work resume on any machine. It does not contain the application source code.
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Smartsheet-configurator-manifest -->
+## Smartsheet-configurator-manifest
+
+> ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Destiny-Application-2 -->
+## Destiny-Application-2
+
+> ℹ️ **What this system does:** A Node.js application that fetches build crafting data from the Bungie API for Destiny 2.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
@@ -92,6 +147,15 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
+## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
+
+> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/notion-runbook-worker -->
 ## Runbook Automation
 
@@ -101,10 +165,10 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
-## Parser that will offload grid format information from work request completed packets
+<!-- runbook-repo: JFlo21/remember-continuity -->
+## ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
 
-> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
+> ℹ️ **What this system does:** ClaudeOS .remember continuity store (session handoffs; no secrets by policy)
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
@@ -173,15 +237,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
-## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
-
-> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/morpheus-second-brain -->
 ## Morpheus — LLM-maintained wiki second brain (shared across Hermes local+cloud and Claude Code)
 
@@ -195,24 +250,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 ## Linetec-Resiliency-Promax
 
 > ℹ️ **What this system does:** Linetec-Resiliency-Promax
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/supabase-smartsheet-promax-offload -->
-## supabase-smartsheet-promax-offload
-
-> ℹ️ **What this system does:** A Python script that automatically syncs data from multiple Smartsheet sheets to a Supabase database table. The script runs continuously and synchronizes data every 2 days (configurable).
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser-workspace -->
-## Cognos-pdf-parser-workspace
-
-> ℹ️ **What this system does:** This private repo holds the AI/GSD planning context for the Linetec PDF Uploader project — the "where I left off" brain that lets work resume on any machine. It does not contain the application source code.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
@@ -249,15 +286,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 ## vite-react
 
 > ℹ️ **What this system does:** This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Destiny-Application-2 -->
-## Destiny-Application-2
-
-> ℹ️ **What this system does:** A Node.js application that fetches build crafting data from the Bungie API for Destiny 2.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
@@ -448,7 +476,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — September 11, 2026
+### 📋 Changelog — October 29, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -459,10 +487,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Private, version-controlled execution infrastructure for Juan's guarded Todoist GTD system.
 
-### 📋 Changelog — September 11, 2026
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
-- • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits
-- • Phase 2 Option A: single-writer coordinator + canonical schedules + cloud filter/label contract audits ()
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: Linetec-Services-LLC/bookish-parakeet -->
+## bookish-parakeet
+
+> ℹ️ **What this system does:** This template repository makes it easy for enterprise owners to get started with and establish settings for their agents by providing: The basic file structure necessary for custom agents An example agent profile in the agents directory An empty managed-settings.json file, which defines governance and extensibility settings in clients
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -483,4 +517,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-

@@ -1,4 +1,4 @@
-Repo-local implementation truth — outranks second-brain notes; verified from repo files on 2026-09-02.
+Repo-local implementation truth — outranks second-brain notes; verified from repo files on 2026-09-02; re-verified 2026-10-29 (gsd-doc-verifier).
 
 <!-- This file is repo-local IMPLEMENTATION TRUTH. Every claim here MUST be verified from actual repo files, tests, build output, and migrations — not from memory or notes. This tier OUTRANKS second-brain notes. -->
 
@@ -22,14 +22,14 @@ instruct Claude. Never store secrets in any tier.
 ## Entrypoints
 
 - `generate_weekly_pdfs.py` (repo root) — production entry point / **facade** over `pipeline/`.
-  `load_dotenv()` runs before `from pipeline import config` (module docstring, `generate_weekly_pdfs.py:1-118`).
+  `load_dotenv()` (`generate_weekly_pdfs.py:23`) runs before `from pipeline import config` (`:94`; ordering explained in the comment at `:90-93`).
   `if __name__ == "__main__":` delegates to `pipeline.orchestrate.main()`.
 - `pipeline/orchestrate.py` — `main()` is the real production entry point, "relocated byte-for-byte
   from `generate_weekly_pdfs.py` with NO internal decomposition" (module docstring).
 - `.github/workflows/weekly-excel-generation.yml` — scheduled entrypoint (cron) + `workflow_dispatch`
   manual entrypoint; both invoke `python generate_weekly_pdfs.py`.
 - `audit_billing_changes.py` (repo root) — imported by `generate_weekly_pdfs.py` as `BillingAudit`
-  (price anomaly / risk-level audit), with an import-error fallback stub class (`generate_weekly_pdfs.py:31-42`).
+  (price anomaly / risk-level audit), with an import-error fallback stub class (`generate_weekly_pdfs.py:33-45`).
 
 ## Key modules / services
 
@@ -39,17 +39,17 @@ instruct Claude. Never store secrets in any tier.
 | Config | `pipeline/config.py` | All `os.getenv`-derived constants (~60), regex compiles, folder-ID parsing | Imports stdlib only; never another `pipeline` module |
 | Discovery | `pipeline/discovery.py` | Smartsheet source-sheet discovery + column-mapping validation | Owns 3 PEP-562 live-proxy globals; local discovery cache retired (Phase 11 Plan 08); registry-version skip index (D-11.1-01) lets a sheet reuse its stored `sheet_registry` name + column mapping, any doubt → full validation |
 | Fetch | `pipeline/fetch.py` | Parallel row fetch (`ThreadPoolExecutor`, `PARALLEL_WORKERS<=8`) | Owns `_RATES_FINGERPRINT` live-proxy global |
-| Grouping | `pipeline/grouping.py` | `group_source_rows` (~1145 lines) — WR/week/variant/foreman/dept/job grouping + helper dual-checkbox exclusion | Relocated byte-for-byte, no decomposition |
+| Grouping | `pipeline/grouping.py` | `group_source_rows` (~1640 lines, `:147-1787`) — WR/week/variant/foreman/dept/job grouping + helper dual-checkbox exclusion | Relocated byte-for-byte, no decomposition |
 | Pricing | `pipeline/pricing.py` | Rate loading (CSV) + price resolution + rate recalculation | Pure calculator; no Smartsheet calls |
 | Change detection | `pipeline/change_detection.py` | `build_group_identity` + `calculate_data_hash` (SHA-256) | Change-detection key preserved verbatim: `(WR, week_ending, variant, foreman, dept, job)` |
 | Excel | `pipeline/excel.py` | `openpyxl` generation, `safe_merge_cells()` | Never write `oddFooter.right.text`; openpyxl only, no xlsxwriter |
 | Attribution | `pipeline/attribution.py` | WR-scope builders, hash-history pruning, claimer remediation, billing-audit row cache I/O | Gates on `__variant`, never a key-substring scan |
-| Cleanup | `pipeline/cleanup.py` | Stale-Excel + Smartsheet attachment cleanup/purge | `_has_existing_week_attachment` (`:691`), `delete_old_excel_attachments` (`:591`), `cleanup_untracked_sheet_attachments` (`:119`) |
+| Cleanup | `pipeline/cleanup.py` | Stale-Excel + Smartsheet attachment cleanup/purge | `_has_existing_week_attachment` (`:778`), `delete_old_excel_attachments` (`:678`), `cleanup_untracked_sheet_attachments` (`:198`) |
 | Upload | `pipeline/upload.py` | Target-sheet WR# map builders + per-group upload-task builder | Dual-routes to `TARGET_SHEET_ID` + `SUBCONTRACTOR_PPP_SHEET_ID` |
 | Retry | `pipeline/retry.py` | Centralized transient-failure retry for Smartsheet calls | Matches `ApiError` result codes 4000 / 0-transient; not exception type |
 | Snapshot drift | `pipeline/snapshot_drift.py` | Detects "Snapshot Date" auto-re-stamp drift, holds affected rows | `apply_snapshot_drift_holds()`, called pre-grouping from `orchestrate.py` |
 | Observability | `pipeline/observability.py` | `init_sentry()`, `before_send_log` PII sanitizer | Idempotent; `pipeline.config` imported lazily inside |
-| Orchestrate | `pipeline/orchestrate.py` | `main()` — top-level run loop, highest fan-in module | Imports from every other pipeline module |
+| Orchestrate | `pipeline/orchestrate.py` | `main()` — top-level run loop, highest fan-in module | Imports nearly every pipeline module (all except `pipeline/types.py`) |
 | Run memory (Supabase) | `pipeline_memory/` | Shadow-mode run-memory writer/reader (`client.py`, `writer.py`, `reader.py`) | Independent client/kill-switch from `billing_audit` by design |
 | Billing audit (Supabase) | `billing_audit/` | Attribution snapshot freeze/read, run fingerprinting, hash store, snapshot-drift tables | `writer.py` owns `is_sentinel_claimer` / `resolve_claimer` |
 
@@ -60,15 +60,15 @@ instruct Claude. Never store secrets in any tier.
   skip or full validation per sheet) → `pipeline.fetch.get_all_source_rows` (parallel, `PARALLEL_WORKERS<=8`) →
   `pipeline.grouping.group_source_rows` → `pipeline.change_detection.calculate_data_hash` per group
   (skip unchanged, backed by `pipeline_memory.group_state` / `billing_audit.group_content_hash`, not a
-  local JSON file — CLAUDE.md "Data Pipeline Architecture") → `pipeline.excel.generate_excel` →
+  local JSON file — CLAUDE.md "Pipeline flow (one screen)") → `pipeline.excel.generate_excel` →
   `audit_billing_changes.BillingAudit.audit_financial_data` → `pipeline.upload` / `pipeline.cleanup`
   (delete-old-then-upload) attach the file back to `TARGET_SHEET_ID`.
 - **Attachment identity resolution:** `pipeline_memory.reader.get_group_state_attachments_by_wr`
-  (`pipeline_memory/reader.py:400`) resolves the `attachment_id`/`attachment_name` this pipeline itself
+  (`pipeline_memory/reader.py:494`) resolves the `attachment_id`/`attachment_name` this pipeline itself
   previously uploaded per group; `_has_existing_week_attachment` / `delete_old_excel_attachments`
-  (`pipeline/cleanup.py:691`, `:591`) prefer that identity and fall back to a per-row on-demand
+  (`pipeline/cleanup.py:778`, `:678`) prefer that identity and fall back to a per-row on-demand
   `list_row_attachments` lookup on any miss. `cleanup_untracked_sheet_attachments`
-  (`pipeline/cleanup.py:119`) always uses the on-demand lookup (it prunes off-contract/legacy
+  (`pipeline/cleanup.py:198`) always uses the on-demand lookup (it prunes off-contract/legacy
   attachments `group_state` never wrote).
 
 ## External integrations (DB / APIs / queues)
@@ -85,17 +85,20 @@ instruct Claude. Never store secrets in any tier.
 
 - **Change-detection key includes `foreman, dept, job`** and must never be shortened back to
   `(WR, week, variant, foreman)` — helper Excel files regenerate on new past-week rows because of this
-  (CLAUDE.md "Data Pipeline Architecture"; enforced in `pipeline/change_detection.py` module docstring, MOD-04).
+  (CLAUDE.md "Guardrails (billing-pipeline footguns)"; enforced in `pipeline/change_detection.py` module docstring, MOD-04).
 - **Helper rows** require both `helper_dept` and `helper_foreman`; rows with both the "Helping Foreman
   Completed Unit?" and "Units Completed?" checkboxes checked appear only in helper files, never the main
   file (`pipeline/grouping.py` module docstring).
-- **Sentinel-never-a-claimer (Phase 12 / OWN-02, shipped):** `billing_audit/writer.py:105`
-  `is_sentinel_claimer()` and `:118` `_null_if_named_sentinel()` strip named sentinels
-  (`Unknown Foreman`, `#NO MATCH`, …) at freeze time (`writer.py:625-635`, deferred to no-history) and
-  at read time (`writer.py:1136-1142`, ignored so the current Smartsheet value is used instead).
-- **CR-01 open gap:** `pipeline/cleanup.py:89-116` `_is_sentinel_identifier` treats ANY identifier
-  starting with `_` as a sentinel placeholder — a real sanitized name can also start with `_` (see
-  `docs/ai/known-bugs.md`).
+- **Sentinel-never-a-claimer (Phase 12 / OWN-02, shipped):** `billing_audit/writer.py:122`
+  `is_sentinel_claimer()` and `:138` `_null_if_named_sentinel()` strip named sentinels
+  (`Unknown Foreman`, `#NO MATCH`, …) at freeze time (`writer.py:891-908`, deferred to no-history) and
+  at read time (`writer.py:1617`, ignored so the current Smartsheet value is used instead).
+- **CR-01 (fixed; was an open gap):** `pipeline/cleanup.py:116` `_is_sentinel_identifier` formerly
+  treated ANY identifier starting with `_` as a sentinel placeholder, but a real sanitized name can
+  also start with `_`. The leading-underscore branch is now narrowed to the explicit
+  `_SANITIZED_ERROR_IDENTIFIERS` allowlist (`pipeline/cleanup.py:98`, check at `:158-162`); a
+  non-allowlisted token falls through to `is_sentinel_claimer`, so a real name is declined for deletion
+  (fix: commit `1f159bc`, PR #388). See `docs/ai/known-bugs.md` (CR-01).
 - **Discovery cache retired (Phase 11 Plan 08, INC-05); registry-version skip (Phase 11.1, D-11.1-01):**
   the local discovery-cache JSON and `USE_DISCOVERY_CACHE` / `DISCOVERY_CACHE_TTL_MIN` are gone. A
   sheet skips full validation only when ALL hold: a `pipeline_memory.sheet_registry` watermark exists,
@@ -108,19 +111,26 @@ instruct Claude. Never store secrets in any tier.
   drift logged with the `Frequent-run full-validation` label before the first registry write);
   skip-admitted sheets echo their stored mapping unmarked. Any other case (missing watermark,
   version mismatch, registry or probe failure) falls through to `_validate_single_sheet`, whose read is
-  bounded to `row_numbers=[1, 2, 3]` (Plan 11.1-04). `pipeline/discovery.py:196-300`, `:464-475`.
-- **Time-budget family:** `TIME_BUDGET_MINUTES` (`pipeline/config.py:106`, default `0`/disabled locally)
+  bounded to `row_numbers=[1, 2, 3]` (Plan 11.1-04). `pipeline/discovery.py:227-365` (`_build_discovery_skip_index`, called at `:497`), `:503-538` (`_validate_single_sheet`).
+- **Time-budget family:** `TIME_BUDGET_MINUTES` (`pipeline/config.py:114`, default `0`/disabled locally)
   must stay strictly below the GitHub Actions `timeout-minutes` (currently `180`); production sets it to
-  `165` (`.github/workflows/weekly-excel-generation.yml:537`).
+  `165` (`.github/workflows/weekly-excel-generation.yml:545`).
 - **`advanced_options` parser** (`.github/workflows/weekly-excel-generation.yml:100,187-211`) packs
   `max_groups:N,regen_weeks:MMDDYY1;MMDDYY2,reset_wr_list:WR1;WR2` into one `workflow_dispatch` field to
   stay under GitHub's input-count limit — do not delete the parser even if input count drops.
 - **`@cell` Smartsheet formula is never used** in Python/API payloads (UI-only; fails server-side) —
-  CLAUDE.md "Boundaries & Guardrails".
+  CLAUDE.md "Guardrails (billing-pipeline footguns)".
 
 ## Last verified
 
-- Last verified: 2026-09-02 — read `CLAUDE.md`, `generate_weekly_pdfs.py` (first ~150 lines), all
+- Last verified: 2026-10-29 — line citations and the CR-01 status re-derived by grep/read of the
+  current `generate_weekly_pdfs.py` (docstring, import block, `load_dotenv`), `pipeline/cleanup.py`
+  (`_SANITIZED_ERROR_IDENTIFIERS`, `_is_sentinel_identifier`, attachment-cleanup definitions),
+  `pipeline_memory/reader.py`, `billing_audit/writer.py` (sentinel helpers and call sites),
+  `pipeline/config.py` (`TIME_BUDGET_MINUTES`), `pipeline/discovery.py` (skip index,
+  `_validate_single_sheet`), `pipeline/grouping.py` (`group_source_rows` span), and
+  `.github/workflows/weekly-excel-generation.yml` (`TIME_BUDGET_MINUTES`). Previous full pass
+  2026-09-02 — read `CLAUDE.md`, `generate_weekly_pdfs.py` (first ~150 lines), all
   `pipeline/*.py` and `pipeline_memory/*.py` and `billing_audit/*.py` module docstrings, targeted greps
   of `pipeline/cleanup.py`, `billing_audit/writer.py`, `pipeline/config.py`,
   `.github/workflows/weekly-excel-generation.yml`, `docs/AI_CONTEXT_RESUME.md`, `.planning/ROADMAP.md`,
