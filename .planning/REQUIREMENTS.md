@@ -406,7 +406,7 @@ CU pricing, rate recalculation, and billing formulas do not change.
   pilot rendering) on NA, blank, miss, read failure, ambiguity, or title mismatch
   (D-15-04/05).
 
-- [ ] **FN-04**: `Foreman Notes` is mapped by discovery behind a mapping-schema marker bump and
+- [x] **FN-04**: `Foreman Notes` is mapped by discovery behind a mapping-schema marker bump and
   is identical on full-read and delta-read rows (D-15-08).
 
 - [ ] **FN-05**: Pilot workbooks render column I `Foreman Notes` per CU row, the day header
@@ -419,13 +419,13 @@ CU pricing, rate recalculation, and billing formulas do not change.
   cell conditional > row conditional > cell static > row static, and fails closed to plain
   `BODY_FONT` when a colour cannot be resolved (D-15-09/10, live probe).
 
-- [ ] **FN-08**: A pilot-gated `NOTES_FP` meta token enters the group hash; the non-pilot hash
+- [x] **FN-08**: A pilot-gated `NOTES_FP` meta token enters the group hash; the non-pilot hash
   stays byte-identical (D-15-11).
 
-- [ ] **FN-09**: A pilot-gated notes component enters `row_group_hash_fingerprint` and the
+- [x] **FN-09**: A pilot-gated notes component enters `row_group_hash_fingerprint` and the
   globals fingerprint, with a coverage test and full-read vs delta-read parity (D-15-11).
 
-- [ ] **FN-10**: Colour-only edits never trigger regeneration (D-15-12).
+- [x] **FN-10**: Colour-only edits never trigger regeneration (D-15-12).
 
 - [ ] **FN-11**: Pilot rendering runs only on a `TEST_MODE` dry run with every
   `pipeline_memory` write path disabled, or when `FOREMAN_NOTES_UPLOAD` is on; `SKIP_UPLOAD`
@@ -549,13 +549,13 @@ Which phases cover which requirements.
 | FN-01 | Phase 15 | Complete |
 | FN-02 | Phase 15 | Complete |
 | FN-03 | Phase 15 | Complete |
-| FN-04 | Phase 15 | Pending |
+| FN-04 | Phase 15 | Complete |
 | FN-05 | Phase 15 | Pending |
 | FN-06 | Phase 15 | Pending |
 | FN-07 | Phase 15 | Pending |
-| FN-08 | Phase 15 | Pending |
-| FN-09 | Phase 15 | Pending |
-| FN-10 | Phase 15 | Pending |
+| FN-08 | Phase 15 | Complete |
+| FN-09 | Phase 15 | Complete |
+| FN-10 | Phase 15 | Complete |
 | FN-11 | Phase 15 | Pending |
 | FN-12 | Phase 15 | Pending |
 | FN-13 | Phase 15 | Pending |
