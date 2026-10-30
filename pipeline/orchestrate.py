@@ -56,6 +56,7 @@ from pipeline import excel as _excel
 from pipeline import cleanup as _cleanup
 from pipeline import upload as _upload
 from pipeline import attribution as _attr
+from pipeline import foreman_notes as _fn
 from pipeline.retry import smartsheet_call_with_retry
 # Phase 10 (MEM-01/MEM-03): independent run-memory shadow-write package --
 # NOT a ``pipeline`` submodule (deliberately outside the D-04 import-cycle
@@ -3028,6 +3029,13 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             )
             return
 
+        # Phase 15 (D-15-04/05): resolve the General Foreman pilot set ONCE,
+        # before PHASE 1 and every pipeline_memory write, so the same pilot
+        # set drives the fingerprint, group hash, rendering and upload for the
+        # whole run. Never raises; zero Smartsheet calls when the effective
+        # scope is off (production cron).
+        _fn.initialize(client)
+
         # ── Start root Sentry transaction for full session tracing ──
         # _txn handle is already initialized to None at the top of main().
         if SENTRY_DSN:
@@ -3060,6 +3068,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
 
         if not source_sheets:
             raise Exception("No valid source sheets found")
+
+        # Phase 15: per-sheet logical-column -> column-id maps for the lazy,
+        # pilot-only colour fetch (empty dict of work when scope is off).
+        _fn_sheet_maps = _fn.build_sheet_column_maps(source_sheets)
 
         _phase_elapsed = (datetime.datetime.now() - _phase_start).total_seconds()
         logging.info(f"⚡ Phase 1 complete: {len(source_sheets)} sheets discovered in {_phase_elapsed:.1f}s")
@@ -4930,6 +4942,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 "wr": wr_num, "week": week_raw, "variant": variant,
                             })
                 
+                # Phase 15 (D-15-10/12): lazily attach Smartsheet colours to a
+                # PILOT group only, after the hash and every skip decision so
+                # colours never influence regeneration. No-op otherwise.
+                _fn.attach_group_styles(client, group_rows, _fn_sheet_maps)
+
                 # Generate Excel file with complete fixes
                 with sentry_sdk.start_span(op="excel.generate", name=f"Generate Excel for WR {wr_num}") as gen_span:
                     gen_span.set_data("group_key", group_key)
