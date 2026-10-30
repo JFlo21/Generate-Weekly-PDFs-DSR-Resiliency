@@ -356,7 +356,7 @@ class UpsertAuditFindingsExecuteGrantContractTests(unittest.TestCase):
 class AcknowledgeFindingExecuteGrantContractTests(unittest.TestCase):
     """PR #435 (Greptile P1): the REVOKE alone left only the owner able to
     call acknowledge_finding; service_role gets an explicit GRANT, in
-    schema.sql AND the (not yet applied) standalone migration."""
+    schema.sql AND the standalone migration (applied 2026-10-30)."""
 
     _SIGNATURE = "pipeline_memory.acknowledge_finding(TEXT, TEXT, TEXT, TEXT)"
     _MIGRATION = "pipeline_memory/acknowledge_finding_grant_migration.sql"
@@ -380,10 +380,11 @@ class AcknowledgeFindingExecuteGrantContractTests(unittest.TestCase):
             r"(PUBLIC|anon|authenticated)",
         )
 
-    def test_standalone_migration_is_marked_not_applied(self):
+    def test_standalone_migration_records_apply_status(self):
         text = _read_source(self._MIGRATION)
         header = text[: text.index("REVOKE")]
-        self.assertIn("STATUS: NOT APPLIED", header)
+        self.assertIn("STATUS: APPLIED 2026-10-30", header)
+        self.assertIn("owner approved", header.lower())
         self._assert_revoke_then_grant(_strip_sql_comments(text))
         self.assertIn("-- ── ROLLBACK", text)
 

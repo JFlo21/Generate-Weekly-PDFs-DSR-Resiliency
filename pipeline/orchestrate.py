@@ -1781,6 +1781,40 @@ def _memory_write_may_have_advanced_unseen(mem_result: dict) -> bool:
         return True
 
 
+def _source_wr_raws_by_key(
+    groups: dict[Any, list[dict[str, Any]]],
+) -> dict[str, set[str]]:
+    """Sanitized WR key -> every raw WR# that folds to it across *groups*.
+
+    Call it on the unfiltered groups: a scan of a filtered or truncated
+    map can miss the other raw WR of a collision (QUAR-01). PURE.
+    """
+    raws_by_key: dict[str, set[str]] = collections.defaultdict(set)
+    for rows in (groups or {}).values():
+        if not rows:
+            continue
+        raw = str(rows[0].get('Work Request #') or '').split('.')[0]
+        if raw:
+            raws_by_key[derive_row_wr(rows[0])].add(raw)
+    return raws_by_key
+
+
+def _quarantined_group_keys(
+    groups: dict[Any, list[dict[str, Any]]],
+    quarantined_wr_keys: 'set[str]',
+) -> set[Any]:
+    """Keys of the groups whose sanitized WR is in *quarantined_wr_keys*.
+
+    Uses the same sanitized key as the main-loop quarantine skip, without
+    depending on that loop reaching the group (PR #439: the time budget
+    can stop it first). PURE.
+    """
+    return {
+        group_key for group_key, rows in groups.items()
+        if rows and derive_row_wr(rows[0]) in quarantined_wr_keys
+    }
+
+
 def _regen_debt_finish_kwargs(
     *,
     candidate_pairs: 'set[tuple[Any, Any]]',
@@ -1794,6 +1828,7 @@ def _regen_debt_finish_kwargs(
     debt_unknown: bool,
     inherited_unknown: bool = False,
     coverage_complete: bool = True,
+    excluded_groups: 'set[Any] | frozenset[Any]' = frozenset(),
 ) -> dict[str, Any]:
     """``run_ledger_finish`` kwargs carrying this run's regeneration debt
     (Phase 11 Plan 12, G-11-37 mechanism B) for a run that FINISHED.
@@ -1802,8 +1837,10 @@ def _regen_debt_finish_kwargs(
     unchanged, uploaded (or already matched), or is never observable
     (generated but withheld / no target-sheet row) -- the same
     never-observable set ``_shadow_parity_input_sets`` drops. Anything else
-    (upload failed, group never reached because the time budget stopped
-    the loop, ``skip_upload``) stays debt. *inherited_unknown*: the debt
+    (upload failed, generation error, group never reached because the time
+    budget stopped the loop, ``skip_upload``) stays debt -- for every group
+    this run built, inside the candidate set or not, except
+    *excluded_groups* (quarantined WR collisions). *inherited_unknown*: the debt
     this run started from was itself unknowable, so every group pair of
     this run is treated as pending too (a stranded group outside the
     candidate must still be carried if it is not confirmed).
@@ -1834,13 +1871,19 @@ def _regen_debt_finish_kwargs(
         pending = set(candidate_pairs)
         if inherited_unknown:
             pending |= set(group_pairs.values())
-        # PR #435 (Codex P2): a group regenerated outside the candidate
-        # (missing attachment, group-hash global change) whose upload was
-        # attempted but not confirmed is still owed a regeneration.
-        attempted = uploadable | set(upload_ok)
+        # PR #435 follow-up (Codex P2): every group this run built but did
+        # not confirm is owed a regeneration -- a failed upload, a
+        # generation error, or a group the time budget never reached --
+        # even outside the candidate set (attachment repair, group-hash
+        # globals change). *excluded_groups* (quarantined WR-collision
+        # groups) add nothing here: a full run skips them until the source
+        # data is fixed. They never clear a pair (PR #439, owner decision):
+        # a pending pair leaves the debt only on a proven outcome. row_state
+        # advanced before the skip, so dropping it could leave a billing
+        # file stale. Debt scope only widens.
         pending |= {
-            group_pairs[gk] for gk in attempted - confirmed
-            if gk in group_pairs
+            pair for gk, pair in group_pairs.items()
+            if gk not in confirmed and gk not in excluded_groups
         }
         carried = _memory_candidate.unconfirmed_pairs(
             pending, group_pairs, confirmed, scoped,
@@ -2872,6 +2915,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # Set-membership records only; no control flow reads them in the loop.
     _mem_confirmed_skip_keys = set()
     _mem_attachment_repair_keys = set()
+    # Groups skipped for a sanitized-WR collision (never regenerable this
+    # run); left out of the finish-time regeneration debt.
+    _mem_quarantined_group_keys = set()
     _mem_group_upload_ok = {}
     # PR #435 feedback: True once MAX_GROUPS truncates ``groups`` -- the
     # finish hook then cannot clear debt from the (incomplete) map.
@@ -3644,6 +3690,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         logging.info("📂 Grouping data...")
         with sentry_sdk.start_span(op="data.grouping", name="Group source rows by WR/week/variant") as span:
             groups = group_source_rows(all_rows)
+            # QUAR-01: scan before the incremental filter and MAX_GROUPS
+            # below can hide the other raw WR of a collision.
+            _source_wr_raws_per_key = _source_wr_raws_by_key(groups)
             span.set_data("input_rows", len(all_rows))
             span.set_data("groups_created", len(groups) if groups else 0)
             # Phase 11 Plan 04 (D-04): incremental-mode-only restriction to
@@ -4080,16 +4129,8 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # WRs that fold to the same sanitized key, anywhere in the
         # run's groups, is a collision regardless of week or variant.
         # Realistic numeric WR#s can't collide, so the scan is
-        # zero-impact on production data.
-        _source_wr_raws_per_key: dict = collections.defaultdict(set)
-        for _g_rows in groups.values():
-            if not _g_rows:
-                continue
-            _g_raw = str(_g_rows[0].get('Work Request #') or '').split('.')[0]
-            if not _g_raw:
-                continue
-            _g_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', _g_raw)[:50]
-            _source_wr_raws_per_key[_g_sanitized].add(_g_raw)
+        # zero-impact on production data. The raw-WR map is built right
+        # after grouping, from every group this run read (QUAR-01).
         _quarantined_source_wr_keys: set = {
             key for key, raws in _source_wr_raws_per_key.items()
             if len(raws) > 1
@@ -4110,6 +4151,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 f"{len(_quarantined_source_wr_keys)} sanitized key(s); "
                 f"see preceding warnings for raw values."
             )
+        _mem_quarantined_group_keys.update(_quarantined_group_keys(
+            groups, _quarantined_source_wr_keys,
+        ))
 
         # Hoist static env var lookups once per run (not per row) —
         # these never change during execution and were previously
@@ -6080,6 +6124,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                             _fetch.get_last_full_read_failed_sheet_ids(),
                             RES_GROUPING_MODE,
                         ),
+                        excluded_groups=_mem_quarantined_group_keys,
                     ))
                 except Exception:
                     _finish_kwargs.update(

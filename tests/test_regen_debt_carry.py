@@ -1199,6 +1199,170 @@ class PR435BotFollowupTests(unittest.TestCase):
         )
         self.assertEqual(out["regen_debt_pairs"], [])
 
+    def test_generation_error_outside_candidate_is_carried(self):
+        """Codex P2 follow-up: a group outside the candidate set that
+        failed in generation has no upload task and no skip; it is still
+        owed a regeneration."""
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={"g9": _group("9", "2026-11-08")},
+            skip_keys=set(),
+        )
+        self.assertEqual(
+            [tuple(p) for p in out["regen_debt_pairs"]],
+            [("9", "2026-11-08")],
+        )
+        self.assertFalse(out["regen_debt_unknown"])
+
+    def test_group_never_reached_is_carried_unchanged_is_not(self):
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={
+                "reached": _group("1", "2026-11-01"),
+                "unreached": _group("2", "2026-11-08"),
+            },
+            skip_keys={"reached"},
+        )
+        self.assertEqual(
+            [tuple(p) for p in out["regen_debt_pairs"]],
+            [("2", "2026-11-08")],
+        )
+
+    def test_quarantined_group_is_not_carried(self):
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={"q": _group("7", "2026-11-08")},
+            skip_keys=set(),
+            excluded_groups={"q"},
+        )
+        self.assertEqual(out["regen_debt_pairs"], [])
+
+    def _carried(self, **over):
+        out = self._kw(**over)
+        return {tuple(p) for p in out["regen_debt_pairs"]}
+
+    def test_quarantined_pair_already_pending_stays_carried(self):
+        # PR #439 (owner decision): exclusion never narrows debt. Clearing
+        # this pair would drop a regeneration that is still owed.
+        self.assertEqual(
+            self._carried(
+                candidate_pairs={("7", "2026-11-08")},
+                groups={"q": _group("7", "2026-11-08")},
+                skip_keys=set(),
+                excluded_groups={"q"},
+            ),
+            {("7", "2026-11-08")},
+        )
+
+    def test_exclusion_never_drops_a_pending_pair(self):
+        pair = ("7", "2026-11-08")
+        for candidate in (set(), {pair}):
+            for inherited in (False, True):
+                for coverage in (False, True):
+                    if not candidate and not inherited:
+                        continue
+                    with self.subTest(
+                        candidate=bool(candidate), inherited=inherited,
+                        coverage=coverage,
+                    ):
+                        self.assertIn(pair, self._carried(
+                            candidate_pairs=set(candidate),
+                            groups={"q": _group(*pair)},
+                            skip_keys=set(),
+                            excluded_groups={"q"},
+                            inherited_unknown=inherited,
+                            coverage_complete=coverage,
+                        ))
+
+    def test_quarantined_pair_clears_only_after_a_proven_upload(self):
+        pair = ("7", "2026-11-08")
+        common = dict(groups={"q": _group(*pair)}, skip_keys=set())
+        debt = self._carried(
+            candidate_pairs={pair}, excluded_groups={"q"}, **common,
+        )
+        self.assertEqual(debt, {pair})
+        still_quarantined = self._carried(
+            candidate_pairs=debt, excluded_groups={"q"}, **common,
+        )
+        self.assertEqual(still_quarantined, {pair})
+        source_fixed_upload_failed = self._carried(
+            candidate_pairs=debt, upload_ok={"q": False}, **common,
+        )
+        self.assertEqual(source_fixed_upload_failed, {pair})
+        source_fixed_uploaded = self._carried(
+            candidate_pairs=debt, upload_ok={"q": True}, **common,
+        )
+        self.assertEqual(source_fixed_uploaded, set())
+
+    def test_quarantined_group_keys_covers_every_matching_group(self):
+        # PR #439 (Greptile): no dependence on the main loop reaching a
+        # group, so one past the time-budget break is still listed.
+        groups = {
+            "a": [{"Work Request #": "1/2"}],
+            "b": [{"Work Request #": "1:2.0"}],
+            "ok": [{"Work Request #": "99"}],
+            "blank": [{"Work Request #": ""}],
+            "empty": [],
+        }
+        self.assertEqual(
+            orch._quarantined_group_keys(groups, {"1_2"}), {"a", "b"},
+        )
+
+    def test_source_wr_raws_by_key_finds_the_collision(self):
+        groups = {
+            "a": [{"Work Request #": "1/2"}],
+            "b": [{"Work Request #": "1:2.0"}],
+            "ok": [{"Work Request #": "99.0"}],
+            "ok2": [{"Work Request #": "99"}],
+            "blank": [{"Work Request #": ""}],
+            "empty": [],
+        }
+        self.assertEqual(
+            orch._source_wr_raws_by_key(groups),
+            {"1_2": {"1/2", "1:2"}, "99": {"99"}},
+        )
+        self.assertEqual(orch._source_wr_raws_by_key({}), {})
+
+    def test_collision_outside_the_scoped_groups_still_quarantines(self):
+        # QUAR-01: raw "1:2" is filtered out of this run's groups, and its
+        # twin "1/2" must still be held back from the shared target key.
+        every_group = {
+            "in_scope": [{"Work Request #": "1/2"}],
+            "filtered_out": [{"Work Request #": "1:2"}],
+        }
+        raws = orch._source_wr_raws_by_key(every_group)
+        keys = {k for k, v in raws.items() if len(v) > 1}
+        scoped = {"in_scope": every_group["in_scope"]}
+        self.assertEqual(
+            orch._quarantined_group_keys(scoped, keys), {"in_scope"},
+        )
+
+    def test_main_scans_collisions_before_filtering_or_truncating(self):
+        src = inspect.getsource(orch.main)
+        scan = src.index(
+            "_source_wr_raws_per_key = _source_wr_raws_by_key(groups)"
+        )
+        self.assertLess(
+            scan, src.index("_filter_groups_to_affected(groups,"),
+        )
+        self.assertLess(
+            scan,
+            src.index("groups = dict(list(groups.items())[:MAX_GROUPS])"),
+        )
+        self.assertNotIn("_source_wr_raws_per_key[_g_sanitized]", src)
+
+    def test_main_records_quarantined_groups_before_the_loop(self):
+        src = inspect.getsource(orch.main)
+        self.assertNotIn("_mem_quarantined_group_keys.add(", src)
+        recorded = src.index(
+            "_mem_quarantined_group_keys.update(_quarantined_group_keys("
+        )
+        loop = src.index("for group_idx, (group_key, group_rows)")
+        self.assertLess(recorded, loop)
+        self.assertIn(
+            "excluded_groups=_mem_quarantined_group_keys", src,
+        )
+
     def test_both_finish_sites_union_reconcile_pairs(self):
         # Two finish sites plus the post-reconciliation pending note.
         src = inspect.getsource(orch.main)
