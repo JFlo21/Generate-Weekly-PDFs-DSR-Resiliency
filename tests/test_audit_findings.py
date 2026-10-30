@@ -276,6 +276,14 @@ def test_build_finding_payloads_multi_week_match_uses_none_week_ending():
     payloads = audit_findings.build_finding_payloads(audit_results, rows, "run-123")
     assert len(payloads) == 1
     assert payloads[0]["week_ending"] is None
+    # PR #435 (Copilot): the finding is kept, so the counter says
+    # "ambiguous", never "skipped", and is exported per run.
+    counters = audit_findings.counters()
+    assert counters["findings_rate_week_ambiguous"] == 1
+    assert "findings_skipped_multi_week" not in counters
+    assert (
+        "findings_rate_week_ambiguous" in audit_findings.EXPORTED_RUN_COUNTERS
+    )
 
 
 # ── price_variance_anomaly / data_consistency_issue key derivation ──────

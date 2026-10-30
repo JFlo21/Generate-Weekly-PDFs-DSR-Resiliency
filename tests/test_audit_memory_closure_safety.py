@@ -493,9 +493,11 @@ def test_open_finding_outside_changed_sheets_is_never_closed():
     assert pairs == []
 
 
-def test_incomplete_source_read_closes_nothing_but_still_upserts():
-    """A sheet whose read failed or was partial may have dropped rows of
-    a pair whose other rows were evaluated: no pair may close."""
+def test_incomplete_source_read_persists_nothing():
+    """PR #435 (Greptile P1 / Codex P2): a failed or partial sheet read
+    may have dropped rows of any WR, so a WR-pooled finding or a resolved
+    week could be false. Like a scoped run, nothing is upserted or
+    closed."""
     audit_results = {"data_integrity_issues": [{
         "type": "data_consistency_issue", "row_index": 0,
         "work_request": "12345", "issues": ["Missing CU"],
@@ -513,9 +515,7 @@ def test_incomplete_source_read_closes_nothing_but_still_upserts():
             },
             source_read_complete=False,
         )
-    _run_id, findings, pairs = mock_upsert.call_args[0]
-    assert len(findings) == 1
-    assert pairs == []
+    assert not mock_upsert.called
 
 
 def test_main_wires_failed_sheet_reads_into_closure_gate():
@@ -590,6 +590,7 @@ def test_builders_derive_identity_order_from_identity_recipes(
 _EXPORTED = (
     "findings_skipped_no_match",
     "findings_week_ambiguous",
+    "findings_rate_week_ambiguous",
     "findings_skipped_unresolved_row",
     "upsert_errored",
 )

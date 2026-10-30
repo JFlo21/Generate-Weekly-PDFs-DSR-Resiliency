@@ -353,6 +353,41 @@ class UpsertAuditFindingsExecuteGrantContractTests(unittest.TestCase):
         )
 
 
+class AcknowledgeFindingExecuteGrantContractTests(unittest.TestCase):
+    """PR #435 (Greptile P1): the REVOKE alone left only the owner able to
+    call acknowledge_finding; service_role gets an explicit GRANT, in
+    schema.sql AND the (not yet applied) standalone migration."""
+
+    _SIGNATURE = "pipeline_memory.acknowledge_finding(TEXT, TEXT, TEXT, TEXT)"
+    _MIGRATION = "pipeline_memory/acknowledge_finding_grant_migration.sql"
+
+    def _assert_revoke_then_grant(self, sql: str) -> None:
+        revoke = f"REVOKE ALL ON FUNCTION {self._SIGNATURE}\n    FROM PUBLIC;"
+        grant = (
+            f"GRANT EXECUTE ON FUNCTION {self._SIGNATURE}\n"
+            "    TO service_role;"
+        )
+        self.assertIn(revoke, sql)
+        self.assertIn(grant, sql)
+        self.assertLess(sql.index(revoke), sql.index(grant))
+
+    def test_schema_revokes_public_and_grants_service_role(self):
+        sql = _strip_sql_comments(_read_source(_SCHEMA_RELPATH))
+        self._assert_revoke_then_grant(sql)
+        self.assertNotRegex(
+            sql,
+            r"GRANT[^;]*acknowledge_finding[^;]*TO\s+"
+            r"(PUBLIC|anon|authenticated)",
+        )
+
+    def test_standalone_migration_is_marked_not_applied(self):
+        text = _read_source(self._MIGRATION)
+        header = text[: text.index("REVOKE")]
+        self.assertIn("STATUS: NOT APPLIED", header)
+        self._assert_revoke_then_grant(_strip_sql_comments(text))
+        self.assertIn("-- ── ROLLBACK", text)
+
+
 class AuditTablesRlsContractTests(unittest.TestCase):
     """Both new tables (plan 13-01/13-05) must carry RLS enable +
     service_role_all policy, mirroring the five existing tables."""

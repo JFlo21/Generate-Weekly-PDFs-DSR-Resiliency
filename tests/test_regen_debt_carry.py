@@ -482,10 +482,24 @@ class MainWiringTests(unittest.TestCase):
 
     def test_pending_note_follows_the_memory_write(self):
         src = self.src
-        self.assertEqual(src.count("_note_pending_regen_pairs("), 1)
+        self.assertEqual(src.count("_note_pending_regen_pairs("), 2)
         self.assertGreater(
             src.index("_note_pending_regen_pairs("),
             src.index("_mem_regen_unknown = True"),
+        )
+
+    def test_deletion_pairs_are_renoted_right_after_reconciliation(self):
+        """PR #435 (Copilot): mark_rows_deleted commits before the finish,
+        so the reconcile pairs are noted before the audit / upload kill
+        points, or a killed deep run loses them for good."""
+        src = self.src
+        second = src.index(
+            "_note_pending_regen_pairs(", src.index("_reconcile_result = "),
+        )
+        self.assertLess(second, src.index("audit_system = BillingAudit("))
+        self.assertIn(
+            "_mem_candidate_pairs | _reconcile_affected_pairs,",
+            src[second:second + 300],
         )
 
     def test_shadow_filters_by_candidate_pairs_and_skips_on_unknown(self):
@@ -1158,10 +1172,38 @@ class PR435BotFollowupTests(unittest.TestCase):
             [("2", "2026-11-08")],
         )
 
+    def test_failed_upload_outside_candidate_is_carried(self):
+        """PR #435 (Codex P2): an attachment-repair group outside the
+        candidate set whose upload failed stays debt even when the
+        inherited debt was known."""
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={"g9": _group("9", "2026-11-08")},
+            skip_keys=set(),
+            upload_tasks=[{"group_key": "g9"}],
+            upload_ok={"g9": False},
+        )
+        self.assertEqual(
+            [tuple(p) for p in out["regen_debt_pairs"]],
+            [("9", "2026-11-08")],
+        )
+        self.assertFalse(out["regen_debt_unknown"])
+
+    def test_successful_upload_outside_candidate_is_not_carried(self):
+        out = self._kw(
+            candidate_pairs=set(),
+            groups={"g9": _group("9", "2026-11-08")},
+            skip_keys=set(),
+            upload_tasks=[{"group_key": "g9"}],
+            upload_ok={"g9": True},
+        )
+        self.assertEqual(out["regen_debt_pairs"], [])
+
     def test_both_finish_sites_union_reconcile_pairs(self):
+        # Two finish sites plus the post-reconciliation pending note.
         src = inspect.getsource(orch.main)
         self.assertEqual(
-            src.count("_mem_candidate_pairs | _reconcile_affected_pairs"), 2,
+            src.count("_mem_candidate_pairs | _reconcile_affected_pairs"), 3,
         )
 
 if __name__ == "__main__":

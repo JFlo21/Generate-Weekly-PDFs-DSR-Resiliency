@@ -1159,6 +1159,12 @@ $$;
 
 REVOKE ALL ON FUNCTION pipeline_memory.acknowledge_finding(TEXT, TEXT, TEXT, TEXT)
     FROM PUBLIC;
+-- PR #435 (Greptile P1): the REVOKE left only the owner able to call it,
+-- so the service-role procedure got permission denied. Live apply:
+-- pipeline_memory/acknowledge_finding_grant_migration.sql (owner-approved,
+-- NOT applied by this file's presence in the repo).
+GRANT EXECUTE ON FUNCTION pipeline_memory.acknowledge_finding(TEXT, TEXT, TEXT, TEXT)
+    TO service_role;
 
 -- ============================================================
 -- Python <-> SQL contract (D-03): adding or renaming a column here

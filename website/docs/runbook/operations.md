@@ -298,7 +298,9 @@ checks the whole WR:
   failed part-way;
 - the check could not evaluate one of the WR's rows (no rate for the CU,
   zero quantity, unreadable price);
-- a source sheet's read failed or was partial.
+- a source sheet's read failed or was partial: some WRs' rows are
+  missing, so that run neither records nor closes findings (the log says
+  `Audit-memory: source read incomplete -- findings not persisted`).
 
 Every other run type (the Monday `weekly_comprehensive` deep run,
 weekend and manual runs) is a full run, so findings are recorded and

@@ -1834,6 +1834,14 @@ def _regen_debt_finish_kwargs(
         pending = set(candidate_pairs)
         if inherited_unknown:
             pending |= set(group_pairs.values())
+        # PR #435 (Codex P2): a group regenerated outside the candidate
+        # (missing attachment, group-hash global change) whose upload was
+        # attempted but not confirmed is still owed a regeneration.
+        attempted = uploadable | set(upload_ok)
+        pending |= {
+            group_pairs[gk] for gk in attempted - confirmed
+            if gk in group_pairs
+        }
         carried = _memory_candidate.unconfirmed_pairs(
             pending, group_pairs, confirmed, scoped,
             coverage_complete=coverage_complete,
@@ -2489,8 +2497,12 @@ def _run_audit_memory_phase(
       2026-10-29-audit-memory-open-findings-incremental-recheck.md).
     - *source_read_complete* ``False`` (a sheet's read failed or was only
       partial this run, ``pipeline.fetch.get_last_full_read_failed_
-      sheet_ids``) closes nothing: that sheet's missing rows may belong
-      to a pair whose remaining rows were evaluated.
+      sheet_ids``) persists and closes nothing, like a scoped run: the
+      failed sheet's missing rows may belong to any WR, so a WR-pooled
+      finding (``price_variance_anomaly``) or a payload's resolved week
+      could rest on a partial pool and open or resurface a false
+      finding; and a pair whose remaining rows were evaluated must not
+      close.
 
     The module's skip/error counters are reset at this run boundary and
     logged once per run (counts only); ``result["counters"]`` carries
@@ -2522,12 +2534,21 @@ def _run_audit_memory_phase(
             )
             return result
 
+        if not source_read_complete:
+            # PR #435 (Greptile P1 / Codex P2): a failed or partial sheet
+            # read leaves some WRs' row pools incomplete, and which WRs is
+            # unknown, so nothing is persisted or closed this run.
+            logging.info(
+                "🧮 Audit-memory: source read incomplete -- findings not "
+                "persisted (the next complete full run records and "
+                "closes)."
+            )
+            return result
+
         payloads = _mem_audit_findings.build_finding_payloads(
             audit_results, all_rows, run_id,
         )
-        eligible = _mem_audit_findings.closing_row_indices(
-            audit_coverage if source_read_complete else None,
-        )
+        eligible = _mem_audit_findings.closing_row_indices(audit_coverage)
         reaudited_pairs = _mem_audit_findings.build_reaudited_pairs(
             all_rows, _mem_audit_findings.executed_checks(),
             eligible_row_indices=eligible,
@@ -3453,6 +3474,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _reconcile_rows_marked_deleted = _reconcile_result[
                     'rows_marked_deleted'
                 ]
+                # PR #435 (Copilot): mark_rows_deleted has already
+                # committed, so the next deep run cannot rediscover these
+                # pairs (deleted_at IS NOT NULL). Re-note the pending set
+                # with them before any later kill point; a failed note
+                # makes the finish record the debt as unknown.
+                if (
+                    _reconcile_affected_pairs
+                    and _mem_candidate_ready
+                    and _mem_ledger_started
+                ):
+                    _mem_ledger_noted = _note_pending_regen_pairs(
+                        _mem_run_id,
+                        _mem_candidate_pairs | _reconcile_affected_pairs,
+                        _mem_regen_debt is None or _mem_regen_unknown,
+                    )
                 if _reconcile_rows_marked_deleted:
                     logging.info(
                         f"🗑️ Deep-run reconciliation: "

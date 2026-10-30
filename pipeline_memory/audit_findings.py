@@ -109,7 +109,9 @@ _counters_lock = threading.Lock()
 _counters: dict[str, int] = {
     "findings_emitted": 0,
     "findings_skipped_no_match": 0,
-    "findings_skipped_multi_week": 0,
+    # A rate_sanity_mismatch whose matching rows span more than one
+    # week_ending: still persisted, with week_ending=None (not dropped).
+    "findings_rate_week_ambiguous": 0,
     "findings_skipped_unimplemented_check": 0,
     # D-CD-01: a price_variance_anomaly whose WR-wide row pool resolves
     # to MORE THAN ONE distinct week_ending. Zero distinct weeks also
@@ -137,6 +139,7 @@ _counters: dict[str, int] = {
 EXPORTED_RUN_COUNTERS: tuple[str, ...] = (
     "findings_skipped_no_match",
     "findings_week_ambiguous",
+    "findings_rate_week_ambiguous",
     "findings_skipped_unresolved_row",
     "upsert_errored",
     "audit_results_non_authoritative",
@@ -312,7 +315,7 @@ def _build_rate_sanity_payload(
         _bump_counter("findings_skipped_no_match")
         return None
     if week_ending is None:
-        _bump_counter("findings_skipped_multi_week")
+        _bump_counter("findings_rate_week_ambiguous")
 
     identity_values = _identity_values("rate_sanity_mismatch", {
         "wr": wr, "week_ending": week_ending, "cu": cu,
