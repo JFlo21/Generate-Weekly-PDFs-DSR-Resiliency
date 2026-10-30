@@ -5,16 +5,16 @@ milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
 current_phase: 15
 current_phase_name: Foreman Notes and Smartsheet color carry-over (GF pilot)
 status: executing
-stopped_at: Completed 15-05-PLAN.md
-last_updated: "2026-10-30T00:32:45.311Z"
+stopped_at: Completed 15-06-PLAN.md
+last_updated: "2026-10-30T00:42:10.372Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: 7cb119079c683e87d7456fe80dc04b8bb55b28d1
+state_head: 7a93875bcb7a4d35bc28dfa66e85983ce4c6bec9
 progress:
   total_phases: 15
   completed_phases: 14
   total_plans: 94
-  completed_plans: 91
+  completed_plans: 92
   percent: 93
 ---
 
@@ -188,6 +188,7 @@ Progress: [████████████████████] 74/74 p
 | Phase 15 P03 | 30m | 3 tasks | 5 files |
 | Phase 15 P04 | 30m | 3 tasks | 2 files |
 | Phase 15 P05 | 50m | 3 tasks | 3 files |
+| Phase 15 P06 | 25m | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -373,6 +374,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 15]: 15-02: descriptor parser rejects any non-numeric part (whole-cell fail-closed); norm_note keeps inner spaces after stripping illegal chars
 - [Phase 15]: 15-03: NOTES_FP and row/globals fingerprint notes components are pilot-gated appends; off and non-pilot payloads stay byte-identical to BASE golden
 - [Phase 15]: 15-05: AUDIT_MEMORY_ENABLED added to memory_writes_possible (audit-findings upsert is not TEST_MODE-gated); dry-run pilot write guards sit inside existing gates
+- [Phase 15]: [15-06] Dry-run recipe documents AUDIT_MEMORY_ENABLED as a write path; allowlist documented only as env/repository variable (GF-1..GF-3 aliases)
 
 ### Roadmap Evolution
 
@@ -575,8 +577,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-10-30T00:32:42.905Z
-**Stopped at:** Completed 15-05-PLAN.md
+**Last session:** 2026-10-30T00:42:08.048Z
+**Stopped at:** Completed 15-06-PLAN.md
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
