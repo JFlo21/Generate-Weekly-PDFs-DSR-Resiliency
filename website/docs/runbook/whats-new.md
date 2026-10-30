@@ -34,14 +34,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — October 30, 2026
 
+- ✅ Problem fixed: carry every unconfirmed group as regen debt
 - 📄 Help guides updated: record G-11-37 post-deploy check
 - ✅ Problem fixed: build runbook site on Node 26
 - ✨ New capability: G-11-37 parity gap closure (11-11..11-14)
 - 📄 Help guides updated: re-verify implementation truth
 - 📄 Help guides updated: align instruction files, run 2
-- 📄 Help guides updated: record G-11-37 post-deploy check ()
-- 📄 Help guides updated: log aba043b &#91;skip ci&#93;
-- ✅ Problem fixed: build runbook site on Node 26 ()
+- ✅ Problem fixed: carry every unconfirmed group as regen debt ()
+- 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
 
