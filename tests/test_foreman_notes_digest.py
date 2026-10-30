@@ -2,6 +2,7 @@
 import itertools
 import re
 import unittest
+from typing import Any
 
 from pipeline import foreman_notes as fn
 
@@ -9,39 +10,39 @@ from pipeline import foreman_notes as fn
 IDENT = lambda r: r['CU']
 
 
-def _row(cu, note, wr='90003'):
+def _row(cu: str, note: str, wr: str = '90003') -> dict[str, str]:
     return {'Work Request #': wr, 'CU': cu, fn.NOTES_KEY: note}
 
 
 class NormNoteTests(unittest.TestCase):
-    def test_none_and_numbers(self):
+    def test_none_and_numbers(self) -> None:
         self.assertEqual(fn.norm_note(None), '')
         self.assertEqual(fn.norm_note(12.5), '12.5')
 
-    def test_illegal_chars_removed_then_trimmed(self):
+    def test_illegal_chars_removed_then_trimmed(self) -> None:
         # illegal char removed first, then strip; inner whitespace is preserved
         self.assertEqual(fn.norm_note('  hi \x01there '), 'hi there')
         self.assertEqual(fn.norm_note('\x01 \x02'), '')
         self.assertEqual(fn.norm_note(' \x01x'), 'x')
 
-    def test_cap(self):
+    def test_cap(self) -> None:
         self.assertEqual(len(fn.norm_note('a' * 40000)), 32767)
 
-    def test_formula_text_kept_verbatim(self):
+    def test_formula_text_kept_verbatim(self) -> None:
         self.assertEqual(fn.norm_note('=SUM(A1)'), '=SUM(A1)')
 
 
 class RowComponentTests(unittest.TestCase):
-    def tearDown(self):
+    def tearDown(self) -> None:
         fn.reset_state()
 
-    def test_off_and_non_pilot_are_none(self):
+    def test_off_and_non_pilot_are_none(self) -> None:
         row = _row('CU1', ' hello ')
         self.assertIsNone(fn.row_notes_component(row))
         fn.set_state(fn.FnState(scope='pilot', pilot_wrs=frozenset({'90003'})))
         self.assertIsNone(fn.row_notes_component(_row('CU1', 'x', wr='11111')))
 
-    def test_pilot_row(self):
+    def test_pilot_row(self) -> None:
         fn.set_state(fn.FnState(scope='pilot', pilot_wrs=frozenset({'90003'})))
         self.assertEqual(
             fn.row_notes_component(_row('CU1', ' hello \x01')), 'hello'
@@ -53,66 +54,66 @@ class RowComponentTests(unittest.TestCase):
 
 
 class GroupTokenTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         fn.set_state(fn.FnState(scope='pilot', pilot_wrs=frozenset({'90003'})))
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         fn.reset_state()
 
-    def test_non_pilot_is_empty(self):
+    def test_non_pilot_is_empty(self) -> None:
         rows = [_row('CU1', 'x', wr='11111')]
         self.assertEqual(fn.group_notes_token(rows, IDENT), '')
         self.assertEqual(fn.group_notes_token([], IDENT), '')
         fn.reset_state()
         self.assertEqual(fn.group_notes_token([_row('CU1', 'x')], IDENT), '')
 
-    def test_shape(self):
+    def test_shape(self) -> None:
         tok = fn.group_notes_token([_row('CU1', 'a'), _row('CU2', 'b')], IDENT)
         self.assertRegex(tok, r'^[0-9a-f]{16}$')
 
-    def test_permutation_invariant_including_ties(self):
+    def test_permutation_invariant_including_ties(self) -> None:
         rows = [_row('CU1', 'a'), _row('CU1', 'b'), _row('CU2', 'c')]
         toks = {fn.group_notes_token(list(p), IDENT)
                 for p in itertools.permutations(rows)}
         self.assertEqual(len(toks), 1)
 
-    def test_note_change_flips(self):
+    def test_note_change_flips(self) -> None:
         a = fn.group_notes_token([_row('CU1', 'a'), _row('CU2', 'b')], IDENT)
         b = fn.group_notes_token([_row('CU1', 'a'), _row('CU2', 'B')], IDENT)
         self.assertNotEqual(a, b)
 
-    def test_tie_notes_swap_between_identities_flips(self):
+    def test_tie_notes_swap_between_identities_flips(self) -> None:
         a = fn.group_notes_token([_row('CU1', 'a'), _row('CU2', 'b')], IDENT)
         b = fn.group_notes_token([_row('CU1', 'b'), _row('CU2', 'a')], IDENT)
         self.assertNotEqual(a, b)
 
-    def test_whitespace_only_change_is_stable(self):
+    def test_whitespace_only_change_is_stable(self) -> None:
         a = fn.group_notes_token([_row('CU1', 'a')], IDENT)
         b = fn.group_notes_token([_row('CU1', '  a \n')], IDENT)
         self.assertEqual(a, b)
 
-    def test_all_blank_is_deterministic_non_empty(self):
+    def test_all_blank_is_deterministic_non_empty(self) -> None:
         a = fn.group_notes_token([_row('CU1', None), _row('CU2', '  ')], IDENT)
         b = fn.group_notes_token([_row('CU2', ''), _row('CU1', None)], IDENT)
         self.assertTrue(a)
         self.assertEqual(a, b)
 
-    def test_identity_failure_is_empty_not_raise(self):
-        def bad(r):
+    def test_identity_failure_is_empty_not_raise(self) -> None:
+        def bad(r: Any) -> None:
             raise RuntimeError('x')
         with self.assertLogs(level='WARNING'):
             self.assertEqual(fn.group_notes_token([_row('CU1', 'a')], bad), '')
 
 
 class GlobalsComponentTests(unittest.TestCase):
-    def tearDown(self):
+    def tearDown(self) -> None:
         fn.reset_state()
 
-    def test_off_is_empty(self):
+    def test_off_is_empty(self) -> None:
         self.assertEqual(fn.globals_component(), '')
 
-    def test_changes_with_inputs(self):
-        def comp(**kw):
+    def test_changes_with_inputs(self) -> None:
+        def comp(**kw: Any) -> Any:
             fn.set_state(fn.FnState(**kw))
             return fn.globals_component()
         base = comp(
@@ -143,7 +144,7 @@ class GlobalsComponentTests(unittest.TestCase):
 
 
 class ModuleBoundaryTests(unittest.TestCase):
-    def test_no_hash_function_reads_style_key(self):
+    def test_no_hash_function_reads_style_key(self) -> None:
         import inspect
         for fnc in (fn.norm_note, fn.row_notes_component, fn.group_notes_token,
                     fn.globals_component):

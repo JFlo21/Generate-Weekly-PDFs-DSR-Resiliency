@@ -20,6 +20,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
+from typing import Any
 from unittest import mock
 
 _TESTS = Path(__file__).resolve().parent
@@ -53,8 +54,8 @@ MAPPING = {
 }
 
 
-def _target_sheet():
-    def cells(wr, gf):
+def _target_sheet() -> NS:
+    def cells(wr: str, gf: str) -> NS:
         return NS(cells=[
             NS(column_id=WR_COL_ID, value=wr, display_value=wr),
             NS(column_id=GF_COL_ID, value=gf, display_value=gf),
@@ -71,10 +72,10 @@ def _target_sheet():
 
 
 class _Sheets:
-    def __init__(self):
+    def __init__(self) -> None:
         self.calls = []
 
-    def get_sheet(self, sheet_id, **kwargs):
+    def get_sheet(self, sheet_id: int, **kwargs: Any) -> NS:
         self.calls.append((sheet_id, kwargs))
         if sheet_id == config.TARGET_SHEET_ID:
             return _target_sheet()
@@ -86,11 +87,11 @@ class _Sheets:
 
 
 class _Client:
-    def __init__(self):
+    def __init__(self) -> None:
         self.Sheets = _Sheets()
 
 
-def _group(wr):
+def _group(wr: str) -> list[dict[str, Any]]:
     """Golden-shaped primary rows re-labelled to a fictional WR."""
     rows = copy.deepcopy(golden._rows())
     for n, row in enumerate(rows, start=1):
@@ -101,13 +102,13 @@ def _group(wr):
 
 
 class _Base(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         fn.reset_state()
         self.addCleanup(fn.reset_state)
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
 
-    def pilot_patches(self):
+    def pilot_patches(self) -> tuple[Any, Any]:
         stack = mock.patch.multiple(
             config, FOREMAN_NOTES_PILOT_GFS="Avery Example")
         scope = mock.patch.object(fn, "EFFECTIVE_SCOPE", "pilot")
@@ -115,7 +116,7 @@ class _Base(unittest.TestCase):
 
 
 class TracerTests(_Base):
-    def test_pilot_path_end_to_end(self):
+    def test_pilot_path_end_to_end(self) -> None:
         client = _Client()
         patch_cfg, patch_scope = self.pilot_patches()
         with patch_cfg, patch_scope:
@@ -198,13 +199,13 @@ KINDS = (
 )
 
 
-def _func(name):
+def _func(name: str) -> ast.FunctionDef:
     return next(
         n for n in ast.walk(ORCH_TREE)
         if isinstance(n, ast.FunctionDef) and n.name == name)
 
 
-def _calls(node, dotted):
+def _calls(node: ast.AST, dotted: str) -> list[ast.Call]:
     out = []
     for n in ast.walk(node):
         if isinstance(n, ast.Call):
@@ -220,21 +221,21 @@ def _calls(node, dotted):
     return out
 
 
-def _uses_fn(node):
+def _uses_fn(node: ast.AST) -> bool:
     return any(
         isinstance(x, ast.Name) and x.id == "_fn" for x in ast.walk(node)
     )
 
 
 class SeamOrderTests(unittest.TestCase):
-    def test_initialize_runs_before_phase_one_and_memory_writes(self):
+    def test_initialize_runs_before_phase_one_and_memory_writes(self) -> None:
         main = _func("main")
         init = _calls(main, "_fn.initialize")
         self.assertEqual(len(init), 1)
         line = init[0].lineno
         seg_lines = ast.get_source_segment(ORCH_SOURCE, main).splitlines()
 
-        def line_of(text):
+        def line_of(text: str) -> int:
             idxs = [i for i, ln in enumerate(seg_lines) if text in ln]
             self.assertTrue(idxs, text)
             return main.lineno + idxs[0]
@@ -260,7 +261,9 @@ class SeamOrderTests(unittest.TestCase):
                          if isinstance(n, ast.Name)}
                 self.assertNotIn("REMEDIATE_CLAIMERS", names)
 
-    def test_attach_precedes_generate_excel_with_no_hash_between(self):
+    def test_attach_precedes_generate_excel_with_no_hash_between(
+        self,
+    ) -> None:
         main = _func("main")
         attach = _calls(main, "_fn.attach_group_styles")
         self.assertEqual(len(attach), 1)
@@ -279,7 +282,7 @@ class SeamOrderTests(unittest.TestCase):
         self.assertEqual(len(hashes), 1)
         self.assertLess(hashes[0].lineno, attach[0].lineno)
 
-    def test_fn_references_confined_to_expected_functions(self):
+    def test_fn_references_confined_to_expected_functions(self) -> None:
         top = {n.name: n for n in ORCH_TREE.body
                if isinstance(n, ast.FunctionDef)}
         users = {name for name, node in top.items() if _uses_fn(node)}
@@ -295,12 +298,12 @@ class SeamOrderTests(unittest.TestCase):
 
 
 class _RecordingClient:
-    def __init__(self):
+    def __init__(self) -> None:
         self.calls = []
         outer = self
 
         class _S:
-            def get_sheet(self, *a, **k):
+            def get_sheet(self, *a: Any, **k: Any) -> None:
                 outer.calls.append((a, k))
                 raise AssertionError("no Smartsheet call expected")
 
@@ -308,7 +311,9 @@ class _RecordingClient:
 
 
 class ZeroImpactTests(_Base):
-    def test_off_scope_makes_zero_calls_and_leaves_rows_unchanged(self):
+    def test_off_scope_makes_zero_calls_and_leaves_rows_unchanged(
+        self,
+    ) -> None:
         client = _RecordingClient()
         key, rows = _group(PILOT_WR)
         before = copy.deepcopy(rows)
@@ -321,7 +326,7 @@ class ZeroImpactTests(_Base):
         self.assertEqual(client.calls, [])
         self.assertEqual(rows, before)
 
-    def test_non_pilot_group_makes_zero_calls_in_pilot_scope(self):
+    def test_non_pilot_group_makes_zero_calls_in_pilot_scope(self) -> None:
         client = _RecordingClient()
         key, rows = _group(OTHER_WR)
         fn.set_state(fn.FnState(
@@ -332,7 +337,7 @@ class ZeroImpactTests(_Base):
         self.assertEqual(fn.attach_group_styles(client, rows, maps), 0)
         self.assertEqual(client.calls, [])
 
-    def test_default_effective_scope_is_off_for_production_env(self):
+    def test_default_effective_scope_is_off_for_production_env(self) -> None:
         if (config.TEST_MODE or config.FOREMAN_NOTES_UPLOAD
                 or os.getenv(
                     "TEST_MODE"
@@ -343,7 +348,7 @@ class ZeroImpactTests(_Base):
         self.assertEqual(fn.EFFECTIVE_SCOPE, "off")
         self.assertEqual(config.FOREMAN_NOTES_PILOT_GFS, "")
 
-    def test_memory_writes_possible_covers_audit_memory_flag(self):
+    def test_memory_writes_possible_covers_audit_memory_flag(self) -> None:
         flags = dict(
             SUPABASE_HASH_STORE_WRITE_ENABLED=False,
             RUN_MEMORY_WRITE_ENABLED=False)
@@ -361,7 +366,7 @@ _MEM_PREFIXES = ("upsert_", "run_ledger_", "bump_")
 _CALLER_GATED = {"_note_pending_regen_pairs", "_reconcile_deep_run_deletions"}
 
 
-def _write_sites():
+def _write_sites() -> list[ast.AST]:
     """Every raw pipeline_memory / hash-store write reference in
     orchestrate."""
     sites = []
@@ -390,11 +395,11 @@ def _write_sites():
     return sites
 
 
-def _names(expr):
+def _names(expr: ast.AST) -> set[str]:
     return {x.id for x in ast.walk(expr) if isinstance(x, ast.Name)}
 
 
-def _has_guard_call(expr):
+def _has_guard_call(expr: ast.AST) -> bool:
     return any(
         isinstance(x, ast.Call)
         and isinstance(x.func, ast.Attribute)
@@ -402,11 +407,13 @@ def _has_guard_call(expr):
         for x in ast.walk(expr))
 
 
-def _parents():
+def _parents() -> dict[ast.AST, ast.AST]:
     return {c: p for p in ast.walk(ORCH_TREE) for c in ast.iter_child_nodes(p)}
 
 
-def _enclosing_ifs(node, parents):
+def _enclosing_ifs(
+    node: ast.AST, parents: dict[ast.AST, ast.AST]
+) -> list[ast.If]:
     """Ancestor ``If`` nodes (innermost first) whose *body* holds ``node``."""
     out = []
     child, cur = node, parents.get(node)
@@ -417,14 +424,18 @@ def _enclosing_ifs(node, parents):
     return out
 
 
-def _enclosing_func(node, parents):
+def _enclosing_func(
+    node: ast.AST, parents: dict[ast.AST, ast.AST]
+) -> ast.FunctionDef | None:
     cur = parents.get(node)
     while cur is not None and not isinstance(cur, ast.FunctionDef):
         cur = parents.get(cur)
     return cur
 
 
-def _function_level_guard(func, node_line):
+def _function_level_guard(
+    func: ast.FunctionDef, node_line: int
+) -> tuple[bool, bool]:
     """(gated_before, guarded) for a function-level early-return pattern."""
     gated = guarded = False
     for stmt in func.body:
@@ -444,7 +455,9 @@ class WriteGuardDriftTests(unittest.TestCase):
     # until it is guarded and listed in the SUMMARY inventory.
     EXPECTED_SITE_COUNT = 15
 
-    def test_every_write_site_is_guarded_inside_its_existing_gate(self):
+    def test_every_write_site_is_guarded_inside_its_existing_gate(
+        self,
+    ) -> None:
         parents = _parents()
         sites = _write_sites()
         self.assertEqual(len(sites), self.EXPECTED_SITE_COUNT)
@@ -469,7 +482,9 @@ class WriteGuardDriftTests(unittest.TestCase):
                 gated or func.name in _CALLER_GATED,
                 f"function-level guard without a gate: {where}")
 
-    def test_run_memory_write_phase_callee_is_self_gated_and_guarded(self):
+    def test_run_memory_write_phase_callee_is_self_gated_and_guarded(
+        self,
+    ) -> None:
         func = _func("_run_memory_write_phase")
         gated, guarded = _function_level_guard(func, 10 ** 9)
         self.assertTrue(gated and guarded)
@@ -479,7 +494,7 @@ class WriteGuardDriftTests(unittest.TestCase):
             and n.func.id == "_run_memory_write_phase"]
         self.assertEqual(len(callers), 2)
 
-    def test_caller_gated_helpers_are_called_inside_a_gate(self):
+    def test_caller_gated_helpers_are_called_inside_a_gate(self) -> None:
         parents = _parents()
         for name in _CALLER_GATED:
             calls = [
@@ -493,7 +508,7 @@ class WriteGuardDriftTests(unittest.TestCase):
                         for f in _enclosing_ifs(call, parents)),
                     f"{name} called outside a gate at line {call.lineno}")
 
-    def test_audit_memory_phase_guard_sits_after_its_gate(self):
+    def test_audit_memory_phase_guard_sits_after_its_gate(self) -> None:
         gated, guarded = _function_level_guard(
             _func("_run_audit_memory_phase"), 10 ** 9)
         self.assertTrue(gated and guarded)
@@ -502,21 +517,21 @@ class WriteGuardDriftTests(unittest.TestCase):
 # --- guard behaviour --------------------------------------------------------
 
 class _LogCapture(logging.Handler):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(level=logging.DEBUG)
         self.records = []
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         self.records.append(record)
 
-    def errors(self):
+    def errors(self) -> list[logging.LogRecord]:
         return [r for r in self.records
                 if r.levelno >= logging.ERROR
                 and "Foreman notes" in r.getMessage()]
 
 
 class GuardBehaviourTests(_Base):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.cap = _LogCapture()
         root = logging.getLogger()
@@ -530,7 +545,7 @@ class GuardBehaviourTests(_Base):
             p.start()
             self.addCleanup(p.stop)
 
-    def test_blocked_for_every_kind_logs_error_once_per_kind(self):
+    def test_blocked_for_every_kind_logs_error_once_per_kind(self) -> None:
         for kind in KINDS:
             self.assertTrue(fn.memory_write_blocked(kind))
             self.assertTrue(fn.memory_write_blocked(kind))
@@ -538,7 +553,7 @@ class GuardBehaviourTests(_Base):
         for rec in self.cap.errors():
             self.assertNotIn(PILOT_WR, rec.getMessage())
 
-    def test_not_blocked_outside_a_dry_run_pilot(self):
+    def test_not_blocked_outside_a_dry_run_pilot(self) -> None:
         with mock.patch.object(config, "TEST_MODE", False):
             for kind in KINDS:
                 self.assertFalse(fn.memory_write_blocked(kind))
@@ -548,7 +563,7 @@ class GuardBehaviourTests(_Base):
             self.assertFalse(fn.memory_write_blocked("row_state"))
         self.assertEqual(self.cap.errors(), [])
 
-    def test_normal_dry_run_emits_zero_guard_errors(self):
+    def test_normal_dry_run_emits_zero_guard_errors(self) -> None:
         # The recipe's flags: every write flag off, TEST_MODE on.
         with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", False), \
                 mock.patch.object(orch, "TEST_MODE", True), \
@@ -571,7 +586,9 @@ class GuardBehaviourTests(_Base):
         fn.attach_group_styles(client, _group(PILOT_WR)[1], maps)
         self.assertEqual(self.cap.errors(), [])
 
-    def test_open_gate_in_a_dry_run_pilot_is_blocked_before_the_write(self):
+    def test_open_gate_in_a_dry_run_pilot_is_blocked_before_the_write(
+        self,
+    ) -> None:
         with mock.patch.object(orch, "RUN_MEMORY_WRITE_ENABLED", True), \
                 mock.patch.object(orch, "TEST_MODE", False), \
                 mock.patch.object(
@@ -582,7 +599,7 @@ class GuardBehaviourTests(_Base):
         self.assertEqual(result["sheets_written"], 0)
         self.assertEqual(len(self.cap.errors()), 1)
 
-    def test_audit_and_helper_writes_are_blocked_when_reached(self):
+    def test_audit_and_helper_writes_are_blocked_when_reached(self) -> None:
         with mock.patch.object(orch, "AUDIT_MEMORY_ENABLED", True), \
                 mock.patch.object(
                     orch._mem_audit_findings, "upsert_audit_findings") as up, \
@@ -611,7 +628,7 @@ class GuardBehaviourTests(_Base):
 class SyntheticRunStaysOffTests(unittest.TestCase):
     """The no-token synthetic run must not render a Foreman Notes column."""
 
-    def test_synthetic_run_has_no_foreman_notes_column(self):
+    def test_synthetic_run_has_no_foreman_notes_column(self) -> None:
         out_dir = _REPO_ROOT / "generated_docs"
         before = {
             p for p in out_dir.rglob("*.xlsx")

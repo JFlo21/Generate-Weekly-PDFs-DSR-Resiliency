@@ -90,23 +90,25 @@ class ForemanNotesBaselineTests(unittest.TestCase):
             golden.FIXTURE_PATH.read_text(encoding="utf-8"))
         cls.current = golden.capture()
 
-    def test_current_output_equals_golden_record(self):
+    def test_current_output_equals_golden_record(self) -> None:
         diff = _first_diff(
             _strip_base_sha(self.fixture), _strip_base_sha(self.current))
         self.assertIsNone(
             diff, f"output drifted from the BASE golden record at {diff}")
 
-    def test_fixture_base_sha_matches_recorded_base_sha(self):
+    def test_fixture_base_sha_matches_recorded_base_sha(self) -> None:
         recorded = golden.BASE_SHA_PATH.read_text(encoding="utf-8").strip()
         self.assertRegex(recorded, r"^[0-9a-f]{40}$")
         self.assertEqual(self.fixture["meta"]["base_sha"], recorded)
 
-    def test_fixture_group_names_are_the_expected_variant_families(self):
+    def test_fixture_group_names_are_the_expected_variant_families(
+        self,
+    ) -> None:
         skipped = set(self.fixture["meta"]["skipped_variants"])
         self.assertEqual(
             set(self.fixture["groups"]), set(EXPECTED_GROUPS) - skipped)
 
-    def test_every_group_has_hash_and_one_fingerprint_per_row(self):
+    def test_every_group_has_hash_and_one_fingerprint_per_row(self) -> None:
         rows_by_name = {
             name: rows for name, _key, rows in golden.build_fixture_groups()}
         for name, group in self.fixture["groups"].items():
@@ -116,20 +118,22 @@ class ForemanNotesBaselineTests(unittest.TestCase):
                 self.assertEqual(
                     len(hashes["row_fps"]), len(rows_by_name[name]))
 
-    def test_expected_ten_variant_families_are_all_built(self):
+    def test_expected_ten_variant_families_are_all_built(self) -> None:
         self.assertEqual(
             [name for name, _k, _r in golden.build_fixture_groups()],
             EXPECTED_GROUPS)
         self.assertEqual(len(EXPECTED_GROUPS), 10)
 
-    def test_every_fixture_group_carries_a_note_and_a_formula_note(self):
+    def test_every_fixture_group_carries_a_note_and_a_formula_note(
+        self,
+    ) -> None:
         for name, _key, rows in golden.build_fixture_groups():
             notes = [str(r.get("Foreman Notes") or "") for r in rows]
             with self.subTest(group=name):
                 self.assertTrue(any(n.strip() for n in notes))
                 self.assertTrue(any(n.startswith("=") for n in notes))
 
-    def test_capture_is_independent_of_the_process_environment(self):
+    def test_capture_is_independent_of_the_process_environment(self) -> None:
         """A subprocess with a perturbed environment must reproduce the
         fixture; a difference means an env-derived input leaked in and must
         be added to ``pinned_env`` -- never loosen this comparison."""
@@ -147,12 +151,12 @@ class ForemanNotesBaselineTests(unittest.TestCase):
         self.assertIsNone(
             diff, f"perturbed-environment capture differs at {diff}")
 
-    def test_primary_group_golden_has_merged_ranges(self):
+    def test_primary_group_golden_has_merged_ranges(self) -> None:
         self.assertTrue(
             self.fixture["groups"]["primary"]["workbook"]["merged"]
         )
 
-    def test_foreman_notes_are_not_rendered_today(self):
+    def test_foreman_notes_are_not_rendered_today(self) -> None:
         """Today's output ignores the ``Foreman Notes`` key entirely."""
         for name, group in self.fixture["groups"].items():
             values = _all_cell_values(group)

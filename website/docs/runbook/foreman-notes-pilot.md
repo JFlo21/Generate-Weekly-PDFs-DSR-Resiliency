@@ -33,9 +33,11 @@ For a **pilot** General Foreman (GF), the weekly Excel workbook gains:
   underline and strikethrough are never copied;
 - landscape, fit-to-page-width printing so the wider sheet prints on one page.
 
-Every other workbook (non-pilot GFs and all other variants) is cell-identical
-to today's. Anything unparseable (an unknown colour index, an empty colour
-descriptor) leaves that cell plain rather than failing the workbook.
+Pilot membership follows the Work Request, so every workbook for a pilot WR
+gets this layout: primary, helper, Helper #2, VAC crew and subcontractor. Only
+non-pilot WRs stay cell-identical to today's output. Anything unparseable (an
+unknown colour index, an empty colour descriptor) leaves that cell plain rather
+than failing the workbook.
 
 ## Settings
 

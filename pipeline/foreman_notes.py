@@ -209,11 +209,13 @@ _STATE: FnState = FnState()
 
 
 def set_state(state: FnState) -> None:
+    """Replace the run state that every Foreman Notes check reads."""
     global _STATE
     _STATE = state
 
 
 def get_state() -> FnState:
+    """Return the current run state without changing it."""
     return _STATE
 
 
@@ -343,6 +345,7 @@ def _breadcrumb(**counts: int) -> None:
 def initialize(client: Any) -> FnState:
     """Resolve the run state once at start-up. Never raises."""
     try:
+        reset_style_cache()
         scope = EFFECTIVE_SCOPE
         if scope == "off":
             state = FnState()
@@ -551,6 +554,7 @@ _STYLE_CACHE: dict = {}
 
 
 def reset_style_cache() -> None:
+    """Forget every cached row colour, including failed fetches."""
     _STYLE_CACHE.clear()
 
 

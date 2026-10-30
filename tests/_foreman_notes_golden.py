@@ -28,7 +28,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from unittest import mock
 
 _HERE = Path(__file__).resolve().parent
@@ -96,7 +96,7 @@ PINNED: list[tuple[str, str, Any]] = [
 
 
 @contextlib.contextmanager
-def pinned_env(output_folder: str | None = None):
+def pinned_env(output_folder: str | None = None) -> Iterator[None]:
     """Patch every env-derived input of the hash / workbook for the capture.
 
     Each name is patched on the module that actually consumes it, then

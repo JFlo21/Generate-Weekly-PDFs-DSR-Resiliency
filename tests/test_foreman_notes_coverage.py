@@ -43,7 +43,9 @@ def _functions(path: Path) -> dict[str, ast.FunctionDef]:
     }
 
 
-def _read_keys(func: ast.AST, receivers=_ROW_RECEIVERS) -> set[str]:
+def _read_keys(
+    func: ast.AST, receivers: set[str] = _ROW_RECEIVERS
+) -> set[str]:
     """String keys read from a row-like receiver via ``.get`` / subscript."""
     keys: set[str] = set()
     for node in ast.walk(func):
@@ -83,16 +85,16 @@ def _string_constants(func: ast.AST) -> set[str]:
 
 
 class NotesKeyIsolationTests(unittest.TestCase):
-    def test_constants(self):
+    def test_constants(self) -> None:
         self.assertEqual(_fn.NOTES_KEY, _NOTES)
 
-    def test_notes_not_in_shared_derivation_lists(self):
+    def test_notes_not_in_shared_derivation_lists(self) -> None:
         self.assertNotIn(_NOTES, mc.GROUP_DERIVATION_KEYS)
         self.assertNotIn(_NOTES, mc.DERIVED_KEY_SOURCES)
         for sources in mc.DERIVED_KEY_SOURCES.values():
             self.assertNotIn(_NOTES, sources)
 
-    def test_notes_not_read_by_shared_hash_functions(self):
+    def test_notes_not_read_by_shared_hash_functions(self) -> None:
         funcs = _functions(_CD)
         for name in (
             "_extended_row_fields", "canonical_sorted_rows",
@@ -103,19 +105,23 @@ class NotesKeyIsolationTests(unittest.TestCase):
                 self.assertNotIn(_NOTES, _read_keys(funcs[name]))
                 self.assertNotIn(_NOTES, _string_constants(funcs[name]))
 
-    def test_calculate_data_hash_reaches_notes_only_through_the_token(self):
+    def test_calculate_data_hash_reaches_notes_only_through_the_token(
+        self,
+    ) -> None:
         fn = _functions(_CD)["calculate_data_hash"]
         self.assertIn("group_notes_token", _attr_calls(fn))
         self.assertNotIn(_NOTES, _read_keys(fn))
         self.assertNotIn(_NOTES, _string_constants(fn))
 
-    def test_row_fingerprint_reaches_notes_only_through_the_component(self):
+    def test_row_fingerprint_reaches_notes_only_through_the_component(
+        self,
+    ) -> None:
         fn = _functions(_MC)["row_group_hash_fingerprint"]
         self.assertIn("row_notes_component", _attr_calls(fn))
         self.assertNotIn(_NOTES, _read_keys(fn))
         self.assertNotIn(_NOTES, _string_constants(fn))
 
-    def test_globals_fingerprint_uses_the_globals_component(self):
+    def test_globals_fingerprint_uses_the_globals_component(self) -> None:
         fn = _functions(_MC)["group_hash_globals_fingerprint"]
         self.assertIn("globals_component", _attr_calls(fn))
 
@@ -128,25 +134,25 @@ class ColourExclusionTests(unittest.TestCase):
         "_first_nonempty_foreman", "calculate_data_hash",
     )
 
-    def _no_style(self, func, label):
+    def _no_style(self, func: ast.AST, label: str) -> None:
         self.assertNotIn(_fn.STYLE_KEY, _read_keys(func), label)
         self.assertNotIn(_fn.STYLE_KEY, _string_constants(func), label)
         self.assertNotIn("STYLE_KEY", {
             n.attr for n in ast.walk(func) if isinstance(n, ast.Attribute)
         }, label)
 
-    def test_change_detection_functions_never_touch_style(self):
+    def test_change_detection_functions_never_touch_style(self) -> None:
         funcs = _functions(_CD)
         for name in self._HASH_FUNCS:
             with self.subTest(function=name):
                 self._no_style(funcs[name], name)
 
-    def test_row_fingerprint_never_touches_style(self):
+    def test_row_fingerprint_never_touches_style(self) -> None:
         self._no_style(
             _functions(_MC)["row_group_hash_fingerprint"],
             "row_group_hash_fingerprint")
 
-    def test_payload_builder_never_touches_style_or_notes(self):
+    def test_payload_builder_never_touches_style_or_notes(self) -> None:
         fn = _functions(_WRITER)["_row_to_payload"]
         self._no_style(fn, "_row_to_payload")
         self.assertNotIn(_NOTES, _read_keys(fn, receivers={"row_data"}))
@@ -156,7 +162,7 @@ class ColourExclusionTests(unittest.TestCase):
 class NoNotesTextInSupabaseTests(unittest.TestCase):
     """T-15-10: only digests (via group_hash_fp) may carry note content."""
 
-    def test_hash_fields_carry_no_notes_field(self):
+    def test_hash_fields_carry_no_notes_field(self) -> None:
         for name in tuple(mem_writer.HASH_FIELDS) + tuple(
             mem_writer.HASH_ONLY_FIELDS
         ):
@@ -164,7 +170,7 @@ class NoNotesTextInSupabaseTests(unittest.TestCase):
                 self.assertNotIn("note", name.lower())
                 self.assertNotIn("style", name.lower())
 
-    def test_hash_only_fields_unchanged_digest_slot(self):
+    def test_hash_only_fields_unchanged_digest_slot(self) -> None:
         self.assertEqual(
             tuple(mem_writer.HASH_ONLY_FIELDS), ("group_hash_fp",)
         )
@@ -194,7 +200,7 @@ class GenericRowIterationScanTests(unittest.TestCase):
         ("pipeline/excel.py", "generate_excel"),
     }
 
-    def _hits(self):
+    def _hits(self) -> set[tuple[str, str]]:
         hits = set()
         files = sorted((_REPO_ROOT / "pipeline").glob("*.py")) + sorted(
             (_REPO_ROOT / "pipeline_memory").glob("*.py"))
@@ -228,7 +234,7 @@ class GenericRowIterationScanTests(unittest.TestCase):
                             hits.add((rel, fn.name))
         return hits
 
-    def test_only_reviewed_generic_row_iterations_exist(self):
+    def test_only_reviewed_generic_row_iterations_exist(self) -> None:
         self.assertEqual(
             self._hits(), self._ALLOWED,
             "A function iterates a source row generically; review whether it "

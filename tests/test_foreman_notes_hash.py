@@ -22,6 +22,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest import mock
 
 _HERE = Path(__file__).resolve().parent
@@ -44,7 +45,10 @@ _GOLDEN = json.loads(golden.FIXTURE_PATH.read_text(encoding="utf-8"))["groups"]
 _NOTES = _fn.NOTES_KEY
 
 
-def _pilot_state(wrs=(golden.WR,), allowlist=("fixture gf",)):
+def _pilot_state(
+    wrs: tuple[str, ...] = (golden.WR,),
+    allowlist: tuple[str, ...] = ("fixture gf",),
+) -> _fn.FnState:
     return _fn.FnState(
         scope="pilot",
         allowlist=frozenset(allowlist),
@@ -53,16 +57,16 @@ def _pilot_state(wrs=(golden.WR,), allowlist=("fixture gf",)):
     )
 
 
-def _groups():
+def _groups() -> dict[str, list[dict[str, Any]]]:
     return {name: rows for name, _key, rows in golden.build_fixture_groups()}
 
 
 class _StateCase(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         _fn.reset_state()
         _fn.reset_style_cache()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         _fn.reset_state()
         _fn.reset_style_cache()
 
@@ -70,7 +74,9 @@ class _StateCase(unittest.TestCase):
 class TracerPilotNotesFlowTests(_StateCase):
     """One pilot row from the notes cell to the group hash and fingerprint."""
 
-    def test_pilot_notes_edit_flows_to_group_hash_and_row_fingerprint(self):
+    def test_pilot_notes_edit_flows_to_group_hash_and_row_fingerprint(
+        self,
+    ) -> None:
         rows = _groups()["primary"]
         gold = _GOLDEN["primary"]["hashes"]
 
@@ -95,18 +101,18 @@ class TracerPilotNotesFlowTests(_StateCase):
 class GoldenIdentityMatrixTests(_StateCase):
     """Off and non-pilot output equals the BASE golden for EVERY variant."""
 
-    def test_fixture_group_count_matches_golden(self):
+    def test_fixture_group_count_matches_golden(self) -> None:
         self.assertEqual(set(_groups()), set(_GOLDEN))
         self.assertEqual(set(_GOLDEN), set(golden.EXPECTED_GROUP_NAMES))
 
-    def test_off_state_is_golden_for_every_group(self):
+    def test_off_state_is_golden_for_every_group(self) -> None:
         _fn.reset_state()
         for name, rows in _groups().items():
             with self.subTest(group=name):
                 self.assertEqual(
                     golden.hash_digests(rows), _GOLDEN[name]["hashes"])
 
-    def test_non_pilot_wr_with_notes_is_golden_for_every_group(self):
+    def test_non_pilot_wr_with_notes_is_golden_for_every_group(self) -> None:
         # Pilot scope on, but this WR is not in the pilot WR set.
         _fn.set_state(_pilot_state(wrs=("00000",)))
         for name, rows in _groups().items():
@@ -115,7 +121,7 @@ class GoldenIdentityMatrixTests(_StateCase):
                 self.assertEqual(
                     golden.hash_digests(rows), _GOLDEN[name]["hashes"])
 
-    def test_pilot_group_differs_from_golden_in_every_variant(self):
+    def test_pilot_group_differs_from_golden_in_every_variant(self) -> None:
         _fn.set_state(_pilot_state())
         for name, rows in _groups().items():
             with self.subTest(group=name):
@@ -127,38 +133,40 @@ class GoldenIdentityMatrixTests(_StateCase):
 
 
 class NotesTokenBehaviourTests(_StateCase):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         _fn.set_state(_pilot_state())
         self.rows = _groups()["primary"]
         self.gold = _GOLDEN["primary"]["hashes"]["data_hash"]
 
-    def _hash(self, rows):
+    def _hash(self, rows: list[dict[str, Any]]) -> str:
         return golden.hash_digests(rows)["data_hash"]
 
-    def test_notes_fp_is_the_only_pilot_difference(self):
+    def test_notes_fp_is_the_only_pilot_difference(self) -> None:
         with mock.patch.object(_fn, "group_notes_token", return_value=""):
             self.assertEqual(self._hash(self.rows), self.gold)
         self.assertNotEqual(self._hash(self.rows), self.gold)
 
-    def test_all_blank_notes_still_differ_from_golden(self):
+    def test_all_blank_notes_still_differ_from_golden(self) -> None:
         blank = copy.deepcopy(self.rows)
         for r in blank:
             r[_NOTES] = ""
         self.assertNotEqual(self._hash(blank), self.gold)
         self.assertNotEqual(self._hash(blank), self._hash(self.rows))
 
-    def test_whitespace_only_note_change_keeps_hash_and_fingerprint(self):
+    def test_whitespace_only_note_change_keeps_hash_and_fingerprint(
+        self,
+    ) -> None:
         padded = copy.deepcopy(self.rows)
         padded[0][_NOTES] = "\t " + padded[0][_NOTES] + "  "
         self.assertEqual(
             golden.hash_digests(self.rows), golden.hash_digests(padded))
 
-    def test_row_permutation_keeps_hash(self):
+    def test_row_permutation_keeps_hash(self) -> None:
         shuffled = list(reversed(copy.deepcopy(self.rows)))
         self.assertEqual(self._hash(shuffled), self._hash(self.rows))
 
-    def test_notes_edit_on_non_pilot_wr_changes_nothing(self):
+    def test_notes_edit_on_non_pilot_wr_changes_nothing(self) -> None:
         other = copy.deepcopy(self.rows)
         for r in other:
             r["Work Request #"] = "00000"
@@ -169,7 +177,7 @@ class NotesTokenBehaviourTests(_StateCase):
 
 
 class ColourExclusionTests(_StateCase):
-    def test_style_data_never_changes_hash_or_fingerprint(self):
+    def test_style_data_never_changes_hash_or_fingerprint(self) -> None:
         styled = copy.deepcopy(_groups()["primary"])
         for i, r in enumerate(styled):
             r[_fn.STYLE_KEY] = {9: ((i, 2, 3), (250, 250, 250)), 4: None}
@@ -182,7 +190,7 @@ class ColourExclusionTests(_StateCase):
 
 
 class GlobalsFingerprintTests(_StateCase):
-    def test_off_equals_legacy_payload_and_pilot_changes_it(self):
+    def test_off_equals_legacy_payload_and_pilot_changes_it(self) -> None:
         with golden.pinned_env():
             legacy = hashlib.sha256(json.dumps(
                 [True, "2026-01-01", "fixture-sub-fp", "fixture-rates-fp"],
@@ -210,7 +218,7 @@ _PARITY_FIELDS = (
 )
 
 
-def _parity_values(note):
+def _parity_values(note: str) -> dict[str, Any]:
     return {
         "Work Request #": "90001",
         "Weekly Reference Logged Date": "2026-08-30",
@@ -229,7 +237,9 @@ def _parity_values(note):
     }
 
 
-def _parity_sheet(note, row_id=5001):
+def _parity_sheet(
+    note: str, row_id: int = 5001
+) -> tuple[dict[str, Any], SimpleNamespace]:
     mapping = {f: i + 1 for i, f in enumerate(_PARITY_FIELDS)}
     source = {"id": 7770001, "name": "parity", "column_mapping": mapping}
     cells = [
@@ -244,7 +254,9 @@ def _parity_sheet(note, row_id=5001):
 
 
 class FullVsDeltaParityTests(_StateCase):
-    def _both(self, note):
+    def _both(
+        self, note: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         source, sheet = _parity_sheet(note)
         with mock.patch.object(
             _fetch, "smartsheet_call_with_retry",
@@ -256,7 +268,7 @@ class FullVsDeltaParityTests(_StateCase):
         self.assertEqual(len(delta), 1)
         return full[0], delta[0]
 
-    def test_full_vs_delta_note_and_fingerprint_are_identical(self):
+    def test_full_vs_delta_note_and_fingerprint_are_identical(self) -> None:
         _fn.set_state(_pilot_state(wrs=("90001",)))
         for note in ("Gate code on file", "", "  padded \x01 note "):
             with self.subTest(note=note):
@@ -267,7 +279,9 @@ class FullVsDeltaParityTests(_StateCase):
                     row_group_hash_fingerprint(delta),
                 )
 
-    def test_full_vs_delta_fingerprint_follows_note_for_pilot_only(self):
+    def test_full_vs_delta_fingerprint_follows_note_for_pilot_only(
+        self,
+    ) -> None:
         _fn.set_state(_pilot_state(wrs=("90001",)))
         a_full, a_delta = self._both("note one")
         b_full, b_delta = self._both("note two")
@@ -291,7 +305,7 @@ class FullVsDeltaParityTests(_StateCase):
 # ---------------------------------------------------------------------------
 
 class MappingMarkerTests(_StateCase):
-    def test_marker_helper_changes_only_when_enabled(self):
+    def test_marker_helper_changes_only_when_enabled(self) -> None:
         with mock.patch.object(_fn, "EFFECTIVE_SCOPE", "off"):
             self.assertEqual(
                 _fn.mapping_schema_marker("helper2-v1"), "helper2-v1")
@@ -299,14 +313,14 @@ class MappingMarkerTests(_StateCase):
             self.assertNotEqual(
                 _fn.mapping_schema_marker("helper2-v1"), "helper2-v1")
 
-    def test_old_marker_watermark_is_not_admitted_when_enabled(self):
+    def test_old_marker_watermark_is_not_admitted_when_enabled(self) -> None:
         with mock.patch.object(_fn, "EFFECTIVE_SCOPE", "pilot"):
             enabled = _fn.mapping_schema_marker("helper2-v1")
         client = mock.MagicMock()
         client.Sheets.list_sheets.return_value = SimpleNamespace(
             data=[SimpleNamespace(id=111222, version=8)])
 
-        def wm(marker):
+        def wm(marker: Any) -> dict[int, dict[str, Any]]:
             return {111222: {
                 "sheet_id": 111222, "last_sheet_version": 8,
                 "column_mapping": {"Weekly Reference Logged Date": 55},
@@ -329,7 +343,7 @@ class MappingMarkerTests(_StateCase):
 class NotesSynonymTests(_StateCase):
     _SHEET_ID = 8880001
 
-    def _discover(self):
+    def _discover(self) -> dict[str, int]:
         from smartsheet.models.column import Column
         from smartsheet.models.sheet import Sheet as _Sheet
 
@@ -360,7 +374,7 @@ class NotesSynonymTests(_StateCase):
         self.assertEqual(len(found), 1, found)
         return found[0]["column_mapping"]
 
-    def test_notes_column_mapped_only_when_enabled(self):
+    def test_notes_column_mapped_only_when_enabled(self) -> None:
         with mock.patch.object(_fn, "EFFECTIVE_SCOPE", "off"):
             self.assertNotIn(_NOTES, self._discover())
         with mock.patch.object(_fn, "EFFECTIVE_SCOPE", "pilot"):

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import unittest
 from types import SimpleNamespace as NS
+from typing import Any, Optional
 from unittest import mock
 
 from pipeline import config
@@ -20,11 +21,13 @@ GF_COL = 222
 SHEET = 999
 
 
-def _col(cid, title):
+def _col(cid: int, title: str) -> NS:
     return NS(id=cid, title=title)
 
 
-def _row(wr, gf, wr_attr='value'):
+def _row(
+    wr: Optional[str], gf: Optional[str], wr_attr: str = 'value'
+) -> NS:
     cells = [
         NS(column_id=WR_COL, value=wr if wr_attr == 'value' else None,
            display_value=wr if wr_attr == 'display' else None),
@@ -34,8 +37,11 @@ def _row(wr, gf, wr_attr='value'):
 
 
 def _sheet(
-    rows, wr_title='Work Request #', gf_title='General Foreman', total=None
-):
+    rows: list[NS],
+    wr_title: str = 'Work Request #',
+    gf_title: str = 'General Foreman',
+    total: Optional[int] = None,
+) -> NS:
     return NS(
         columns=[_col(WR_COL, wr_title), _col(GF_COL, gf_title)],
         rows=rows,
@@ -44,51 +50,57 @@ def _sheet(
 
 
 class _Sheets:
-    def __init__(self, sheet=None, exc=None):
+    def __init__(
+        self, sheet: Optional[NS] = None, exc: Optional[Exception] = None
+    ) -> None:
         self.sheet = sheet
         self.exc = exc
         self.calls = []
 
-    def get_sheet(self, sheet_id, **kwargs):
+    def get_sheet(self, sheet_id: int, **kwargs: Any) -> Optional[NS]:
         self.calls.append((sheet_id, kwargs))
         if self.exc:
             raise self.exc
         return self.sheet
 
 
-def _client(sheet=None, exc=None):
+def _client(
+    sheet: Optional[NS] = None, exc: Optional[Exception] = None
+) -> NS:
     return NS(Sheets=_Sheets(sheet, exc))
 
 
 class EffectiveScopeTests(unittest.TestCase):
-    def tearDown(self):
+    def tearDown(self) -> None:
         fn.reset_state()
 
-    def _scope(self, configured, test_mode, upload, mem):
+    def _scope(
+        self, configured: str, test_mode: bool, upload: bool, mem: bool
+    ) -> str:
         return fn.compute_effective_scope(
             configured, test_mode=test_mode, upload_enabled=upload,
             memory_write_possible=mem,
         )
 
-    def test_production_cron_is_off(self):
+    def test_production_cron_is_off(self) -> None:
         self.assertEqual(self._scope('pilot', False, False, True), 'off')
 
-    def test_skip_upload_alone_never_enables(self):
+    def test_skip_upload_alone_never_enables(self) -> None:
         self.assertEqual(self._scope('pilot', False, False, False), 'off')
 
-    def test_dry_run_without_write_paths_is_pilot(self):
+    def test_dry_run_without_write_paths_is_pilot(self) -> None:
         self.assertEqual(self._scope('pilot', True, False, False), 'pilot')
 
-    def test_dry_run_with_write_paths_is_off_with_one_warning(self):
+    def test_dry_run_with_write_paths_is_off_with_one_warning(self) -> None:
         with self.assertLogs(level='WARNING') as cm:
             self.assertEqual(self._scope('pilot', True, False, True), 'off')
         self.assertEqual(len(cm.records), 1)
 
-    def test_rollout_is_configured_scope(self):
+    def test_rollout_is_configured_scope(self) -> None:
         self.assertEqual(self._scope('pilot', False, True, True), 'pilot')
         self.assertEqual(self._scope('all', False, True, True), 'all')
 
-    def test_off_and_invalid(self):
+    def test_off_and_invalid(self) -> None:
         for t in (True, False):
             for u in (True, False):
                 for m in (True, False):
@@ -97,26 +109,26 @@ class EffectiveScopeTests(unittest.TestCase):
             self.assertEqual(self._scope('bogus', True, True, False), 'off')
         self.assertEqual(len(cm.records), 1)
 
-    def test_all_gates_like_pilot(self):
+    def test_all_gates_like_pilot(self) -> None:
         self.assertEqual(self._scope('all', True, False, False), 'all')
         self.assertEqual(self._scope('all', False, False, False), 'off')
 
 
 class MemoryWriteBlockedTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         fn.reset_state()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         fn.reset_state()
 
-    def test_blocked_only_for_dry_run_pilot(self):
+    def test_blocked_only_for_dry_run_pilot(self) -> None:
         with mock.patch.object(fn, 'EFFECTIVE_SCOPE', 'pilot'), \
                 mock.patch.object(config, 'TEST_MODE', True), \
                 mock.patch.object(config, 'FOREMAN_NOTES_UPLOAD', False):
             self.assertTrue(fn.is_dry_run_pilot())
             self.assertTrue(fn.memory_write_blocked('row_state'))
 
-    def test_not_blocked_when_off_or_rollout(self):
+    def test_not_blocked_when_off_or_rollout(self) -> None:
         with mock.patch.object(fn, 'EFFECTIVE_SCOPE', 'off'), \
                 mock.patch.object(config, 'TEST_MODE', True):
             self.assertFalse(fn.memory_write_blocked('row_state'))
@@ -126,7 +138,7 @@ class MemoryWriteBlockedTests(unittest.TestCase):
             self.assertFalse(fn.is_dry_run_pilot())
             self.assertFalse(fn.memory_write_blocked('row_state'))
 
-    def test_error_logged_once_per_kind_and_reset_clears(self):
+    def test_error_logged_once_per_kind_and_reset_clears(self) -> None:
         with mock.patch.object(fn, 'EFFECTIVE_SCOPE', 'pilot'), \
                 mock.patch.object(config, 'TEST_MODE', True), \
                 mock.patch.object(config, 'FOREMAN_NOTES_UPLOAD', False):
@@ -144,7 +156,7 @@ class MemoryWriteBlockedTests(unittest.TestCase):
 
 
 class MarkerTests(unittest.TestCase):
-    def test_marker_follows_scope(self):
+    def test_marker_follows_scope(self) -> None:
         with mock.patch.object(fn, 'EFFECTIVE_SCOPE', 'off'):
             self.assertFalse(fn.mapping_enabled())
             self.assertEqual(
@@ -158,13 +170,13 @@ class MarkerTests(unittest.TestCase):
 
 
 class NormalizeTests(unittest.TestCase):
-    def test_name_normalisation(self):
+    def test_name_normalisation(self) -> None:
         self.assertEqual(fn.normalize_name('  avery   EXAMPLE '),
                          fn.normalize_name('Avery Example'))
         for v in ('NA', 'na', ' Na ', '', None):
             self.assertEqual(fn.normalize_name(v), '')
 
-    def test_allowlist(self):
+    def test_allowlist(self) -> None:
         self.assertEqual(fn.parse_allowlist(''), frozenset())
         self.assertEqual(fn.parse_allowlist(None), frozenset())
         self.assertEqual(
@@ -174,7 +186,7 @@ class NormalizeTests(unittest.TestCase):
 
 
 class LoadGfMapTests(unittest.TestCase):
-    def test_happy_path_and_wr_float(self):
+    def test_happy_path_and_wr_float(self) -> None:
         client = _client(_sheet([_row('90003.0', 'Avery Example'),
                                  _row('90004', ' pat   example')]))
         got = fn.load_gf_map(client, SHEET, WR_COL, GF_COL)
@@ -185,23 +197,23 @@ class LoadGfMapTests(unittest.TestCase):
         self.assertEqual(sid, SHEET)
         self.assertEqual(kwargs['column_ids'], f'{WR_COL},{GF_COL}')
 
-    def test_display_value_fallback(self):
+    def test_display_value_fallback(self) -> None:
         client = _client(
             _sheet([_row('90005', 'Avery Example', wr_attr='display')])
         )
         self.assertEqual(fn.load_gf_map(client, SHEET, WR_COL, GF_COL),
                          {'90005': 'avery example'})
 
-    def test_title_mismatch_is_none(self):
+    def test_title_mismatch_is_none(self) -> None:
         for kw in ({'wr_title': 'Other'}, {'gf_title': 'Other'}):
             client = _client(_sheet([_row('90003', 'Avery Example')], **kw))
             self.assertIsNone(fn.load_gf_map(client, SHEET, WR_COL, GF_COL))
 
-    def test_exception_is_none(self):
+    def test_exception_is_none(self) -> None:
         client = _client(exc=ValueError('boom'))
         self.assertIsNone(fn.load_gf_map(client, SHEET, WR_COL, GF_COL))
 
-    def test_duplicates(self):
+    def test_duplicates(self) -> None:
         client = _client(_sheet([
             _row('90003', 'Avery Example'), _row('90003', 'Pat Example'),
             _row('90004', 'Avery Example'), _row('90004', ' avery  example'),
@@ -210,7 +222,7 @@ class LoadGfMapTests(unittest.TestCase):
         self.assertNotIn('90003', got)
         self.assertEqual(got['90004'], 'avery example')
 
-    def test_short_read_warns_and_fails_closed(self):
+    def test_short_read_warns_and_fails_closed(self) -> None:
         client = _client(_sheet([_row('90003', 'Avery Example')], total=5))
         with self.assertLogs(level='WARNING'):
             got = fn.load_gf_map(client, SHEET, WR_COL, GF_COL)
@@ -218,13 +230,13 @@ class LoadGfMapTests(unittest.TestCase):
 
 
 class InitializeTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         fn.reset_state()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         fn.reset_state()
 
-    def _init(self, scope, allowlist, client):
+    def _init(self, scope: str, allowlist: str, client: NS) -> fn.FnState:
         with mock.patch.object(fn, 'EFFECTIVE_SCOPE', scope), \
                 mock.patch.object(
                     config, 'FOREMAN_NOTES_PILOT_GFS', allowlist
@@ -237,14 +249,19 @@ class InitializeTests(unittest.TestCase):
                 ):
             return fn.initialize(client)
 
-    def test_off_makes_no_calls(self):
+    def test_new_run_drops_cached_colours(self) -> None:
+        fn._STYLE_CACHE[(1, 2)] = None
+        self._init('off', '', _client(_sheet([])))
+        self.assertEqual(fn._STYLE_CACHE, {})
+
+    def test_off_makes_no_calls(self) -> None:
         client = _client(_sheet([]))
         state = self._init('off', 'Avery Example', client)
         self.assertEqual(state.scope, 'off')
         self.assertEqual(client.Sheets.calls, [])
         self.assertFalse(fn.is_pilot_row({'Work Request #': '90003'}))
 
-    def test_all_makes_no_calls_and_every_wr_is_pilot(self):
+    def test_all_makes_no_calls_and_every_wr_is_pilot(self) -> None:
         client = _client(_sheet([]))
         state = self._init('all', '', client)
         self.assertEqual(state.scope, 'all')
@@ -253,7 +270,7 @@ class InitializeTests(unittest.TestCase):
         self.assertFalse(fn.is_pilot_row({'Work Request #': ''}))
         self.assertFalse(fn.is_pilot_row({}))
 
-    def test_pilot_one_call_with_both_ids(self):
+    def test_pilot_one_call_with_both_ids(self) -> None:
         client = _client(_sheet([_row('90003', 'Avery Example'),
                                  _row('90004', 'Jordan Sample')]))
         state = self._init('pilot', 'avery  example', client)
@@ -267,7 +284,7 @@ class InitializeTests(unittest.TestCase):
         self.assertFalse(fn.is_pilot_row({'Work Request #': '90004'}))
         self.assertTrue(fn.is_pilot_group([{'Work Request #': 90003}]))
 
-    def test_empty_allowlist_fail_closed_with_log(self):
+    def test_empty_allowlist_fail_closed_with_log(self) -> None:
         client = _client(_sheet([_row('90003', 'Avery Example')]))
         with self.assertLogs(level='INFO') as cm:
             state = self._init('pilot', '', client)
@@ -276,13 +293,13 @@ class InitializeTests(unittest.TestCase):
         self.assertTrue(any('pilot allowlist empty' in r.getMessage()
                             and '0' in r.getMessage() for r in cm.records))
 
-    def test_gf_failure_yields_no_pilot(self):
+    def test_gf_failure_yields_no_pilot(self) -> None:
         client = _client(exc=RuntimeError('x'))
         state = self._init('pilot', 'Avery Example', client)
         self.assertFalse(state.gf_loaded)
         self.assertEqual(state.pilot_wrs, frozenset())
 
-    def test_logs_contain_no_names_or_wrs(self):
+    def test_logs_contain_no_names_or_wrs(self) -> None:
         client = _client(_sheet([_row('90003', 'Avery Example')]))
         with self.assertLogs(level='INFO') as cm:
             self._init('pilot', 'Avery Example', client)
@@ -291,20 +308,20 @@ class InitializeTests(unittest.TestCase):
         self.assertNotIn('avery', text)
         self.assertNotIn('90003', text)
 
-    def test_state_is_frozen(self):
+    def test_state_is_frozen(self) -> None:
         with self.assertRaises(Exception):
             fn.get_state().scope = 'all'
 
 
 class PilotPredicateTests(unittest.TestCase):
-    def tearDown(self):
+    def tearDown(self) -> None:
         fn.reset_state()
 
-    def test_empty_group_not_pilot(self):
+    def test_empty_group_not_pilot(self) -> None:
         fn.set_state(fn.FnState(scope='all'))
         self.assertFalse(fn.is_pilot_group([]))
 
-    def test_same_wr_string_as_derive_row_wr(self):
+    def test_same_wr_string_as_derive_row_wr(self) -> None:
         fn.set_state(
             fn.FnState(scope='pilot', pilot_wrs=frozenset({'90_3', '90003'}))
         )
@@ -315,7 +332,7 @@ class PilotPredicateTests(unittest.TestCase):
 
 
 class ImportDefaultsTests(unittest.TestCase):
-    def _run(self, extra_env):
+    def _run(self, extra_env: dict[str, str]) -> str:
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(('TEST_MODE', 'SKIP_UPLOAD',
                                     'FOREMAN_NOTES',
@@ -330,7 +347,7 @@ class ImportDefaultsTests(unittest.TestCase):
         )
         return out.stdout.strip().splitlines()[-1]
 
-    def test_defaults(self):
+    def test_defaults(self) -> None:
         self.assertEqual(self._run({}), 'off')
         self.assertEqual(self._run({'SKIP_UPLOAD': 'true'}), 'off')
         self.assertEqual(self._run({'TEST_MODE': 'true'}), 'off')
@@ -340,7 +357,7 @@ class ImportDefaultsTests(unittest.TestCase):
                        'RUN_MEMORY_WRITE_ENABLED': '0'}),
             'pilot')
 
-    def test_allowlist_code_default_is_empty(self):
+    def test_allowlist_code_default_is_empty(self) -> None:
         out = subprocess.run(
             [sys.executable, '-c',
              'import pipeline.config as c; '

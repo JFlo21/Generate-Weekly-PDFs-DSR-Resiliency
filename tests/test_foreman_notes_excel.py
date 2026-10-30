@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, Callable
 
 _TESTS = Path(__file__).resolve().parent
 _REPO_ROOT = _TESTS.parent
@@ -63,13 +64,18 @@ def _non_pilot_state() -> fn.FnState:
 
 
 class _Base(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         fn.reset_state()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.addCleanup(fn.reset_state)
 
-    def render(self, name="primary", state=None, mutate=None):
+    def render(
+        self,
+        name: str = "primary",
+        state: Any = None,
+        mutate: Callable[[list[dict[str, Any]]], None] | None = None,
+    ) -> tuple[Path, Any]:
         """Run the real ``generate_excel`` and return ``(path, dump)``."""
         key, rows = _groups()[name]
         rows = copy.deepcopy(rows)
@@ -85,7 +91,7 @@ class _Base(unittest.TestCase):
         return path, golden.dump_workbook(path)
 
     @staticmethod
-    def blocks(ws):
+    def blocks(ws: Any) -> list[tuple[int, int, int]]:
         """``[(header_row, first_cu_row, total_row)]`` per day block."""
         out = []
         for r in range(1, ws.max_row + 1):
@@ -98,10 +104,10 @@ class _Base(unittest.TestCase):
 
 
 class TracerTests(_Base):
-    def test_pilot_primary_renders_note_and_carried_colour(self):
+    def test_pilot_primary_renders_note_and_carried_colour(self) -> None:
         style = {n: (YELLOW, None) for n in STYLE_NAMES if n != "N/A"}
 
-        def mutate(rows):
+        def mutate(rows: list[dict[str, Any]]) -> None:
             rows[0][fn.STYLE_KEY] = style
 
         path, _dump = self.render(state=_pilot_state(), mutate=mutate)
@@ -143,11 +149,14 @@ class TracerTests(_Base):
 
 
 class LayoutTests(_Base):
-    def pilot(self, mutate=None):
+    def pilot(
+        self,
+        mutate: Callable[[list[dict[str, Any]]], None] | None = None,
+    ) -> tuple[Any, Any]:
         path, dump = self.render(state=_pilot_state(), mutate=mutate)
         return openpyxl.load_workbook(path).active, dump
 
-    def test_merged_ranges_are_exactly_the_expected_list(self):
+    def test_merged_ranges_are_exactly_the_expected_list(self) -> None:
         ws, dump = self.pilot()
         golden_merged = _fixture()["groups"]["primary"]["workbook"]["merged"]
         # Day-header A:H -> A:I. The first day's header row (14) overlaps the
@@ -162,7 +171,7 @@ class LayoutTests(_Base):
             sorted(set(golden_merged) ^ set(expected)),
             ["A21:H21", "A21:I21"])
 
-    def test_total_row_layout(self):
+    def test_total_row_layout(self) -> None:
         ws, _dump = self.pilot()
         for _h, _f, total in self.blocks(ws):
             h = ws.cell(row=total, column=8)
@@ -176,7 +185,7 @@ class LayoutTests(_Base):
             self.assertEqual(i.fill.fgColor.rgb, RED)
             self.assertIsNone(i.value)
 
-    def test_columns_a_to_h_keep_positions_and_values(self):
+    def test_columns_a_to_h_keep_positions_and_values(self) -> None:
         ws, dump = self.pilot()
         gold = _fixture()["groups"]["primary"]["workbook"]["cells"]
         for coord, cell in gold.items():
@@ -186,10 +195,10 @@ class LayoutTests(_Base):
         self.assertEqual(ws.cell(row=15, column=8).value, "Pricing")
         self.assertEqual(ws.cell(row=15, column=7).value, "N/A")
 
-    def test_formula_prefixed_notes_are_stored_as_text(self):
+    def test_formula_prefixed_notes_are_stored_as_text(self) -> None:
         notes = ["=1+1", "+cmd", "-2+3", "@SUM(A1)"]
 
-        def mutate(rows):
+        def mutate(rows: list[dict[str, Any]]) -> None:
             for row, note in zip(rows, notes):
                 row["Foreman Notes"] = note
 
@@ -203,8 +212,8 @@ class LayoutTests(_Base):
                 self.assertEqual(cell.data_type, "s")
                 self.assertEqual(cell.value, note)
 
-    def test_illegal_chars_stripped_and_long_note_capped(self):
-        def mutate(rows):
+    def test_illegal_chars_stripped_and_long_note_capped(self) -> None:
+        def mutate(rows: list[dict[str, Any]]) -> None:
             rows[0]["Foreman Notes"] = "bad\x01note"
             rows[1]["Foreman Notes"] = "x" * 40000
             rows[2]["Foreman Notes"] = None
@@ -216,7 +225,7 @@ class LayoutTests(_Base):
         self.assertIsNone(ws["I23"].value)
         self.assertIsNone(ws["I24"].value)
 
-    def test_print_setup_fit_to_width_and_no_footer(self):
+    def test_print_setup_fit_to_width_and_no_footer(self) -> None:
         ws, dump = self.pilot()
         self.assertTrue(ws.sheet_properties.pageSetUpPr.fitToPage)
         self.assertEqual(ws.page_setup.fitToWidth, 1)
@@ -226,7 +235,7 @@ class LayoutTests(_Base):
             for part in (footer.left, footer.center, footer.right):
                 self.assertIn(part.text, (None, ""))
 
-    def test_column_i_width_and_wrap(self):
+    def test_column_i_width_and_wrap(self) -> None:
         ws, dump = self.pilot()
         self.assertEqual(dump["widths"]["I"], 50.0)
         for r in (16, 17, 23, 24):
@@ -234,8 +243,8 @@ class LayoutTests(_Base):
             self.assertTrue(align.wrap_text)
             self.assertEqual(align.vertical, "top")
 
-    def test_colour_fail_closed_and_font_only(self):
-        def mutate(rows):
+    def test_colour_fail_closed_and_font_only(self) -> None:
+        def mutate(rows: list[dict[str, Any]]) -> None:
             # rows[0]: (None, None) for every name; rows[1]: no STYLE_KEY;
             # rows[2]: font-only tuple; rows[3]: malformed descriptor values.
             rows[0][fn.STYLE_KEY] = {n: (None, None) for n in STYLE_NAMES}
@@ -267,7 +276,7 @@ class LayoutTests(_Base):
 
 
 class VariantsTests(_Base):
-    def test_variants_off_nonpilot_golden_and_pilot_layout(self):
+    def test_variants_off_nonpilot_golden_and_pilot_layout(self) -> None:
         fixture = _fixture()
         skipped = set(fixture["meta"]["skipped_variants"])
         seen = 0
@@ -277,7 +286,7 @@ class VariantsTests(_Base):
             seen += 1
             gold = fixture["groups"][name]["workbook"]
 
-            def styled(rs):
+            def styled(rs: list[dict[str, Any]]) -> None:
                 for r in rs:
                     r[
                         fn.STYLE_KEY
