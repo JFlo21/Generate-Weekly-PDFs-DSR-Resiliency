@@ -1849,12 +1849,6 @@ def _regen_debt_finish_kwargs(
             | {gk for gk, ok in upload_ok.items() if ok}
             | withheld
             | set(no_target_groups)
-            # PR #439 (owner decision): quarantined WR-collision groups
-            # count as confirmed wherever their pair came from. A pair
-            # cleared this way is NOT proven regenerated: a full run heals
-            # it after the source fix, an incremental run may not, so the
-            # first run after a collision fix must be full.
-            | set(excluded_groups)
         )
         pending = set(candidate_pairs)
         if inherited_unknown:
@@ -1863,9 +1857,15 @@ def _regen_debt_finish_kwargs(
         # not confirm is owed a regeneration -- a failed upload, a
         # generation error, or a group the time budget never reached --
         # even outside the candidate set (attachment repair, group-hash
-        # globals change).
+        # globals change). *excluded_groups* (quarantined WR-collision
+        # groups) add nothing here: a full run skips them until the source
+        # data is fixed. They never clear a pair (PR #439, owner decision):
+        # a pending pair leaves the debt only on a proven outcome. row_state
+        # advanced before the skip, so dropping it could leave a billing
+        # file stale. Debt scope only widens.
         pending |= {
-            pair for gk, pair in group_pairs.items() if gk not in confirmed
+            pair for gk, pair in group_pairs.items()
+            if gk not in confirmed and gk not in excluded_groups
         }
         carried = _memory_candidate.unconfirmed_pairs(
             pending, group_pairs, confirmed, scoped,

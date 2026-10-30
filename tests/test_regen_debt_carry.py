@@ -1237,54 +1237,62 @@ class PR435BotFollowupTests(unittest.TestCase):
         )
         self.assertEqual(out["regen_debt_pairs"], [])
 
-    def test_quarantined_candidate_pair_is_not_carried(self):
-        # PR #439 (Copilot): a quarantined group already in the candidate
-        # set must clear too, not only one outside it.
-        out = self._kw(
-            candidate_pairs={("7", "2026-11-08")},
-            groups={"q": _group("7", "2026-11-08")},
-            skip_keys=set(),
-            excluded_groups={"q"},
-        )
-        self.assertEqual(out["regen_debt_pairs"], [])
+    def _carried(self, **over):
+        out = self._kw(**over)
+        return {tuple(p) for p in out["regen_debt_pairs"]}
 
-    def test_quarantined_group_with_inherited_unknown_is_not_carried(self):
-        out = self._kw(
-            candidate_pairs=set(),
-            groups={"q": _group("7", "2026-11-08")},
-            skip_keys=set(),
-            excluded_groups={"q"},
-            inherited_unknown=True,
-        )
-        self.assertEqual(out["regen_debt_pairs"], [])
-
-    def test_unconfirmed_sibling_of_quarantined_group_is_carried(self):
-        out = self._kw(
-            candidate_pairs={("7", "2026-11-08")},
-            groups={
-                "q": _group("7", "2026-11-08"),
-                "sibling": _group("7", "2026-11-08"),
-            },
-            skip_keys=set(),
-            excluded_groups={"q"},
-        )
+    def test_quarantined_pair_already_pending_stays_carried(self):
+        # PR #439 (owner decision): exclusion never narrows debt. Clearing
+        # this pair would drop a regeneration that is still owed.
         self.assertEqual(
-            [tuple(p) for p in out["regen_debt_pairs"]],
-            [("7", "2026-11-08")],
+            self._carried(
+                candidate_pairs={("7", "2026-11-08")},
+                groups={"q": _group("7", "2026-11-08")},
+                skip_keys=set(),
+                excluded_groups={"q"},
+            ),
+            {("7", "2026-11-08")},
         )
 
-    def test_quarantined_candidate_stays_carried_on_partial_coverage(self):
-        out = self._kw(
-            candidate_pairs={("7", "2026-11-08")},
-            groups={"q": _group("7", "2026-11-08")},
-            skip_keys=set(),
-            excluded_groups={"q"},
-            coverage_complete=False,
+    def test_exclusion_never_drops_a_pending_pair(self):
+        pair = ("7", "2026-11-08")
+        for candidate in (set(), {pair}):
+            for inherited in (False, True):
+                for coverage in (False, True):
+                    if not candidate and not inherited:
+                        continue
+                    with self.subTest(
+                        candidate=bool(candidate), inherited=inherited,
+                        coverage=coverage,
+                    ):
+                        self.assertIn(pair, self._carried(
+                            candidate_pairs=set(candidate),
+                            groups={"q": _group(*pair)},
+                            skip_keys=set(),
+                            excluded_groups={"q"},
+                            inherited_unknown=inherited,
+                            coverage_complete=coverage,
+                        ))
+
+    def test_quarantined_pair_clears_only_after_a_proven_upload(self):
+        pair = ("7", "2026-11-08")
+        common = dict(groups={"q": _group(*pair)}, skip_keys=set())
+        debt = self._carried(
+            candidate_pairs={pair}, excluded_groups={"q"}, **common,
         )
-        self.assertEqual(
-            [tuple(p) for p in out["regen_debt_pairs"]],
-            [("7", "2026-11-08")],
+        self.assertEqual(debt, {pair})
+        still_quarantined = self._carried(
+            candidate_pairs=debt, excluded_groups={"q"}, **common,
         )
+        self.assertEqual(still_quarantined, {pair})
+        source_fixed_upload_failed = self._carried(
+            candidate_pairs=debt, upload_ok={"q": False}, **common,
+        )
+        self.assertEqual(source_fixed_upload_failed, {pair})
+        source_fixed_uploaded = self._carried(
+            candidate_pairs=debt, upload_ok={"q": True}, **common,
+        )
+        self.assertEqual(source_fixed_uploaded, set())
 
     def test_quarantined_group_keys_covers_every_matching_group(self):
         # PR #439 (Greptile): no dependence on the main loop reaching a
