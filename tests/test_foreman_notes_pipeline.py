@@ -13,6 +13,7 @@ import copy
 import datetime
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -582,6 +583,52 @@ class GuardBehaviourTests(_Base):
         kinds = {r.getMessage().split("kind=")[-1].rstrip(")")
                  for r in self.cap.errors()}
         self.assertEqual(kinds, {"audit_findings", "run_ledger", "row_state"})
+
+
+# --- Task 3: synthetic TEST_MODE run stays off (FN-11) ---------------------
+
+class SyntheticRunStaysOffTests(unittest.TestCase):
+    """The no-token synthetic run must not render a Foreman Notes column."""
+
+    def test_synthetic_run_has_no_foreman_notes_column(self):
+        out_dir = _REPO_ROOT / "generated_docs"
+        before = {p for p in out_dir.rglob("*.xlsx")} if out_dir.exists() else set()
+        dirs_before = {p for p in out_dir.rglob("*") if p.is_dir()}
+        env = dict(os.environ)
+        env.update({
+            "SMARTSHEET_API_TOKEN": "", "TEST_MODE": "true",
+            "SKIP_UPLOAD": "true", "PYTHONUTF8": "1",
+        })
+        for name in ("FOREMAN_NOTES_UPLOAD", "FOREMAN_NOTES_PILOT_GFS"):
+            env.pop(name, None)
+        created = []
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(_REPO_ROOT / "generate_weekly_pdfs.py")],
+                cwd=str(_REPO_ROOT), env=env, capture_output=True,
+                text=True, encoding="utf-8", errors="replace", timeout=300)
+            self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+            created = [p for p in out_dir.rglob("*.xlsx") if p not in before]
+            self.assertTrue(created, "synthetic run produced no workbook")
+            for path in created:
+                wb = openpyxl.load_workbook(path)
+                for ws in wb.worksheets:
+                    for row in ws.iter_rows():
+                        for cell in row:
+                            self.assertNotEqual(
+                                cell.value, "Foreman Notes", path.name)
+        finally:
+            for path in created:
+                path.unlink()
+            for d in sorted(
+                    (p for p in out_dir.rglob("*") if p.is_dir()
+                     and p not in dirs_before), reverse=True):
+                try:
+                    d.rmdir()
+                except OSError:
+                    pass
+            after = {p for p in out_dir.rglob("*.xlsx")}
+            self.assertEqual(after - before, set())
 
 
 if __name__ == "__main__":  # pragma: no cover
