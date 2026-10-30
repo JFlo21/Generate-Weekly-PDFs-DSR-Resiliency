@@ -1308,6 +1308,49 @@ class PR435BotFollowupTests(unittest.TestCase):
             orch._quarantined_group_keys(groups, {"1_2"}), {"a", "b"},
         )
 
+    def test_source_wr_raws_by_key_finds_the_collision(self):
+        groups = {
+            "a": [{"Work Request #": "1/2"}],
+            "b": [{"Work Request #": "1:2.0"}],
+            "ok": [{"Work Request #": "99.0"}],
+            "ok2": [{"Work Request #": "99"}],
+            "blank": [{"Work Request #": ""}],
+            "empty": [],
+        }
+        self.assertEqual(
+            orch._source_wr_raws_by_key(groups),
+            {"1_2": {"1/2", "1:2"}, "99": {"99"}},
+        )
+        self.assertEqual(orch._source_wr_raws_by_key({}), {})
+
+    def test_collision_outside_the_scoped_groups_still_quarantines(self):
+        # QUAR-01: raw "1:2" is filtered out of this run's groups, and its
+        # twin "1/2" must still be held back from the shared target key.
+        every_group = {
+            "in_scope": [{"Work Request #": "1/2"}],
+            "filtered_out": [{"Work Request #": "1:2"}],
+        }
+        raws = orch._source_wr_raws_by_key(every_group)
+        keys = {k for k, v in raws.items() if len(v) > 1}
+        scoped = {"in_scope": every_group["in_scope"]}
+        self.assertEqual(
+            orch._quarantined_group_keys(scoped, keys), {"in_scope"},
+        )
+
+    def test_main_scans_collisions_before_filtering_or_truncating(self):
+        src = inspect.getsource(orch.main)
+        scan = src.index(
+            "_source_wr_raws_per_key = _source_wr_raws_by_key(groups)"
+        )
+        self.assertLess(
+            scan, src.index("_filter_groups_to_affected(groups,"),
+        )
+        self.assertLess(
+            scan,
+            src.index("groups = dict(list(groups.items())[:MAX_GROUPS])"),
+        )
+        self.assertNotIn("_source_wr_raws_per_key[_g_sanitized]", src)
+
     def test_main_records_quarantined_groups_before_the_loop(self):
         src = inspect.getsource(orch.main)
         self.assertNotIn("_mem_quarantined_group_keys.add(", src)

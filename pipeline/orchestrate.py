@@ -1781,6 +1781,24 @@ def _memory_write_may_have_advanced_unseen(mem_result: dict) -> bool:
         return True
 
 
+def _source_wr_raws_by_key(
+    groups: dict[Any, list[dict[str, Any]]],
+) -> dict[str, set[str]]:
+    """Sanitized WR key -> every raw WR# that folds to it across *groups*.
+
+    Call it on the unfiltered groups: a scan of a filtered or truncated
+    map can miss the other raw WR of a collision (QUAR-01). PURE.
+    """
+    raws_by_key: dict[str, set[str]] = collections.defaultdict(set)
+    for rows in (groups or {}).values():
+        if not rows:
+            continue
+        raw = str(rows[0].get('Work Request #') or '').split('.')[0]
+        if raw:
+            raws_by_key[derive_row_wr(rows[0])].add(raw)
+    return raws_by_key
+
+
 def _quarantined_group_keys(
     groups: dict[Any, list[dict[str, Any]]],
     quarantined_wr_keys: 'set[str]',
@@ -3672,6 +3690,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         logging.info("📂 Grouping data...")
         with sentry_sdk.start_span(op="data.grouping", name="Group source rows by WR/week/variant") as span:
             groups = group_source_rows(all_rows)
+            # QUAR-01: scan before the incremental filter and MAX_GROUPS
+            # below can hide the other raw WR of a collision.
+            _source_wr_raws_per_key = _source_wr_raws_by_key(groups)
             span.set_data("input_rows", len(all_rows))
             span.set_data("groups_created", len(groups) if groups else 0)
             # Phase 11 Plan 04 (D-04): incremental-mode-only restriction to
@@ -4108,16 +4129,8 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # WRs that fold to the same sanitized key, anywhere in the
         # run's groups, is a collision regardless of week or variant.
         # Realistic numeric WR#s can't collide, so the scan is
-        # zero-impact on production data.
-        _source_wr_raws_per_key: dict = collections.defaultdict(set)
-        for _g_rows in groups.values():
-            if not _g_rows:
-                continue
-            _g_raw = str(_g_rows[0].get('Work Request #') or '').split('.')[0]
-            if not _g_raw:
-                continue
-            _g_sanitized = _RE_SANITIZE_HELPER_NAME.sub('_', _g_raw)[:50]
-            _source_wr_raws_per_key[_g_sanitized].add(_g_raw)
+        # zero-impact on production data. The raw-WR map is built right
+        # after grouping, from every group this run read (QUAR-01).
         _quarantined_source_wr_keys: set = {
             key for key, raws in _source_wr_raws_per_key.items()
             if len(raws) > 1
