@@ -22,6 +22,7 @@ const sidebars: SidebarsConfig = {
         'runbook/operations',
         'runbook/ownership-attribution',
         'runbook/foreman-helper-2',
+        'runbook/foreman-notes-pilot',
         'runbook/auth-rbac-bootstrap',
         'runbook/vercel-deployment',
         'runbook/whats-new',
