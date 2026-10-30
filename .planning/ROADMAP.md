@@ -899,7 +899,7 @@ Plans:
 **Goal:** Weekly WR Excel files for pilot general foremen (GF from `General Foreman` on the pre-planned pricing sheet) carry each CU row's `Foreman Notes` in a new column I and the Smartsheet applied colours on the Smartsheet-sourced CU-line cells, across every output path, behind a scope switch; switch-off and non-pilot output stay cell-identical with byte-identical hashes, and production is unchanged until the pilot upload switch is turned on after an owner dry-run review.
 **Requirements**: FN-01, FN-02, FN-03, FN-04, FN-05, FN-06, FN-07, FN-08, FN-09, FN-10, FN-11, FN-12, FN-13
 **Depends on:** Phase 11 for MERGE only (11-15 reading); planning/coding may run in parallel (owner, 2026-10-29)
-**Plans:** 2/7 plans executed
+**Plans:** 3/7 plans executed
 
 Plans:
 
@@ -913,7 +913,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 15-03-PLAN.md — Data-path seams: discovery synonym + marker suffix, NOTES_FP token, Phase 11 fingerprint + globals, parity and AST guards *(wave 3)*
+- [x] 15-03-PLAN.md — Data-path seams: discovery synonym + marker suffix, NOTES_FP token, Phase 11 fingerprint + globals, parity and AST guards *(wave 3)*
 - [ ] 15-04-PLAN.md — Excel pilot rendering: column I notes, A:I headers, TOTAL I, fit-to-width print, colours; golden identity for every variant *(wave 3)*
 
 **Wave 4** *(blocked on Wave 3 completion)*
