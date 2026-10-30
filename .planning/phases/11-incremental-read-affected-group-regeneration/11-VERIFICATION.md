@@ -174,7 +174,10 @@ No TBD/grep for TBD, FIXME, XXX/XXX markers in phase files.
 
 Recorded 2026-10-30 under plan 11-15 (D-09 as amended 2026-10-29 by the owner, PR #435):
 Phase 11 closes on ONE post-deploy run that passes the billing-impact check; the
-`get_parity_streak()` reading is recorded as-is and is not a gate.
+`get_parity_streak()` reading is recorded as-is and is not a gate. This supersedes the
+">= 5 consecutive pass verdicts" expectation in Human Verification item 1 above for G-11-37
+closure only. INC-04 still requires >= 5 consecutive passes before
+`RUN_MEMORY_INCREMENTAL_ENABLED` can default on.
 
 **Task 1: billing-impact check: PASS.** The first production run after #435 (plans
 11-11..11-14) merged to master (squash 4345656, 2026-10-30T05:37:25Z) was the owner's manual
