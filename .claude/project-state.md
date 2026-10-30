@@ -1,7 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-10-29 12:30 CDT (align run 2 + GitNexus + docs/ai re-verify; ledger
-`[2026-10-29 10:45]` / `[12:30]`) · **overwrite-in-place each session** — this is
+_Last updated: 2026-10-30 15:40 CDT (#437 Greptile fixes; #442 and #443 merged; ledger `[2026-10-30 13:50]`) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -12,6 +11,13 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   (`RUN_MEMORY_WRITE_ENABLED='1'` on the `Generate reports` step only); `RUN_MEMORY_INCREMENTAL_ENABLED` OFF;
   change detection and attachment identity are `group_state`-backed; `TIME_BUDGET_MINUTES=165` under
   `timeout-minutes: 180`.
+- **QUAR-01 plan (2026-10-30)**: `.planning/todos/pending/2026-10-30-close-quar-01-incremental-collision-gap-and-enforce-flag-gat.md`
+  — enforce the incremental gate in code and close the blind spot without a schema change. Not implemented.
+  PRs #439 (`e63dc3f`), #442 (`59c4e27`) and #443 (`a201fbe`) merged 2026-10-30. #437 is open: Sentry and
+  notes-hash fixes (`c06bdef`) passed independent review, and the four Greptile findings of 2026-10-30 are
+  fixed (colour cache cleared per run, runbook variant wording, docstrings, test type hints). Parity reading 2026-10-30T18:32:34Z: streak 5, recorded in
+  `11-VERIFICATION.md`; D-15-13 condition met, FN-13 closes at merge. `FOREMAN_NOTES_UPLOAD` stays off until
+  the GF-lookup todo closes.
 - **Phase 12 (Ownership)**: **COMPLETE 2026-09-10** — 10/10 plans (incl. 4 gap-closure plans). `/gsd-verify-work 12`
   passed: `12-UAT.md` 34/34, `12-VERIFICATION.md` 77/77 must-haves; 5 open advisory gaps for owner follow-up, the 6th — runbook WR-09 — fixed in the PR; docs PR #404
   MERGED 2026-09-11 03:39Z → `9ba7eb7`. Live attribution backfill applied 2026-09-05 (1,758 rows); 12-06 Task 4 approved 2026-09-10 ~23:45Z

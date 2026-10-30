@@ -9,6 +9,32 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-10-30 — PR #437 Greptile fixes
+
+`foreman_notes.initialize` now clears the colour cache, so a second run in one process cannot reuse old
+colours or failed fetches. The pilot runbook now says every workbook for a pilot WR gets the notes layout, not
+only the primary. Public state helpers gained docstrings, and the ten Foreman Notes test files gained type hints.
+
+## 2026-10-30 — PR #443 mobile navbar colours
+
+In light mode the docs navbar kept dark stock colours on its near-black bar, so the phone menu button was
+invisible and the open menu hard to read. A `.navbar` block in `website/src/css/custom.css` sets light menu
+colours; the doc sidebar is unchanged. The filename block in `for-operators` is plain text and stays as is.
+
+## 2026-10-30 — PR #437 review fixes and parity reading
+
+While Foreman Notes are mapped, every Sentry event now drops frame locals, and each note in the group
+hash is bound to its Smartsheet row. The parity reading is streak 5 and is recorded in `11-VERIFICATION.md`.
+Both pipeline changes are pilot-only. Ledger `[2026-10-30 13:50]`.
+
+## 2026-10-30 — QUAR-01 plan captured
+
+Planning only: no pipeline code changed, and the plan depends on PR #439. It enforces the incremental
+gate in code and closes the collision blind spot without a schema change, because a sanitized WR key
+can only collide if it contains `_` or reaches 50 characters (1 of 818 WRs today). The same review ruled
+out row-cap truncation on the live `group_state` readers: run 41078401767 resolved 2,182 attachment
+identities. Plan: `.planning/todos/pending/2026-10-30-close-quar-01-incremental-collision-gap-and-enforce-flag-gat.md`.
+
 ## 2026-10-29 — docs/ai implementation truth re-verified
 
 All five `docs/ai/*` pages fact-checked against `master` and corrected in place: CR-01 and WR-01 are
