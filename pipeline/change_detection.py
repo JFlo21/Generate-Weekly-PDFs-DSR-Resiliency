@@ -39,6 +39,7 @@ import logging
 import os
 from typing import Any
 
+from pipeline import foreman_notes as _fn
 from pipeline.pricing import parse_price
 from pipeline.utils import is_checked
 
@@ -267,6 +268,9 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     Legacy (EXTENDED_CHANGE_DETECTION=0):
         Uses original minimal fields so hash stability is preserved for rollbacks.
 
+    Phase 15: for General Foreman PILOT groups the extended path also mixes
+    a NOTES_FP meta token (Foreman Notes digest); the legacy path is untouched.
+
     Extended (default):
         Incorporates additional business-critical fields so regenerated Excel
         files occur when any of these change:
@@ -494,6 +498,17 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
             meta_parts.append(
                 f"SUB_RATES_FP={_SUBCONTRACTOR_RATES_FINGERPRINT}"
             )
+
+    # Phase 15 (D-15-11): Foreman Notes digest, PILOT groups only. The token
+    # is '' for off / non-pilot groups, so their meta (and hash) stay
+    # byte-identical. Applies to the extended path only; the per-row loop
+    # and _extended_row_fields are deliberately untouched.
+    _notes_token = _fn.group_notes_token(
+        sorted_rows,
+        lambda r: "|".join(_extended_row_fields(r, group_variant)),
+    )
+    if _notes_token:
+        meta_parts.append(f"NOTES_FP={_notes_token}")
 
     # Update hash with metadata
     if meta_parts:
