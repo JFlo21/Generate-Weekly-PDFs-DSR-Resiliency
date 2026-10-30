@@ -10,21 +10,39 @@ re-check of the `portal-v2/` auth flow against the open findings from the 2026-1
 
 ## 1. Executive Summary
 
-**New code since the last review is healthy.** The one substantive commit in the window is
+**New code since the last review is healthy.** The one substantive code commit in the window is
 `4345656` — **`feat(11): G-11-37 parity gap closure (11-11..11-14)` (#435)**, merged 2026-10-30.
 It is a large but well-contained change to the shadow/parity memory layer: two new pure modules
 (`pipeline/memory_candidate.py`, `pipeline_memory/audit_findings.py`) plus additive edits to
-`pipeline_memory/writer.py`, `pipeline/orchestrate.py`, and `audit_billing_changes.py`. Everything
-else in the window is automated `docs(runbook)` noise. The change ships with ~6,000 lines of new
-tests, and the **full suite is green here (2617 passed)**. The Python billing engine is **not**
-degraded — the change is shadow-mode/no-DDL and fail-open by construction.
+`pipeline_memory/writer.py`, `pipeline/orchestrate.py`, and `audit_billing_changes.py`. The other
+non-runbook commit is `aba043b` (**#438**, `fix(docs): build runbook site on Node 26`) — a docs-site
+toolchain bump (`website/` Node 20→26 plus the docs-build workflow), already reviewed and merged on
+its own PR and scoped to the Docusaurus site; the rest of the window is automated `docs(runbook)`
+entries. The change ships with ~6,000 lines of new tests, and the **full suite is green here (2617
+passed)**.
+
+**Correction — #435 does include DDL (my initial "no-DDL" framing was wrong).**
+`pipeline_memory/schema.sql` gains two tables (`audit_finding`, `audit_finding_event`), three
+indexes, two functions (`upsert_audit_findings`, `acknowledge_finding`) with `REVOKE`/`GRANT`, and
+two views (`open_findings`, `finding_history_by_wr`). That audit-memory surface is **dormant at
+runtime** (gated by `AUDIT_MEMORY_ENABLED=0`, set nowhere), but the schema objects exist wherever
+`schema.sql` is applied. Separately, `upsert_rows_bulk_prior_pair_migration.sql` is a `CREATE OR
+REPLACE FUNCTION` on `upsert_rows_bulk` that was **already applied to the production Supabase project
+on 2026-10-29** (owner-reviewed; additive — unchanged signature, extra output columns; rollback SQL
+committed). So the billing engine is **not** degraded and the change is fail-open and additive, but
+it carries a real database-deployment / privilege / rollback surface that this review names rather
+than hides.
 
 **The portal auth flow has not moved.** Every `portal-v2/src/.../auth/*`, `hooks/useAuth.ts`, and
 `lib/supabase.ts` file is unchanged since `2bfe169` (2026-09-26). That means **all auth findings
 from the 2026-10-20 review are still open** — including the High-severity "Remember me" /
 client-swap issue, the swallowed `signOut()` error, the last-admin self-DELETE gap, the
-perpetual-skeleton lockout, and the missing `useAuth` test. None were actioned in the ~10 days
-since. They are re-surfaced below as **carried-over (still open)**, not re-discovered.
+perpetual-skeleton lockout, and the missing `useAuth` test. §2 resurfaces the highest-impact ones;
+the remaining 2026-10-20 items stay open too, since the files are unchanged — the approved-user
+`/pending` live-refresh gap, the signup-with-email-confirmation redirect loop, the artifact-bucket
+privacy and CSP/hCaptcha verifications, and the stale `portal-v2/README.md` setup path (see that
+review for the full list). None were actioned in the ~10 days since; they are **carried-over (still
+open)**, not re-discovered.
 
 **Verdict: Merge with fixes** — scoped to `portal-v2`. The new Python (#435) is safe to merge on its
 own; this review document is safe to merge. The portal auth bugs remain the blocker for the next
@@ -111,8 +129,12 @@ Ordered by severity. New findings are marked **[NEW]**; previously reported ones
 - **[OPEN] Remove the `[v0]` console tag** (`useAuth.ts:41`) and route profile-fetch errors through
   Sentry instead of `console.warn`. (Carried from 2026-10-20 §6.5.)
 - **[OPEN] Weak password minimum.** `minLength={6}` on `LoginPage.tsx:137` and
-  `ResetPasswordPage.tsx:118,148`. Raise to ≥8 on the client **and** in Supabase Auth settings, kept
-  in sync. Client `minLength` is UX only — server enforcement is the control.
+  `ResetPasswordPage.tsx:118,148`. Raise toward ≥8 — but **not on the sign-in path**: `LoginPage.tsx:137`
+  is the shared input for both sign-in and sign-up, so a blanket bump would block existing users whose
+  still-valid 6–7-char passwords predate the change. Apply the stronger `minLength` only in **signup /
+  reset** mode, and before enforcing it for authentication, pair a Supabase Auth policy bump with a
+  forced-reset / migration for legacy passwords. Client `minLength` is UX only — server enforcement is
+  the control.
 - **[OPEN] Missing-`VITE_HCAPTCHA_SITEKEY` handling.** The submit button is gated on `!captchaToken`;
   if the sitekey env var is absent the widget silently never issues a token and login is unreachable
   with no diagnostic. Render a visible config banner (mirror `isSupabaseConfigured`'s ConfigError
@@ -126,7 +148,10 @@ Ordered by severity. New findings are marked **[NEW]**; previously reported ones
   codes only** (no WR/CU/price/personnel), matching the Sentry PII guardrail; `finding_key` is hashed
   on exactly one side (Python), per the module docstring. No secrets, no new network calls beyond the
   existing Supabase RPC. Fail-open is correct here: a write failure is treated as "not recorded,"
-  never as "finding fixed."
+  never as "finding fixed." It does add a database surface (see §1): dormant audit-memory tables/
+  views/functions in `schema.sql` and a production-applied `upsert_rows_bulk` migration — both
+  owner-reviewed with committed rollback SQL, the audit-memory path gated off at runtime, and the new
+  `GRANT`s scoped to the pipeline's single writer with `REVOKE` from `PUBLIC`.
 - **Auth flow (carried, still open):** the High client-swap issue (§2), the `signOut()` error-swallow
   (§2), and the last-admin DELETE gap (§2) are the live security-relevant items. Additionally still
   **needs live verification** from 2026-10-20: (a) the `excel-artifacts` Supabase bucket is actually
