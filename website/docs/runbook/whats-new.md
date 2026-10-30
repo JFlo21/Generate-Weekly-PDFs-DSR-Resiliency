@@ -34,14 +34,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — October 30, 2026
 
+- 📄 Help guides updated: record G-11-37 post-deploy check
+- ✅ Problem fixed: build runbook site on Node 26
 - ✨ New capability: G-11-37 parity gap closure (11-11..11-14)
 - 📄 Help guides updated: re-verify implementation truth
 - 📄 Help guides updated: align instruction files, run 2
-- 📄 Help guides updated: log 4345656 &#91;skip ci&#93;
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- ✨ New capability: G-11-37 parity gap closure (11-11..11-14) ()
-- 📄 Help guides updated: log 659c8ce &#91;skip ci&#93;
-- 📄 Help guides updated: re-verify implementation truth ()
+- 📄 Help guides updated: record G-11-37 post-deploy check ()
+- 📄 Help guides updated: log aba043b &#91;skip ci&#93;
+- ✅ Problem fixed: build runbook site on Node 26 ()
 
 <!-- /runbook-repo -->
 
@@ -519,4 +519,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
