@@ -64,6 +64,11 @@ is **not** in the pilot, and gets today's file, when:
 The lookup is read-only and happens once per run. Nothing about it (names, WR
 numbers, notes, colours) is written to logs or Sentry; only counts are.
 
+While the effective scope is not `off`, the Python billing pipeline strips local
+variables and source lines from every Sentry event, so rows holding note text do
+not travel with an error. Stack traces keep their function, file and line. When
+you debug a pilot run, expect those events to show no local variables.
+
 ## When the pilot actually renders
 
 | Run | Effective scope |

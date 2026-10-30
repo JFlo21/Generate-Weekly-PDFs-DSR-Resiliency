@@ -442,7 +442,9 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **FN-12**: Every output path - primary, Helper, Helper #2, VAC crew, and the subcontractor
   variants - gets the same treatment through the single `generate_excel`.
 
-- [ ] **FN-13**: Merge of Phase 15 is gated on Phase 11 closure (D-15-13).
+- [x] **FN-13**: Merge of Phase 15 is gated on Phase 11 closure (D-15-13).
+  Met 2026-10-30: plan 11-15's billing-impact check passed and the parity reading is recorded
+  in `11-VERIFICATION.md`.
 
 ## v2 / Future Requirements
 
@@ -565,7 +567,7 @@ Which phases cover which requirements.
 | FN-10 | Phase 15 | Complete |
 | FN-11 | Phase 15 | Complete |
 | FN-12 | Phase 15 | Complete |
-| FN-13 | Phase 15 | Pending |
+| FN-13 | Phase 15 | Complete |
 
 **Coverage:**
 

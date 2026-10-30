@@ -666,7 +666,7 @@ Plans:
 - [x] 11-12-PLAN.md — Mechanism B: regeneration debt carried in `run_ledger.notes` into the next run's D-04 candidate; unknown debt -> skipped / full (wave 2, gap_closure)
 - [x] 11-13-PLAN.md — Record owner decision (Juan 2026-10-29: trigger-6 runs skipped, manual keeps counting); shadow models D-02 full fallbacks + group-hash globals; blocking pre-flip globals todo (wave 3, gap_closure)
 - [x] 11-14-PLAN.md — Mechanism C: additive `upsert_rows_bulk` branch returning the prior (wr, week) pair on a WR move; protected DDL behind owner approval, with rollback (wave 4, gap_closure, autonomous:false)
-- [ ] 11-15-PLAN.md — Post-deploy records: burst-run billing-impact check + owner ≥5 streak reading (wave 5, gap_closure, autonomous:false)
+- [x] 11-15-PLAN.md — Post-deploy records: burst-run billing-impact check + owner ≥5 streak reading (wave 5, gap_closure, autonomous:false)
 
 ### Phase 11.1: Post-INC-05 Runtime Remediation (INSERTED)
 
