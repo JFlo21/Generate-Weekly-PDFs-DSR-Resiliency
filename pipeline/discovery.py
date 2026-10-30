@@ -37,6 +37,7 @@ from typing import Any
 
 import sentry_sdk
 
+from pipeline import foreman_notes as _fn
 from pipeline.config import (
     PARALLEL_WORKERS_DISCOVERY,
     _parse_sheet_ids,
@@ -69,7 +70,15 @@ _FOLDER_DISCOVERED_ORIG_IDS: set[int] = set()
 # current value and the sheet is admitted again on the next run.
 # Bumping this constant is the mechanism a future synonym addition uses
 # to force exactly one more revalidation across every sheet.
-MAPPING_SCHEMA_MARKER = "helper2-v1"
+#
+# Phase 15 (D-15-08): the ``+fn1`` suffix is appended by
+# ``foreman_notes.mapping_schema_marker`` ONLY when the Phase 15 effective
+# scope is not off (the 'Foreman Notes' synonym is then active). With the
+# scope off the marker is exactly ``helper2-v1``, so off-state stored
+# mappings stay admissible and production behaviour is unchanged; with it
+# on, a sheet whose stored mapping lacks the notes column takes one full
+# validation instead of being admitted from cache.
+MAPPING_SCHEMA_MARKER = _fn.mapping_schema_marker("helper2-v1")
 
 # Phase 14 Plan 13 (O-14-E): the sheet ids ADMITTED from the discovery
 # skip index on the most recent ``discover_source_sheets`` call -- i.e. the
@@ -647,6 +656,10 @@ def discover_source_sheets(client):
                 'Helper #2 Job [#]':'Helper #2 Job #',   # bracket form -> canonical
                 'Foreman Helper #2 Email':'Foreman Helper #2 Email',
             }
+            # Phase 15 (D-15-08): Foreman Notes column, exact title, only
+            # when the effective scope is not off.
+            if _fn.mapping_enabled():
+                synonyms[_fn.NOTES_KEY] = _fn.NOTES_KEY
             # COLUMN MAPPING DEBUG: Log all column titles to verify helper and VAC Crew columns
             helper_columns_found = []
             vac_crew_columns_found = []
