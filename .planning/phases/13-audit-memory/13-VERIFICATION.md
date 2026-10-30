@@ -86,8 +86,8 @@ while unresolved, closed when the fixing run no longer reproduces them.
 | Requirement | Source Plan(s) | Description | Status | Evidence |
 |-------------|-----------------|--------------|--------|----------|
 | AUD-01 | 13-01, 13-02, 13-03, 13-04, 13-05 | `audit_finding`/`audit_finding_event` persist findings with stable key + lifecycle | ✓ SATISFIED | Truths #1, #5, #9, #10 above |
-| AUD-02 | 13-04 | Each run evaluates only affected groups + open findings; unreproduced findings on re-audited groups become `fixed` | ✓ SATISFIED | Truths #3, #4 above |
-| AUD-03 | 13-05, 13-06 | SQL views for open + resurfaced findings and per-WR history (re-scoped by D-07 to SQL-only) | ✓ SATISFIED (SQL scope) | Truths #6, #7, #8 above; visual-surface half explicitly deferred to a named ROADMAP backlog item, not a gap |
+| AUD-02 | 13-04 | Each run evaluates only affected groups + open findings; unreproduced findings on re-audited groups become `fixed` | ⚠️ PARTIAL (amended 2026-10-29, PR #435: full runs only; incremental open-finding re-check deferred) | Truths #3, #4 above |
+| AUD-03 | 13-05, 13-06 | SQL views for open + resurfaced findings and per-WR history (re-scoped by D-07 to SQL-only) | ⚠️ PARTIAL (amended 2026-10-29, PR #435: SQL views only; Excel/portal surface deferred) | Truths #6, #7, #8 above; visual-surface half explicitly deferred to a named ROADMAP backlog item, not a gap |
 
 No orphaned requirement IDs — AUD-01/02/03 are the phase's full requirement set and each is claimed by at least one plan's `requirements:` frontmatter.
 
@@ -113,6 +113,8 @@ No debt markers (`TODO`/`FIXME`/`XXX`/`TBD`) found in any Phase 13 code file (`p
 ### Gaps Summary
 
 No blocking gaps. All AUD-01/AUD-02/AUD-03 must-haves that can be verified from the repository (schema, RPC transition logic, Python payload/key derivation, RLS/security posture, fail-open/default-off rollout contract, documentation and ledger closure, folded-todo cleanup) are present, substantively implemented, wired together, and covered by 74 passing unit/contract tests plus a full 2416-test regression pass and a green 6-gate harness run with byte-identical golden output. The single open item — success criterion 2's wall-clock proportionality — is an inherently production-observed property that this phase correctly instrumented (INFO log lines) but cannot itself prove offline; it is routed to human verification rather than treated as a functional gap. Two ℹ️ Info findings around `REQUIREMENTS.md` checkbox governance are noted for awareness but do not affect the phase's technical completeness.
+
+> **Amendment 2026-10-29 (PR #435).** This record originally called AUD-02 and AUD-03 satisfied, which the info rows above also assumed. Both are now PARTIAL and Pending in `.planning/REQUIREMENTS.md`: AUD-02 holds on full runs only (incremental runs leave open findings on unchanged sheets for the next full run; follow-up todo `2026-10-29-audit-memory-open-findings-incremental-recheck.md`), and AUD-03 shipped the SQL views only, with the Excel/portal surface deferred. No code gap is implied: both flags are off in production.
 
 ---
 

@@ -120,6 +120,10 @@ Evidence re-run in this audit session (all green):
 | `bash scripts/run_6_gates.sh` | ALL 6 GATES PASSED (golden run_summary 30 keys; synthetic dry run emitted 0 `audit_memory_error`) |
 | `npm --prefix website run build` | SUCCESS, no broken links |
 
-Coverage classification: AUD-01 COVERED · AUD-02 COVERED · AUD-03 COVERED (structural SQL contract + docs build automated; live view content and DDL apply are owner-executed manual verifications of record, complete per 13-05-SUMMARY).
+Coverage classification: AUD-01 COVERED · AUD-02 PARTIAL · AUD-03 PARTIAL (structural SQL contract + docs build automated; live view content and DDL apply are owner-executed manual verifications of record, complete per 13-05-SUMMARY).
+
+> **Amended 2026-10-29 (PR #435).** AUD-02 and AUD-03 were first recorded as COVERED; both are now PARTIAL and Pending in `.planning/REQUIREMENTS.md`.
+> - **AUD-02:** full runs meet it. An incremental run does not re-check open findings whose rows sit only on unchanged sheets (they are never closed; the next full run, at least the weekly deep run, re-checks them). Follow-up: `.planning/todos/pending/2026-10-29-audit-memory-open-findings-incremental-recheck.md`.
+> - **AUD-03:** only the SQL views shipped (D-07). The Excel/portal visual surface is deferred (ROADMAP Phase 13 backlog).
 
 Outside Nyquist scope (tracked elsewhere): 13-VERIFICATION.md human item (wall-clock proportionality across scheduled runs) and 13-UAT.md test 1 (blocked on release build) are production-observation items, not test-coverage gaps.

@@ -35,6 +35,12 @@ Such findings are left untouched and are never closed:
 Pinned by `tests/test_audit_memory_closure_safety.py::
 test_open_finding_outside_changed_sheets_is_never_closed`.
 
+They are re-checked on the next full run. Trigger 7 resolves every execution type
+except `production_frequent` to full (the Monday `weekly_comprehensive` deep run,
+weekend and manual runs), so each open finding is re-checked at least weekly. Pinned
+by `tests/test_incremental_read.py::
+test_every_non_frequent_execution_type_resolves_full`.
+
 ## Why it was not implemented in PR #435
 
 Re-checking those groups means reading open-finding pairs from

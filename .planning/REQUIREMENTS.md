@@ -336,8 +336,12 @@ CU pricing, rate recalculation, and billing formulas do not change.
   never closed (closure is scoped to evaluated candidate rows) but its `last_seen_run`
   is not bumped until the next full run. Re-checking them is tracked in
   `.planning/todos/pending/2026-10-29-audit-memory-open-findings-incremental-recheck.md`
-  and must land before AUD-02 is claimed with incremental reads on. Both flags are off in
-  production today.)*
+  and must land before AUD-02 is claimed with incremental reads on. Until then such
+  findings are re-checked on the next full run: trigger 7 makes every run except
+  `production_frequent` (the Monday `weekly_comprehensive` deep run, weekend and manual
+  runs) resolve full, so each open finding is re-checked at least weekly -- pinned by
+  `tests/test_incremental_read.py::test_every_non_frequent_execution_type_resolves_full`.
+  Both flags are off in production today.)*
 
 - [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
   queryable per WR.
