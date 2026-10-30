@@ -961,7 +961,8 @@ renders](../runbook/foreman-notes-pilot.md#when-the-pilot-actually-renders).
 
 **Default:** empty (zero pilot groups). Comma-separated General Foreman
 allowlist, matched ignoring case and extra whitespace; a name containing a comma
-is not supported. Set it in env / a GitHub Actions repository variable — a local
+is not supported. Set it in env / the GitHub Actions repository secret
+`FOREMAN_NOTES_PILOT_GFS` (a secret, so names are masked in run logs) — a local
 `.env` for the dry run — and never commit names to this repository. See [How the
 pilot set is
 decided](../runbook/foreman-notes-pilot.md#how-the-pilot-set-is-decided).

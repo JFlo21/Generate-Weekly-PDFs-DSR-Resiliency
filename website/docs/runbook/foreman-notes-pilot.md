@@ -42,7 +42,7 @@ descriptor) leaves that cell plain rather than failing the workbook.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `FOREMAN_NOTES_SCOPE` | `pilot` | `off`, `pilot` or `all`. Anything else is treated as `off` with one WARNING. This is the *configured* scope; see [When the pilot actually renders](#when-the-pilot-actually-renders). |
-| `FOREMAN_NOTES_PILOT_GFS` | empty | Comma-separated General Foreman allowlist, matched ignoring case and extra spaces. Empty means zero pilot groups. A name that itself contains a comma is not supported. **Set in env / a repository variable; never committed.** |
+| `FOREMAN_NOTES_PILOT_GFS` | empty | Comma-separated General Foreman allowlist, matched ignoring case and extra spaces. Empty means zero pilot groups. A name that itself contains a comma is not supported. **Set in env / the repository secret `FOREMAN_NOTES_PILOT_GFS`; never committed.** |
 | `FOREMAN_NOTES_UPLOAD` | off | The rollout switch. Pilot output reaches the pre-planned pricing sheet only when this is on. |
 | `FOREMAN_NOTES_GF_WR_COLUMN_ID` | `5180541294563204` | The `Work Request #` column of the pre-planned pricing sheet. The title is checked at run time. |
 | `FOREMAN_NOTES_GF_COLUMN_ID` | `2159630534528900` | The `General Foreman` column of the same sheet. The title is checked at run time. |
@@ -109,8 +109,9 @@ Nothing is uploaded and nothing is written to Supabase. Open the workbook in
 Turning the pilot on for scheduled runs is **not** part of Phase 15's merge. It
 is a separate, explicitly approved workflow environment change that:
 
-1. creates the `FOREMAN_NOTES_PILOT_GFS` repository variable and passes it to
-   the job environment;
+1. passes the `FOREMAN_NOTES_PILOT_GFS` repository secret (already created;
+   a secret so the names are masked in this public repo's run logs) to the job
+   environment as `${{ secrets.FOREMAN_NOTES_PILOT_GFS }}`;
 2. turns `FOREMAN_NOTES_UPLOAD` on.
 
 What to expect on the first run after enabling:
