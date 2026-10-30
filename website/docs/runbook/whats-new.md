@@ -14,16 +14,34 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — October 29, 2026
+### 📋 Changelog — October 30, 2026
 
-- ✅ Problem fixed: cron capacity signal + verification-gated work-request reset
-- 📄 Help guides updated: GitNexus auto-refresh note + prompt-audit fixes to the Lattice knowledge base
+- ✨ New capability: Phase 8 design tokens — brand/space/text tokens, auth pages to var(--brand-&#42;)
+- 📄 Help guides updated: PR merged and deployed; production WR reset verified
+- ✅ Problem fixed: run WR reset Apply as a background job
+- ✅ Problem fixed: WR reset falls back to an exact read on a search 5xx (CLI path)
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: cron capacity signal + verification-gated work-request reset ()
-- 📄 Help guides updated: GitNexus auto-refresh note + prompt-audit fixes to the Lattice knowledge base ()
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✨ New capability: WR reset preview as a background job + Folder A / Folder B choice
+- ✅ Problem fixed: WR reset preview search fallbacks + PR follow-up fixes
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — October 30, 2026
+
+- ✨ New capability: G-11-37 parity gap closure (11-11..11-14)
+- 📄 Help guides updated: re-verify implementation truth
+- 📄 Help guides updated: align instruction files, run 2
+- 📄 Help guides updated: log 4345656 &#91;skip ci&#93;
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- ✨ New capability: G-11-37 parity gap closure (11-11..11-14) ()
+- 📄 Help guides updated: log 659c8ce &#91;skip ci&#93;
+- 📄 Help guides updated: re-verify implementation truth ()
 
 <!-- /runbook-repo -->
 
@@ -32,16 +50,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — October 29, 2026
+### 📋 Changelog — October 30, 2026
 
+- ✨ New capability: guide cursor and app-wide motion upgrade
+- ✅ Problem fixed: tour popover stays on screen with a visible pointer arrow, tight anchors, direct-instruction copy (quick 261028-u1z)
 - 📄 Help guides updated: PR lingering Copilot items -- PROJECT.md 40.2 open warnings = WR-05 only; AppShell teardown-key comment adds viewport
 - • Phase 40.2: guidance hardening -- close-button/touch hit targets, tour coordination, deterministic teardown, role-fence test
 - ✅ Problem fixed: stale SPA build watch - banner + safe auto-reload after a deploy (quick 261028-la3)
 - 📄 Help guides updated: Phase 40 runbook Step 5 armed and proven (preview on both services)
 - • Phase 40.1: guided help, device profile, What's New and learning guides (web app)
 - 📄 Help guides updated: Phase 40 merged to master (PR -&gt; 1eec7ca2); runbook Steps 2-3 done
-- ✅ Problem fixed: PR Copilot follow-up (BUG-197) -- no post-record lease loss escapes the web publication; GF chain renews per step
-- ✅ Problem fixed: PR Copilot follow-up -- missing-asset JSON 404, rule globs, stale docs, 0035 draft identity key
 
 <!-- /runbook-repo -->
 
@@ -63,30 +81,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — October 30, 2026
-
-- ✨ New capability: G-11-37 parity gap closure (11-11..11-14)
-- 📄 Help guides updated: re-verify implementation truth
-- 📄 Help guides updated: align instruction files, run 2
-- ✨ New capability: G-11-37 parity gap closure (11-11..11-14) ()
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-- 📄 Help guides updated: log 659c8ce &#91;skip ci&#93;
-- 📄 Help guides updated: re-verify implementation truth ()
-- 📄 Help guides updated: log d5b4e1b &#91;skip ci&#93;
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — October 29, 2026
+### 📋 Changelog — October 30, 2026
 
 - • 📊 Audit: 2026-10-26T07:08:11Z
 
@@ -97,7 +97,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Use the starter kit to get your docs deployed and ready to customize.
 
-### 📋 Changelog — October 29, 2026
+### 📋 Changelog — October 30, 2026
 
 - • Initial commit from Mintlify hosted docs
 - • Initial commit
@@ -478,7 +478,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — October 29, 2026
+### 📋 Changelog — October 30, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -519,3 +519,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
