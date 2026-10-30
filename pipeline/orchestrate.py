@@ -1781,6 +1781,22 @@ def _memory_write_may_have_advanced_unseen(mem_result: dict) -> bool:
         return True
 
 
+def _quarantined_group_keys(
+    groups: dict[Any, list[dict[str, Any]]],
+    quarantined_wr_keys: 'set[str]',
+) -> set[Any]:
+    """Keys of the groups whose sanitized WR is in *quarantined_wr_keys*.
+
+    Uses the same sanitized key as the main-loop quarantine skip, without
+    depending on that loop reaching the group (PR #439: the time budget
+    can stop it first). PURE.
+    """
+    return {
+        group_key for group_key, rows in groups.items()
+        if rows and derive_row_wr(rows[0]) in quarantined_wr_keys
+    }
+
+
 def _regen_debt_finish_kwargs(
     *,
     candidate_pairs: 'set[tuple[Any, Any]]',
@@ -1842,8 +1858,10 @@ def _regen_debt_finish_kwargs(
         # generation error, or a group the time budget never reached --
         # even outside the candidate set (attachment repair, group-hash
         # globals change). *excluded_groups* (quarantined WR-collision
-        # groups) are left out: no run regenerates them until the source
-        # data is fixed, so carrying them would never clear.
+        # groups) add nothing here: a full run skips them until the source
+        # data is fixed. PR #439: a quarantined pair that is ALREADY pending
+        # stays carried. row_state advanced before the skip, so clearing it
+        # would narrow scope on an unproven outcome, and debt only widens.
         pending |= {
             pair for gk, pair in group_pairs.items()
             if gk not in confirmed and gk not in excluded_groups
@@ -4119,6 +4137,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 f"{len(_quarantined_source_wr_keys)} sanitized key(s); "
                 f"see preceding warnings for raw values."
             )
+        _mem_quarantined_group_keys.update(_quarantined_group_keys(
+            groups, _quarantined_source_wr_keys,
+        ))
 
         # Hoist static env var lookups once per run (not per row) —
         # these never change during execution and were previously
@@ -4360,7 +4381,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         f"above for the full raw-value list)."
                     )
                     _groups_skipped += 1
-                    _mem_quarantined_group_keys.add(group_key)
                     continue
                 # CR-01 gap closure (Site 1 — main-loop identifier /
                 # history_key / file_identifier): the identity is the ONE

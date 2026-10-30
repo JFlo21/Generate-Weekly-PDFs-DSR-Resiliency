@@ -1237,9 +1237,42 @@ class PR435BotFollowupTests(unittest.TestCase):
         )
         self.assertEqual(out["regen_debt_pairs"], [])
 
-    def test_main_records_quarantined_groups_and_passes_them(self):
+    def test_quarantined_pair_already_pending_stays_carried(self):
+        # PR #439: exclusion never narrows debt. Clearing this pair would
+        # drop a regeneration that is still owed once the source is fixed.
+        out = self._kw(
+            candidate_pairs={("7", "2026-11-08")},
+            groups={"q": _group("7", "2026-11-08")},
+            skip_keys=set(),
+            excluded_groups={"q"},
+        )
+        self.assertEqual(
+            [tuple(p) for p in out["regen_debt_pairs"]],
+            [("7", "2026-11-08")],
+        )
+
+    def test_quarantined_group_keys_covers_every_matching_group(self):
+        # PR #439 (Greptile): no dependence on the main loop reaching a
+        # group, so one past the time-budget break is still listed.
+        groups = {
+            "a": [{"Work Request #": "1/2"}],
+            "b": [{"Work Request #": "1:2.0"}],
+            "ok": [{"Work Request #": "99"}],
+            "blank": [{"Work Request #": ""}],
+            "empty": [],
+        }
+        self.assertEqual(
+            orch._quarantined_group_keys(groups, {"1_2"}), {"a", "b"},
+        )
+
+    def test_main_records_quarantined_groups_before_the_loop(self):
         src = inspect.getsource(orch.main)
-        self.assertIn("_mem_quarantined_group_keys.add(group_key)", src)
+        self.assertNotIn("_mem_quarantined_group_keys.add(", src)
+        recorded = src.index(
+            "_mem_quarantined_group_keys.update(_quarantined_group_keys("
+        )
+        loop = src.index("for group_idx, (group_key, group_rows)")
+        self.assertLess(recorded, loop)
         self.assertIn(
             "excluded_groups=_mem_quarantined_group_keys", src,
         )

@@ -52,3 +52,7 @@ or remove entries that stop being true. Repo-local; no secrets, no status.
 - Same-function siblings defeat per-block parity: the `SUB_RATES_FP` gate and the HELPER2 meta block both live
   in `calculate_data_hash()`, so the parity net certified the function while one site lacked the Helper #2
   shadows (PR #402 Copilot round). Pricing site + hash-gate site are one unit; test each tuple member.
+
+- Exclusions must not clear what is already owed: `row_state` advances before upload, so dropping a pending
+  pair narrows scope on an unproven outcome (PR #439). Filter what a new step ADDS to regen debt; never mark
+  an unprocessed group confirmed to make a bot finding go away. "Scope only widens" is the test.
