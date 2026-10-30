@@ -328,8 +328,16 @@ CU pricing, rate recalculation, and billing formulas do not change.
 - [x] **AUD-01**: `audit_finding` / `audit_finding_event` persist every finding with a
   stable key and lifecycle open → fixed | resurfaced | acknowledged | suppressed.
 
-- [x] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
+- [ ] **AUD-02**: Each audit run evaluates only affected groups + open findings; findings
   not reproduced on a re-audited group transition to `fixed` with the fixing run id.
+  *(2026-10-29, PR #435: reverted to Pending. Full runs meet it. On an incremental run
+  (`RUN_MEMORY_INCREMENTAL_ENABLED`) only the candidate pairs' sheets are re-fetched, so an
+  open finding whose rows sit only on unchanged sheets is not re-checked that run: it is
+  never closed (closure is scoped to evaluated candidate rows) but its `last_seen_run`
+  is not bumped until the next full run. Re-checking them is tracked in
+  `.planning/todos/pending/2026-10-29-audit-memory-open-findings-incremental-recheck.md`
+  and must land before AUD-02 is claimed with incremental reads on. Both flags are off in
+  production today.)*
 
 - [ ] **AUD-03**: Excel/portal audit surfaces open + resurfaced findings only; history is
   queryable per WR.
@@ -475,7 +483,7 @@ Which phases cover which requirements.
 | OWN-03 | Phase 12 | Complete |
 | OWN-04 | Phase 12 | Complete |
 | AUD-01 | Phase 13 | Complete |
-| AUD-02 | Phase 13 | Complete |
+| AUD-02 | Phase 13 | Pending |
 | AUD-03 | Phase 13 | Pending (v1 SQL views only; Excel/portal surface deferred, D-07 — 2026-10-29) |
 | HLP-01 | Phase 14 | Complete |
 | HLP-02 | Phase 14 | Complete |
