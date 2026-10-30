@@ -93,8 +93,10 @@ Ordered by severity. New findings are marked **[NEW]**; previously reported ones
 - **Why it matters:** Low in practice — callers pass already-materialized sets, so the union is very
   unlikely to throw, and the surrounding `debt is None → full mode` path dominates. But it is the one
   spot where the never-raise fallback points the wrong way relative to every sibling function.
-- **Fix:** On the error branch, prefer returning `set(affected)` (at least the affected set) or let
-  the caller treat an exception here as "debt unknown → full," consistent with `unconfirmed_pairs`.
+- **Fix:** Have the caller treat a failure here as "debt unknown → full" (so scope widens), rather
+  than letting this function return a candidate set at all on error. Returning `set(affected)` is
+  *not* a safe fallback — it still drops the carried debt, and it can re-raise if `affected` is what
+  caused the original error.
 
 ---
 
@@ -141,7 +143,9 @@ Ordered by severity. New findings are marked **[NEW]**; previously reported ones
 - **[NEW] #435 coverage is strong** — new modules are pinned byte-for-byte on finding keys, the
   regen-debt reducer, the shadow fallback model, and the SQL contract. No gap found in the new code.
 - **[OPEN · important] No `useAuth` / login test exists.** Confirmed: no test references
-  `signInWithPassword`, `onAuthStateChange`, or `setSessionStorage`. The single most impactful bug in
+  `signInWithPassword` or `setSessionStorage`. (`ResetPasswordPage.test.tsx` *does* exercise
+  `onAuthStateChange` for the `PASSWORD_RECOVERY` path — the gap is the login flow, not the listener
+  in general.) The single most impactful bug in
   the repo (the client-swap, §2) is entirely untested. Add `useAuth.test.ts` covering (i) the
   remember-me storage swap and listener rebinding, (ii) the `fetchProfile` error path (asserting the
   app does not hang), and (iii) `logout()` error propagation.
