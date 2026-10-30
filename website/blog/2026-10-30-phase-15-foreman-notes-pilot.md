@@ -6,7 +6,7 @@ tags: [python, project]
 date: 2026-10-29T23:45:00+00:00
 ---
 
-**Component:** Python billing pipeline (`generate_weekly_pdfs.py` → `pipeline/foreman_notes.py`), GitHub Actions cron. **Branch:** `feat/phase-15-foreman-notes`. **PR:** pending. Operator procedure: [Foreman Notes and colour pilot](/docs/runbook/foreman-notes-pilot).
+**Component:** Python billing pipeline (`generate_weekly_pdfs.py` → `pipeline/foreman_notes.py`), GitHub Actions cron. **Branch:** `feat/phase-15-foreman-notes`. **PR:** #436. Operator procedure: [Foreman Notes and colour pilot](/docs/runbook/foreman-notes-pilot).
 
 <!-- truncate -->
 
@@ -32,4 +32,4 @@ The owner asked for field notes and the colours the foremen see in Smartsheet to
 - **Rollback:** `FOREMAN_NOTES_SCOPE=off`. The next run re-validates once and pilot files regenerate in today's shape.
 - **Merge gate:** Phase 15 merges only after the Phase 11 plan 11-15 live parity reading closes Phase 11.
 
-PR: pending
+PR: #436
