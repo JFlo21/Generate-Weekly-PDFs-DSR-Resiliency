@@ -191,13 +191,27 @@ Nothing is uploaded and nothing is written to Supabase. Open the workbook in
 
 ## Rollout
 
-Turning the pilot on for scheduled runs is **not** part of Phase 15's merge. It
-is a separate, explicitly approved workflow environment change that:
+The pilot is limited to the three planned General Foremen (`GF-1` to `GF-3`).
+The weekly workflow's job environment (owner-approved 2026-10-31):
 
-1. passes the `FOREMAN_NOTES_PILOT_GFS` repository secret (already created;
-   a secret so the names are masked in this public repo's run logs) to the job
-   environment as `${{ secrets.FOREMAN_NOTES_PILOT_GFS }}`;
-2. turns `FOREMAN_NOTES_UPLOAD` on.
+- fixes `FOREMAN_NOTES_SCOPE` to `pilot`, so moving to `all` needs a reviewed
+  workflow PR;
+- passes the `FOREMAN_NOTES_PILOT_GFS` repository secret as
+  `${{ secrets.FOREMAN_NOTES_PILOT_GFS }}` (a secret, so the names are masked
+  in this public repo's run logs; never a repository variable);
+- reads `FOREMAN_NOTES_UPLOAD` from the repository variable of the same name,
+  defaulting to `0`.
+
+Steps to turn the pilot on:
+
+1. Confirm the secret holds exactly the three pilot names. Re-set it locally
+   if unsure: `gh secret set FOREMAN_NOTES_PILOT_GFS` (type the names at the
+   prompt; never paste them into chat, an issue or a commit).
+2. Turn uploads on: `gh variable set FOREMAN_NOTES_UPLOAD --body 1`.
+3. On the next run, check the log line
+   `Foreman notes: allowlist=3 gf_rows=<n> pilot_wrs=<n>`: `allowlist` must be
+   `3` and `pilot_wrs` above `0`. Check there is no `foreman_notes` Sentry
+   ERROR, then open one pilot workbook and confirm column I and the colours.
 
 What to expect on the first run after enabling:
 
@@ -216,7 +230,8 @@ parity reading closes Phase 11.
 
 ## Rollback
 
-Set `FOREMAN_NOTES_SCOPE=off` (or switch `FOREMAN_NOTES_UPLOAD` back off). The
+Run `gh variable set FOREMAN_NOTES_UPLOAD --body 0`. No code change is needed;
+setting `FOREMAN_NOTES_SCOPE=off` in the workflow has the same effect. The
 next run validates every sheet once more (the marker suffix is dropped) and the
 pilot files regenerate in today's shape. Existing attachments are replaced by
 the normal delete-then-upload flow, and nothing outside the pilot files is
