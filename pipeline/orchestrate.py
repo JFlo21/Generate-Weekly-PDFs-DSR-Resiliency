@@ -4087,6 +4087,9 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         history_updates = 0
         _groups_skipped = 0
         _groups_skipped_no_target = 0
+        # Quick 261030-suf: (wr, week_raw, variant) of groups held because
+        # the Foreman Notes GF lookup failed (carried as regeneration debt).
+        _fn_held_groups: list = []
         # Groups NOT generated because the WR has no target-sheet row
         # (owner decision 2026-08-28).
         _no_target_row_groups: NoTargetRowGroups = {}
@@ -4557,6 +4560,31 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         },
                     )
                     continue
+
+                # Quick 261030-suf (owner decision 2026-10-30, option 1):
+                # while the Foreman Notes GF lookup has failed, hold every
+                # group whose fresh hash differs from the stored hash --
+                # every pilot group lost NOTES_FP -- so no pilot workbook
+                # is re-sent in the no-notes layout. Sits BEFORE the
+                # billing-audit freeze and generate_excel. The hold wins
+                # over force flags (approved): the stored hash is compared
+                # even when they made _hash_unchanged False. Held groups
+                # are NOT skip-confirmed, so they stay regeneration debt.
+                if _fn.gf_lookup_failed():
+                    _fn_hash_match = (
+                        _hash_unchanged
+                        if _history_eligible_for_skip
+                        else _resolve_unchanged_for_skip(
+                            history_key, data_hash, _group_state_hashes,
+                            wr_num, week_iso, variant, identifier,
+                            billing_audit_writer=getattr(
+                                _gwp, "_billing_audit_writer", None
+                            ),
+                        )
+                    )
+                    if _fn.should_hold_group(_fn_hash_match):
+                        _fn_held_groups.append((wr_num, week_raw, variant))
+                        continue
 
                 # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
                 # Runs when the group hash has changed/is new, OR when some rows
@@ -5169,6 +5197,17 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             f"generated (no target-sheet row) in {_phase_group_elapsed:.1f}s"
             + (" (stopped early — time budget exceeded)"
                if _time_budget_exceeded else "")
+        )
+        # Quick 261030-suf: Foreman Notes run-end report (hold / style /
+        # digest events; counts-only dict, {} when the scope is off).
+        _fn_run_report = _fn.report_run_end(
+            held_groups=_fn_held_groups,
+            force_flags={
+                "FORCE_GENERATION": bool(FORCE_GENERATION),
+                "REGEN_WEEKS": bool(REGEN_WEEKS),
+                "RESET_HASH_HISTORY": bool(RESET_HASH_HISTORY),
+                "RESET_WR_LIST": bool(RESET_WR_LIST),
+            },
         )
         if _no_target_row_groups:
             _nt_error_line, _nt_values_line = format_no_target_row_summary(

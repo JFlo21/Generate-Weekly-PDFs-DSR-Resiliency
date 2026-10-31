@@ -14,13 +14,18 @@ Import rule: this module imports only the stdlib,
 ``pipeline.retry``. It must NEVER import ``pipeline.change_detection``,
 ``pipeline.memory_candidate``, ``pipeline.excel``, ``pipeline.discovery`` or
 ``pipeline.orchestrate`` at module import -- those modules import it.
+``pipeline.observability`` is imported lazily inside functions only (it
+lazily imports this module, so a top-level import would be a cycle).
 
 The module is READ-ONLY with respect to Smartsheet (``get_sheet`` only) and
 never
 logs or emits to Sentry any General Foreman name, WR number, note text or
 colour
 descriptor -- counts only (CLAUDE.md Sentry PII rule; public-repo identifier
-rule).
+rule). One owner-approved exception (quick 261030-suf, docs/DECISIONS.md
+2026-10-30): held WR numbers may appear inside the structured
+``foreman_notes`` context of a Foreman Notes Sentry event, set on a forked
+scope. GF names and note text never leave.
 """
 from __future__ import annotations
 
@@ -28,7 +33,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
@@ -67,6 +72,11 @@ __all__ = [
     "row_notes_component",
     "group_notes_token",
     "globals_component",
+    "GfLookup",
+    "load_gf_lookup",
+    "gf_lookup_failed",
+    "should_hold_group",
+    "report_run_end",
 ]
 
 _VALID_SCOPES = ("off", "pilot", "all")
@@ -200,6 +210,12 @@ class FnState:
     allowlist: frozenset = frozenset()
     pilot_wrs: frozenset = frozenset()
     gf_loaded: bool = False
+    # Quick 261030-suf: a failed GF lookup in an effective pilot scope.
+    # Appended LAST with defaults so ``FnState()`` equality is unchanged.
+    gf_failed: bool = False
+    gf_fail_reason: str = ""
+    gf_fail_exc: str = ""
+    gf_fail_msg: str = ""
 
 
 _STATE: FnState = FnState()
@@ -261,6 +277,18 @@ def _cell_text(cell: Any) -> Any:
     return val
 
 
+class GfLookup(NamedTuple):
+    """Result of the General Foreman lookup.
+
+    ``reason`` is ``''`` on success, else ``'columns_mismatch'``,
+    ``'partial_read'`` or ``'exception'`` (``exc`` holds the exception).
+    """
+
+    gf_map: dict | None
+    reason: str
+    exc: BaseException | None
+
+
 def load_gf_map(
     client: Any, sheet_id: Any, wr_col_id: Any, gf_col_id: Any
 ) -> dict | None:
@@ -269,6 +297,13 @@ def load_gf_map(
     Fail-closed (T-15-03): returns ``None`` on any exception or when either
     column title does not match; WRs whose rows disagree on the GF are omitted.
     """
+    return load_gf_lookup(client, sheet_id, wr_col_id, gf_col_id).gf_map
+
+
+def load_gf_lookup(
+    client: Any, sheet_id: Any, wr_col_id: Any, gf_col_id: Any
+) -> GfLookup:
+    """``load_gf_map`` plus the failure reason. Never raises."""
     try:
         sheet = smartsheet_call_with_retry(
             client.Sheets.get_sheet,
@@ -287,7 +322,7 @@ def load_gf_map(
             logging.warning(
                 "Foreman notes: GF lookup column titles do not match"
             )
-            return None
+            return GfLookup(None, "columns_mismatch", None)
         rows = getattr(sheet, "rows", None) or []
         total = getattr(sheet, "total_row_count", len(rows))
         if isinstance(total, int) and len(rows) < total:
@@ -298,7 +333,7 @@ def load_gf_map(
                 "no pilot groups",
                 len(rows), total,
             )
-            return None
+            return GfLookup(None, "partial_read", None)
         seen: dict[str, set] = {}
         for row in rows:
             wr = gf = None
@@ -313,15 +348,16 @@ def load_gf_map(
             if not wr:
                 continue
             seen.setdefault(wr, set()).add(gf if have_gf else "")
-        return {
+        gf_map = {
             wr: next(iter(gfs)) for wr, gfs in seen.items() if len(gfs) == 1
         }
+        return GfLookup(gf_map, "", None)
     except Exception as exc:  # noqa: BLE001 - never raises, fail-closed
         logging.warning(
             "Foreman notes: GF lookup failed (%s); no pilot groups",
             type(exc).__name__,
         )
-        return None
+        return GfLookup(None, "exception", exc)
 
 
 def _breadcrumb(**counts: int) -> None:
@@ -358,17 +394,25 @@ def initialize(client: Any) -> FnState:
                 _breadcrumb(allowlist=0, gf_rows=0, pilot_wrs=0)
                 state = FnState(scope=scope)
             else:
-                gf_map = load_gf_map(
+                lookup = load_gf_lookup(
                     client,
                     config.TARGET_SHEET_ID,
                     config.FOREMAN_NOTES_GF_WR_COLUMN_ID,
                     config.FOREMAN_NOTES_GF_COLUMN_ID,
                 )
+                gf_map = lookup.gf_map
                 if gf_map is None:
                     _breadcrumb(
                         allowlist=len(allowlist), gf_rows=0, pilot_wrs=0
                     )
-                    state = FnState(scope=scope, allowlist=allowlist)
+                    state = FnState(
+                        scope=scope,
+                        allowlist=allowlist,
+                        gf_failed=True,
+                        gf_fail_reason=lookup.reason or "exception",
+                        gf_fail_exc=_exc_class(lookup.exc),
+                        gf_fail_msg=_redacted(lookup.exc),
+                    )
                 else:
                     pilot = frozenset(
                         w for w, g in gf_map.items() if g in allowlist
@@ -394,9 +438,169 @@ def initialize(client: Any) -> FnState:
         logging.warning(
             "Foreman notes: initialize failed (%s)", type(exc).__name__
         )
-        state = FnState()
+        # Approved rule 4 (quick 261030-suf): only an effective pilot scope
+        # with a non-empty allowlist can hold groups; anything else keeps
+        # today's scope-off default exactly.
+        try:
+            failed = EFFECTIVE_SCOPE == "pilot" and bool(
+                parse_allowlist(config.FOREMAN_NOTES_PILOT_GFS)
+            )
+        except Exception:  # noqa: BLE001
+            failed = False
+        if failed:
+            state = FnState(
+                gf_failed=True,
+                gf_fail_reason="initialize_failed",
+                gf_fail_exc=_exc_class(exc),
+                gf_fail_msg=_redacted(exc),
+            )
+        else:
+            state = FnState()
         set_state(state)
         return state
+
+
+def _exc_class(exc: BaseException | None) -> str:
+    """Exception class name, or ``''`` when there is none."""
+    return type(exc).__name__ if exc is not None else ""
+
+
+def _redacted(exc: BaseException | None) -> str:
+    """PII-redacted exception message (``''`` on any failure)."""
+    if exc is None:
+        return ""
+    try:
+        from pipeline.observability import _redact_exception_message
+
+        return _redact_exception_message(exc)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# GF-lookup hold (quick 261030-suf, owner decision 2026-10-30, option 1)
+# ---------------------------------------------------------------------------
+
+_HELD_GROUPS_CAP = 200
+
+
+def gf_lookup_failed() -> bool:
+    """True when this run's GF lookup failed in an effective pilot scope."""
+    try:
+        return bool(_STATE.gf_failed)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def should_hold_group(hash_matches_stored: bool) -> bool:
+    """Hold a group (no regeneration, no upload) for this run.
+
+    Nothing durable marks a group as pilot, so while the lookup has failed
+    every group whose fresh hash differs from the stored hash is held: all
+    pilot groups (they lost ``NOTES_FP``) plus changed or new groups.
+    Never raises.
+    """
+    try:
+        return bool(_STATE.gf_failed and not hash_matches_stored)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _capture(
+    kind: str, reason: str, fingerprint: list, context: dict
+) -> None:
+    """Send one Foreman Notes warning event. Never raises."""
+    try:
+        from pipeline import observability as _obs
+
+        _obs.sentry_capture_foreman_notes(
+            kind=kind,
+            level="warning",
+            reason=reason,
+            context=context,
+            fingerprint=fingerprint,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _lookup_context(state: FnState) -> dict:
+    """Counts / IDs / reason context for a GF-lookup failure event."""
+    from pipeline import observability as _obs
+
+    try:
+        allowlist_count = len(
+            parse_allowlist(config.FOREMAN_NOTES_PILOT_GFS)
+        )
+    except Exception:  # noqa: BLE001
+        allowlist_count = len(state.allowlist)
+    ctx = {
+        "reason": state.gf_fail_reason,
+        "exception_class": state.gf_fail_exc,
+        "exception_message": state.gf_fail_msg,
+        "target_sheet_id": config.TARGET_SHEET_ID,
+        "wr_column_id": config.FOREMAN_NOTES_GF_WR_COLUMN_ID,
+        "gf_column_id": config.FOREMAN_NOTES_GF_COLUMN_ID,
+        "expected_titles": [_GF_WR_TITLE, _GF_TITLE],
+        "allowlist_count": allowlist_count,
+        "remediation": list(_obs.FOREMAN_NOTES_REMEDIATION),
+    }
+    run_url = _obs._github_run_url()
+    if run_url:
+        ctx["run_url"] = run_url
+    return ctx
+
+
+def report_run_end(held_groups: Any = None, force_flags: Any = None) -> dict:
+    """Run-end Foreman Notes report. Counts-only dict; ``{}`` when off.
+
+    When groups were held, logs one counts-only WARNING and sends one
+    ``foreman-notes / gf-hold`` event whose ``foreman_notes`` context lists
+    the held ``{wr, week_ending, variant}`` entries (capped at 200, with
+    ``held_total``). ``variant`` is the group variant enum only. Never
+    raises.
+    """
+    try:
+        if EFFECTIVE_SCOPE == "off":
+            return {}
+        state = _STATE
+        held = list(held_groups or [])
+        forced = sorted(
+            str(k) for k, v in dict(force_flags or {}).items() if v
+        )
+        if state.gf_failed:
+            lookup = "failed"
+        elif state.gf_loaded:
+            lookup = "ok"
+        else:
+            lookup = "skipped"
+        report: dict = {
+            "scope": EFFECTIVE_SCOPE,
+            "gf_lookup": lookup,
+            "held_total": len(held),
+        }
+        if held:
+            logging.warning(
+                "Foreman notes: %d group(s) held because the GF lookup "
+                "failed; carried as regeneration debt (force/regen flags "
+                "active: %s; they do not override the hold)",
+                len(held), "yes" if forced else "no",
+            )
+            ctx = _lookup_context(state)
+            ctx["held_groups"] = [
+                {"wr": str(g[0]), "week_ending": str(g[1]),
+                 "variant": str(g[2])}
+                for g in held[:_HELD_GROUPS_CAP]
+            ]
+            ctx["held_total"] = len(held)
+            ctx["force_flags_active"] = forced
+            _capture(
+                "gf_hold", state.gf_fail_reason,
+                ["foreman-notes", "gf-hold"], ctx,
+            )
+        return report
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 # ---------------------------------------------------------------------------

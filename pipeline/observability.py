@@ -17,11 +17,12 @@ Symbols relocated from ``generate_weekly_pdfs.py`` (Phase 09 Wave 1).
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sys
 import re
-from typing import Any, Literal, cast, TYPE_CHECKING
+from typing import Any, Iterator, Literal, cast, TYPE_CHECKING
 
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
@@ -245,6 +246,104 @@ def sentry_capture_sheet_drop(sheet_id: object, exc: BaseException) -> None:
             f"({type(exc).__name__})",
             level="error",
         )
+
+
+# ---------------------------------------------------------------------------
+# Foreman Notes events (quick 261030-suf; owner-approved WR exception)
+# ---------------------------------------------------------------------------
+# WR numbers may appear ONLY inside the structured ``foreman_notes`` context
+# of these events, set on a forked scope (``sentry_sdk.new_scope()``), never
+# on the shared scope. General Foreman names (counts only) and note text are
+# never sent. ``_redact_exception_message`` is unchanged for every other
+# event. Decision record: docs/DECISIONS.md (2026-10-30).
+
+FOREMAN_NOTES_REMEDIATION: tuple[str, ...] = (
+    "1. Check the General Foreman and Work Request # column titles and IDs "
+    "on the pre-planned pricing (target) sheet against "
+    "FOREMAN_NOTES_GF_COLUMN_ID / FOREMAN_NOTES_GF_WR_COLUMN_ID.",
+    "2. Check the API token's sheet permissions.",
+    "3. The next run with a working lookup self-heals from regeneration "
+    "debt; no RESET_* is needed.",
+)
+
+_FOREMAN_NOTES_MESSAGES: dict[str, str] = {
+    "gf_lookup_failed": "Foreman notes: GF lookup failed ({reason})",
+    "gf_hold": "Foreman notes: groups held after GF lookup failure",
+    "style_fetch_failed": "Foreman notes: style fetch failed",
+    "notes_digest_failed": "Foreman notes: notes digest failed",
+}
+
+
+def _github_run_url() -> str | None:
+    """The Actions run URL, or ``None`` unless all three vars are set."""
+    server = os.getenv("GITHUB_SERVER_URL")
+    repo = os.getenv("GITHUB_REPOSITORY")
+    run_id = os.getenv("GITHUB_RUN_ID")
+    if not (server and repo and run_id):
+        return None
+    return f"{server}/{repo}/actions/runs/{run_id}"
+
+
+@contextlib.contextmanager
+def foreman_notes_scope(
+    tags: dict[str, str] | None = None,
+    fingerprint: list[str] | None = None,
+) -> Iterator[Any]:
+    """Yield a forked ``new_scope()`` carrying ``tags`` / ``fingerprint``.
+
+    Yields ``None`` (a no-op) when ``SENTRY_DSN`` is unset or the SDK
+    raises while forking, so callers never fail because of Sentry. The
+    forked scope ends with the ``with`` block, so nothing set on it leaks
+    onto later events.
+    """
+    with contextlib.ExitStack() as stack:
+        scope = None
+        if SENTRY_DSN:
+            try:
+                scope = stack.enter_context(sentry_sdk.new_scope())
+                for key, value in (tags or {}).items():
+                    scope.set_tag(key, str(value))
+                if fingerprint:
+                    scope.fingerprint = list(fingerprint)
+            except Exception:  # noqa: BLE001 - never break a run
+                scope = None
+        yield scope
+
+
+def sentry_capture_foreman_notes(
+    kind: str,
+    level: SentryLogLevel,
+    reason: str,
+    context: dict[str, Any],
+    fingerprint: list[str],
+) -> None:
+    """Send one Foreman Notes event on a forked scope. Never raises.
+
+    The message text is fixed per ``kind`` and never carries a WR, a GF
+    name or a note. Diagnostic detail (including held WR numbers, per the
+    owner-approved exception) lives only in the ``foreman_notes`` context.
+    """
+    if not SENTRY_DSN:
+        return
+    try:
+        from pipeline import foreman_notes as _fn
+
+        tags = {
+            "foreman_notes_scope": _fn.EFFECTIVE_SCOPE,
+            "foreman_notes_reason": reason or "none",
+        }
+        with foreman_notes_scope(tags, fingerprint) as scope:
+            if scope is None:
+                return
+            scope.set_context("foreman_notes", context)
+            template = _FOREMAN_NOTES_MESSAGES.get(
+                kind, "Foreman notes: {reason}"
+            )
+            sentry_sdk.capture_message(
+                template.format(reason=reason or "none"), level=level
+            )
+    except Exception:  # noqa: BLE001 - Sentry must never break a run
+        pass
 
 
 # Log level type for Sentry SDK 2.x
