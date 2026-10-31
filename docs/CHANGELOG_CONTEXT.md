@@ -1433,3 +1433,8 @@ the summary, same as master) and PR #437. Why: reviewer correctness/docs finding
 Evidence: pytest 2788 passed / 3 skipped, 6 gates pass, docs build passes, pilot-name scan clean. Not changed: the
 Sentry P1 (already covered by `7c16611`'s scrub-every-event-while-mapped rule) and the first-day merge (pre-existing,
 protected Excel layout). Open: GF-lookup churn todo blocks `FOREMAN_NOTES_UPLOAD`; owner decision pending.
+Follow-up (same day): `FOREMAN_NOTES_SCOPE` reference and the pilot runbook now say the first publishing run
+re-sends every pilot group (every group under `all`), including blank-note groups, because a pilot group's notes
+digest is never empty (Greptile + Copilot). The two "bind notes digest to source sheet and row" findings were
+already fixed in `c06bdef` (entries carry `__source_sheet_id` + `__row_id`, JSON-encoded; swap tests in
+`tests/test_foreman_notes_review_fixes.py`).

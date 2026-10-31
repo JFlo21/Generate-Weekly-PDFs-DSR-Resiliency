@@ -956,9 +956,11 @@ pilot](../runbook/foreman-notes-pilot.md).
 equals the configured scope on a `TEST_MODE` run with every write path off (the
 dry run) or when `FOREMAN_NOTES_UPLOAD` is on. `all` skips the General Foreman
 lookup and treats every Work Request as pilot: every workbook gains column I and
-every row's colours are fetched, so a publishing run with `all` re-sends every
-group whose notes are non-empty. Use `pilot` unless the owner approves a full
-rollout. **Rollback:** set `off`. See
+every row's colours are fetched. The first publishing run after switching from
+`off` to `all` re-sends every group, including groups with blank notes (a
+pilot group's notes digest is never empty, so every hash changes once); with
+`pilot` the same applies to every pilot group. Use `pilot` unless the owner
+approves a full rollout. **Rollback:** set `off`. See
 [When the pilot actually
 renders](../runbook/foreman-notes-pilot.md#when-the-pilot-actually-renders).
 

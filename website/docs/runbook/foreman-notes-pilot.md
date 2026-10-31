@@ -125,8 +125,9 @@ is a separate, explicitly approved workflow environment change that:
 
 What to expect on the first run after enabling:
 
-- **Every pilot GF file is re-sent once**, because the pilot change-detection
-  hash now includes the notes.
+- **Every pilot GF file is re-sent once**, including files whose notes are all
+  blank, because the pilot change-detection hash now includes a notes digest
+  that is never empty for a pilot group.
 - **Every source sheet takes one full validation**, because the column mapping
   marker changes from `helper2-v1` to `helper2-v1+fn1`. Plan for a longer run.
 - After that, a **notes edit** re-sends only the affected pilot file. A
