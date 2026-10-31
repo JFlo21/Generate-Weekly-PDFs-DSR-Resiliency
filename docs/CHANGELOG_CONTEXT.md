@@ -9,6 +9,13 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-10-31 — PR #445 Foreman Notes pilot switch
+
+The weekly workflow now passes `FOREMAN_NOTES_SCOPE: 'pilot'`, the `FOREMAN_NOTES_PILOT_GFS` secret and
+`FOREMAN_NOTES_UPLOAD` (repo variable, default `'0'`), so the 3-GF pilot turns on and off with
+`gh variable set FOREMAN_NOTES_UPLOAD --body 1|0` and no code change. Widening to `all` needs its own PR.
+The pilot runbook Rollout and Rollback sections describe the switch and the first-run checks.
+
 ## 2026-10-30 — PR #437 Greptile fixes
 
 `foreman_notes.initialize` now clears the colour cache, so a second run in one process cannot reuse old

@@ -187,6 +187,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   WR 89746993 pass, 47:51 < 165 min) — Juan replied `Approved` / `Adopt 89746993` (D-12-E) / backups dropped
   2026-09-10 ~23:45Z; 12-06 COMPLETE. First run after `6e6e1e8` (`34530899488`) clean, no Helper #2 shadow groups.
 - **HELPER2_ENABLED**: ENABLED (variable `1` since 2026-09-09 02:49:58Z); repo default stays `'0'`.
+- **FOREMAN_NOTES_UPLOAD** (Phase 15 pilot, 3 GFs): PR #445 wires scope `pilot` + secret allowlist +
+  variable switch (default `'0'` = off). After merge the owner confirms the secret holds 3 names, then
+  `gh variable set FOREMAN_NOTES_UPLOAD --body 1`; first run should log `allowlist=3`, `pilot_wrs` > 0.
 
 ## Next actions
 

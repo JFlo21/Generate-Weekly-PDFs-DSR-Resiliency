@@ -9785,3 +9785,11 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
 ## [2026-10-31 01:10] Foreman Notes GF-lookup hold: PR #444 Copilot round 3.
 **Rule:** in `cleanup_untracked_sheet_attachments`, the `held_wr_weeks` check runs FIRST, before every prune rule including the per-sheet `variant_whitelist`. Before this fix the PPP cleanup (whitelist `{'reduced_sub','reduced_sub_helper'}`) deleted a held pair's file as off-contract before the hold guard was reached. A held (wr, week) now only loses older duplicates of its own identity, on every sheet. Off-contract pruning for that pair resumes on the next unheld run.
 **Evidence:** `tests/test_foreman_notes_gf_hold.py::CleanupToleranceTests::test_f7_ppp_whitelist_cannot_delete_held_file` (RED before the move, GREEN after).
+
+## [2026-10-31 02:55] Foreman Notes pilot: variable switch (PR #445).
+
+- Rule: the cron runs Foreman Notes only for scope `pilot` (fixed in the workflow) and only while the repo
+  variable `FOREMAN_NOTES_UPLOAD` is `1`; unset or `0` keeps the effective scope `off`. The GF allowlist lives
+  only in the masked secret `FOREMAN_NOTES_PILOT_GFS`, never in a variable or tracked file.
+- Widening past the 3 pilot GFs (scope `all`) is a reviewed workflow PR, not a variable flip.
+- Evidence: PR #445; workflow-contract + Foreman Notes tests 824 passed / 2 skipped; diff name scan 0.
