@@ -154,6 +154,15 @@ def _unchanged(wr: str, data_hash: str, stored: dict) -> bool:
         )
 
 
+class ApiLikeError(Exception):
+    """An exception shaped like a Smartsheet ``ApiError``: free text in
+    ``str()`` plus ``error.result.code`` / ``status_code``."""
+
+    def __init__(self, msg: str, code: int, status: int) -> None:
+        super().__init__(msg)
+        self.error = NS(result=NS(code=code, status_code=status))
+
+
 class _NullTransport(Transport):
     """Transport that drops every envelope (belt and braces)."""
 
@@ -286,10 +295,18 @@ class GfHoldSequenceTests(_Base):
         self.assertTrue(state.gf_failed)
         self.assertEqual(state.gf_fail_reason, "partial_read")
 
-    def test_failure_message_is_redacted(self) -> None:
-        state = self.init_failed(exc=RuntimeError("WR 90003 broke"))
-        self.assertTrue(state.gf_fail_msg.startswith("RuntimeError"))
-        self.assertNotIn("90003", state.gf_fail_msg)
+    def test_failure_fields_are_structured(self) -> None:
+        """R4: no free-text exception message is kept, only the class,
+        the Smartsheet API error code and the HTTP status."""
+        self.assertFalse(hasattr(fn.FnState(), "gf_fail_msg"))
+        state = self.init_failed(exc=ApiLikeError(
+            "GF-1 Example Name note text sample", code=4003, status=403))
+        self.assertEqual(state.gf_fail_exc, "ApiLikeError")
+        self.assertEqual(state.gf_fail_code, 4003)
+        self.assertEqual(state.gf_fail_status, 403)
+        plain = self.init_failed(exc=RuntimeError("WR 90003 broke"))
+        self.assertIsNone(plain.gf_fail_code)
+        self.assertIsNone(plain.gf_fail_status)
 
     def test_no_hold_outside_failed_pilot_lookup(self) -> None:
         cases = (("pilot", "GF-1", _Client()), ("off", "GF-1", _Client()),
@@ -360,7 +377,8 @@ class HoldEventTests(_Base):
         self.assertEqual(event["tags"]["foreman_notes_scope"], "pilot")
         self.assertEqual(event["tags"]["foreman_notes_reason"], "exception")
         ctx = event["contexts"]["foreman_notes"]
-        for key in ("reason", "exception_class", "exception_message",
+        for key in ("reason", "exception_class", "api_error_code",
+                    "http_status",
                     "target_sheet_id", "wr_column_id", "gf_column_id",
                     "expected_titles", "held_groups", "held_total",
                     "force_flags_active", "remediation", "run_url"):
@@ -518,7 +536,9 @@ def _first_assign_line(node: ast.AST, name: str) -> int:
 class ResetPurgeTests(unittest.TestCase):
     """F1: the RESET_* purge never runs while groups would be held."""
 
-    def _run(self, hold_active: bool, wr_list: set, reset_all: bool):
+    def _run(
+        self, hold_active: bool, wr_list: set, reset_all: bool
+    ) -> tuple[bool, mock.MagicMock]:
         orch = _orch()
         with mock.patch.object(orch, "RESET_WR_LIST", wr_list), \
                 mock.patch.object(orch, "RESET_HASH_HISTORY", reset_all), \
@@ -556,6 +576,15 @@ class ResetPurgeTests(unittest.TestCase):
             skipped, purge = self._run(hold, set(), False)
             purge.assert_not_called()
             self.assertFalse(skipped)
+
+    def test_helper_annotates_client_like_neighbours(self) -> None:
+        """R3: ``client: Any`` like the other orchestrate helpers."""
+        tree = ast.parse(ORCH_SOURCE)
+        (func,) = [n for n in tree.body if isinstance(n, ast.FunctionDef)
+                   and n.name == "_run_reset_purge"]
+        ann = func.args.args[0].annotation
+        self.assertEqual(getattr(ann, "id", None), "Any")
+        self.assertIsNotNone(func.returns)
 
     def test_main_gates_purge_on_failed_lookup(self) -> None:
         main = _main()

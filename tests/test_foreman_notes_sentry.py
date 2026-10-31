@@ -15,6 +15,7 @@ import ast
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace as NS
 from typing import Any
 import unittest
 from unittest import mock
@@ -32,6 +33,7 @@ from pipeline import foreman_notes as fn  # noqa: E402
 from pipeline import observability  # noqa: E402
 from test_foreman_notes_gf_hold import (  # noqa: E402
     NOTE_SENTINEL,
+    ApiLikeError,
     PILOT_WR,
     SOURCE_SHEET,
     SentryCapture,
@@ -44,9 +46,9 @@ from test_foreman_notes_gf_hold import (  # noqa: E402
 ORCH_PATH = _REPO_ROOT / "pipeline" / "orchestrate.py"
 SECRETS = ("GF-1", "GF-2", "gf-1", "gf-2", NOTE_SENTINEL)
 LOOKUP_KEYS = (
-    "reason", "exception_class", "exception_message", "target_sheet_id",
-    "wr_column_id", "gf_column_id", "expected_titles", "allowlist_count",
-    "remediation",
+    "reason", "exception_class", "api_error_code", "http_status",
+    "target_sheet_id", "wr_column_id", "gf_column_id", "expected_titles",
+    "allowlist_count", "remediation",
 )
 
 
@@ -122,6 +124,42 @@ class LookupFailedEventTests(_Base):
         self.assertNotIn("foreman_notes", probe.get("contexts") or {})
         self.assertNotIn("foreman_notes_reason", probe.get("tags") or {})
         self.assertNotIn("fingerprint", probe)
+
+    def test_lookup_event_itself_carries_run_tags(self) -> None:
+        """R1: run tags are set BEFORE the failure event is captured."""
+        cap = SentryCapture(self)
+        with fn_env():
+            fn.initialize(_Client(exc=RuntimeError("lookup broke")))
+        (event,) = cap.by_fingerprint("foreman-notes", "gf-lookup-failed")
+        tags = event["tags"]
+        self.assertEqual(tags["gf_lookup"], "failed")
+        self.assertEqual(tags["foreman_notes_pilot_wrs"], "0")
+        self.assertEqual(tags["foreman_notes_scope"], "pilot")
+
+    def test_free_text_exception_message_never_sent(self) -> None:
+        """R4: an unstructured GF name or note in the exception text never
+        reaches Sentry; the API error code and HTTP status do."""
+        cap = SentryCapture(self)
+        exc = ApiLikeError(
+            "GF-1 Example Name note text sample", code=4003, status=403)
+        with fn_env():
+            fn.initialize(_Client(exc=exc))
+            fn.report_run_end(
+                held_groups=[(PILOT_WR, "081025", "primary")],
+                force_flags={})
+        events = (cap.by_fingerprint("foreman-notes", "gf-lookup-failed")
+                  + cap.by_fingerprint("foreman-notes", "gf-hold"))
+        self.assertEqual(len(events), 2)
+        for event in events:
+            ctx = event["contexts"]["foreman_notes"]
+            self.assertNotIn("exception_message", ctx)
+            self.assertEqual(ctx["exception_class"], "ApiLikeError")
+            self.assertEqual(ctx["api_error_code"], 4003)
+            self.assertEqual(ctx["http_status"], 403)
+        for text in cap.texts():
+            for secret in ("Example Name", "note text sample",
+                           "GF-1", "gf-1"):
+                self.assertNotIn(secret, text)
 
     def test_outer_handler_sends_one_event(self) -> None:
         cap = SentryCapture(self)
@@ -245,6 +283,7 @@ class RunEndFailureEventTests(_Base):
         self.assertEqual(
             ctx["exception_classes"], ["ConnectionError", "KeyError"])
         self.assertEqual(ctx["reason"], "style_fetch_failed")
+        self.assertEqual(ctx["rows_missing"], 0)  # raised chunk: no double
         self.assertEqual(report["style_failed_chunks"], 1)
         self.assertEqual(report["style_attach_failures"], 1)
         self.assert_no_secrets(cap)
@@ -276,6 +315,27 @@ class RunEndFailureEventTests(_Base):
             ctx["exception_classes"], ["TypeError", "ValueError"])
         self.assertEqual(report["digest_failures"], 3)
         self.assert_no_secrets(cap)
+
+    def test_partial_style_response_counted(self) -> None:
+        """R2: requested rows a successful response omits are counted."""
+        self._pilot()
+        rows = _group(PILOT_WR)
+        ids = [r["__row_id"] for r in rows]
+
+        class _PartialSheets:
+            def get_sheet(self, sheet_id: int, **kwargs: Any) -> Any:
+                return NS(rows=[NS(id=ids[0], conditional_format=None,
+                                   format_=None, cells=[])])
+
+        client = NS(Sheets=_PartialSheets())
+        fn.attach_group_styles(client, rows, MAPS)
+        cap = SentryCapture(self)
+        report = self._report()
+        (event,) = cap.by_fingerprint("foreman-notes", "style-fetch-failed")
+        ctx = event["contexts"]["foreman_notes"]
+        self.assertEqual(ctx["rows_missing"], len(ids) - 1)
+        self.assertEqual(ctx["failed_chunks"], 0)
+        self.assertEqual(report["style_rows_missing"], len(ids) - 1)
 
     def test_zero_failures_zero_events(self) -> None:
         self._pilot()
