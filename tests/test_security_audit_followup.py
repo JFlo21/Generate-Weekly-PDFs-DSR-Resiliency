@@ -2922,20 +2922,30 @@ class TestPppCleanupUntrackedAttachments(unittest.TestCase):
         # KEEP_HISTORICAL_WEEKS gate, used ONLY by incremental-mode
         # callers. None preserves byte-identical legacy behavior for
         # every existing call site.
+        # Quick 261030-suf F7 (2026-10-30) appends one more trailing
+        # kwarg: held_wr_weeks (set | None, default None) — (wr, week)
+        # pairs held after a Foreman Notes GF lookup failure keep their
+        # files. None preserves byte-identical legacy behavior.
         # IN-PLACE UPDATE per [2026-05-20 00:26] rule 2 — the assertion
-        # follows the v7 signature contract.
+        # follows the v8 signature contract.
         self.assertEqual(
             params,
             ['client', 'target_sheet_id', 'valid_wr_weeks',
              'test_mode', 'attachment_cache', 'target_sheet',
              'variant_whitelist', 'sub_wr_scope', 'sub_offcontract_variants',
              'sub_legacy_primary_variants', 'vac_legacy_wr_scope',
-             'primary_wr_scope', 'dry_run', 'keep_historical'],
-            "Phase 11 Plan 03 appends a trailing kwarg after "
-            "'dry_run': 'keep_historical'. "
+             'primary_wr_scope', 'dry_run', 'keep_historical',
+             'held_wr_weeks'],
+            "Quick 261030-suf appends a trailing kwarg after "
+            "'keep_historical': 'held_wr_weeks'. "
             "Any further drift must be reviewed against D-09 (TARGET "
             "legacy behavior) and D-06 (incremental preservation). "
             f"Got: {params}"
+        )
+        self.assertIs(
+            sig.parameters['held_wr_weeks'].default, None,
+            'held_wr_weeks must default to None so every run without a '
+            'Foreman Notes hold is unchanged.'
         )
         self.assertIs(
             sig.parameters['dry_run'].default, False,

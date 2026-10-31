@@ -210,6 +210,7 @@ def cleanup_untracked_sheet_attachments(
     primary_wr_scope: set[str] | None = None,
     dry_run: bool = False,
     keep_historical: bool | None = None,
+    held_wr_weeks: set[tuple[str, str]] | None = None,
 ):
     """Prune only older variants for identities processed this run (VARIANT-AWARE).
 
@@ -306,6 +307,16 @@ def cleanup_untracked_sheet_attachments(
         absent identity means "not processed this run", not "no longer
         valid" — never flips the global env-driven constant itself.
 
+    held_wr_weeks: quick 261030-suf F7. ``(wr, week_mmddyy)`` pairs whose
+        groups were HELD this run because the Foreman Notes General
+        Foreman lookup failed (nothing was regenerated or uploaded for
+        them). An attachment for a held pair skips every migration /
+        off-contract / superseded branch below (it can only lose an older
+        duplicate of its own identity), because their "a replacement is
+        live" premise does not hold until the replacement is uploaded.
+        The per-sheet ``variant_whitelist`` gate still applies. None or
+        empty (every run without a hold) is byte-identical.
+
     CRITICAL: Identity includes variant dimension to prevent primary/helper cross-deletion.
               Each (wr, week, variant, identifier) is treated as independent.
     """
@@ -384,6 +395,11 @@ def cleanup_untracked_sheet_attachments(
                         and variant not in variant_whitelist
                     ):
                         off_contract_attachments.append(att)
+                        continue
+                    # Quick 261030-suf F7: a held (wr, week) keeps its
+                    # files until its replacement is actually uploaded.
+                    if held_wr_weeks and (wr, week) in held_wr_weeks:
+                        identity_groups[ident].append(att)
                         continue
                     # Phase 1.1 UAT gap closure (SUB-09 helper dimension):
                     # remove pre-existing legacy `_Helper_<name>` / bare-primary

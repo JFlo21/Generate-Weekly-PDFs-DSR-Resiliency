@@ -5998,6 +5998,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # Subproject B: build the subcontractor WR scope when EITHER
             # the legacy-helper cleanup (SUB-09) OR the legacy-primary
             # cleanup (Subproject B) is enabled — the two share the scope.
+            # Quick 261030-suf F7: (wr, week) pairs held after a Foreman
+            # Notes GF lookup failure; cleanup keeps their files until a
+            # replacement is uploaded. None when nothing was held.
+            _fn_held_wr_weeks = {
+                (_h[0], _h[1]) for _h in _fn_held_groups.values()
+            } or None
             _need_sub_scope = (
                 SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED
                 or SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
@@ -6051,6 +6057,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     sub_legacy_primary_variants=_target_legacy_primary,
                     vac_legacy_wr_scope=_vac_scope,
                     primary_wr_scope=_primary_scope,
+                    held_wr_weeks=_fn_held_wr_weeks,
                     # Phase 11 Plan 03 (CONTEXT.md D-06 — highest-severity
                     # finding of the phase): in incremental mode `groups`
                     # is a strict subset of the live groups, so
@@ -6149,6 +6156,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         # only; KEEP_HISTORICAL_WEEKS itself is untouched.
                         keep_historical=True if _resolved_mode == 'incremental' else None,
                         dry_run=SKIP_UPLOAD,
+                        held_wr_weeks=_fn_held_wr_weeks,
                     )
 
         # Cleanup legacy / stale Excel files so only current system outputs remain
