@@ -4089,7 +4089,8 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         _groups_skipped_no_target = 0
         # Quick 261030-suf: (wr, week_raw, variant) of groups held because
         # the Foreman Notes GF lookup failed (carried as regeneration debt).
-        _fn_held_groups: list = []
+        _fn_held_groups = []
+        _fn_run_report = {}
         # Groups NOT generated because the WR has no target-sheet row
         # (owner decision 2026-08-28).
         _no_target_row_groups: NoTargetRowGroups = {}
@@ -6390,7 +6391,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 scope.set_tag("audit_risk_level", audit_results.get('summary', {}).get('risk_level', 'UNKNOWN'))
             
             # Set final session context for dashboard visibility
-            sentry_sdk.set_context("session_summary", {
+            _session_summary = {
                 "success": True,
                 "files_generated": generated_files_count,
                 "groups_total": len(groups),
@@ -6404,7 +6405,12 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 "history_updates": history_updates,
                 "mode": "TEST" if TEST_MODE else "PRODUCTION",
                 "audit_risk_level": audit_results.get('summary', {}).get('risk_level', 'UNKNOWN') if audit_results else None,
-            })
+            }
+            # Quick 261030-suf: Foreman Notes counts, only when the run
+            # report is non-empty (scope-off runs stay byte-identical).
+            if _fn_run_report:
+                _session_summary["foreman_notes"] = _fn_run_report
+            sentry_sdk.set_context("session_summary", _session_summary)
             sentry_sdk.set_context("data_pipeline", {
                 "source_sheets": len(source_sheets) if 'source_sheets' in dir() else 0,
                 "total_rows_fetched": len(all_rows) if 'all_rows' in dir() else 0,

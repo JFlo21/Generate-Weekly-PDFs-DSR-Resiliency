@@ -181,12 +181,33 @@ def memory_write_blocked(kind: str) -> bool:
         return False
     if kind not in _BLOCKED_KINDS_LOGGED:
         _BLOCKED_KINDS_LOGGED.add(kind)
-        logging.error(
-            "Foreman notes: blocked pipeline_memory write during dry-run "
-            "pilot "
-            "(kind=%s)", kind,
-        )
+        _log_blocked_write(kind)
     return True
+
+
+def _log_blocked_write(kind: str) -> None:
+    """Log the blocked-write ERROR inside a forked, tagged Sentry scope (C2).
+
+    ``LoggingIntegration`` turns this ERROR into the event, so the tags and
+    fingerprint ride on that one event only. If the scope helper fails, the
+    plain ``logging.error`` still runs.
+    """
+    msg = "Foreman notes: blocked pipeline_memory write during dry-run pilot "
+    msg += "(kind=%s)"
+    logged = False
+    try:
+        from pipeline import observability as _obs
+
+        with _obs.foreman_notes_scope(
+            tags={"foreman_notes": "1", "memory_kind": kind},
+            fingerprint=["foreman-notes", "memory-write-blocked", kind],
+        ):
+            logging.error(msg, kind)
+            logged = True
+    except Exception:  # noqa: BLE001
+        pass
+    if not logged:
+        logging.error(msg, kind)
 
 
 def mapping_enabled() -> bool:
@@ -238,6 +259,54 @@ def reset_state() -> None:
     _STATE = FnState()
     _BLOCKED_KINDS_LOGGED.clear()
     reset_style_cache()
+    _reset_failures()
+
+
+# Per-run failure counters (quick 261030-suf C3 / C4). Counts and exception
+# class names only; reported once at run end by ``report_run_end``.
+_RUN_FAILURES: dict = {}
+
+
+def _reset_failures() -> None:
+    """Zero every per-run style / digest failure counter."""
+    _RUN_FAILURES.clear()
+    _RUN_FAILURES.update(
+        style_failed_chunks=0,
+        style_rows_affected=0,
+        style_attach_failures=0,
+        style_exc=set(),
+        digest={},
+        digest_exc=set(),
+    )
+
+
+_reset_failures()
+
+
+def _count_style(exc: BaseException, rows: int | None = None) -> None:
+    """Count a style failure: a chunk (``rows`` given) or the whole attach.
+
+    Never raises.
+    """
+    try:
+        if rows is None:
+            _RUN_FAILURES["style_attach_failures"] += 1
+        else:
+            _RUN_FAILURES["style_failed_chunks"] += 1
+            _RUN_FAILURES["style_rows_affected"] += int(rows)
+        _RUN_FAILURES["style_exc"].add(type(exc).__name__)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _count_digest(func: str, exc: BaseException) -> None:
+    """Count a notes-digest failure in ``func``. Never raises."""
+    try:
+        digest = _RUN_FAILURES["digest"]
+        digest[func] = digest.get(func, 0) + 1
+        _RUN_FAILURES["digest_exc"].add(type(exc).__name__)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -360,16 +429,48 @@ def load_gf_lookup(
         return GfLookup(None, "exception", exc)
 
 
-def _breadcrumb(**counts: int) -> None:
-    """Sentry breadcrumb carrying counts only (never names / WRs / notes)."""
+def _breadcrumb(
+    message: str = "initialized", level: str = "info", **data: Any
+) -> None:
+    """Sentry breadcrumb carrying counts / reason only (never names, WRs or
+    notes). Successful initialize keeps ``"initialized"`` / ``info``."""
     try:
         import sentry_sdk  # noqa: WPS433 - optional dependency
 
         sentry_sdk.add_breadcrumb(
             category="foreman_notes",
-            message="initialized",
-            data=counts,
-            level="info",
+            message=message,
+            data=data,
+            level=level,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _gf_lookup_status(state: FnState) -> str:
+    """``failed`` / ``ok`` / ``skipped`` for the run tag and report."""
+    if state.gf_failed:
+        return "failed"
+    return "ok" if state.gf_loaded else "skipped"
+
+
+def _report_initialized(state: FnState) -> None:
+    """C1 failure event (when the lookup failed) and C5 run tags.
+
+    Never raises.
+    """
+    try:
+        if state.gf_failed:
+            reason = state.gf_fail_reason
+            _capture(
+                "gf_lookup_failed", reason,
+                ["foreman-notes", "gf-lookup-failed", reason],
+                _lookup_context(state),
+            )
+        from pipeline import observability as _obs
+
+        _obs.set_foreman_notes_run_tags(
+            EFFECTIVE_SCOPE, len(state.pilot_wrs), _gf_lookup_status(state)
         )
     except Exception:  # noqa: BLE001
         pass
@@ -378,6 +479,7 @@ def _breadcrumb(**counts: int) -> None:
 def initialize(client: Any) -> FnState:
     """Resolve the run state once at start-up. Never raises."""
     try:
+        _reset_failures()
         reset_style_cache()
         scope = EFFECTIVE_SCOPE
         if scope == "off":
@@ -391,7 +493,10 @@ def initialize(client: Any) -> FnState:
                     "Foreman notes: pilot allowlist empty (count 0); no pilot "
                     "groups"
                 )
-                _breadcrumb(allowlist=0, gf_rows=0, pilot_wrs=0)
+                _breadcrumb(
+                    "pilot allowlist empty", "warning",
+                    allowlist_count=0, gf_rows=0, pilot_wrs=0,
+                )
                 state = FnState(scope=scope)
             else:
                 lookup = load_gf_lookup(
@@ -403,7 +508,10 @@ def initialize(client: Any) -> FnState:
                 gf_map = lookup.gf_map
                 if gf_map is None:
                     _breadcrumb(
-                        allowlist=len(allowlist), gf_rows=0, pilot_wrs=0
+                        "gf lookup failed", "warning",
+                        reason=lookup.reason or "exception",
+                        allowlist_count=len(allowlist), gf_rows=0,
+                        pilot_wrs=0,
                     )
                     state = FnState(
                         scope=scope,
@@ -422,7 +530,7 @@ def initialize(client: Any) -> FnState:
                         len(allowlist), len(gf_map), len(pilot),
                     )
                     _breadcrumb(
-                        allowlist=len(allowlist),
+                        allowlist_count=len(allowlist),
                         gf_rows=len(gf_map),
                         pilot_wrs=len(pilot),
                     )
@@ -433,6 +541,7 @@ def initialize(client: Any) -> FnState:
                         gf_loaded=True,
                     )
         set_state(state)
+        _report_initialized(state)
         return state
     except Exception as exc:  # noqa: BLE001
         logging.warning(
@@ -457,6 +566,7 @@ def initialize(client: Any) -> FnState:
         else:
             state = FnState()
         set_state(state)
+        _report_initialized(state)
         return state
 
 
@@ -551,13 +661,52 @@ def _lookup_context(state: FnState) -> dict:
     return ctx
 
 
+def _report_style_and_digest(fails: dict, digest: dict) -> None:
+    """One run-end warning event each for style and digest failures (C3 /
+    C4). Counts and exception class names only. Never raises."""
+    try:
+        from pipeline import observability as _obs
+
+        run_url = _obs._github_run_url()
+        extra = {"run_url": run_url} if run_url else {}
+        if fails["style_failed_chunks"] or fails["style_attach_failures"]:
+            _capture(
+                "style_fetch_failed", "style_fetch_failed",
+                ["foreman-notes", "style-fetch-failed"],
+                {
+                    "reason": "style_fetch_failed",
+                    "failed_chunks": fails["style_failed_chunks"],
+                    "rows_affected": fails["style_rows_affected"],
+                    "attach_failures": fails["style_attach_failures"],
+                    "exception_classes": sorted(fails["style_exc"]),
+                    **extra,
+                },
+            )
+        if digest:
+            _capture(
+                "notes_digest_failed", "notes_digest_failed",
+                ["foreman-notes", "notes-digest-failed"],
+                {
+                    "reason": "notes_digest_failed",
+                    "failures": digest,
+                    "total": sum(digest.values()),
+                    "exception_classes": sorted(fails["digest_exc"]),
+                    **extra,
+                },
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def report_run_end(held_groups: Any = None, force_flags: Any = None) -> dict:
     """Run-end Foreman Notes report. Counts-only dict; ``{}`` when off.
 
     When groups were held, logs one counts-only WARNING and sends one
     ``foreman-notes / gf-hold`` event whose ``foreman_notes`` context lists
     the held ``{wr, week_ending, variant}`` entries (capped at 200, with
-    ``held_total``). ``variant`` is the group variant enum only. Never
+    ``held_total``). ``variant`` is the group variant enum only. Style and
+    notes-digest failures counted during the run each send one warning
+    event (C3 / C4), and every count is in the returned dict. Never
     raises.
     """
     try:
@@ -568,17 +717,19 @@ def report_run_end(held_groups: Any = None, force_flags: Any = None) -> dict:
         forced = sorted(
             str(k) for k, v in dict(force_flags or {}).items() if v
         )
-        if state.gf_failed:
-            lookup = "failed"
-        elif state.gf_loaded:
-            lookup = "ok"
-        else:
-            lookup = "skipped"
+        fails = _RUN_FAILURES
+        digest = dict(fails["digest"])
         report: dict = {
             "scope": EFFECTIVE_SCOPE,
-            "gf_lookup": lookup,
+            "gf_lookup": _gf_lookup_status(state),
             "held_total": len(held),
+            "style_failed_chunks": fails["style_failed_chunks"],
+            "style_rows_affected": fails["style_rows_affected"],
+            "style_attach_failures": fails["style_attach_failures"],
+            "digest_failures": sum(digest.values()),
+            "digest_failures_by_function": digest,
         }
+        _report_style_and_digest(fails, digest)
         if held:
             logging.warning(
                 "Foreman notes: %d group(s) held because the GF lookup "
@@ -836,6 +987,7 @@ def attach_group_styles(client: Any, group_rows: Any, sheet_maps: dict) -> int:
                         "Foreman notes: style fetch failed (%s) for %d rows",
                         type(exc).__name__, len(chunk),
                     )
+                    _count_style(exc, rows=len(chunk))
                 # PR #436: a failed or omitted row is cached as plain, so
                 # a row shared by several variant groups is fetched once.
                 for rid in chunk:
@@ -852,6 +1004,7 @@ def attach_group_styles(client: Any, group_rows: Any, sheet_maps: dict) -> int:
         logging.warning(
             "Foreman notes: attach styles failed (%s)", type(exc).__name__
         )
+        _count_style(exc)
         return 0
 
 
@@ -884,6 +1037,7 @@ def row_notes_component(row: Any) -> str | None:
         logging.warning(
             "Foreman notes: row component failed (%s)", type(exc).__name__
         )
+        _count_digest("row_notes_component", exc)
         return None
 
 
@@ -918,6 +1072,7 @@ def group_notes_token(sorted_rows: Any, row_identity: Any) -> str:
         logging.warning(
             "Foreman notes: group token failed (%s)", type(exc).__name__
         )
+        _count_digest("group_notes_token", exc)
         return ""
 
 
@@ -936,4 +1091,5 @@ def globals_component() -> str:
         logging.warning(
             "Foreman notes: globals component failed (%s)", type(exc).__name__
         )
+        _count_digest("globals_component", exc)
         return ""

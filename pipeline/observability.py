@@ -346,6 +346,27 @@ def sentry_capture_foreman_notes(
         pass
 
 
+def set_foreman_notes_run_tags(
+    scope: str, pilot_wrs_count: int, gf_lookup: str
+) -> None:
+    """Run-level Foreman Notes tags on the isolation scope (C5).
+
+    Run-level by design, so they persist across the run: the effective
+    scope, the pilot WR COUNT and the lookup outcome (``ok`` / ``failed``
+    / ``skipped``). No names, no WRs. No-op without ``SENTRY_DSN``; never
+    raises.
+    """
+    if not SENTRY_DSN:
+        return
+    try:
+        iso = sentry_sdk.get_isolation_scope()
+        iso.set_tag("foreman_notes_scope", str(scope))
+        iso.set_tag("foreman_notes_pilot_wrs", str(int(pilot_wrs_count)))
+        iso.set_tag("gf_lookup", str(gf_lookup))
+    except Exception:  # noqa: BLE001 - Sentry must never break a run
+        pass
+
+
 # Log level type for Sentry SDK 2.x
 SentryLogLevel = Literal["fatal", "critical", "error", "warning", "info", "debug"]
 
@@ -661,6 +682,11 @@ _PII_LOG_MARKERS: tuple[str, ...] = (
     # covers both the Sentry Logs plane and the breadcrumb plane; the
     # local GHA log keeps the full diagnostic.
     "Subcontractor price fall-through",
+    # Quick 261030-suf (C6): defence in depth for Foreman Notes text. Only
+    # this NARROW marker is registered: matching is SUBSTRING, so a broad
+    # "note" or "gf" marker would drop every counts-only "Foreman notes:"
+    # log (and its breadcrumb) the operator needs.
+    "foreman_notes_text",
 )
 
 
@@ -682,6 +708,10 @@ _PII_BREADCRUMB_DATA_KEYS: frozenset[str] = frozenset({
     "job", "job_number",
     "price", "point", "cu", "customer",
     "filename", "file_identifier",
+    # Quick 261030-suf (C6): General Foreman names and Foreman Notes text.
+    # Exact-key match, so the counts key ``allowlist_count`` survives.
+    "gf", "gf_name", "general_foreman", "allowlist",
+    "note", "notes", "foreman_notes_text",
 })
 
 
