@@ -6,10 +6,10 @@ current_phase: 15
 current_phase_name: Foreman Notes and Smartsheet color carry-over (GF pilot)
 status: executing
 stopped_at: Completed 15-06-PLAN.md
-last_updated: "2026-10-30T00:42:10.372Z"
+last_updated: "2026-10-31T03:48:08.737Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: 7a93875bcb7a4d35bc28dfa66e85983ce4c6bec9
+state_head: 327d3af1d391e13f73af2359f0d8cb88d7e1e495
 progress:
   total_phases: 15
   completed_phases: 14
@@ -69,7 +69,7 @@ Next, in order: (1) follow-up PR: mirror `_breaker_lock` into the
 `pipeline_memory` twin breaker (lost-update only, no close path); (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A) on
 its contract then; (3) owner: Codex threads, Dependabot triage.
-Last activity: 2026-09-14 — Phase 11 execution started
+Last activity: 2026-10-30 - Completed quick task 261030-suf: GF-lookup hold + Foreman Notes Sentry upgrade
 
 **Phase 11 history (superseded focus, preserved for context):** Phase 11
   fully shipped 2026-08-31 (8/8 plans). 11-07 re-opened the INC-05
@@ -526,6 +526,7 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 | 260605-cron | Fix Sentry cron-monitor false "missed check-in" (-6V): monitor timezone `America/Chicago` → `UTC` (GitHub Actions crons are UTC; the 260603-mmc Chicago tz was itself the bug). TDD pure `_build_cron_monitor_config()` + 5 tests incl. live-workflow schedule-match guard; Living Ledger rule. Same session: /gsd-verify-work 07 (7/7) + /gsd-validate-phase 07 (Nyquist-compliant); Sentry triage of all 61 issues → 34 resolved, 27 ignored. pytest 1048 passed. | 2026-06-05 | 80c7abb | PR #264 (branch `fix/260605-cron-monitor-utc-timezone`) |
 | 260605-tgi | Fix 3 Pylance/Pyright type ERRORS in generate_weekly_pdfs.py (Sentry helpers) — type-only, zero runtime change: `_sentry_log_event` logger via getattr (×2 "not a known attribute"); `_build_cron_monitor_config` → TYPE_CHECKING `MonitorConfig` return annotation (dict-not-assignable). IDE getDiagnostics Error 3→0 (369 Hints untouched); pytest 1048 passed. | 2026-06-06 | 1c5caf9 | PR #266 (branch `fix/260605-tgi-pylance-type-errors`) |
 | 260608-gwm | Hotfix CI import crash: pin `smartsheet-python-sdk>=3.1.0,<4.0.0`. SDK 4.0.0 (published 2026-06-08) is a breaking major that removed `smartsheet.exceptions` → `generate_weekly_pdfs.py:28` `ModuleNotFoundError` on CI's fresh `pip install`, crashing the weekly billing workflow before any work; 4.0.0 also dropped `Folders.get_folder`/`list_folders` + `Templates` and changed pagination. One-line requirements.txt pin (zero billing-logic change, fully reversible) + Living Ledger rule (upper-bound transport-critical deps). py_compile OK; non-mutating `pip install --dry-run` resolves 3.7.2 (never 4.0.0). | 2026-06-08 | d89769c | [260608-gwm](./quick/260608-gwm-pin-smartsheet-python-sdk-4-0-0-to-fix-c/) |
+| 261030-suf | Hold pilot groups when the Foreman Notes GF lookup fails + Foreman Notes Sentry upgrade | 2026-10-30 | 327d3af | [261030-suf-hold-pilot-groups-when-the-foreman-notes](./quick/261030-suf-hold-pilot-groups-when-the-foreman-notes/) |
 
 ## Deferred Items
 
