@@ -105,10 +105,12 @@ not a bug; look for the WARNING in the log.
 
 - In Sentry, an **error** event **`Foreman notes: GF lookup failed
   (<reason>)`** (fingerprint `foreman-notes / gf-lookup-failed / <reason>`).
-  Its `foreman_notes` context shows the reason, the exception class and a
-  redacted message, the target sheet and column IDs that were checked, the
-  expected column titles, the allowlist count, the fix steps and the Actions
-  run link. **It repeats on every run until the GF read works**, even when
+  Its `foreman_notes` context shows the reason, the exception class, the
+  Smartsheet API error code and HTTP status (when the error carries them),
+  the target sheet and column IDs that were checked, the expected column
+  titles, the allowlist count, the fix steps and the Actions run link. The
+  exception's own text is never sent, because it could contain a name or a
+  note; use the error code, the status and the run log to diagnose. **It repeats on every run until the GF read works**, even when
   nothing is held.
 - If any group was held, one more **error** event, **`Foreman notes: groups
   held after GF lookup failure`** (fingerprint `foreman-notes / gf-hold`). Its
