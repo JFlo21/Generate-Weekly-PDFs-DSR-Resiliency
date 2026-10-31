@@ -62,8 +62,9 @@ HELPER2_ENABLED = os.getenv(
 # 'off'.
 FOREMAN_NOTES_SCOPE = os.getenv('FOREMAN_NOTES_SCOPE', 'pilot').strip().lower()
 # D-15-04: comma-separated General Foreman allowlist. The code default is EMPTY
-# (zero pilot groups, fail-closed). Real names live only in a local .env or a
-# GitHub Actions repository variable -- never in this public repository.
+# (zero pilot groups, fail-closed). Real names live only in a local .env or the
+# GitHub Actions repository SECRET of the same name (masked in run logs; never
+# a repository variable) -- never in this public repository.
 FOREMAN_NOTES_PILOT_GFS = os.getenv('FOREMAN_NOTES_PILOT_GFS', '')
 # Rollout switch: a publishing run (this on) resolves to the configured scope.
 FOREMAN_NOTES_UPLOAD = os.getenv(

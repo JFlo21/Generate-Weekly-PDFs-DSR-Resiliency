@@ -554,8 +554,9 @@ writes (e.g. to reduce Supabase write volume) — change detection is
 unaffected because `pipeline_memory.group_state.content_hash` and the
 filename hash remain the active signals while not authoritative. (Prior
 to PR #373 this write also went to the local `hash_history.json` cache;
-that cache is retired.) A Foreman Notes pilot dry run requires this flag set to
-`0`; with it on the effective pilot scope falls back to `off` (see
+that cache is retired.) A Foreman Notes pilot dry run requires this flag,
+`RUN_MEMORY_WRITE_ENABLED` and `AUDIT_MEMORY_ENABLED` all set to `0`; with any
+of them on the effective pilot scope falls back to `off` (see
 [Foreman Notes and colour pilot](../runbook/foreman-notes-pilot.md#when-the-pilot-actually-renders)).
 
 ### `SUPABASE_HASH_STORE_AUTHORITATIVE`
@@ -953,7 +954,11 @@ pilot](../runbook/foreman-notes-pilot.md).
 `off` with one WARNING. This is the *configured* scope. The effective scope is
 `off` for the scheduled production cron and for a `SKIP_UPLOAD`-only run; it
 equals the configured scope on a `TEST_MODE` run with every write path off (the
-dry run) or when `FOREMAN_NOTES_UPLOAD` is on. **Rollback:** set `off`. See
+dry run) or when `FOREMAN_NOTES_UPLOAD` is on. `all` skips the General Foreman
+lookup and treats every Work Request as pilot: every workbook gains column I and
+every row's colours are fetched, so a publishing run with `all` re-sends every
+group whose notes are non-empty. Use `pilot` unless the owner approves a full
+rollout. **Rollback:** set `off`. See
 [When the pilot actually
 renders](../runbook/foreman-notes-pilot.md#when-the-pilot-actually-renders).
 

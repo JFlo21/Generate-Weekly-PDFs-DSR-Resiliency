@@ -90,7 +90,10 @@ class SentryFrameScrubTests(unittest.TestCase):
         self.assertEqual(frame["function"], "get_all_source_rows")
 
     def test_other_locations_keep_their_locals(self) -> None:
-        out = _scrub_sheet_drop_frame_vars(_event("audit_system"))
+        # Pin scope off: EFFECTIVE_SCOPE is read from the environment at
+        # import, and a pilot scope scrubs every event.
+        with mock.patch.object(_fn, "EFFECTIVE_SCOPE", "off"):
+            out = _scrub_sheet_drop_frame_vars(_event("audit_system"))
         frame = out["exception"]["values"][0]["stacktrace"]["frames"][0]
         self.assertIn("vars", frame)
 

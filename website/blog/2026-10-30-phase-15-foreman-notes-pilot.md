@@ -6,7 +6,7 @@ tags: [python, project]
 date: 2026-10-29T23:45:00+00:00
 ---
 
-**Component:** Python billing pipeline (`generate_weekly_pdfs.py` → `pipeline/foreman_notes.py`), GitHub Actions cron. **Branch:** `feat/phase-15-foreman-notes`. **PR:** #436. Operator procedure: [Foreman Notes and colour pilot](/docs/runbook/foreman-notes-pilot).
+**Component:** Python billing pipeline (`generate_weekly_pdfs.py` → `pipeline/foreman_notes.py`), GitHub Actions cron. **Branch:** `feat/phase-15-foreman-notes`. **PR:** #437. Operator procedure: [Foreman Notes and colour pilot](/docs/runbook/foreman-notes-pilot).
 
 <!-- truncate -->
 
@@ -14,8 +14,8 @@ date: 2026-10-29T23:45:00+00:00
 
 Phase 15 adds two things to the weekly Excel workbook, for a **pilot** set of General Foremen (GFs) only:
 
-- a `Foreman Notes` column **I** in every day block, carrying the note from the source row's existing `Foreman Notes` column (wrapped text; Pricing stays in column H; the day header spans A:I; the TOTAL row's I cell is red);
-- the Smartsheet fill and font colours of the source cells on the Pole #, CU, Work Type, CU Description, UOM, Quantity and Pricing cells, plus landscape fit-to-width printing.
+- a `Foreman Notes` column **I** in every day block, carrying the note from the source row's existing `Foreman Notes` column (wrapped text; Pricing stays in column H; the day header spans A:I, except a first day block whose header row shares a row with the summary block, which keeps today's unmerged layout; the TOTAL row's I cell is red);
+- the Smartsheet fill and font colours of the source cells on the Pole #, CU, Work Type, CU Description, UOM, Quantity, Pricing and Foreman Notes cells, plus landscape fit-to-width printing.
 
 The pilot set is decided from the `General Foreman` column of the pre-planned pricing sheet, matched by Work Request, against an allowlist in `FOREMAN_NOTES_PILOT_GFS`. Anything that cannot be resolved (GF `NA` or blank, WR missing, wrong column titles, sheet unreadable) is non-pilot and keeps today's file. Notes also feed the pilot change-detection hash, so a notes-only edit re-sends the pilot file; colour-only edits do not, because colours come from conditional rules that change without anyone editing a row.
 
@@ -32,4 +32,4 @@ The owner asked for field notes and the colours the foremen see in Smartsheet to
 - **Rollback:** `FOREMAN_NOTES_SCOPE=off`. The next run re-validates once and pilot files regenerate in today's shape.
 - **Merge gate:** Phase 15 merges only after the Phase 11 plan 11-15 live parity reading closes Phase 11.
 
-PR: #436
+PR: #437

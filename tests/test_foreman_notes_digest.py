@@ -6,8 +6,9 @@ from typing import Any
 
 from pipeline import foreman_notes as fn
 
-# noqa: E731 - module is tested without change_detection
-IDENT = lambda r: r['CU']
+def IDENT(r: dict[str, str]) -> str:  # noqa: N802 - kept for call sites
+    """Row identity by CU; the module is tested without change_detection."""
+    return r['CU']
 
 
 def _row(cu: str, note: str, wr: str = '90003') -> dict[str, str]:

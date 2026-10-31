@@ -89,12 +89,11 @@ def compute_effective_scope(
 
     * invalid configured value -> ``'off'`` (fail-closed, one WARNING);
     * ``upload_enabled`` (a publishing run, FOREMAN_NOTES_UPLOAD=1) ->
-    configured;
+      configured;
     * a dry run (``test_mode``) is pilot only when no pipeline_memory /
-    hash-store
-      write path could run; otherwise ``'off'`` with one WARNING so a dry run
-      can
-      never persist pilot-flavoured fingerprints, markers or hashes;
+      hash-store write path could run; otherwise ``'off'`` with one WARNING,
+      so a dry run can never persist pilot-flavoured fingerprints, markers
+      or hashes;
     * everything else (the production cron) -> ``'off'``.
 
     SKIP_UPLOAD is deliberately NOT an input: on its own it keeps
@@ -115,12 +114,10 @@ def compute_effective_scope(
     if test_mode:
         logging.warning(
             "Foreman notes: dry run requested but a pipeline_memory / "
-            "hash-store "
-            "write flag is on; effective scope is off. Set the write flags "
-            "off "
-            "(SUPABASE_HASH_STORE_WRITE_ENABLED=0, "
-            "RUN_MEMORY_WRITE_ENABLED=0) "
-            "for a pilot dry run."
+            "hash-store write flag is on; effective scope is off. Set the "
+            "write flags off (SUPABASE_HASH_STORE_WRITE_ENABLED=0, "
+            "RUN_MEMORY_WRITE_ENABLED=0, AUDIT_MEMORY_ENABLED=0) for a "
+            "pilot dry run."
         )
     return "off"
 

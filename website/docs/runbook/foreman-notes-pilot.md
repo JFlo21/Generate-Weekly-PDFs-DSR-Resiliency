@@ -25,11 +25,13 @@ For a **pilot** General Foreman (GF), the weekly Excel workbook gains:
 
 - a `Foreman Notes` column **I** in every day block, next to the existing
   columns A to H (Pricing stays in H). Each CU row carries that unit's note in
-  wrapped text; the day header spans A:I and the TOTAL row's I cell is red like
-  the rest of the row;
+  wrapped text; the day header spans A:I (except a first day block whose
+  header row shares a row with the summary block; that header keeps today's
+  unmerged layout) and the TOTAL row's I cell is red like the rest of the row;
 - the Smartsheet **fill and font colour** of the source cells, applied to the
-  Pole #, CU, Work Type, CU Description, UOM, Quantity and Pricing cells (the
-  Pricing colour comes from the `Units Total Price` cell). Bold, italic,
+  Pole #, CU, Work Type, CU Description, UOM, Quantity, Pricing and Foreman
+  Notes cells (the Pricing colour comes from the `Units Total Price` cell; the
+  column I colour comes from the source `Foreman Notes` cell). Bold, italic,
   underline and strikethrough are never copied;
 - landscape, fit-to-page-width printing so the wider sheet prints on one page.
 
