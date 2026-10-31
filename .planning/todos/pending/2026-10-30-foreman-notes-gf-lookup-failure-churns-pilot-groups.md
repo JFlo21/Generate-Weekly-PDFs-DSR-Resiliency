@@ -30,5 +30,9 @@ Owner decision between two options:
 1. Hold pilot groups for that run, so nothing regenerates until the lookup works.
 2. Reuse the last known pilot WR set.
 
+**Decided 2026-10-30 (owner): option 1, hold pilot groups for that run, with a
+Sentry warning.** Fix lands before `FOREMAN_NOTES_UPLOAD` goes on; #437 merges
+without it.
+
 Either needs a regression test that fails the lookup on a run after a good run
 and asserts no pilot group regenerates.
