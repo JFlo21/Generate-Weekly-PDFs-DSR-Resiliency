@@ -466,6 +466,7 @@ def _report_initialized(state: FnState) -> None:
                 "gf_lookup_failed", reason,
                 ["foreman-notes", "gf-lookup-failed", reason],
                 _lookup_context(state),
+                level=_failure_level(),
             )
         from pipeline import observability as _obs
 
@@ -595,9 +596,15 @@ _HELD_GROUPS_CAP = 200
 
 
 def gf_lookup_failed() -> bool:
-    """True when this run's GF lookup failed in an effective pilot scope."""
+    """True when this run's GF lookup failed in an effective pilot scope
+    and the run can publish.
+
+    Always False in TEST_MODE (owner decision D2, 2026-10-30): a dry run
+    never uploads, so it never holds. The failure itself is still recorded
+    in the state and reported to Sentry. Never raises.
+    """
     try:
-        return bool(_STATE.gf_failed)
+        return bool(_STATE.gf_failed) and not config.TEST_MODE
     except Exception:  # noqa: BLE001
         return False
 
@@ -608,24 +615,36 @@ def should_hold_group(hash_matches_stored: bool) -> bool:
     Nothing durable marks a group as pilot, so while the lookup has failed
     every group whose fresh hash differs from the stored hash is held: all
     pilot groups (they lost ``NOTES_FP``) plus changed or new groups.
-    Never raises.
+    Never holds in TEST_MODE. Never raises.
     """
     try:
-        return bool(_STATE.gf_failed and not hash_matches_stored)
+        return gf_lookup_failed() and not hash_matches_stored
     except Exception:  # noqa: BLE001
         return False
 
 
+def _failure_level() -> str:
+    """Level of the lookup-failed / hold events (owner decision D1).
+
+    ``error`` on a publishing run; ``warning`` in TEST_MODE (a dry run).
+    """
+    try:
+        return "warning" if config.TEST_MODE else "error"
+    except Exception:  # noqa: BLE001
+        return "error"
+
+
 def _capture(
-    kind: str, reason: str, fingerprint: list, context: dict
+    kind: str, reason: str, fingerprint: list, context: dict,
+    level: str = "warning",
 ) -> None:
-    """Send one Foreman Notes warning event. Never raises."""
+    """Send one Foreman Notes event. Never raises."""
     try:
         from pipeline import observability as _obs
 
         _obs.sentry_capture_foreman_notes(
             kind=kind,
-            level="warning",
+            level=level,  # type: ignore[arg-type]
             reason=reason,
             context=context,
             fingerprint=fingerprint,
@@ -698,16 +717,21 @@ def _report_style_and_digest(fails: dict, digest: dict) -> None:
         pass
 
 
-def report_run_end(held_groups: Any = None, force_flags: Any = None) -> dict:
+def report_run_end(
+    held_groups: Any = None,
+    force_flags: Any = None,
+    reset_purge_skipped: bool = False,
+) -> dict:
     """Run-end Foreman Notes report. Counts-only dict; ``{}`` when off.
 
     When groups were held, logs one counts-only WARNING and sends one
-    ``foreman-notes / gf-hold`` event whose ``foreman_notes`` context lists
-    the held ``{wr, week_ending, variant}`` entries (capped at 200, with
-    ``held_total``). ``variant`` is the group variant enum only. Style and
-    notes-digest failures counted during the run each send one warning
-    event (C3 / C4), and every count is in the returned dict. Never
-    raises.
+    ``foreman-notes / gf-hold`` event (level ``error`` on a publishing run,
+    owner decision D1) whose ``foreman_notes`` context lists the held
+    ``{wr, week_ending, variant}`` entries (capped at 200, with
+    ``held_total``) and whether the RESET_* purge was skipped.
+    ``variant`` is the group variant enum only. Style and notes-digest
+    failures counted during the run each send one warning event (C3 /
+    C4), and every count is in the returned dict. Never raises.
     """
     try:
         if EFFECTIVE_SCOPE == "off":
@@ -728,6 +752,7 @@ def report_run_end(held_groups: Any = None, force_flags: Any = None) -> dict:
             "style_attach_failures": fails["style_attach_failures"],
             "digest_failures": sum(digest.values()),
             "digest_failures_by_function": digest,
+            "reset_purge_skipped": bool(reset_purge_skipped),
         }
         _report_style_and_digest(fails, digest)
         if held:
@@ -745,9 +770,11 @@ def report_run_end(held_groups: Any = None, force_flags: Any = None) -> dict:
             ]
             ctx["held_total"] = len(held)
             ctx["force_flags_active"] = forced
+            ctx["reset_purge_skipped"] = bool(reset_purge_skipped)
             _capture(
                 "gf_hold", state.gf_fail_reason,
                 ["foreman-notes", "gf-hold"], ctx,
+                level=_failure_level(),
             )
         return report
     except Exception:  # noqa: BLE001
