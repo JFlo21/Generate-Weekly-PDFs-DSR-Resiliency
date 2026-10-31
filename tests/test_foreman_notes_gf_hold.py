@@ -18,6 +18,7 @@ import copy
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace as NS
 from typing import Any, Iterator
@@ -733,25 +734,61 @@ class ParityAndVisibilityTests(_Base):
 # Task 2: attachment cleanup tolerates a held group (approved item 3)
 # ---------------------------------------------------------------------------
 
-_HELD_NAME = "WR_90003_WeekEnding_081025_120000_User_Sample_aabbcc.xlsx"
-_SKIP_NAME = "WR_90004_WeekEnding_081025_120000_User_Sample_ddeeff.xlsx"
+_LEGACY_SUFFIX = "000002_abcdef0123456789.xlsx"
 
 
-class CleanupToleranceTests(unittest.TestCase):
-    """A held group keeps its last good attachment, like an unchanged skip.
+class CleanupToleranceTests(_Base):
+    """A held group keeps its last good attachment (approved item 3).
 
-    Site 2 builds ``valid_wr_weeks`` from ``groups.items()``; the hold never
-    removes a group from ``groups``, so the held identity is present.
+    F6: the held identity is derived from the held group's ROWS exactly as
+    Site 2 does (``groups.items()`` -> canonical first row ->
+    ``derive_group_identity``), the attachment name comes from a real
+    ``generate_excel`` call in the good run, and cleanup runs live
+    (``dry_run=False``) against a client that records deletes.
     """
 
-    def _run(self, dry_run: bool) -> list:
-        build_group_identity = cd.build_group_identity
+    def setUp(self) -> None:
+        super().setUp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.init_good()
+        self.key = f"{golden.WEEK_RAW}_{PILOT_WR}"
+        self.rows = _group(PILOT_WR)
+        with golden.pinned_env(output_folder=tmp.name):
+            data_hash = cd.calculate_data_hash(self.rows)
+            path, *_rest = gwp.generate_excel(
+                self.key, self.rows, golden.SNAPSHOT_DATE,
+                data_hash=data_hash)
+        self.held_name = Path(path).name
+        self.init_failed()  # the held run
+
+    def _site2_identity(self) -> tuple:
+        """Mirror of orchestrate.main() Site 2 for one group."""
+        from pipeline import orchestrate as orch
+
+        week_raw = self.key.split("_", 1)[0]
+        first = cd.canonical_first_row(self.rows)
+        wr = fn.norm_wr(first.get("Work Request #"))
+        variant = first.get("__variant", "primary")
+        with golden.pinned_env():
+            _, file_id = orch.derive_group_identity(
+                first, primary_claim_enabled=True,
+                vac_crew_claim_enabled=True, res_grouping_mode="both")
+        return (wr, week_raw, variant, file_id)
+
+    def _older(self, name: str) -> str:
+        parts = name.split("_")
+        parts[parts.index("WeekEnding") + 2] = "000001"
+        return "_".join(parts)
+
+    def _cleanup(self, names: list, valid: set, dry_run: bool = False,
+                 **kwargs: Any) -> list:
         deleted: list = []
         client = mock.MagicMock()
         client.Attachments.delete_attachment.side_effect = (
             lambda _sid, att_id: deleted.append(att_id))
         atts = []
-        for att_id, name in ((10, _HELD_NAME), (20, _SKIP_NAME)):
+        for att_id, name in enumerate(names, start=10):
             att = mock.MagicMock()
             att.name = name
             att.id = att_id
@@ -760,22 +797,72 @@ class CleanupToleranceTests(unittest.TestCase):
         row.id = 111
         sheet = mock.MagicMock()
         sheet.rows = [row]
-        valid = {build_group_identity(_HELD_NAME),
-                 build_group_identity(_SKIP_NAME)}
-        self.assertNotIn(None, valid)
-        gwp.cleanup_untracked_sheet_attachments(
-            client=client, target_sheet_id=5723337641643908,
-            valid_wr_weeks=valid, test_mode=False,
-            attachment_cache={111: atts}, target_sheet=sheet,
-            dry_run=dry_run,
-        )
-        return deleted
+        with golden.pinned_env():
+            gwp.cleanup_untracked_sheet_attachments(
+                client=client, target_sheet_id=5723337641643908,
+                valid_wr_weeks=valid, test_mode=False,
+                attachment_cache={111: atts}, target_sheet=sheet,
+                dry_run=dry_run, **kwargs,
+            )
+        return [names[i - 10] for i in deleted]
+
+    def test_site2_identity_matches_uploaded_name(self) -> None:
+        self.assertEqual(
+            self._site2_identity(), cd.build_group_identity(self.held_name))
 
     def test_dry_run_deletes_nothing(self) -> None:
-        self.assertEqual(self._run(dry_run=True), [])
+        names = [self.held_name, self._older(self.held_name)]
+        self.assertEqual(
+            self._cleanup(names, {self._site2_identity()}, dry_run=True),
+            [])
 
-    def test_live_cleanup_keeps_held_like_unchanged_skip(self) -> None:
-        self.assertEqual(self._run(dry_run=False), [])
+    def test_live_cleanup_keeps_held_newest(self) -> None:
+        older = self._older(self.held_name)
+        deleted = self._cleanup(
+            [self.held_name, older], {self._site2_identity()})
+        self.assertEqual(deleted, [older])  # live: prunes, keeps newest
+
+    def _legacy_primary(self) -> str:
+        name = f"WR_{PILOT_WR}_WeekEnding_{golden.WEEK_RAW}_{_LEGACY_SUFFIX}"
+        wr, week, variant, ident = cd.build_group_identity(name)
+        self.assertEqual((wr, variant), (PILOT_WR, "primary"))
+        self.assertFalse(ident)
+        return name
+
+    def test_f7_legacy_scope_cannot_delete_held_wr_file(self) -> None:
+        legacy = self._legacy_primary()
+        valid = {self._site2_identity()}
+        risky = self._cleanup([legacy], valid, primary_wr_scope={PILOT_WR})
+        self.assertEqual(risky, [legacy])  # the pre-fix risk
+        held = {(PILOT_WR, golden.WEEK_RAW)}
+        kept = self._cleanup([legacy], valid, primary_wr_scope={PILOT_WR},
+                             held_wr_weeks=held)
+        self.assertEqual(kept, [])
+
+    def test_f7_held_helper_cannot_orphan_primary(self) -> None:
+        helper = (PILOT_WR, golden.WEEK_RAW, "helper", "Sam_Sample")
+        risky = self._cleanup([self.held_name], {helper})
+        self.assertEqual(risky, [self.held_name])  # the pre-fix risk
+        kept = self._cleanup(
+            [self.held_name], {helper},
+            held_wr_weeks={(PILOT_WR, golden.WEEK_RAW)})
+        self.assertEqual(kept, [])
+
+    def test_f7_main_passes_held_pairs_to_every_cleanup(self) -> None:
+        main = _main()
+        calls = _calls(main, "cleanup_untracked_sheet_attachments")
+        self.assertEqual(len(calls), 2)
+        for call in calls:
+            kw = {k.arg: k.value for k in call.keywords}
+            self.assertIn("held_wr_weeks", kw)
+            self.assertIn("_fn_held_wr_weeks", _names(kw["held_wr_weeks"]))
+        sources = [
+            n.value for n in ast.walk(main) if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "_fn_held_wr_weeks"
+                    for t in n.targets)
+        ]
+        self.assertEqual(len(sources), 1)
+        self.assertIn("_fn_held_groups", _names(sources[0]))
 
     def test_site2_builds_identities_from_groups(self) -> None:
         main = _main()
