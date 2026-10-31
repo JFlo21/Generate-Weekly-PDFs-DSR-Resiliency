@@ -58,15 +58,19 @@ reference](../reference/environment.md#foreman-notes-pilot).
 
 A Work Request is in the pilot when its `General Foreman` value on the
 pre-planned pricing sheet (matched by `Work Request #`) is on the allowlist. It
-is **not** in the pilot, and gets today's file, when:
+is **not** in the pilot, and gets today's file, when the GF is `NA`, blank, not
+on the allowlist, or the WR is missing from that sheet.
 
-- the GF is `NA`, blank, not on the allowlist, or the WR is missing from that
-  sheet;
-- either column title does not match what is expected;
-- the sheet cannot be read at all.
+If the lookup itself fails (a column title does not match, the sheet reads
+only partly, or it cannot be read at all), the run treats no group as pilot
+and **holds** changed groups instead of re-sending pilot files without their
+notes. See [If the General Foreman lookup
+fails](#if-the-general-foreman-lookup-fails).
 
-The lookup is read-only and happens once per run. Nothing about it (names, WR
-numbers, notes, colours) is written to logs or Sentry; only counts are.
+The lookup is read-only and happens once per run. GF names, notes and colours
+are never written to logs or Sentry; only counts are. The one exception: the
+Sentry events of a failed lookup list the held Work Request numbers in their
+`foreman_notes` context (owner-approved, recorded in `docs/DECISIONS.md`).
 
 While the effective scope is not `off`, the Python billing pipeline strips local
 variables and source lines from every Sentry event, so rows holding note text do
@@ -89,6 +93,62 @@ The write paths that must be off for a dry run are
 leave pilot-flavoured fingerprints, markers or hashes in Supabase. If you leave
 a write flag on, the files simply look like today's. That is the guard working,
 not a bug; look for the WARNING in the log.
+
+## If the General Foreman lookup fails
+
+**Component owner:** Python billing pipeline (the lookup is in
+`pipeline/foreman_notes.py`; the hold is in the group loop of
+`pipeline/orchestrate.py`). This only happens while the effective scope is
+`pilot` and the allowlist is set.
+
+### What you see
+
+- In Sentry, a warning event **`Foreman notes: GF lookup failed (<reason>)`**
+  (fingerprint `foreman-notes / gf-lookup-failed / <reason>`). Its
+  `foreman_notes` context shows the reason, the exception class and a redacted
+  message, the target sheet and column IDs that were checked, the expected
+  column titles, the allowlist count, the fix steps and the Actions run link.
+  It fires on every failed run, even when nothing is held.
+- If any group was held, one more warning event, **`Foreman notes: groups held
+  after GF lookup failure`** (fingerprint `foreman-notes / gf-hold`). Its
+  context lists the held Work Requests (`wr`, `week_ending`, `variant`; at most
+  200, with `held_total` for the full count) and which force or regen flags
+  were active.
+- Every event from that run carries the tag `gf_lookup=failed`.
+- In the run log, one WARNING: `Foreman notes: N group(s) held because the GF
+  lookup failed; carried as regeneration debt (...)`. The `session_summary`
+  context in Sentry carries the same counts under `foreman_notes`.
+
+### What the pipeline does
+
+- **Pilot files are not re-sent.** For the whole run, any group whose data
+  hash differs from the stored hash is held: no workbook, no upload. Pilot
+  groups always differ, because their stored hash includes the notes digest.
+- **Unchanged non-pilot groups are not affected**; they skip as on any other
+  run.
+- **Changed or new non-pilot groups wait one run.** Nothing stored records
+  which groups are pilot, so the run cannot tell them apart. This is the
+  approved cost of the hold.
+- **Force and regen flags do not override the hold** for those groups
+  (`FORCE_GENERATION`, `REGEN_WEEKS`, `RESET_HASH_HISTORY`, `RESET_WR_LIST`).
+  A forced group whose data still matches its stored hash regenerates as
+  forced.
+- Held groups keep their current attachment and stored hash. They are carried
+  as regeneration debt, and attachment cleanup leaves their files alone.
+
+### What to do
+
+| `reason` in the event | Check |
+| --- | --- |
+| `columns_mismatch` | On the pre-planned pricing (target) sheet, the `Work Request #` and `General Foreman` column titles and IDs against `FOREMAN_NOTES_GF_WR_COLUMN_ID` / `FOREMAN_NOTES_GF_COLUMN_ID`. A renamed or replaced column is the usual cause. |
+| `partial_read` | The sheet returned fewer rows than it reports. Check the API token's permissions on the sheet and the Smartsheet status, then let the next run retry. |
+| `exception` | The read failed; the exception class is in the event. Check the API token's permissions on the sheet and the Smartsheet API status. |
+| `initialize_failed` | An unexpected error while Foreman Notes started up. Open an issue with the Sentry event link. |
+
+Once the cause is fixed, the **next run with a working lookup heals itself**:
+held groups regenerate from regeneration debt, and pilot files whose data did
+not change match their stored hash and are not re-sent. No `RESET_*` flag is
+needed.
 
 ## Dry run (do this first)
 
