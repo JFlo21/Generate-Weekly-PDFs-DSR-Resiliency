@@ -7,7 +7,8 @@ tags: [foreman-notes, sentry, change-detection, pilot, hold]
 requires:
   - Phase 15 Foreman Notes pilot (pipeline/foreman_notes.py)
 provides:
-  - FnState.gf_failed / gf_fail_reason / gf_fail_exc / gf_fail_msg
+  - FnState.gf_failed / gf_fail_reason / gf_fail_exc / gf_fail_code /
+    gf_fail_status
   - load_gf_lookup, gf_lookup_failed, should_hold_group, report_run_end
   - observability.foreman_notes_scope, sentry_capture_foreman_notes,
     set_foreman_notes_run_tags
@@ -157,7 +158,7 @@ None. No new endpoint or auth path. The new Sentry surface is the one in the pla
   - Before the fix, two kinds of cleanup branch could delete a held WR's only file while its replacement was being held:
     - the legacy-scope branches (`primary_wr_scope`, and by the same structure `sub_wr_scope` / `vac_legacy_wr_scope`);
     - the helper-migration-orphan branch.
-  - Fix: `cleanup_untracked_sheet_attachments` gains a trailing kwarg `held_wr_weeks` (default None, so runs without a hold behave exactly as before). A held (wr, week) only goes through the per-identity older-duplicate pruning. The per-sheet `variant_whitelist` gate still applies.
+  - Fix: `cleanup_untracked_sheet_attachments` gains a trailing kwarg `held_wr_weeks` (default None, so runs without a hold behave exactly as before). A held (wr, week) only goes through the per-identity older-duplicate pruning. Fix round 3 (Copilot on #444): the hold check now runs before the per-sheet `variant_whitelist` gate as well, so the PPP cleanup cannot delete a held file as off-contract.
   - main() passes `_fn_held_wr_weeks` to both the TARGET and PPP cleanups.
 - **F8:**
   - The `⚡ Group processing phase` log line gains `, N held (GF lookup failed)`, only when the count is non-zero.
@@ -237,3 +238,10 @@ None. No new endpoint or auth path. The new Sentry surface is the one in the pla
 ## Self-Check (fix round 2): PASSED
 
 - Commits on HEAD: cf7864a, 7234135, 41224a4.
+
+## Fix round 3 (Copilot on PR #444)
+
+- High: the hold check in `cleanup_untracked_sheet_attachments` now runs before the PPP `variant_whitelist` gate, so a held file cannot be pruned as off-contract. Test: `test_f7_ppp_whitelist_cannot_delete_held_file`.
+- Low: `provides` lists `gf_fail_code` / `gf_fail_status` instead of the removed `gf_fail_msg`.
+- Low: the test helpers `_run` and `_cleanup` have parameterized types and typed returns.
+- The website build gap noted above is closed: it passed after `npm ci` in `website/`.
