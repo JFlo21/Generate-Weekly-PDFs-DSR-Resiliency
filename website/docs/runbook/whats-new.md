@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: October 30, 2026 (updated automatically)_
+_Last updated: October 31, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -32,8 +32,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — October 30, 2026
+### 📋 Changelog — October 31, 2026
 
+- ✨ New capability: foreman notes GF pilot (replaces )
 - ✅ Problem fixed: render Mermaid diagrams
 - ✅ Problem fixed: make mobile navbar menu readable
 - ✅ Problem fixed: carry every unconfirmed group as regen debt
@@ -41,7 +42,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: build runbook site on Node 26
 - ✨ New capability: G-11-37 parity gap closure (11-11..11-14)
 - 📄 Help guides updated: re-verify implementation truth
-- 📄 Help guides updated: align instruction files, run 2
 
 <!-- /runbook-repo -->
 
