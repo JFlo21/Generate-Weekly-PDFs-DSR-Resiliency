@@ -54,6 +54,9 @@ class _Base(unittest.TestCase):
     def setUp(self) -> None:
         fn.reset_state()
         self.addCleanup(fn.reset_state)
+        patcher = mock.patch.object(config, "TEST_MODE", False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def assert_no_secrets(self, cap: SentryCapture) -> None:
         for text in cap.texts():
@@ -73,14 +76,17 @@ class LookupFailedEventTests(_Base):
             "partial_read": _Client(sheet=_target_sheet(total=9)),
         }
 
-    def _assert_one(self, cap: SentryCapture, reason: str) -> None:
+    def _assert_one(
+        self, cap: SentryCapture, reason: str, level: str = "error"
+    ) -> None:
         events = cap.by_fingerprint("foreman-notes", "gf-lookup-failed")
         self.assertEqual(len(events), 1, reason)
         event = events[0]
         self.assertEqual(
             event["fingerprint"],
             ["foreman-notes", "gf-lookup-failed", reason])
-        self.assertEqual(event["level"], "warning")
+        # D1: ERROR on a publishing run; a dry run stays a warning.
+        self.assertEqual(event["level"], level)
         ctx = event["contexts"]["foreman_notes"]
         for key in LOOKUP_KEYS:
             self.assertIn(key, ctx, key)
@@ -96,6 +102,26 @@ class LookupFailedEventTests(_Base):
                 with fn_env():
                     fn.initialize(client)
                 self._assert_one(cap, reason)
+
+    def test_event_still_fires_in_test_mode(self) -> None:
+        """D2: no hold in TEST_MODE, but the lookup failure is reported."""
+        cap = SentryCapture(self)
+        with fn_env(test_mode=True):
+            fn.initialize(_Client(exc=RuntimeError("lookup broke")))
+            self.assertFalse(fn.gf_lookup_failed())
+        self._assert_one(cap, "exception", level="warning")
+
+    def test_lookup_event_does_not_leak_onto_next_event(self) -> None:
+        """F4: per-event tags / context / fingerprint stay scoped."""
+        cap = SentryCapture(self)
+        with fn_env():
+            fn.initialize(_Client(exc=RuntimeError("lookup broke")))
+        sentry_sdk.capture_message("probe")
+        probe = cap.events[-1]
+        self.assertEqual(probe.get("message"), "probe")
+        self.assertNotIn("foreman_notes", probe.get("contexts") or {})
+        self.assertNotIn("foreman_notes_reason", probe.get("tags") or {})
+        self.assertNotIn("fingerprint", probe)
 
     def test_outer_handler_sends_one_event(self) -> None:
         cap = SentryCapture(self)

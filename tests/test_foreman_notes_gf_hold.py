@@ -124,10 +124,14 @@ def _history_key(wr: str) -> str:
 
 
 @contextlib.contextmanager
-def fn_env(scope: str = "pilot", allowlist: str = "GF-1") -> Iterator[None]:
-    """Patch the effective scope, the allowlist and the GF column ids."""
+def fn_env(
+    scope: str = "pilot", allowlist: str = "GF-1", test_mode: bool = False
+) -> Iterator[None]:
+    """Patch the effective scope, the allowlist, TEST_MODE and the GF
+    column ids. ``test_mode`` defaults to False: a publishing run."""
     with mock.patch.object(fn, "EFFECTIVE_SCOPE", scope), \
             mock.patch.object(config, "FOREMAN_NOTES_PILOT_GFS", allowlist), \
+            mock.patch.object(config, "TEST_MODE", test_mode), \
             mock.patch.object(
                 config, "FOREMAN_NOTES_GF_WR_COLUMN_ID", WR_COL_ID), \
             mock.patch.object(
@@ -210,6 +214,10 @@ class _Base(unittest.TestCase):
     def setUp(self) -> None:
         fn.reset_state()
         self.addCleanup(fn.reset_state)
+        # A publishing run unless a test opts into TEST_MODE (D2).
+        patcher = mock.patch.object(config, "TEST_MODE", False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def init_good(self) -> fn.FnState:
         fn.reset_state()
@@ -297,6 +305,16 @@ class GfHoldSequenceTests(_Base):
         with fn_env("off"):
             self.assertEqual(fn.initialize(_Client()), fn.FnState())
 
+    def test_no_hold_in_test_mode(self) -> None:
+        """D2 (owner 2026-10-30): dry runs never upload, so never hold."""
+        state = self.init_failed()
+        self.assertTrue(state.gf_failed)
+        with mock.patch.object(config, "TEST_MODE", True):
+            self.assertFalse(fn.gf_lookup_failed())
+            self.assertFalse(fn.should_hold_group(False))
+        self.assertTrue(fn.gf_lookup_failed())
+        self.assertTrue(fn.should_hold_group(False))
+
     def test_predicates_never_raise(self) -> None:
         with mock.patch.object(fn, "_STATE", None):
             self.assertFalse(fn.gf_lookup_failed())
@@ -335,7 +353,7 @@ class HoldEventTests(_Base):
         holds = cap.by_fingerprint("foreman-notes", "gf-hold")
         self.assertEqual(len(holds), 1)
         event = holds[0]
-        self.assertEqual(event["level"], "warning")
+        self.assertEqual(event["level"], "error")  # D1
         self.assertEqual(event["fingerprint"], ["foreman-notes", "gf-hold"])
         self.assertEqual(event["tags"]["foreman_notes_scope"], "pilot")
         self.assertEqual(event["tags"]["foreman_notes_reason"], "exception")
@@ -358,6 +376,31 @@ class HoldEventTests(_Base):
         # The message text names no WR.
         self.assertNotIn(PILOT_WR, event.get("message") or "")
         self.assertEqual(self.report["held_total"], 1)
+
+    def test_hold_event_does_not_leak_onto_next_event(self) -> None:
+        """F4: tags, context and fingerprint stay on the forked scope."""
+        cap = self._report(list(_HELD))
+        sentry_sdk.capture_message("probe")
+        probe = cap.events[-1]
+        self.assertEqual(probe.get("message"), "probe")
+        self.assertNotIn("foreman_notes", probe.get("contexts") or {})
+        tags = probe.get("tags") or {}
+        for tag in ("foreman_notes_reason", "foreman_notes_scope"):
+            self.assertNotIn(tag, tags)
+        self.assertNotIn("fingerprint", probe)
+
+    def test_reset_purge_skipped_in_hold_context(self) -> None:
+        """F1: the hold event says the RESET_* purge was skipped."""
+        self.init_failed()
+        cap = SentryCapture(self)
+        with fn_env():
+            report = fn.report_run_end(
+                held_groups=list(_HELD), force_flags=_FORCE,
+                reset_purge_skipped=True)
+        (event,) = cap.by_fingerprint("foreman-notes", "gf-hold")
+        ctx = event["contexts"]["foreman_notes"]
+        self.assertIs(ctx["reset_purge_skipped"], True)
+        self.assertIs(report["reset_purge_skipped"], True)
 
     def test_no_hold_event_when_nothing_held(self) -> None:
         cap = self._report([])
