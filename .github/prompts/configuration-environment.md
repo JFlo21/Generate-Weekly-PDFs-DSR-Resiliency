@@ -40,6 +40,48 @@ re-exported by the `generate_weekly_pdfs.py` facade). Env var NAMES only — nev
   can embed row PII; the `before_send_log` sanitizer in `pipeline/observability.py` is the
   defense-in-depth backstop.
 
+**Foreman Notes + colour pilot (Phase 15, default-safe: production stays unchanged).** Owner: the Python
+billing pipeline (`pipeline/foreman_notes.py`); operator page: `website/docs/runbook/foreman-notes-pilot.md`.
+A pilot General Foreman (GF) workbook gains a `Foreman Notes` column I and the Smartsheet fill/font colours
+on the Smartsheet-sourced cells; every other workbook is cell-identical to today's.
+- `FOREMAN_NOTES_SCOPE` ∈ {`off`, `pilot`, `all`} (default `pilot`; any other value is treated as `off`
+  with one WARNING). This is the CONFIGURED scope; the EFFECTIVE scope is resolved as below.
+- `FOREMAN_NOTES_PILOT_GFS` — comma-separated General Foreman allowlist, matched case- and
+  whitespace-insensitively; a name that itself contains a comma is unsupported. The code default is
+  EMPTY (zero pilot groups, fail-closed). The value is set in env / a repository secret and is never
+  written into this repository: the operator's local `.env` for the dry run (loaded by the facade's
+  `load_dotenv()`, never committed), the GitHub Actions repository secret `FOREMAN_NOTES_PILOT_GFS`
+  at rollout (a secret, not a variable, so the names are masked in this public repo's run logs).
+- `FOREMAN_NOTES_UPLOAD` (default off; truthy `1`/`true`/`yes`/`on`) — the rollout switch. Pilot output
+  reaches the pre-planned pricing sheet only when this is on.
+- `FOREMAN_NOTES_GF_WR_COLUMN_ID` / `FOREMAN_NOTES_GF_COLUMN_ID` (defaults `5180541294563204` /
+  `2159630534528900`) — the `Work Request #` and `General Foreman` columns of `TARGET_SHEET_ID`. Titles are
+  verified at runtime; a mismatch or any read failure means no pilot groups (fail-closed).
+
+*Effective scope (the rule the code applies).* Invalid configured value -> `off`. `FOREMAN_NOTES_UPLOAD`
+on -> the configured scope. Otherwise a pilot only renders on a `TEST_MODE` run with every pipeline_memory
+write path off; the same `TEST_MODE` run with any of them on falls back to `off` with one WARNING (the
+no-persist guard: a dry run can never persist pilot-flavoured fingerprints, markers or hashes, and its
+files then look like today's, which is correct, not a bug). The write paths counted are
+`SUPABASE_HASH_STORE_WRITE_ENABLED`, `RUN_MEMORY_WRITE_ENABLED` and `AUDIT_MEMORY_ENABLED`.
+`SKIP_UPLOAD` alone never renders pilot output. The production cron (no `TEST_MODE`, upload off) is
+always `off`.
+
+*Dry run (single recipe).* Export the token in your own shell and put the real pilot GF names in
+`FOREMAN_NOTES_PILOT_GFS` in your local `.env`; with it unset there are zero pilot groups. `WR_FILTER` is
+honoured only with `TEST_MODE`:
+
+```bash
+TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<pilot WR> RUN_MEMORY_WRITE_ENABLED=0 AUDIT_MEMORY_ENABLED=0 SUPABASE_HASH_STORE_WRITE_ENABLED=0 PYTHONUTF8=1 python generate_weekly_pdfs.py
+```
+
+*Rollout and rollback.* Turning `FOREMAN_NOTES_UPLOAD` on in the scheduled cron is a separate, explicitly
+approved workflow env change (not part of Phase 15): it passes the `FOREMAN_NOTES_PILOT_GFS`
+repository secret (created 2026-10-29) to the job env as `${{ secrets.FOREMAN_NOTES_PILOT_GFS }}`. Enabling re-sends every pilot GF file once (notes-only
+edits then re-send; colour-only edits never do) and makes every source sheet take one full validation
+(mapping marker `helper2-v1+fn1`). Rollback: `FOREMAN_NOTES_SCOPE=off` (or switch the upload variable
+off); the next run re-validates once and pilot files regenerate in today's shape.
+
 **Retired / no-op (Phase 11 Plan 08, INC-05 — setting them has no effect):** `USE_DISCOVERY_CACHE`,
 `DISCOVERY_CACHE_TTL_MIN`, `HASH_HISTORY_PATH`, `ATTACHMENT_PREFETCH_MAX_MINUTES`,
 `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC`; `FORCE_REDISCOVERY` still exists on the facade for

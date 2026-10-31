@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.4
 milestone_name: Supabase Run Memory — incremental billing pipeline (DRAFT)
-current_phase: 11
-current_phase_name: Incremental Read + Affected-Group Regeneration
+current_phase: 15
+current_phase_name: Foreman Notes and Smartsheet color carry-over (GF pilot)
 status: executing
-stopped_at: Phase 15 context gathered
-last_updated: "2026-10-29T21:16:01.789Z"
+stopped_at: Completed 15-06-PLAN.md
+last_updated: "2026-10-30T00:42:10.372Z"
 last_activity: 2026-09-14
 last_activity_desc: Phase 11 execution started
-state_head: 0647bb937db843fcd4421b8b2405cadd34b12683
+state_head: 7a93875bcb7a4d35bc28dfa66e85983ce4c6bec9
 progress:
   total_phases: 15
   completed_phases: 14
-  total_plans: 87
-  completed_plans: 86
+  total_plans: 94
+  completed_plans: 92
   percent: 93
 ---
 
@@ -35,8 +35,8 @@ pipeline.
 
 ## Current Position
 
-Phase: 11 (Incremental Read + Affected-Group Regeneration) — EXECUTING
-Plan: 7 of 10
+Phase: 15 (Foreman Notes and Smartsheet color carry-over (GF pilot)) — READY TO EXECUTE
+Plan: 10 of 10
 Status: Ready to execute
 
 Phase 12 (Ownership — last known foreman as of the week) is COMPLETE as of
@@ -185,6 +185,12 @@ Progress: [████████████████████] 74/74 p
 | Phase 11 P12 | 60min | 3 tasks | 5 files |
 | Phase 11 P13 | 35min | 3 tasks | 6 files |
 | Phase 11 P14 | 40min | 3 tasks | 6 files |
+| Phase 15 P01 | 25m | 3 tasks | 5 files |
+| Phase 15 P02 | 35m | 3 tasks | 5 files |
+| Phase 15 P03 | 30m | 3 tasks | 5 files |
+| Phase 15 P04 | 30m | 3 tasks | 2 files |
+| Phase 15 P05 | 50m | 3 tasks | 3 files |
+| Phase 15 P06 | 25m | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -366,6 +372,11 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 - [Phase 11]: 11-12: run_ledger_note_pending is UPDATE-by-run_id only; inherited-unknown debt widens finish pending to all group pairs
 - [Phase 11]: 11-13: Owner (Juan, 2026-10-29): run after unfinished/failed run (D-02 trigger 6) is shadow-skipped; manual streak_eligible runs keep counting; shadow skips would-fallback-full and group-hash-globals-changed runs
 - [Phase 11]: 11-14: upsert_rows_bulk additive prior-WR branch (G-11-37 C) owner-approved and APPLIED live 2026-10-29 (migration 20261029205414); D-04 amended
+- [Phase 15]: 15-01: Golden record uses invented names/WR 90311, pins env inputs on consuming modules, placeholders for wall-clock cell and filename timestamp
+- [Phase 15]: 15-02: descriptor parser rejects any non-numeric part (whole-cell fail-closed); norm_note keeps inner spaces after stripping illegal chars
+- [Phase 15]: 15-03: NOTES_FP and row/globals fingerprint notes components are pilot-gated appends; off and non-pilot payloads stay byte-identical to BASE golden
+- [Phase 15]: 15-05: AUDIT_MEMORY_ENABLED added to memory_writes_possible (audit-findings upsert is not TEST_MODE-gated); dry-run pilot write guards sit inside existing gates
+- [Phase 15]: [15-06] Dry-run recipe documents AUDIT_MEMORY_ENABLED as a write path; allowlist documented only as env/repository variable (GF-1..GF-3 aliases)
 
 ### Roadmap Evolution
 
@@ -568,8 +579,8 @@ See PROJECT.md `<decisions>` table for the full 30+ entry log.
 
 ## Session
 
-**Last session:** 2026-10-29T21:15:58.868Z
-**Stopped at:** Phase 15 context gathered
+**Last session:** 2026-10-30T00:42:08.048Z
+**Stopped at:** Completed 15-06-PLAN.md
 passed 2026-09-11 (12-UAT.md 34/34, 12-VERIFICATION.md 77/77 must-haves,
 5 open advisory gaps + WR-09 fixed in the PR); `phase.complete 12` advanced
 STATE.md to Phase 13 "Ready to plan" and updated REQUIREMENTS.md /
@@ -588,7 +599,7 @@ Next: (1) follow-up PR: mirror `_breaker_lock` into the `pipeline_memory`
 twin breaker (lost-update only, no close path); (2) Phase
 13 (Audit Memory) only when Juan asks — place `wr_week_ownership` (D-12-A)
 on its contract then; (3) owner: Dependabot triage / Codex threads.
-**Resume file:** .planning/phases/15-foreman-notes-and-smartsheet-color-carry-over-gf-pilot/15-CONTEXT.md
+**Resume file:** None
 
 ## Session Continuity
 

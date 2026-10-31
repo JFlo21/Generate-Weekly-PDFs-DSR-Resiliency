@@ -39,6 +39,7 @@ import logging
 from typing import Any, Iterable, Mapping
 
 from pipeline import change_detection as _cd
+from pipeline import foreman_notes as _fn
 
 logger = logging.getLogger(__name__)
 
@@ -123,8 +124,15 @@ def row_group_hash_fingerprint(row: dict) -> str:
         }
         fields = _cd._extended_row_fields(probe, "vac_crew")
         derivation = [str(row.get(k) or "") for k in GROUP_DERIVATION_KEYS]
+        # Phase 15 (D-15-11, G-11-37): mirror the group hash's NOTES_FP
+        # predicate -- a third element only for PILOT rows, so off /
+        # non-pilot fingerprints stay byte-identical.
+        notes = _fn.row_notes_component(row)
+        payload: list[Any] = [fields, derivation] if notes is None else [
+            fields, derivation, notes,
+        ]
         canonical = json.dumps(
-            [fields, derivation],
+            payload,
             default=str, ensure_ascii=False, separators=(",", ":"),
         )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -369,10 +377,13 @@ def group_hash_globals_fingerprint() -> str:
             rates_fp = _fetch._RATES_FINGERPRINT
         except (ImportError, AttributeError):
             rates_fp = ""
-        payload = json.dumps(
-            [bool(extended), str(cutoff), str(sub_fp), str(rates_fp)],
-            separators=(",", ":"),
-        )
+        parts = [bool(extended), str(cutoff), str(sub_fp), str(rates_fp)]
+        # Phase 15: pilot scope/allowlist is a group-hash global input too;
+        # appended only when non-empty so the off payload is unchanged.
+        fn_component = _fn.globals_component()
+        if fn_component:
+            parts.append(fn_component)
+        payload = json.dumps(parts, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
     except Exception:  # noqa: BLE001 - never-raise contract
         return ""

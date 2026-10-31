@@ -21,6 +21,7 @@ Repo-local implementation truth — outranks second-brain notes; verified from r
 | `generate_weekly_pdfs.py` (facade) | dotenv load, startup banners, re-export of `pipeline/`'s public API, `__main__` delegation | Business logic (lives in `pipeline/`) | `pipeline/*` (Python import) |
 | `pipeline/` package | Discovery, fetch, grouping, pricing, change detection, Excel gen, upload, cleanup, attribution, retry, snapshot-drift, orchestration | Supabase schema DDL; frontend | Smartsheet API (SDK); `pipeline_memory.*` (reader/client); `billing_audit.*` (writer, lazy import) |
 | `pipeline/memory_candidate.py` | Pure inputs to the D-04 incremental candidate set (row group-hash fingerprint `row_group_hash_fingerprint`, `GROUP_DERIVATION_KEYS`; extended by 11-12/11-13) | Any Smartsheet / Supabase call; generation, grouping or pricing | `pipeline/orchestrate.py::_run_memory_write_phase` stamps `__mem_group_fp`; `pipeline_memory/writer.py` folds it into `row_state.content_hash` (hash-only, no DDL) |
+| `pipeline/foreman_notes.py` | Phase 15 pilot logic: effective scope (production stays `off`), dry-run no-persist guard (`memory_write_blocked`), General Foreman pilot set, note normaliser, Smartsheet colour descriptor resolution, lazy pilot-only `include=format` enrichment, `NOTES_FP` and fingerprint components | Smartsheet writes (read-only `get_sheet`); Supabase schema; env reads outside `pipeline/config.py` | Seams: `discovery.py` (mapping synonym + `+fn1` marker), `change_detection.py` (`NOTES_FP`), `memory_candidate.py` (row fingerprint + globals), `excel.py` (pilot branches), `orchestrate.py` (`initialize`, `attach_group_styles`, write guards) |
 | `audit_billing_changes.py` | Price anomaly / risk-level (LOW/MEDIUM/HIGH) audit | Excel generation, upload | Imported by facade; optional (import-error fallback stub) |
 | `pipeline_memory/` (Supabase) | Shadow run-memory: `sheet_registry`, `row_state`, `row_event`, `group_state`, `run_ledger` + `upsert_rows_bulk` RPC | `billing_audit` schema/data | Own Supabase client (`pipeline_memory/client.py`), independent kill switch |
 | `billing_audit/` (Supabase) | Per-row attribution freeze, run fingerprinting (`pipeline_run`), hash store (`group_content_hash`), snapshot-drift audit | `pipeline_memory` schema/data | Own Supabase client (`billing_audit/client.py`); lazy-imported by `generate_weekly_pdfs.py` |
@@ -136,6 +137,9 @@ into the Smartsheet pipeline.
   Phase 14 moved the code: `fetch.py` ~631 (`sheet_has_vac_crew_columns`), `grouping.py` ~149-180
   (group-key docstring), `excel.py:389,631` (`elif variant == 'vac_crew'`), `config.py:325`
   (`VAC_CREW_FOLDER_IDS`). gsd-doc-verifier 2026-10-29: 66/70, the 4 failures were these anchors.
+- Phase 15 module row (`pipeline/foreman_notes.py`) added 2026-10-29 from the module docstring and the
+  15-02..15-05 summaries; seams read from `pipeline/orchestrate.py`, `discovery.py`, `change_detection.py`,
+  `memory_candidate.py`, `excel.py`.
 - Last verified: 2026-09-02 — read `CLAUDE.md`, `README.md` (repo layout table), `pipeline/`,
   `pipeline_memory/`, `billing_audit/` module docstrings, both `schema.sql` files (table/RPC names +
   header comments only), `.github/workflows/weekly-excel-generation.yml` (triggers/timeouts), and

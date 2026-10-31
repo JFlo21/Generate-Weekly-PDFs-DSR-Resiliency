@@ -25,8 +25,10 @@ from datetime import timedelta
 import openpyxl
 from openpyxl.styles import Font, numbers, Alignment, PatternFill
 from openpyxl.drawing.image import Image
+from openpyxl.worksheet.properties import PageSetupProperties
 from dateutil import parser  # type: ignore[import-untyped]  # untyped third-party (matches facade)
 
+from pipeline import foreman_notes as _fn
 from pipeline.config import (
     LOGO_PATH,
     _RE_EXTRACT_NUMBERS,
@@ -178,6 +180,9 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     # two departments, and a stable hash must describe a stable header
     # (Codex, PR #359). Row blocks below still iterate group_rows as-is.
     first_row = canonical_first_row(group_rows) if group_rows else {}
+    # Phase 15 (Foreman Notes pilot): read once per workbook; excel.py never
+    # reads env. False for switch-off / non-pilot groups => today's output.
+    fn_pilot = _fn.is_pilot_group(group_rows)
     
     # Parse the combined key format: "MMDDYY_WRNUMBER"
     if '_' in group_key:
@@ -497,6 +502,11 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         ws.page_setup.paperSize = 9  # Fallback for older versions
     ws.page_margins.left = 0.25; ws.page_margins.right = 0.25
     ws.page_margins.top = 0.5; ws.page_margins.bottom = 0.5
+    if fn_pilot:
+        # D-15-07: pilot files print fitted to one page width (never a footer).
+        ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
 
     # --- Branding and Titles ---
     current_row = 1
@@ -703,7 +713,7 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         
         # CRITICAL FIX: Merge cells FIRST, then assign value to top-left cell
         # Use safe merge to prevent duplicate ranges
-        merge_range = f'A{start_row}:H{start_row}'
+        merge_range = f'A{start_row}:{"I" if fn_pilot else "H"}{start_row}'
         safe_merge_cells(ws, merge_range)
         
         # Now assign value to the merged cell (top-left cell A1)
@@ -714,6 +724,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         day_header_cell.alignment = Alignment(horizontal='left', vertical='center')
         
         headers = ["Point Number", "Billable Unit Code", "Work Type", "Unit Description", "Unit of Measure", "# Units", "N/A", "Pricing"]
+        if fn_pilot:
+            headers.append("Foreman Notes")
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=start_row+1, column=col_num)
             cell.value = header  # type: ignore
@@ -764,6 +776,37 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
                 cell.value = value
                 cell.font = BODY_FONT
             ws.cell(row=crow, column=8).number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
+            if fn_pilot:
+                # D-15-06: note in column I, always stored as text (T-15-13).
+                note_cell = ws.cell(row=crow, column=9)
+                note_cell.value = _fn.norm_note(row_data.get(_fn.NOTES_KEY))
+                note_cell.data_type = 's'
+                note_cell.font = BODY_FONT
+                note_cell.alignment = Alignment(wrap_text=True, vertical='top')
+                # D-15-09/10: carried fill + font colour only; fail-closed
+                # plain.
+                style = row_data.get(_fn.STYLE_KEY)
+                if not isinstance(style, dict):
+                    style = {}
+                for style_col, style_name in _fn.STYLE_COLUMNS:
+                    styled = ws.cell(row=crow, column=style_col)
+                    try:
+                        fill_hex, font_hex = style.get(
+                            style_name, (None, None)
+                        )
+                        new_fill = PatternFill(
+                            start_color=fill_hex, end_color=fill_hex,
+                            fill_type='solid'
+                        ) if fill_hex else None
+                        new_font = Font(
+                            name='Calibri', size=11, color=font_hex
+                        ) if font_hex else None
+                        if new_fill is not None:
+                            styled.fill = new_fill
+                        if new_font is not None:
+                            styled.font = new_font
+                    except (TypeError, ValueError):
+                        continue  # fail closed: this cell stays plain
 
         total_row = start_row + 2 + len(day_rows)
         
@@ -784,6 +827,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         total_value_cell.number_format = numbers.FORMAT_CURRENCY_USD_SIMPLE
         total_value_cell.font = TABLE_HEADER_FONT
         total_value_cell.fill = RED_FILL
+        if fn_pilot:
+            ws.cell(row=total_row, column=9).fill = RED_FILL
 
         return total_row + 2
 
@@ -839,6 +884,8 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
     column_widths = {'A': 15, 'B': 20, 'C': 25, 'D': 45, 'E': 20, 'F': 10, 'G': 15, 'H': 15, 'I': 15}
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
+    if fn_pilot:
+        ws.column_dimensions['I'].width = 50  # OQ-5
 
     # NOTE: Footer code removed - was causing Excel XML corruption errors
     # Footer attributes (oddFooter.right.text, etc.) can create malformed XML

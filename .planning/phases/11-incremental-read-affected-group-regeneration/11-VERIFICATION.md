@@ -215,6 +215,20 @@ pre-merge code.
 Not a closing gate (D-09 as amended). The stopping run 40757294483 is a pre-G-11-37-fix run
 (cited as a fixture in 11-12); no post-deploy run failed.
 
+**Later streak reading (owner-requested, read-only, recorded as-is).** Taken
+2026-10-30T18:32:34Z by the agent at the owner's request, from a read-only `run_ledger` query
+applying the `get_parity_streak()` walk (the function itself was not called):
+
+```
+{"streak": 5, "rows_examined": 8,
+ "contributing_run_ids": ["41096366763.1", "41061258684.1", "40984589513.1",
+                          "40971347102.1", "40937594973.1"],
+ "stopped_run_id": null, "stopped_verdict": null}
+```
+
+The first two contributing runs are after #435 merged; the other three are before it. Runs
+41078401767.1, 41013512543.1 and 40955559068.1 were `skipped` and excluded. Not a closing gate.
+
 **Context.** 11-13 owner decision (2026-10-29): trigger-6 runs are `skipped`, and `manual`
 runs with `streak_eligible` true keep counting. 11-14 was applied live on 2026-10-29
 (migration 20261029205414). `RUN_MEMORY_INCREMENTAL_ENABLED` stays OFF; its default flip

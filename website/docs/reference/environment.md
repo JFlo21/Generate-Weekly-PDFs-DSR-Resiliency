@@ -554,7 +554,10 @@ writes (e.g. to reduce Supabase write volume) — change detection is
 unaffected because `pipeline_memory.group_state.content_hash` and the
 filename hash remain the active signals while not authoritative. (Prior
 to PR #373 this write also went to the local `hash_history.json` cache;
-that cache is retired.)
+that cache is retired.) A Foreman Notes pilot dry run requires this flag,
+`RUN_MEMORY_WRITE_ENABLED` and `AUDIT_MEMORY_ENABLED` all set to `0`; with any
+of them on the effective pilot scope falls back to `off` (see
+[Foreman Notes and colour pilot](../runbook/foreman-notes-pilot.md#when-the-pilot-actually-renders)).
 
 ### `SUPABASE_HASH_STORE_AUTHORITATIVE`
 
@@ -933,6 +936,58 @@ step, so the repository variable `HELPER2_ENABLED` is the on/off switch for
 every scheduled run (`gh variable set HELPER2_ENABLED --body 0|1`). The
 proposal history lives in `.planning/phases/14-foreman-helper-2/14-DECISIONS.md`
 (`D-14-12-ROLLOUT`, `D-14-14-ENABLE`).
+
+## Foreman Notes pilot
+
+*(Added 2026-10-29, Phase 15 — Foreman Notes column and Smartsheet colour
+carry-over for a pilot set of General Foremen.)*
+
+**Component owner:** Python billing pipeline (`generate_weekly_pdfs.py` via
+`pipeline/foreman_notes.py`). Neither the portal nor the Notion sync consumes
+these settings. Full operator procedure — what changes in a workbook, the dry-run
+recipe, rollout and rollback — is on [Foreman Notes and colour
+pilot](../runbook/foreman-notes-pilot.md).
+
+### `FOREMAN_NOTES_SCOPE`
+
+**Default:** `pilot`. Values: `off`, `pilot`, `all`; anything else is treated as
+`off` with one WARNING. This is the *configured* scope. The effective scope is
+`off` for the scheduled production cron and for a `SKIP_UPLOAD`-only run; it
+equals the configured scope on a `TEST_MODE` run with every write path off (the
+dry run) or when `FOREMAN_NOTES_UPLOAD` is on. `all` skips the General Foreman
+lookup and treats every Work Request as pilot: every workbook gains column I and
+every row's colours are fetched. The first publishing run after switching from
+`off` to `all` re-sends every group, including groups with blank notes (a
+pilot group's notes digest is never empty, so every hash changes once); with
+`pilot` the same applies to every pilot group. Use `pilot` unless the owner
+approves a full rollout. **Rollback:** set `off`. See
+[When the pilot actually
+renders](../runbook/foreman-notes-pilot.md#when-the-pilot-actually-renders).
+
+### `FOREMAN_NOTES_PILOT_GFS`
+
+**Default:** empty (zero pilot groups). Comma-separated General Foreman
+allowlist, matched ignoring case and extra whitespace; a name containing a comma
+is not supported. Set it in env / the GitHub Actions repository secret
+`FOREMAN_NOTES_PILOT_GFS` (a secret, so names are masked in run logs) — a local
+`.env` for the dry run — and never commit names to this repository. See [How the
+pilot set is
+decided](../runbook/foreman-notes-pilot.md#how-the-pilot-set-is-decided).
+
+### `FOREMAN_NOTES_UPLOAD`
+
+**Default:** off (truthy values `1`, `true`, `yes`, `on`). The rollout switch:
+pilot output reaches the pre-planned pricing sheet only when this is on. Turning
+it on in the scheduled workflow is a separate, approved change; it re-sends every
+pilot GF file once and forces one full validation per source sheet. See
+[Rollout](../runbook/foreman-notes-pilot.md#rollout).
+
+### `FOREMAN_NOTES_GF_WR_COLUMN_ID` and `FOREMAN_NOTES_GF_COLUMN_ID`
+
+**Defaults:** `5180541294563204` (`Work Request #`) and `2159630534528900`
+(`General Foreman`) on the pre-planned pricing sheet (`TARGET_SHEET_ID`). The
+column titles are verified at run time; a mismatch or any read failure means no
+pilot groups. Override only if those columns are rebuilt.
 
 ## Ownership attribution backfill (source 5)
 

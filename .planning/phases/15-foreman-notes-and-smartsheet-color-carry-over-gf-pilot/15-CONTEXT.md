@@ -33,7 +33,8 @@ attachment upload, Excel output for other report types, changing header/TOTAL st
   pilot general foremen (aliases GF-1, GF-2, GF-3). Public-repo identifier rule (living ledger
   `[2026-08-27 21:10]` / `[2026-08-28 18:45]`): real names never appear in tracked files or PR
   text, so the allowlist has NO name default in code; it is supplied via env (local `.env` for
-  dry runs; a GitHub Actions repository variable at rollout). Empty allowlist = no pilot groups
+  dry runs; a GitHub Actions repository variable at rollout — amended 2026-10-29: a repository
+  SECRET instead, so names are masked in public run logs). Empty allowlist = no pilot groups
   (fail-closed). Owner changes it without code edits.
 - **D-15-03:** Dry run first. Uploading pilot-changed files to the pre-planned pricing sheet sits
   behind its own switch (off until the owner reviews dry-run output). Existing `SKIP_UPLOAD` /
