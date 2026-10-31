@@ -52,14 +52,14 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — October 31, 2026
 
-- ✅ Problem fixed: hold pilot groups on GF lookup failure
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: foreman notes GF pilot (replaces )
+- ✅ Problem fixed: hold pilot groups on GF lookup failure
 - ✅ Problem fixed: render Mermaid diagrams
 - ✅ Problem fixed: make mobile navbar menu readable
 - ✅ Problem fixed: carry every unconfirmed group as regen debt
 - 📄 Help guides updated: record G-11-37 post-deploy check
 - ✅ Problem fixed: build runbook site on Node 26
-- ✨ New capability: G-11-37 parity gap closure (11-11..11-14)
 
 <!-- /runbook-repo -->
 
@@ -516,4 +516,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
