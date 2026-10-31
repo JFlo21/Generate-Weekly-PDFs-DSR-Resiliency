@@ -43,11 +43,15 @@ metrics:
 estimate:
   tokens: 130000
 actuals:
-  tokens: 25600   # includes the fix round (initial plan alone: 18200)
+  tokens: 25600   # includes fix round 1 (initial plan alone: 18200)
   tasks: 3
-  commits: 12     # 5 plan commits + 7 fix-round commits
-plan_head_before: 014366937c6f5160e22a91436d0157fc61958405
-plan_head_after: 327d3af1d391e13f73af2359f0d8cb88d7e1e495
+  commits: 15     # executor commits: 5 plan + 7 fix round 1 + 3 round 2
+# Branch rebased onto origin/master (base fffba5c) before fix round 2, so
+# the pre-rebase SHAs below are no longer ancestors of HEAD. Measured after
+# the rebase: git rev-list --count fffba5c..HEAD = 19 (15 executor commits
+# plus 4 orchestrator docs commits).
+plan_head_before: fffba5c
+plan_head_after: 41224a42c4a934341865d500e6c329ec61bbb93d
 ---
 
 # Phase quick-261030-suf Plan 01: Hold pilot groups on GF-lookup failure Summary
@@ -188,3 +192,48 @@ None. No new endpoint or auth path. The new Sentry surface is the one in the pla
 ## Self-Check (fix round): PASSED
 
 - Commits on HEAD: 0cb74f8, 282ea77, 5365035, 56c7d93, 4eeef77, ec99bae, 327d3af (`git rev-list --count 0143669..HEAD` = 12).
+  After the rebase onto origin/master these are 7dd41b6, 89f27ad, 9e3879d, 0fd0cd2, 9d6dadd, bc9a885, 614c597.
+
+## Fix round 2 (2026-10-30/31, PR #444 bot findings R1-R4; branch rebased onto origin/master, base fffba5c)
+
+### Commits
+
+| Item | Commit | Subject |
+|------|--------|---------|
+| R1-R4 RED | cf7864a | test(quick-261030-suf): RED PR 444 bot findings |
+| R1-R4 GREEN | 7234135 | fix(quick-261030-suf): PR 444 bot findings R1-R4 |
+| Docs | 41224a4 | docs(quick-261030-suf): structured FN error fields |
+
+### What changed
+
+- **R1:** `_report_initialized` now sets the run tags (`gf_lookup`, `foreman_notes_pilot_wrs`, `foreman_notes_scope`) **before** capturing the lookup-failed event. The test asserts the tags on that event itself.
+- **R2:** when a successful style response omits rows that were requested, those rows are now counted as `style_rows_missing`. The count appears as `rows_missing` in the style event and as `style_rows_missing` in the run report, and the style event now also fires on missing rows alone. Counting happens only on the success path, so a chunk that raised is never counted twice; the existing raised-chunk test asserts `rows_missing == 0`. A partial-response test covers the new path.
+- **R3:** `_run_reset_purge(client: Any, ...)`, matching the `client: Any` convention in orchestrate, fetch, discovery and foreman_notes. `ResetPurgeTests._run` now returns `tuple[bool, mock.MagicMock]`. An AST test pins the annotation.
+- **R4:** free-text exception text is no longer kept or sent.
+  - `FnState.gf_fail_msg` is gone and so is the `_redacted` helper. In their place are `gf_fail_code` and `gf_fail_status`, filled by `pipeline.retry._api_error_code` and `_http_status_code`. Only plain ints are accepted, so free text can never get through.
+  - The lookup-failed and hold contexts carry `exception_class`, `api_error_code`, `http_status` and the `reason` enum. The context field `exception_message` was removed.
+  - The local log stays class-only.
+  - Test: an exception whose `str()` is "GF-1 Example Name note text sample" and that carries code 4003 / status 403. Neither text appears in any captured event, and 4003 and 403 do.
+  - The runbook and Sentry doc wording was updated.
+
+### Verification
+
+- Full suite: **2852 passed, 3 skipped**, 856 subtests. That is 2848 before this round, plus the new tests.
+- `bash scripts/run_6_gates.sh`: **ALL 6 GATES PASSED** (mypy 70 -> 69).
+- The protected-file diff against origin/master (change_detection.py, memory_candidate.py, schema.sql, .github/workflows) is **empty**.
+- The GF-name grep printed 0 on each staged diff and on `fffba5c..HEAD`.
+- `npm run typecheck` exits 0.
+- **`npm run build` was NOT verified.** It fails locally with "Docusaurus was unable to resolve the @docusaurus/theme-mermaid theme". That dependency was added to `website/package.json` by master commit 59c4e27 (#442), which came in with the rebase, and it is not in the local `node_modules`. This is an environment gap, not caused by this change, and the docs edits add no links. I did not run `npm ci`, because package installs are excluded from auto-fix. CI's docs build, or a local `npm ci` in `website/`, will verify it.
+
+### Deviations
+
+- `gf_fail_msg` was removed from `FnState`, not just left out of payloads. That way no free text is kept anywhere. The original plan's `gf_fail_msg` requirement is superseded by R4.
+- The pre-rebase SHAs listed in the earlier sections are no longer ancestors of HEAD. The frontmatter now measures from base fffba5c.
+
+### Not fixed / open
+
+- Nothing from R1-R4 is unfixed. The only gap is the website build verification above, which is blocked by the local environment.
+
+## Self-Check (fix round 2): PASSED
+
+- Commits on HEAD: cf7864a, 7234135, 41224a4.
