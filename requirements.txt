@@ -21,7 +21,7 @@ psutil==6.0.0
 
 # Testing and Coverage
 pytest==9.0.3
-pytest-cov==6.0.0
+pytest-cov==7.1.0
 
 # Notion Dashboard Integration (used by scripts/notion_sync.py)
 notion-client==2.2.1
