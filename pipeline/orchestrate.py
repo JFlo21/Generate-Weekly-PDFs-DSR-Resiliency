@@ -2829,7 +2829,9 @@ def _log_column_mapping_drift(
     return changed
 
 
-def _run_reset_purge(client, hold_active: bool, *, test_mode: bool) -> bool:
+def _run_reset_purge(
+    client: Any, hold_active: bool, *, test_mode: bool
+) -> bool:
     """Run the RESET_HASH_HISTORY / RESET_WR_LIST purge unless held.
 
     Quick 261030-suf F1: while the Foreman Notes GF lookup has failed

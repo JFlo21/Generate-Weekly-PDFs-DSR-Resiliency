@@ -38,7 +38,11 @@ from typing import Any, NamedTuple
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
 from pipeline import config
-from pipeline.retry import smartsheet_call_with_retry
+from pipeline.retry import (
+    _api_error_code,
+    _http_status_code,
+    smartsheet_call_with_retry,
+)
 
 __all__ = [
     "FnState",
@@ -237,7 +241,10 @@ class FnState:
     gf_failed: bool = False
     gf_fail_reason: str = ""
     gf_fail_exc: str = ""
-    gf_fail_msg: str = ""
+    # Structured only (PR #444 R4): the Smartsheet API error code and HTTP
+    # status. No free-text exception message is ever kept or sent.
+    gf_fail_code: int | None = None
+    gf_fail_status: int | None = None
 
 
 _STATE: FnState = FnState()
@@ -275,6 +282,7 @@ def _reset_failures() -> None:
         style_failed_chunks=0,
         style_rows_affected=0,
         style_attach_failures=0,
+        style_rows_missing=0,
         style_exc=set(),
         digest={},
         digest_exc=set(),
@@ -296,6 +304,15 @@ def _count_style(exc: BaseException, rows: int | None = None) -> None:
             _RUN_FAILURES["style_failed_chunks"] += 1
             _RUN_FAILURES["style_rows_affected"] += int(rows)
         _RUN_FAILURES["style_exc"].add(type(exc).__name__)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _count_style_missing(rows: int) -> None:
+    """Count requested rows a successful style response omitted. Never
+    raises."""
+    try:
+        _RUN_FAILURES["style_rows_missing"] += int(rows)
     except Exception:  # noqa: BLE001
         pass
 
@@ -461,6 +478,16 @@ def _report_initialized(state: FnState) -> None:
     Never raises.
     """
     try:
+        # Run tags FIRST (PR #444 R1) so the failure event below carries
+        # gf_lookup=failed and the pilot WR count too.
+        from pipeline import observability as _obs
+
+        _obs.set_foreman_notes_run_tags(
+            EFFECTIVE_SCOPE, len(state.pilot_wrs), _gf_lookup_status(state)
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         if state.gf_failed:
             reason = state.gf_fail_reason
             _capture(
@@ -469,11 +496,6 @@ def _report_initialized(state: FnState) -> None:
                 _lookup_context(state),
                 level=_failure_level(),
             )
-        from pipeline import observability as _obs
-
-        _obs.set_foreman_notes_run_tags(
-            EFFECTIVE_SCOPE, len(state.pilot_wrs), _gf_lookup_status(state)
-        )
     except Exception:  # noqa: BLE001
         pass
 
@@ -521,7 +543,8 @@ def initialize(client: Any) -> FnState:
                         gf_failed=True,
                         gf_fail_reason=lookup.reason or "exception",
                         gf_fail_exc=_exc_class(lookup.exc),
-                        gf_fail_msg=_redacted(lookup.exc),
+                        gf_fail_code=_error_code(lookup.exc),
+                        gf_fail_status=_status_code(lookup.exc),
                     )
                 else:
                     pilot = frozenset(
@@ -563,7 +586,8 @@ def initialize(client: Any) -> FnState:
                 gf_failed=True,
                 gf_fail_reason="initialize_failed",
                 gf_fail_exc=_exc_class(exc),
-                gf_fail_msg=_redacted(exc),
+                gf_fail_code=_error_code(exc),
+                gf_fail_status=_status_code(exc),
             )
         else:
             state = FnState()
@@ -577,16 +601,29 @@ def _exc_class(exc: BaseException | None) -> str:
     return type(exc).__name__ if exc is not None else ""
 
 
-def _redacted(exc: BaseException | None) -> str:
-    """PII-redacted exception message (``''`` on any failure)."""
-    if exc is None:
-        return ""
-    try:
-        from pipeline.observability import _redact_exception_message
+def _int_or_none(value: Any) -> int | None:
+    """``value`` when it is a plain int, else None (never free text)."""
+    return value if type(value) is int else None
 
-        return _redact_exception_message(exc)
+
+def _error_code(exc: BaseException | None) -> int | None:
+    """Smartsheet API error code of ``exc`` (``pipeline.retry``), or None.
+
+    Never raises.
+    """
+    try:
+        return _int_or_none(_api_error_code(exc)) if exc else None
     except Exception:  # noqa: BLE001
-        return ""
+        return None
+
+
+def _status_code(exc: BaseException | None) -> int | None:
+    """HTTP status of a Smartsheet ``ApiError`` (``pipeline.retry``), or
+    None. Never raises."""
+    try:
+        return _int_or_none(_http_status_code(exc)) if exc else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -688,7 +725,8 @@ def _lookup_context(state: FnState) -> dict:
     ctx = {
         "reason": state.gf_fail_reason,
         "exception_class": state.gf_fail_exc,
-        "exception_message": state.gf_fail_msg,
+        "api_error_code": state.gf_fail_code,
+        "http_status": state.gf_fail_status,
         "target_sheet_id": config.TARGET_SHEET_ID,
         "wr_column_id": config.FOREMAN_NOTES_GF_WR_COLUMN_ID,
         "gf_column_id": config.FOREMAN_NOTES_GF_COLUMN_ID,
@@ -710,7 +748,11 @@ def _report_style_and_digest(fails: dict, digest: dict) -> None:
 
         run_url = _obs._github_run_url()
         extra = {"run_url": run_url} if run_url else {}
-        if fails["style_failed_chunks"] or fails["style_attach_failures"]:
+        if (
+            fails["style_failed_chunks"]
+            or fails["style_attach_failures"]
+            or fails["style_rows_missing"]
+        ):
             _capture(
                 "style_fetch_failed", "style_fetch_failed",
                 ["foreman-notes", "style-fetch-failed"],
@@ -719,6 +761,7 @@ def _report_style_and_digest(fails: dict, digest: dict) -> None:
                     "failed_chunks": fails["style_failed_chunks"],
                     "rows_affected": fails["style_rows_affected"],
                     "attach_failures": fails["style_attach_failures"],
+                    "rows_missing": fails["style_rows_missing"],
                     "exception_classes": sorted(fails["style_exc"]),
                     **extra,
                 },
@@ -772,6 +815,7 @@ def report_run_end(
             "style_failed_chunks": fails["style_failed_chunks"],
             "style_rows_affected": fails["style_rows_affected"],
             "style_attach_failures": fails["style_attach_failures"],
+            "style_rows_missing": fails["style_rows_missing"],
             "digest_failures": sum(digest.values()),
             "digest_failures_by_function": digest,
             "reset_purge_skipped": bool(reset_purge_skipped),
@@ -1037,6 +1081,13 @@ def attach_group_styles(client: Any, group_rows: Any, sheet_maps: dict) -> int:
                         _STYLE_CACHE[(sheet_id, int(rid))] = _row_styles(
                             resp_row, col_to_name
                         )
+                    # PR #444 R2: rows a SUCCESSFUL response omitted. A
+                    # chunk that raised is counted below instead, never
+                    # both.
+                    _count_style_missing(sum(
+                        1 for r in chunk
+                        if (sheet_id, int(r)) not in _STYLE_CACHE
+                    ))
                 except Exception as exc:  # noqa: BLE001
                     logging.warning(
                         "Foreman notes: style fetch failed (%s) for %d rows",
