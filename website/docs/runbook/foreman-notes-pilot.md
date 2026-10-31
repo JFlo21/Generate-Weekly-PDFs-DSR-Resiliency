@@ -103,21 +103,27 @@ not a bug; look for the WARNING in the log.
 
 ### What you see
 
-- In Sentry, a warning event **`Foreman notes: GF lookup failed (<reason>)`**
-  (fingerprint `foreman-notes / gf-lookup-failed / <reason>`). Its
-  `foreman_notes` context shows the reason, the exception class and a redacted
-  message, the target sheet and column IDs that were checked, the expected
-  column titles, the allowlist count, the fix steps and the Actions run link.
-  It fires on every failed run, even when nothing is held.
-- If any group was held, one more warning event, **`Foreman notes: groups held
-  after GF lookup failure`** (fingerprint `foreman-notes / gf-hold`). Its
-  context lists the held Work Requests (`wr`, `week_ending`, `variant`; at most
-  200, with `held_total` for the full count) and which force or regen flags
-  were active.
-- Every event from that run carries the tag `gf_lookup=failed`.
-- In the run log, one WARNING: `Foreman notes: N group(s) held because the GF
-  lookup failed; carried as regeneration debt (...)`. The `session_summary`
-  context in Sentry carries the same counts under `foreman_notes`.
+- In Sentry, an **error** event **`Foreman notes: GF lookup failed
+  (<reason>)`** (fingerprint `foreman-notes / gf-lookup-failed / <reason>`).
+  Its `foreman_notes` context shows the reason, the exception class and a
+  redacted message, the target sheet and column IDs that were checked, the
+  expected column titles, the allowlist count, the fix steps and the Actions
+  run link. **It repeats on every run until the GF read works**, even when
+  nothing is held.
+- If any group was held, one more **error** event, **`Foreman notes: groups
+  held after GF lookup failure`** (fingerprint `foreman-notes / gf-hold`). Its
+  context lists the held Work Requests (`wr`, `week_ending`, `variant`; at
+  most 200, with `held_total` for the full count), which force or regen flags
+  were active, and `reset_purge_skipped`. It also repeats every run.
+- The Sentry cron monitor checks the run in as **ERROR** when any group was
+  held. Billing output is not affected by the check-in.
+- Every event from that run carries the tag `gf_lookup=failed`; the tag
+  `foreman_notes_held` carries the held count.
+- In the run log: the `⚡ Group processing phase` line ends with
+  `, N held (GF lookup failed)`, and one WARNING reads `Foreman notes: N
+  group(s) held because the GF lookup failed; carried as regeneration debt
+  (...)`. The `session_summary` context in Sentry carries the same counts
+  under `foreman_notes`.
 
 ### What the pipeline does
 
@@ -126,15 +132,23 @@ not a bug; look for the WARNING in the log.
   groups always differ, because their stored hash includes the notes digest.
 - **Unchanged non-pilot groups are not affected**; they skip as on any other
   run.
-- **Changed or new non-pilot groups wait one run.** Nothing stored records
-  which groups are pilot, so the run cannot tell them apart. This is the
-  approved cost of the hold.
+- **Changed or new non-pilot groups are held every run until the GF read
+  works.** Nothing stored records which groups are pilot, so the run cannot
+  tell them apart. This is the approved cost of the hold.
 - **Force and regen flags do not override the hold** for those groups
   (`FORCE_GENERATION`, `REGEN_WEEKS`, `RESET_HASH_HISTORY`, `RESET_WR_LIST`).
   A forced group whose data still matches its stored hash regenerates as
-  forced.
+  forced. The `RESET_HASH_HISTORY` / `RESET_WR_LIST` **attachment purge is
+  skipped** for the whole run (one WARNING in the log), because the hold would
+  never rebuild what it deleted. Re-run the reset after the GF read works.
 - Held groups keep their current attachment and stored hash. They are carried
-  as regeneration debt, and attachment cleanup leaves their files alone.
+  as regeneration debt, and attachment cleanup leaves every file of a held
+  Work Request and week alone, including legacy or superseded files, until
+  the replacement is uploaded.
+- **Dry runs never hold.** With `TEST_MODE=true` nothing is uploaded, so the
+  run generates every group as usual (pilot WRs come out in today's layout,
+  because no WR is pilot). The lookup failure is still reported, as a
+  *warning* event, and the `gf_lookup=failed` tag is still set.
 
 ### What to do
 
@@ -148,7 +162,7 @@ not a bug; look for the WARNING in the log.
 Once the cause is fixed, the **next run with a working lookup heals itself**:
 held groups regenerate from regeneration debt, and pilot files whose data did
 not change match their stored hash and are not re-sent. No `RESET_*` flag is
-needed.
+needed (re-run one only if you had requested it while the lookup was failing).
 
 ## Dry run (do this first)
 

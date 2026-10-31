@@ -29,3 +29,16 @@ Context and the related hold decision: Living Ledger entry
 fails; Sentry gap closure.` in
 [`memory-bank/living-ledger.md`](../memory-bank/living-ledger.md) (quick task
 261030-suf).
+
+## 2026-10-30 - Foreman Notes GF-lookup failure severity and dry runs (owner)
+
+- D1: the `gf-lookup-failed` and `gf-hold` Sentry events are level `error` on
+  every failed publishing run, and a run that held any group checks in to the
+  Sentry cron monitor as ERROR. Billing output is unchanged. Changed or new
+  non-pilot groups stay held every run until the GF read works.
+- D2: a `TEST_MODE` dry run never holds (it never uploads). The lookup
+  failure is still reported, as a warning event.
+
+Context: Living Ledger entry `[2026-10-30 23:30] Foreman Notes GF-lookup
+hold: review fix round` in
+[`memory-bank/living-ledger.md`](../memory-bank/living-ledger.md).

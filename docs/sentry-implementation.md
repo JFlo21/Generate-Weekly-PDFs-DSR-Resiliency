@@ -181,8 +181,8 @@ ride on another event. Level is `warning` unless noted.
 
 | Fingerprint | When | `foreman_notes` context |
 |-------------|------|--------------------------|
-| `foreman-notes / gf-lookup-failed / <reason>` | Every run whose General Foreman lookup fails, at start-up, even if no group is held. `<reason>` is `columns_mismatch`, `partial_read`, `exception` or `initialize_failed` | reason, exception class, redacted message, target sheet ID, WR and GF column IDs, expected titles, allowlist count, remediation, run URL |
-| `foreman-notes / gf-hold` | Run end, once, when groups were held because the lookup failed | the lookup fields plus `held_groups` (`wr`, `week_ending`, `variant`; at most 200), `held_total`, `force_flags_active` |
+| `foreman-notes / gf-lookup-failed / <reason>` | Level `error` (`warning` in a `TEST_MODE` dry run). Every run whose General Foreman lookup fails, at start-up, even if no group is held. `<reason>` is `columns_mismatch`, `partial_read`, `exception` or `initialize_failed` | reason, exception class, redacted message, target sheet ID, WR and GF column IDs, expected titles, allowlist count, remediation, run URL |
+| `foreman-notes / gf-hold` | Level `error`. Run end, once, when groups were held because the lookup failed (never in `TEST_MODE`, which never holds) | the lookup fields plus `held_groups` (`wr`, `week_ending`, `variant`; at most 200), `held_total`, `force_flags_active`, `reset_purge_skipped` |
 | `foreman-notes / memory-write-blocked / <kind>` | Level `error`. A dry-run pilot reached a pipeline_memory write path (tags `foreman_notes=1`, `memory_kind`) | none (the ERROR log line is the event) |
 | `foreman-notes / style-fetch-failed` | Run end, once, when any Smartsheet colour fetch failed | failed chunks, rows affected, attach failures, exception classes |
 | `foreman-notes / notes-digest-failed` | Run end, once, when any notes digest failed | failures per function, total, exception classes |
@@ -191,8 +191,11 @@ Every Foreman Notes event carries the tags `foreman_notes_scope` and
 `foreman_notes_reason`. The run-level tags `foreman_notes_scope`,
 `foreman_notes_pilot_wrs` (a count) and `gf_lookup` (`ok`, `failed` or
 `skipped`) are set on the isolation scope at start-up, so every event of the
-run shows them. The `session_summary` context gains a `foreman_notes` block
-of counts only when the Foreman Notes scope is on.
+run shows them; `foreman_notes_held` (the held-group count) is added at run
+end. The `session_summary` context gains a `foreman_notes` block of counts
+only when the Foreman Notes scope is on. A run that held any group checks in
+to the Sentry cron monitor as `ERROR` (monitor only; billing output is
+unchanged).
 
 **WR exception (owner-approved):** WR numbers may appear only inside the
 structured `foreman_notes` context of these events. The general
