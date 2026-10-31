@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-10-30 15:40 CDT (#437 Greptile fixes; #442 and #443 merged; ledger `[2026-10-30 13:50]`) · **overwrite-in-place each session** — this is
+_Last updated: 2026-10-30 19:45 CDT (#437 review round 2 `3e7c733`; #439/#440 merged; ledger `[2026-10-30 13:50]`) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -15,7 +15,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   — enforce the incremental gate in code and close the blind spot without a schema change. Not implemented.
   PRs #439 (`e63dc3f`), #442 (`59c4e27`) and #443 (`a201fbe`) merged 2026-10-30. #437 is open: Sentry and
   notes-hash fixes (`c06bdef`) passed independent review, and the four Greptile findings of 2026-10-30 are
-  fixed (colour cache cleared per run, runbook variant wording, docstrings, test type hints). Parity reading 2026-10-30T18:32:34Z: streak 5, recorded in
+  fixed (colour cache cleared per run, runbook variant wording, docstrings, test type hints). Review round 2 (`3e7c733`, 2026-10-30): dry-run warning names AUDIT_MEMORY_ENABLED, secret-not-variable comment, test scope pinning, docs fixes; 16 threads replied (Sentry P1 already fixed in `7c16611`; first-day header merge skip is pre-existing on master, kept). #440 merged, so the D-15-13 gate is met. Only open thread: GF-lookup churn, tracked in `.planning/todos/pending/2026-10-30-foreman-notes-gf-lookup-failure-churns-pilot-groups.md` (owner picks hold-for-run vs reuse-last-known-set). Parity reading 2026-10-30T18:32:34Z: streak 5, recorded in
   `11-VERIFICATION.md`; D-15-13 condition met, FN-13 closes at merge. `FOREMAN_NOTES_UPLOAD` stays off until
   the GF-lookup todo closes.
 - **Phase 12 (Ownership)**: **COMPLETE 2026-09-10** — 10/10 plans (incl. 4 gap-closure plans). `/gsd-verify-work 12`

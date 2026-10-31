@@ -1421,3 +1421,15 @@ missing `lib/state.cjs`; the run used the intact 1.13.0 build. Side task: PR #40
 `docs/post-407-pointers` (`60638d7`) — STATE/HANDOFF/continue-here/project-state stamps aligned to the PR #407
 merge time. Next: `/gsd:plan-phase 11 --gaps` (or override gap 1 + todo for gap 2), validate-phase 11.1/12/14,
 v1.4 re-audit.
+
+## 2026-10-30 — PR #437 review round 2 (`3e7c733`)
+
+What: closed the second round of bot findings on the Foreman Notes PR. The dry-run warning now names all three
+write flags (adds `AUDIT_MEMORY_ENABLED=0`); the `compute_effective_scope` docstring is rewrapped; the
+`FOREMAN_NOTES_PILOT_GFS` comment says repository secret, never a variable; tests pin `EFFECTIVE_SCOPE` and drop a
+lambda assignment; environment/runbook/changelog docs cover all three dry-run flags, the `FOREMAN_NOTES_SCOPE=all`
+blast radius, the column I colour, the first-day header (keeps today's unmerged layout when it shares a row with
+the summary, same as master) and PR #437. Why: reviewer correctness/docs findings. No pipeline behaviour change.
+Evidence: pytest 2788 passed / 3 skipped, 6 gates pass, docs build passes, pilot-name scan clean. Not changed: the
+Sentry P1 (already covered by `7c16611`'s scrub-every-event-while-mapped rule) and the first-day merge (pre-existing,
+protected Excel layout). Open: GF-lookup churn todo blocks `FOREMAN_NOTES_UPLOAD`; owner decision pending.
