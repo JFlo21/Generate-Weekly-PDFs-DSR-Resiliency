@@ -34,6 +34,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — October 31, 2026
 
+- ✅ Problem fixed: hold pilot groups on GF lookup failure
 - ✨ New capability: foreman notes GF pilot (replaces )
 - ✅ Problem fixed: render Mermaid diagrams
 - ✅ Problem fixed: make mobile navbar menu readable
@@ -41,7 +42,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - 📄 Help guides updated: record G-11-37 post-deploy check
 - ✅ Problem fixed: build runbook site on Node 26
 - ✨ New capability: G-11-37 parity gap closure (11-11..11-14)
-- 📄 Help guides updated: re-verify implementation truth
 
 <!-- /runbook-repo -->
 
