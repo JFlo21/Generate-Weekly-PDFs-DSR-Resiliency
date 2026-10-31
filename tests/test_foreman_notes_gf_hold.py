@@ -168,6 +168,7 @@ class SentryCapture:
     """
 
     RUN_TAGS = ("foreman_notes_scope", "foreman_notes_pilot_wrs",
+                "foreman_notes_held",
                 "gf_lookup")
 
     def __init__(self, test: unittest.TestCase) -> None:
@@ -491,6 +492,235 @@ class HoldPlacementTests(unittest.TestCase):
         for forbidden in ("_mem_confirmed_skip_keys", "generated_filenames",
                           "groups"):
             self.assertNotIn(forbidden, names)
+
+
+# ---------------------------------------------------------------------------
+# Fix round: orchestrate wiring (F1, F2, F3, F5, F8, D1 cron)
+# ---------------------------------------------------------------------------
+
+def _orch() -> Any:
+    from pipeline import orchestrate
+
+    return orchestrate
+
+
+def _first_assign_line(node: ast.AST, name: str) -> int:
+    lines = [
+        n.lineno for n in ast.walk(node) if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == name for t in n.targets)
+    ]
+    return min(lines) if lines else 10 ** 9
+
+
+class ResetPurgeTests(unittest.TestCase):
+    """F1: the RESET_* purge never runs while groups would be held."""
+
+    def _run(self, hold_active: bool, wr_list: set, reset_all: bool):
+        orch = _orch()
+        with mock.patch.object(orch, "RESET_WR_LIST", wr_list), \
+                mock.patch.object(orch, "RESET_HASH_HISTORY", reset_all), \
+                mock.patch.object(
+                    orch, "purge_existing_hashed_outputs") as purge:
+            skipped = orch._run_reset_purge(object(), hold_active)
+        return skipped, purge
+
+    def test_failed_lookup_skips_purge(self) -> None:
+        with self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run(True, {PILOT_WR}, False)
+        purge.assert_not_called()
+        self.assertTrue(skipped)
+        self.assertEqual(len(cm.records), 1)
+        self.assertNotIn(PILOT_WR, cm.records[0].getMessage())
+        skipped, purge = self._run(True, set(), True)
+        purge.assert_not_called()
+        self.assertTrue(skipped)
+
+    def test_good_lookup_purges_as_before(self) -> None:
+        orch = _orch()
+        skipped, purge = self._run(False, {PILOT_WR}, False)
+        self.assertFalse(skipped)
+        purge.assert_called_once()
+        args, kwargs = purge.call_args
+        self.assertEqual(args[1:4], (orch.TARGET_SHEET_ID, {PILOT_WR},
+                                     orch.TEST_MODE))
+        self.assertEqual(kwargs, {"dry_run": orch.SKIP_UPLOAD})
+        skipped, purge = self._run(False, set(), True)
+        self.assertEqual(purge.call_args[0][2], None)
+
+    def test_no_reset_requested_no_purge(self) -> None:
+        for hold in (True, False):
+            skipped, purge = self._run(hold, set(), False)
+            purge.assert_not_called()
+            self.assertFalse(skipped)
+
+    def test_main_gates_purge_on_failed_lookup(self) -> None:
+        main = _main()
+        self.assertEqual(_calls(main, "purge_existing_hashed_outputs"), [])
+        (call,) = _calls(main, "_run_reset_purge")
+        self.assertEqual(len(call.args), 2)
+        self.assertEqual(_dotted(call.args[1]), "_fn.gf_lookup_failed")
+        (report,) = _calls(main, "_fn.report_run_end")
+        kw = {k.arg for k in report.keywords}
+        self.assertIn("reset_purge_skipped", kw)
+
+
+class StoredHashMatchTests(_Base):
+    """F3: the stored-hash comparison ignores force flags (approved)."""
+
+    def test_helper_contract(self) -> None:
+        calls: list = []
+
+        def resolve() -> bool:
+            calls.append(1)
+            return True
+
+        self.assertTrue(fn.stored_hash_matches(True, True, resolve))
+        self.assertFalse(fn.stored_hash_matches(True, False, resolve))
+        self.assertEqual(calls, [])
+        self.assertTrue(fn.stored_hash_matches(False, False, resolve))
+        self.assertEqual(calls, [1])
+
+        def boom() -> bool:
+            raise RuntimeError("store down")
+
+        self.assertFalse(fn.stored_hash_matches(False, False, boom))
+
+    def test_forced_run_holds_only_mismatched_groups(self) -> None:
+        self.init_good()
+        stored = {
+            _history_key(wr): {"hash": _hash(_group(wr))}
+            for wr in (PILOT_WR, OTHER_WR)
+        }
+        self.init_failed()
+        held = []
+        for wr in (PILOT_WR, OTHER_WR):
+            data_hash = _hash(_group(wr))
+            # A forced run: history skip is not eligible, so main()'s
+            # _hash_unchanged is False for every group.
+            match = fn.stored_hash_matches(
+                False, False,
+                lambda wr=wr, h=data_hash: _unchanged(wr, h, stored))
+            if fn.should_hold_group(match):
+                held.append(wr)
+        self.assertEqual(held, [PILOT_WR])
+
+    def test_main_passes_stored_comparison_not_hash_unchanged(self) -> None:
+        main = _main()
+        (call,) = _calls(main, "_fn.stored_hash_matches")
+        a0, a1, a2 = call.args
+        self.assertEqual(
+            getattr(a0, "id", None), "_history_eligible_for_skip")
+        self.assertEqual(getattr(a1, "id", None), "_hash_unchanged")
+        self.assertIsInstance(a2, ast.Lambda)
+        self.assertTrue(_calls(a2, "_resolve_unchanged_for_skip"))
+        (hold,) = _calls(main, "_fn.should_hold_group")
+        self.assertEqual(
+            getattr(hold.args[0], "id", None), "_fn_hash_match")
+
+
+class RunEndOrderingTests(_Base):
+    """F2: the run-end report follows the last notes-digest call."""
+
+    def test_report_after_globals_fingerprint(self) -> None:
+        main = _main()
+        (report,) = _calls(main, "_fn.report_run_end")
+        fps = _calls(
+            main, "_memory_candidate.group_hash_globals_fingerprint")
+        self.assertTrue(fps)
+        for call in fps:
+            self.assertGreater(report.lineno, call.lineno)
+
+    def test_globals_component_failure_counted_in_event(self) -> None:
+        from pipeline import memory_candidate as mc
+
+        self.init_good()
+        saved = fn.get_state()
+        fn.set_state(fn.FnState(scope="pilot", allowlist=None))
+        with fn_env():
+            mc.group_hash_globals_fingerprint()
+        fn.set_state(saved)
+        cap = SentryCapture(self)
+        with fn_env():
+            report = fn.report_run_end(held_groups=[], force_flags={})
+        (event,) = cap.by_fingerprint("foreman-notes", "notes-digest-failed")
+        failures = event["contexts"]["foreman_notes"]["failures"]
+        self.assertEqual(failures.get("globals_component"), 1)
+        self.assertEqual(report["digest_failures"], 1)
+
+
+class ParityAndVisibilityTests(_Base):
+    """F5 parity, F8 operator visibility, D1 cron status."""
+
+    def test_held_groups_unobservable_for_shadow_parity(self) -> None:
+        """Candidate-only groups are not a D-07 divergence, so a held
+        group cannot turn the verdict to ``fail``; it was reported as
+        ``only_in_candidate`` noise. Marked unobservable, it is dropped
+        and counted in ``withheld_excluded`` instead."""
+        from pipeline import parity
+
+        orch = _orch()
+        held_key = f"081025_{PILOT_WR}"
+        other_key = f"081025_{OTHER_WR}"
+        candidate = {held_key: "h1", other_key: "h2"}
+        deferred = [{"group_key": other_key, "data_hash": "h2"}]
+        uploads = [{"group_key": other_key}]
+        cand, actual, _ = orch._shadow_parity_input_sets(
+            candidate, deferred, uploads)
+        noisy = parity.compare_shadow_parity(cand, actual)
+        self.assertIn(held_key, noisy["only_in_candidate"])
+        cand, actual, excluded = orch._shadow_parity_input_sets(
+            candidate, deferred, uploads, unobservable={held_key})
+        self.assertEqual(cand, {other_key: "h2"})
+        self.assertEqual(excluded, 1)
+        clean = parity.compare_shadow_parity(cand, actual)
+        self.assertEqual(clean["verdict"], "pass")
+        self.assertEqual(clean["only_in_candidate"], [])
+
+    def test_main_marks_held_groups_unobservable(self) -> None:
+        main = _main()
+        calls = _calls(main, "_shadow_parity_input_sets")
+        self.assertTrue(calls)
+        for call in calls:
+            unobs = [k.value for k in call.keywords
+                     if k.arg == "unobservable"]
+            self.assertEqual(len(unobs), 1)
+            names = _names(unobs[0])
+            self.assertIn("_fn_held_groups", names)
+            self.assertIn("_no_target_row_groups", names)
+
+    def test_group_phase_log_names_held_count(self) -> None:
+        main = _main()
+        logs = [
+            c for c in _calls(main, "logging.info")
+            if "Group processing phase" in ast.unparse(c)
+        ]
+        self.assertEqual(len(logs), 1)
+        self.assertIn("_fn_held_groups", _names(logs[0]))
+
+    def test_held_count_run_tag(self) -> None:
+        self.init_failed()
+        cap = SentryCapture(self)
+        with fn_env():
+            fn.report_run_end(held_groups=list(_HELD), force_flags={})
+        sentry_sdk.capture_message("probe")
+        self.assertEqual(
+            cap.events[-1]["tags"]["foreman_notes_held"], "1")
+
+    def test_cron_checks_in_error_when_groups_held(self) -> None:
+        main = _main()
+        cron = [
+            n for n in ast.walk(main) if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "_cron_ok"
+                    for t in n.targets)
+        ]
+        self.assertEqual(len(cron), 1)
+        self.assertIn("_fn_held_groups", _names(cron[0].value))
+        # Hoisted above the main try so the finally block can read it.
+        (init,) = _calls(main, "_fn.initialize")
+        self.assertLess(
+            _first_assign_line(main, "_fn_held_groups"), init.lineno)
+        self.assertLess(
+            _first_assign_line(main, "_fn_run_report"), init.lineno)
 
 
 # ---------------------------------------------------------------------------
