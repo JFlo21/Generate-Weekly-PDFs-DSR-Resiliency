@@ -2829,6 +2829,51 @@ def _log_column_mapping_drift(
     return changed
 
 
+def _run_reset_purge(client, hold_active: bool, *, test_mode: bool) -> bool:
+    """Run the RESET_HASH_HISTORY / RESET_WR_LIST purge unless held.
+
+    Quick 261030-suf F1: while the Foreman Notes GF lookup has failed
+    (``hold_active``), the purge is skipped entirely with one counts-only
+    WARNING -- the hold would never rebuild the attachments it deletes.
+    Otherwise byte-identical to the former inline block in ``main()``.
+    Returns True when a requested purge was skipped.
+    """
+    if not (RESET_HASH_HISTORY or RESET_WR_LIST):
+        return False
+    if hold_active:
+        logging.warning(
+            "⚠️ Foreman notes: RESET_* purge skipped because the GF "
+            "lookup failed; held groups keep their attachments"
+        )
+        return True
+    with sentry_sdk.start_span(
+        op="smartsheet.purge", name="Purge existing hashed outputs"
+    ) as span:
+        if RESET_WR_LIST:
+            logging.info(
+                "🧨 Hash reset requested for specific WRs: "
+                f"{sorted(list(RESET_WR_LIST))}"
+            )
+            span.set_data("purge_type", "wr_subset")
+            span.set_data("wr_count", len(RESET_WR_LIST))
+            purge_existing_hashed_outputs(
+                client, TARGET_SHEET_ID, RESET_WR_LIST, test_mode,
+                dry_run=SKIP_UPLOAD,
+            )
+        else:
+            logging.info(
+                "🧨 Global hash reset requested (RESET_HASH_HISTORY=1)"
+            )
+            span.set_data("purge_type", "global")
+            purge_existing_hashed_outputs(
+                client, TARGET_SHEET_ID, None, test_mode,
+                dry_run=SKIP_UPLOAD,
+            )
+    # After purge, any regenerated files get new timestamp+hash filenames
+    # and re-upload.
+    return False
+
+
 def main():  # pyright: ignore[reportGeneralTypeIssues]
     """Main execution function with all fixes implemented.
 
@@ -3011,6 +3056,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # authorization failure) would otherwise check in as OK. Set True
     # in every except handler below.
     _session_failed = False
+    # Quick 261030-suf: groups held because the Foreman Notes GF lookup
+    # failed ({group_key: (wr, week_raw, variant)}), the run-end report
+    # and whether the RESET_* purge was skipped. Hoisted with
+    # _session_failed because the finally-block cron check-in reads
+    # _fn_held_groups (owner decision D1: a run that held groups checks
+    # in ERROR).
+    _fn_held_groups = {}
+    _fn_run_report = {}
+    _fn_purge_skipped = False
 
     # Sentry cron check-in: signal "in_progress" at session start
     _cron_monitor_slug = os.getenv("SENTRY_CRON_MONITOR_SLUG", "weekly-excel-generation")
@@ -3757,20 +3811,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     "(affected-set restricted)"
                 )
 
-        # Optional full/partial hash reset purge BEFORE processing groups if requested
-        if RESET_HASH_HISTORY or RESET_WR_LIST:
-            with sentry_sdk.start_span(op="smartsheet.purge", name="Purge existing hashed outputs") as span:
-                if RESET_WR_LIST:
-                    logging.info(f"🧨 Hash reset requested for specific WRs: {sorted(list(RESET_WR_LIST))}")
-                    span.set_data("purge_type", "wr_subset")
-                    span.set_data("wr_count", len(RESET_WR_LIST))
-                    purge_existing_hashed_outputs(client, TARGET_SHEET_ID, RESET_WR_LIST, TEST_MODE, dry_run=SKIP_UPLOAD)
-                else:
-                    logging.info("🧨 Global hash reset requested (RESET_HASH_HISTORY=1)")
-                    span.set_data("purge_type", "global")
-                    purge_existing_hashed_outputs(client, TARGET_SHEET_ID, None, TEST_MODE, dry_run=SKIP_UPLOAD)
-            # After purge, any regenerated files get new timestamp+hash filenames and re-upload
-        
+        # Optional full/partial hash reset purge BEFORE processing groups
+        # if requested. Quick 261030-suf F1: skipped while the Foreman
+        # Notes GF lookup has failed, because the hold would never rebuild
+        # the purged attachments (the hold wins, owner-approved).
+        _fn_purge_skipped = _run_reset_purge(
+            client, _fn.gf_lookup_failed(), test_mode=TEST_MODE,
+        )
+
         if not groups and not _incremental_empty_affected_run:
             raise Exception("No valid groups created")
         
@@ -4087,10 +4135,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         history_updates = 0
         _groups_skipped = 0
         _groups_skipped_no_target = 0
-        # Quick 261030-suf: (wr, week_raw, variant) of groups held because
-        # the Foreman Notes GF lookup failed (carried as regeneration debt).
-        _fn_held_groups = []
-        _fn_run_report = {}
         # Groups NOT generated because the WR has no target-sheet row
         # (owner decision 2026-08-28).
         _no_target_row_groups: NoTargetRowGroups = {}
@@ -4572,19 +4616,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # even when they made _hash_unchanged False. Held groups
                 # are NOT skip-confirmed, so they stay regeneration debt.
                 if _fn.gf_lookup_failed():
-                    _fn_hash_match = (
-                        _hash_unchanged
-                        if _history_eligible_for_skip
-                        else _resolve_unchanged_for_skip(
+                    _fn_hash_match = _fn.stored_hash_matches(
+                        _history_eligible_for_skip,
+                        _hash_unchanged,
+                        lambda: _resolve_unchanged_for_skip(
                             history_key, data_hash, _group_state_hashes,
                             wr_num, week_iso, variant, identifier,
                             billing_audit_writer=getattr(
                                 _gwp, "_billing_audit_writer", None
                             ),
-                        )
+                        ),
                     )
                     if _fn.should_hold_group(_fn_hash_match):
-                        _fn_held_groups.append((wr_num, week_raw, variant))
+                        _fn_held_groups[group_key] = (
+                            wr_num, week_raw, variant,
+                        )
                         continue
 
                 # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
@@ -5198,17 +5244,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             f"generated (no target-sheet row) in {_phase_group_elapsed:.1f}s"
             + (" (stopped early — time budget exceeded)"
                if _time_budget_exceeded else "")
-        )
-        # Quick 261030-suf: Foreman Notes run-end report (hold / style /
-        # digest events; counts-only dict, {} when the scope is off).
-        _fn_run_report = _fn.report_run_end(
-            held_groups=_fn_held_groups,
-            force_flags={
-                "FORCE_GENERATION": bool(FORCE_GENERATION),
-                "REGEN_WEEKS": bool(REGEN_WEEKS),
-                "RESET_HASH_HISTORY": bool(RESET_HASH_HISTORY),
-                "RESET_WR_LIST": bool(RESET_WR_LIST),
-            },
+            # Quick 261030-suf F8: the held count, only when non-zero, so
+            # every other run's line is unchanged.
+            + (f", {len(_fn_held_groups)} held (GF lookup failed)"
+               if _fn_held_groups else "")
         )
         if _no_target_row_groups:
             _nt_error_line, _nt_values_line = format_no_target_row_summary(
@@ -5252,6 +5291,20 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             )
         except Exception:
             _mem_globals_fp = ''
+        # Quick 261030-suf: Foreman Notes run-end report (hold / style /
+        # digest events; counts-only dict, {} when the scope is off).
+        # F2: after the globals fingerprint, the last notes-digest call,
+        # so a globals_component failure is counted.
+        _fn_run_report = _fn.report_run_end(
+            held_groups=list(_fn_held_groups.values()),
+            force_flags={
+                "FORCE_GENERATION": bool(FORCE_GENERATION),
+                "REGEN_WEEKS": bool(REGEN_WEEKS),
+                "RESET_HASH_HISTORY": bool(RESET_HASH_HISTORY),
+                "RESET_WR_LIST": bool(RESET_WR_LIST),
+            },
+            reset_purge_skipped=_fn_purge_skipped,
+        )
         if (
             _resolved_mode == 'full'
             and RUN_MEMORY_WRITE_ENABLED
@@ -5397,7 +5450,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         _shadow_candidate_hashes,
                         _deferred_group_state,
                         _upload_tasks,
-                        unobservable=set(_no_target_row_groups),
+                        # Quick 261030-suf F5: groups held after a GF
+                        # lookup failure are never generated this run.
+                        unobservable=set(_no_target_row_groups)
+                        | set(_fn_held_groups),
                     )
                     _shadow_group_result = _parity.compare_shadow_parity(
                         _shadow_candidate_hashes, _shadow_actual_hashes,
@@ -6641,7 +6697,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 # zero per-group errors (Copilot review, PR #297). Both
                 # names are hoisted above the try, so no dir() guard is
                 # needed.
-                _cron_ok = (not _session_failed) and _groups_errored == 0
+                # Quick 261030-suf D1 (owner 2026-10-30): a run that held
+                # groups after a GF lookup failure also checks in ERROR
+                # (Sentry monitor only; billing output is unchanged).
+                _cron_ok = (
+                    (not _session_failed)
+                    and _groups_errored == 0
+                    and not _fn_held_groups
+                )
                 capture_checkin(
                     monitor_slug=_cron_monitor_slug,
                     check_in_id=_cron_checkin_id,

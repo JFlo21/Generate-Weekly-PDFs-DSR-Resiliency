@@ -465,9 +465,11 @@ class HoldPlacementTests(unittest.TestCase):
         return ifs[0]
 
     def test_single_call_sites(self) -> None:
-        for dotted in ("_fn.gf_lookup_failed", "_fn.should_hold_group",
-                       "_fn.report_run_end"):
+        for dotted in ("_fn.should_hold_group", "_fn.report_run_end"):
             self.assertEqual(len(_calls(self.main, dotted)), 1, dotted)
+        # Two by design: the hold branch and the RESET_* purge gate (F1).
+        self.assertEqual(
+            len(_calls(self.main, "_fn.gf_lookup_failed")), 2)
 
     def test_hold_sits_between_no_target_gate_and_freeze(self) -> None:
         hold = self._hold_if()
@@ -521,7 +523,8 @@ class ResetPurgeTests(unittest.TestCase):
                 mock.patch.object(orch, "RESET_HASH_HISTORY", reset_all), \
                 mock.patch.object(
                     orch, "purge_existing_hashed_outputs") as purge:
-            skipped = orch._run_reset_purge(object(), hold_active)
+            skipped = orch._run_reset_purge(
+                object(), hold_active, test_mode=False)
         return skipped, purge
 
     def test_failed_lookup_skips_purge(self) -> None:
@@ -541,8 +544,8 @@ class ResetPurgeTests(unittest.TestCase):
         self.assertFalse(skipped)
         purge.assert_called_once()
         args, kwargs = purge.call_args
-        self.assertEqual(args[1:4], (orch.TARGET_SHEET_ID, {PILOT_WR},
-                                     orch.TEST_MODE))
+        self.assertEqual(
+            args[1:4], (orch.TARGET_SHEET_ID, {PILOT_WR}, False))
         self.assertEqual(kwargs, {"dry_run": orch.SKIP_UPLOAD})
         skipped, purge = self._run(False, set(), True)
         self.assertEqual(purge.call_args[0][2], None)
@@ -559,6 +562,9 @@ class ResetPurgeTests(unittest.TestCase):
         (call,) = _calls(main, "_run_reset_purge")
         self.assertEqual(len(call.args), 2)
         self.assertEqual(_dotted(call.args[1]), "_fn.gf_lookup_failed")
+        kws = {k.arg: k.value for k in call.keywords}
+        self.assertEqual(getattr(kws.get("test_mode"), "id", None),
+                         "TEST_MODE")
         (report,) = _calls(main, "_fn.report_run_end")
         kw = {k.arg for k in report.keywords}
         self.assertIn("reset_purge_skipped", kw)

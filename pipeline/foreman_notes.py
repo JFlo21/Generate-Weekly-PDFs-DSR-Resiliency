@@ -76,6 +76,7 @@ __all__ = [
     "load_gf_lookup",
     "gf_lookup_failed",
     "should_hold_group",
+    "stored_hash_matches",
     "report_run_end",
 ]
 
@@ -623,6 +624,27 @@ def should_hold_group(hash_matches_stored: bool) -> bool:
         return False
 
 
+def stored_hash_matches(
+    history_eligible: bool,
+    hash_unchanged: bool,
+    resolve_stored_match: Any,
+) -> bool:
+    """Whether a group's fresh hash equals its stored hash, for the hold.
+
+    ``hash_unchanged`` is main()'s skip decision, which force / regen
+    flags turn False. The hold compares the stored hash regardless
+    (approved rule 1): when the history skip was not eligible,
+    ``resolve_stored_match()`` (a zero-argument callable) does the real
+    comparison. Returns False (hold) if it raises.
+    """
+    try:
+        if history_eligible:
+            return bool(hash_unchanged)
+        return bool(resolve_stored_match())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _failure_level() -> str:
     """Level of the lookup-failed / hold events (owner decision D1).
 
@@ -755,6 +777,12 @@ def report_run_end(
             "reset_purge_skipped": bool(reset_purge_skipped),
         }
         _report_style_and_digest(fails, digest)
+        try:
+            from pipeline import observability as _obs
+
+            _obs.set_foreman_notes_held_tag(len(held))
+        except Exception:  # noqa: BLE001
+            pass
         if held:
             logging.warning(
                 "Foreman notes: %d group(s) held because the GF lookup "

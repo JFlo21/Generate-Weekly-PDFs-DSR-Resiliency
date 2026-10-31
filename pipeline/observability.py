@@ -367,6 +367,21 @@ def set_foreman_notes_run_tags(
         pass
 
 
+def set_foreman_notes_held_tag(held_count: int) -> None:
+    """Run-level ``foreman_notes_held`` tag: groups held this run (F8).
+
+    A count only. No-op without ``SENTRY_DSN``; never raises.
+    """
+    if not SENTRY_DSN:
+        return
+    try:
+        sentry_sdk.get_isolation_scope().set_tag(
+            "foreman_notes_held", str(int(held_count))
+        )
+    except Exception:  # noqa: BLE001 - Sentry must never break a run
+        pass
+
+
 # Log level type for Sentry SDK 2.x
 SentryLogLevel = Literal["fatal", "critical", "error", "warning", "info", "debug"]
 
