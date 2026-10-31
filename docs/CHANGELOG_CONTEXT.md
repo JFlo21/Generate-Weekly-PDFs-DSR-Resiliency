@@ -1438,3 +1438,14 @@ re-sends every pilot group (every group under `all`), including blank-note group
 digest is never empty (Greptile + Copilot). The two "bind notes digest to source sheet and row" findings were
 already fixed in `c06bdef` (entries carry `__source_sheet_id` + `__row_id`, JSON-encoded; swap tests in
 `tests/test_foreman_notes_review_fixes.py`).
+
+## 2026-10-30 — GF-lookup hold + Foreman Notes Sentry upgrade (draft PR #444, quick `261030-suf`)
+
+What: when the General Foreman lookup on the pre-planned pricing sheet fails during a publishing pilot run, groups whose
+hash changed are held (no Excel, no upload, carried as regen debt) instead of re-sending pilot workbooks in the old
+layout. The reset purge and attachment cleanup keep held files; force flags don't override; no hold in TEST_MODE.
+Every Foreman Notes failure now reaches Sentry: an ERROR hold event with the held WR/week/variant list, the reason,
+the sheet/column IDs and fix steps; lookup-failed, style and digest failure events; memory-write-block tags; and run
+tags. WR numbers only in the scoped `foreman_notes` context (DECISIONS.md exception); GF names and note text never.
+Why: the last blocker before `FOREMAN_NOTES_UPLOAD` (owner decisions 2026-10-30). Evidence: pytest 2848 passed, 6
+gates pass, independent Opus review merge-safe, Greptile 5/5. Production unchanged while scope is off.
