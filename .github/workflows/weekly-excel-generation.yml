@@ -245,6 +245,18 @@ jobs:
           # workbook. Rollback: `gh variable set HELPER2_ENABLED --body 0`
           # -- no code change. Runbook: website/docs/runbook/foreman-helper-2.md.
           HELPER2_ENABLED: ${{ vars.HELPER2_ENABLED || '0' }}
+          # Phase 15 Foreman Notes GF pilot (owner-approved 2026-10-31).
+          # Scope is fixed to 'pilot': widening to 'all' needs a reviewed
+          # PR. The GF allowlist stays in the repo SECRET (masked in logs,
+          # never a variable). Uploads are driven by the repo variable
+          # FOREMAN_NOTES_UPLOAD; unset or '0' keeps the cron's effective
+          # scope 'off'.
+          # On:  `gh variable set FOREMAN_NOTES_UPLOAD --body 1`
+          # Off: `gh variable set FOREMAN_NOTES_UPLOAD --body 0`
+          # Runbook: website/docs/runbook/foreman-notes-pilot.md.
+          FOREMAN_NOTES_SCOPE: 'pilot'
+          FOREMAN_NOTES_PILOT_GFS: ${{ secrets.FOREMAN_NOTES_PILOT_GFS }}
+          FOREMAN_NOTES_UPLOAD: ${{ vars.FOREMAN_NOTES_UPLOAD || '0' }}
           # Shadow-parity delta-probe sub-budget (minutes). The code
           # default (10) covered only 56 of 121 sheets on run #2801
           # (~11 s/sheet incl. Smartsheet 5xx retries), so the read
