@@ -537,7 +537,7 @@ class ResetPurgeTests(unittest.TestCase):
     """F1: the RESET_* purge never runs while groups would be held."""
 
     def _run(
-        self, hold_active: bool, wr_list: set, reset_all: bool
+        self, hold_active: bool, wr_list: set[str], reset_all: bool
     ) -> tuple[bool, mock.MagicMock]:
         orch = _orch()
         with mock.patch.object(orch, "RESET_WR_LIST", wr_list), \
@@ -810,9 +810,11 @@ class CleanupToleranceTests(_Base):
         parts[parts.index("WeekEnding") + 2] = "000001"
         return "_".join(parts)
 
-    def _cleanup(self, names: list, valid: set, dry_run: bool = False,
-                 **kwargs: Any) -> list:
-        deleted: list = []
+    def _cleanup(
+        self, names: list[str], valid: set[tuple[str, ...]],
+        dry_run: bool = False, **kwargs: Any,
+    ) -> list[str]:
+        deleted: list[int] = []
         client = mock.MagicMock()
         client.Attachments.delete_attachment.side_effect = (
             lambda _sid, att_id: deleted.append(att_id))
@@ -875,6 +877,18 @@ class CleanupToleranceTests(_Base):
         kept = self._cleanup(
             [self.held_name], {helper},
             held_wr_weeks={(PILOT_WR, golden.WEEK_RAW)})
+        self.assertEqual(kept, [])
+
+    def test_f7_ppp_whitelist_cannot_delete_held_file(self) -> None:
+        # PPP cleanup passes a variant whitelist; a held pair's file must
+        # survive it the same as every other prune rule.
+        ppp = {"variant_whitelist": {"reduced_sub", "reduced_sub_helper"}}
+        valid = {self._site2_identity()}
+        risky = self._cleanup([self.held_name], valid, **ppp)
+        self.assertEqual(risky, [self.held_name])  # the pre-fix risk
+        kept = self._cleanup(
+            [self.held_name], valid,
+            held_wr_weeks={(PILOT_WR, golden.WEEK_RAW)}, **ppp)
         self.assertEqual(kept, [])
 
     def test_f7_main_passes_held_pairs_to_every_cleanup(self) -> None:

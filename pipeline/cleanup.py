@@ -378,6 +378,13 @@ def cleanup_untracked_sheet_attachments(
                 ident = build_group_identity(name)
                 if ident:
                     wr, week, variant, _identifier = ident
+                    # Quick 261030-suf F7: a held (wr, week) keeps its
+                    # files until its replacement is actually uploaded.
+                    # Checked before every prune rule, including the
+                    # per-sheet variant whitelist below.
+                    if held_wr_weeks and (wr, week) in held_wr_weeks:
+                        identity_groups[ident].append(att)
+                        continue
                     # Phase 1.1 Bug B2 (D-07 / SUB-10): per-sheet
                     # variant whitelist gate. variant_whitelist=None
                     # (TARGET cleanup) preserves legacy "accept
@@ -395,11 +402,6 @@ def cleanup_untracked_sheet_attachments(
                         and variant not in variant_whitelist
                     ):
                         off_contract_attachments.append(att)
-                        continue
-                    # Quick 261030-suf F7: a held (wr, week) keeps its
-                    # files until its replacement is actually uploaded.
-                    if held_wr_weeks and (wr, week) in held_wr_weeks:
-                        identity_groups[ident].append(att)
                         continue
                     # Phase 1.1 UAT gap closure (SUB-09 helper dimension):
                     # remove pre-existing legacy `_Helper_<name>` / bare-primary
