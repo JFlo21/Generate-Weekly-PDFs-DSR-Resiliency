@@ -298,6 +298,60 @@ class InitializeTests(unittest.TestCase):
         state = self._init('pilot', 'Avery Example', client)
         self.assertFalse(state.gf_loaded)
         self.assertEqual(state.pilot_wrs, frozenset())
+        self.assertTrue(state.gf_failed)
+        self.assertEqual(state.gf_fail_reason, 'exception')
+        self.assertEqual(state.gf_fail_exc, 'RuntimeError')
+
+    def test_gf_failed_false_outside_failed_lookup(self) -> None:
+        good = _client(_sheet([_row('90003', 'Avery Example')]))
+        cases = (('pilot', 'Avery Example', good), ('pilot', '', good),
+                 ('off', 'Avery Example', good), ('all', '', good))
+        for scope, allowlist, client in cases:
+            with self.subTest(scope=scope, allowlist=allowlist):
+                fn.reset_state()
+                state = self._init(scope, allowlist, client)
+                self.assertFalse(state.gf_failed)
+                self.assertEqual(state.gf_fail_reason, '')
+
+    def test_gf_failure_reasons(self) -> None:
+        mismatch = _client(_sheet([_row('90003', 'Avery Example')],
+                                  gf_title='Other'))
+        state = self._init('pilot', 'Avery Example', mismatch)
+        self.assertEqual(state.gf_fail_reason, 'columns_mismatch')
+        partial = _client(_sheet([_row('90003', 'Avery Example')], total=5))
+        state = self._init('pilot', 'Avery Example', partial)
+        self.assertEqual(state.gf_fail_reason, 'partial_read')
+
+    def test_outer_handler_marks_failed_for_pilot_allowlist(self) -> None:
+        with mock.patch.object(
+                fn, 'load_gf_lookup', side_effect=ValueError('boom')):
+            state = self._init('pilot', 'Avery Example', _client())
+        self.assertTrue(state.gf_failed)
+        self.assertEqual(state.gf_fail_reason, 'initialize_failed')
+        self.assertEqual(state.gf_fail_exc, 'ValueError')
+        self.assertEqual(state.scope, 'off')
+
+    def test_outer_handler_default_state_otherwise(self) -> None:
+        for scope, allowlist in (('off', 'Avery Example'), ('pilot', '')):
+            with self.subTest(scope=scope, allowlist=allowlist):
+                with mock.patch.object(
+                        fn, 'reset_style_cache',
+                        side_effect=ValueError('boom')):
+                    state = self._init(scope, allowlist, _client())
+                self.assertEqual(state, fn.FnState())
+
+    def test_load_gf_lookup_reasons(self) -> None:
+        ok = fn.load_gf_lookup(
+            _client(_sheet([_row('90003', 'Avery Example')])),
+            SHEET, WR_COL, GF_COL)
+        self.assertEqual(ok.reason, '')
+        self.assertEqual(ok.gf_map, {'90003': 'avery example'})
+        self.assertIsNone(ok.exc)
+        bad = fn.load_gf_lookup(
+            _client(exc=KeyError('x')), SHEET, WR_COL, GF_COL)
+        self.assertIsNone(bad.gf_map)
+        self.assertEqual(bad.reason, 'exception')
+        self.assertIsInstance(bad.exc, KeyError)
 
     def test_logs_contain_no_names_or_wrs(self) -> None:
         client = _client(_sheet([_row('90003', 'Avery Example')]))
