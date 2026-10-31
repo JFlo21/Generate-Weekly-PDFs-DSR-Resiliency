@@ -450,5 +450,67 @@ class HoldPlacementTests(unittest.TestCase):
             self.assertNotIn(forbidden, names)
 
 
+# ---------------------------------------------------------------------------
+# Task 2: attachment cleanup tolerates a held group (approved item 3)
+# ---------------------------------------------------------------------------
+
+_HELD_NAME = "WR_90003_WeekEnding_081025_120000_User_Sample_aabbcc.xlsx"
+_SKIP_NAME = "WR_90004_WeekEnding_081025_120000_User_Sample_ddeeff.xlsx"
+
+
+class CleanupToleranceTests(unittest.TestCase):
+    """A held group keeps its last good attachment, like an unchanged skip.
+
+    Site 2 builds ``valid_wr_weeks`` from ``groups.items()``; the hold never
+    removes a group from ``groups``, so the held identity is present.
+    """
+
+    def _run(self, dry_run: bool) -> list:
+        build_group_identity = cd.build_group_identity
+        deleted: list = []
+        client = mock.MagicMock()
+        client.Attachments.delete_attachment.side_effect = (
+            lambda _sid, att_id: deleted.append(att_id))
+        atts = []
+        for att_id, name in ((10, _HELD_NAME), (20, _SKIP_NAME)):
+            att = mock.MagicMock()
+            att.name = name
+            att.id = att_id
+            atts.append(att)
+        row = mock.MagicMock()
+        row.id = 111
+        sheet = mock.MagicMock()
+        sheet.rows = [row]
+        valid = {build_group_identity(_HELD_NAME),
+                 build_group_identity(_SKIP_NAME)}
+        self.assertNotIn(None, valid)
+        gwp.cleanup_untracked_sheet_attachments(
+            client=client, target_sheet_id=5723337641643908,
+            valid_wr_weeks=valid, test_mode=False,
+            attachment_cache={111: atts}, target_sheet=sheet,
+            dry_run=dry_run,
+        )
+        return deleted
+
+    def test_dry_run_deletes_nothing(self) -> None:
+        self.assertEqual(self._run(dry_run=True), [])
+
+    def test_live_cleanup_keeps_held_like_unchanged_skip(self) -> None:
+        self.assertEqual(self._run(dry_run=False), [])
+
+    def test_site2_builds_identities_from_groups(self) -> None:
+        main = _main()
+        loops = [
+            n for n in ast.walk(main) if isinstance(n, ast.For)
+            and isinstance(n.iter, ast.Call)
+            and isinstance(n.iter.func, ast.Attribute)
+            and n.iter.func.attr == "items"
+            and isinstance(n.iter.func.value, ast.Name)
+            and n.iter.func.value.id == "groups"
+            and _calls(n, "valid_wr_weeks.add")
+        ]
+        self.assertTrue(loops)
+
+
 if __name__ == "__main__":
     unittest.main()
