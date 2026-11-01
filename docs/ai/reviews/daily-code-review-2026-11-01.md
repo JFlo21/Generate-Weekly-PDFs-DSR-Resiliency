@@ -6,23 +6,29 @@
 > **Revision note (post-review):** this document was corrected after automated review (Codex)
 > flagged six accuracy issues in the first draft. The substantive delta now includes the feature
 > commit `85fac23`; the "fully fail-closed" claim is qualified against the known `group_notes_token`
-> fail-open path; all still-open 2026-10-20 auth findings are carried forward (not just two); the
-> hCaptcha note is marked deployment-dependent; the password-floor fix is scoped to signup/reset;
-> and the production-integration test gaps are recorded. All six were verified against the code.
+> fail-open path; the most material still-open 2026-10-20 auth findings are carried forward (a
+> selected subset, not just two — see the note in §1); the pilot is described as deployable-but-off
+> rather than "activated"; the hCaptcha note is marked deployment-dependent; the password-floor fix
+> is scoped to signup/reset; and the production-integration test gaps are recorded. All six Codex
+> findings, and two follow-on Copilot nits (the upload switch defaults off; the carry-forward is a
+> subset), were verified against the code.
 
 ---
 
 ## 1. Executive Summary
 
-**Today's substantive delta is the Foreman Notes General-Foreman (GF) pilot, now activated.** It
-spans four commits in the window, which must be reviewed as one feature, not as "a hold fix plus
-docs churn":
+**Today's substantive delta is the Foreman Notes General-Foreman (GF) pilot, now deployable (but
+upload still off by default).** It spans four commits in the window, which must be reviewed as one
+feature, not as "a hold fix plus docs churn":
 - `feat: foreman notes GF pilot` (#437, `85fac23`) — the **feature itself**: added/changed
   production behavior across `change_detection.py`, `config.py`, `discovery.py`, `excel.py`,
   `fetch.py`, `foreman_notes.py`, `memory_candidate.py`, `observability.py`, `orchestrate.py`.
 - `fix(15): hold pilot groups on GF lookup failure` (#444, `cf4fc14`) — the fail-closed hold.
-- `ci(15): Foreman Notes pilot upload switch` (#445, `d589ede`) — the workflow variable that makes
-  the feature **deployable** (so the feature is now live-reachable, not dormant).
+- `ci(15): Foreman Notes pilot upload switch` (#445, `d589ede`) — the workflow variable
+  (`FOREMAN_NOTES_UPLOAD`) that makes the feature **deployable**. It **defaults to `0` (off)** in
+  both `pipeline/config.py` and the workflow (`vars.FOREMAN_NOTES_UPLOAD || '0'`), so uploads do
+  **not** publish until an operator runs `gh variable set FOREMAN_NOTES_UPLOAD --body 1`. The
+  rollout path is live-reachable; actual publishing is still gated off.
 - `fix(11): carry every unconfirmed group as regen debt` (#439, `e63dc3f`) — supporting change.
 
 **The changed code is well-built, with one known fail-open caveat.** The GF-lookup hold is genuinely
@@ -46,11 +52,16 @@ unit coverage, but the real GF partial-read response, the attachment cleanup/upl
 the emitted cron status are unverified in production.
 
 **The portal-v2 auth layer still carries multiple open findings from 2026-10-20** (the files are
-unchanged; no fix has landed): the client-swap refresh-logout (High), the perpetual-loading-skeleton
-(Medium), the swallowed `signOut()` error (Medium), the last-admin **DELETE** gap in the RLS policy
-(Medium), and a stale `portal-v2/README.md` (Low). Because the task treats authentication as a hard
-focus area and several of these can lock out or mis-authorize a user, the repo-wide verdict is **Merge
-with fixes**. None of this touches the Python billing cron.
+unchanged; no fix has landed). §2 re-details the **most material subset** — the client-swap
+refresh-logout (High), the perpetual-loading-skeleton (Medium), the swallowed `signOut()` error
+(Medium), the last-admin **DELETE** gap in the RLS policy (Medium), and a stale `portal-v2/README.md`
+(Low). This is **not** the complete 2026-10-20 list: that review also left open, among others, the
+pending-approval refresh gap, the missing-`VITE_HCAPTCHA_SITEKEY` silent login disable, the CSP
+`connect-src`/`style-src` and hCaptcha-CSP verifications, the artifact-bucket privacy check, the
+confirm-email signup loop, and the client-side-only CAPTCHA enforcement caveat — all still open and
+tracked in that document, not re-detailed here. Because the task treats authentication as a hard focus
+area and several of these can lock out or mis-authorize a user, the repo-wide verdict is **Merge with
+fixes**. None of this touches the Python billing cron.
 
 ---
 
@@ -212,8 +223,10 @@ feature is now **deployable**, it carries one **fail-open** path (`group_notes_t
 not a clean "no defect"; reconcile the fail-open path (or track it to closure) and add an end-to-end
 check before relying on the hold in production.
 
-**Repo-wide: Merge with fixes.** The portal-v2 authentication flow still carries five open findings from
-2026-10-20 — the client-swap refresh-logout (High), the perpetual skeleton, the swallowed `signOut()`,
-the last-admin DELETE gap (three Medium), and the stale README (Low) — none fixed. Because the task
-treats authentication as a hard focus area and several can lock out or mis-authorize a user, these
-should be scheduled before the next portal release. The Python billing cron itself remains healthy.
+**Repo-wide: Merge with fixes.** The portal-v2 authentication flow still carries the most material open
+findings from 2026-10-20 — the client-swap refresh-logout (High), the perpetual skeleton, the swallowed
+`signOut()`, the last-admin DELETE gap (three Medium), and the stale README (Low) — plus the further
+open items from that review listed in §1 (missing-sitekey login disable, CSP/hCaptcha verifications,
+confirm-email loop, client-side CAPTCHA, etc.), none fixed. Because the task treats authentication as a
+hard focus area and several can lock out or mis-authorize a user, these should be scheduled before the
+next portal release. The Python billing cron itself remains healthy.
