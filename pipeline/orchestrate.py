@@ -57,6 +57,7 @@ from pipeline import cleanup as _cleanup
 from pipeline import upload as _upload
 from pipeline import attribution as _attr
 from pipeline import foreman_notes as _fn
+from pipeline import reporting_corrections as _rc
 from pipeline.retry import smartsheet_call_with_retry
 # Phase 10 (MEM-01/MEM-03): independent run-memory shadow-write package --
 # NOT a ``pipeline`` submodule (deliberately outside the D-04 import-cycle
@@ -1668,8 +1669,12 @@ def _resolve_row_wr_week(row: dict[str, Any]) -> tuple[str, str | None]:
     standalone-function testability pattern.
     """
     wr_key = _mem_writer._sanitized_wr(row)
+    # A recovered reporting-correction row has a blank raw week date;
+    # its reporting week (__corr_week_ending, absent on every other row)
+    # keeps its group inside the correction's affected pair.
     week_value = _utils.excel_serial_to_date(
         row.get('Weekly Reference Logged Date')
+        or row.get('__corr_week_ending')
     )
     week_iso = _mem_writer._coerce_date(week_value)
     return wr_key, week_iso
@@ -2302,6 +2307,12 @@ def _run_phase2_incremental(
         # D-04 candidate = affected | carried regeneration debt, joined
         # AFTER the identity-lost widening above.
         candidate_pairs = set(affected) | set(regen_debt)
+        # Reporting corrections (explicit, bounded fallback): every active
+        # correction's (wr, week) pair is always a candidate, and its
+        # listed sheets are always re-fetched. Empty when the feature is
+        # off, so the candidate set is unchanged.
+        _corr_pairs = _rc.correction_pairs()
+        candidate_pairs |= _corr_pairs
 
         if candidate_pairs:
             mapped_sheet_ids = _mem_reader.map_affected_to_sheets(
@@ -2319,6 +2330,10 @@ def _run_phase2_incremental(
                 }
         else:
             mapped_sheet_ids = set()
+        if _corr_pairs:
+            mapped_sheet_ids = (
+                set(mapped_sheet_ids) | _rc.correction_sheet_ids()
+            )
 
         narrowed_sheets = [
             s for s in source_sheets if s.get('id') in mapped_sheet_ids
@@ -2627,6 +2642,68 @@ def _run_audit_memory_phase(
         return result
     finally:
         result["counters"] = _mem_audit_findings.log_run_counters()
+
+
+def _remove_empty_displaced_attachments(
+    client: Any,
+    groups: dict[Any, list[dict[str, Any]]],
+    target_map: dict[str, Any],
+    attachment_cache: dict[Any, Any],
+    identity_switches: dict[str, Any],
+    *,
+    target_sheet_id: Any,
+    skip_upload: bool,
+    blocked_wrs: set[str] | frozenset[str] = frozenset(),
+    held_wr_weeks: set[tuple[str, str]] | None = None,
+) -> int:
+    """Reporting corrections: a displaced group (a key corrected rows
+    would have had WITHOUT the correction) that is now EMPTY keeps a
+    stale attachment nobody regenerates -- remove it with the existing
+    identity-scoped ``delete_old_excel_attachments`` (``dry_run`` under
+    SKIP_UPLOAD logs a planned delete only). Bounded to the registered
+    displaced keys of the corrected (wr, week) pairs; a quarantined WR or
+    a Foreman-Notes-held pair is never touched. Returns the number of
+    identities handled. No-op (0) when the feature is off.
+    """
+    handled = 0
+    for gkey, grows in _rc.displaced_groups().items():
+        if gkey in groups or not grows or '_' not in gkey:
+            continue
+        first = canonical_first_row(grows)
+        wr_raw = first.get('Work Request #')
+        wr_num = str(wr_raw).split('.')[0] if wr_raw else ''
+        wr_num = _RE_SANITIZE_HELPER_NAME.sub('_', wr_num)[:50]
+        week_raw = gkey.split('_', 1)[0]
+        if wr_num in blocked_wrs or (wr_num, week_raw) in (
+                held_wr_weeks or set()):
+            continue
+        variant = first.get('__variant', 'primary')
+        _, file_identifier = derive_group_identity(
+            first, **identity_switches)
+        target_row = target_map.get(wr_num) if target_map else None
+        logging.warning(
+            f"🗑️ Reporting correction: displaced {variant} group for WR "
+            f"{wr_num} week {week_raw} is now empty -- "
+            f"{'planned delete (SKIP_UPLOAD)' if skip_upload else 'removing'}"
+            " its stale attachment"
+        )
+        handled += 1
+        if target_row is None:
+            continue
+        try:
+            delete_old_excel_attachments(
+                client, target_sheet_id, target_row, wr_num, week_raw, '',
+                variant=variant, identifier=file_identifier,
+                force_generation=True,
+                cached_attachments=attachment_cache.get(target_row.id),
+                dry_run=skip_upload,
+            )
+        except Exception as exc:
+            logging.warning(
+                "⚠️ Reporting correction: stale displaced attachment "
+                f"removal failed for WR {wr_num} ({type(exc).__name__})"
+            )
+    return handled
 
 
 def _repair_group_state_for_affected_pairs(
@@ -3780,6 +3857,33 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             logging.warning(f"⚠️ Snapshot-drift audit error: {_snap_exc}")
             _snapshot_drift_summary = {'enabled': False}
 
+        # Reporting corrections (opt-in; {} and untouched rows when
+        # REPORTING_CORRECTIONS_FILE is unset). Validates every
+        # correction against the admitted rows, blocks mismatches,
+        # stamps applied rows and registers displaced group keys before
+        # the single grouping call below. Never fatal.
+        try:
+            _corr_summary = _rc.prepare_run(
+                all_rows,
+                group_fn=group_source_rows,
+                audit_summary=(
+                    audit_results.get('summary') if audit_results else None
+                ),
+            )
+        except Exception as _corr_exc:
+            logging.error(
+                "🚫 Reporting corrections failed "
+                f"({type(_corr_exc).__name__}); none applied this run"
+            )
+            for _corr_row in all_rows:
+                for _corr_key in _rc.STAMP_KEYS:
+                    _corr_row.pop(_corr_key, None)
+            all_rows[:] = [
+                _r for _r in all_rows if not _r.get('__corr_recovered')
+            ]
+            _rc.reset_state()
+            _corr_summary = {}
+
     # Group rows by work request and week ending
         logging.info("📂 Grouping data...")
         with sentry_sdk.start_span(op="data.grouping", name="Group source rows by WR/week/variant") as span:
@@ -4566,6 +4670,8 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         for _r in group_rows
                         if isinstance(_r.get("__row_id"), int)
                         and is_checked(_r.get("Units Completed?"))
+                        # corrected rows are never frozen (see below)
+                        and not _r.get("__corr_credit")
                     }
                     _has_uncached_freeze_candidates = bool(
                         _eligible_freeze_keys - billing_audit_row_cache
@@ -4671,6 +4777,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                                 if not isinstance(_row_id, int):
                                     continue
                                 if not is_checked(_row.get("Units Completed?")):
+                                    continue
+                                # Reporting corrections never write the
+                                # freeze path: frozen history stays as is.
+                                if _row.get("__corr_credit"):
                                     continue
                                 _cache_key = f"{wr_num}|{week_raw}|{_row_id}"
                                 if _cache_key in billing_audit_row_cache:
@@ -5936,6 +6046,28 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         logging.info(f"   • Files generated: {generated_files_count}")
         logging.info(f"   • Duration: {session_duration}")
         logging.info(f"   • Mode: {'TEST' if TEST_MODE else 'PRODUCTION'}")
+
+        # Reporting corrections: stale attachments of displaced groups
+        # that are now empty (no-op when the feature is off). Skipped in
+        # TEST_MODE (no target map) and on a MAX_GROUPS-truncated run,
+        # where an absent key does not mean "empty".
+        if not TEST_MODE and not _mem_groups_truncated:
+            try:
+                _remove_empty_displaced_attachments(
+                    client, groups, target_map, attachment_cache,
+                    _identity_switches,
+                    target_sheet_id=TARGET_SHEET_ID,
+                    skip_upload=SKIP_UPLOAD,
+                    blocked_wrs=_quarantined_source_wr_keys,
+                    held_wr_weeks={
+                        (_h[0], _h[1]) for _h in _fn_held_groups.values()
+                    },
+                )
+            except Exception as _corr_del_exc:
+                logging.warning(
+                    "⚠️ Reporting correction displaced-attachment pass "
+                    f"failed ({type(_corr_del_exc).__name__}); non-fatal"
+                )
 
         # Build identity set for sheet pruning: (wr, week, variant, identifier) 4-tuples
         valid_wr_weeks = set()
