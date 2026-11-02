@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: November 1, 2026 (updated automatically)_
+_Last updated: November 2, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,34 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — November 1, 2026
+### 📋 Changelog — November 2, 2026
 
-- ✅ Problem fixed: owner decisions and production-check fixes for
-- ✨ New capability: Phase 9 - Cognos to ProMax Status Report (admin-only Reports page, Excel workbook + Jobs CSV, read-only service) + MotionScore Guard
-- ✨ New capability: Phase 8 design tokens — brand/space/text tokens, auth pages to var(--brand-&#42;)
-- 📄 Help guides updated: PR merged and deployed; production WR reset verified
-- ✅ Problem fixed: run WR reset Apply as a background job
-- ✅ Problem fixed: WR reset falls back to an exact read on a search 5xx (CLI path)
+- ✅ Problem fixed: resolve npm audit findings (21 -&gt; 4, no high)
+- 📄 Help guides updated: refresh project docs, add PRODUCT.md and eight guides
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: raise failing text-contrast pairs to WCAG minimums
+- ✨ New capability: motion always on, in-flow alerts that glide, and accessibility fixes
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: stop advising Destination for the Delivery Detail limit
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — November 2, 2026
+
+- ✅ Problem fixed: motion audit fixes and follow-ups — exits, ambient gating and pause, GF labels on WAAPI, focus after Regenerate
+- 📄 Help guides updated: close out the arming record (ARM-35.2-07, plans 19-21 summaries)
+- ✅ Problem fixed: guide cursor lands on the control, with tip halo, arrival press and beacon entrance
+- 📄 Help guides updated: post-merge — Guide Blue hex DFC in the 40.3 spec; ledgers record the PR merge
+- 📄 Help guides updated: add testing and development guides, fix stale facts in README and docs/ai
+- ✨ New capability: guide cursor and app-wide motion upgrade
+- ✅ Problem fixed: tour popover stays on screen with a visible pointer arrow, tight anchors, direct-instruction copy (quick 261028-u1z)
+- 📄 Help guides updated: PR lingering Copilot items -- PROJECT.md 40.2 open warnings = WR-05 only; AppShell teardown-key comment adds viewport
 
 <!-- /runbook-repo -->
 
@@ -41,7 +59,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 1, 2026
+### 📋 Changelog — November 2, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: foreman notes GF pilot (replaces )
@@ -51,24 +69,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - ✅ Problem fixed: carry every unconfirmed group as regen debt
 - 📄 Help guides updated: record G-11-37 post-deploy check
 - ✅ Problem fixed: build runbook site on Node 26
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
-
-### 📋 Changelog — November 1, 2026
-
-- 📄 Help guides updated: close out the arming record (ARM-35.2-07, plans 19-21 summaries)
-- ✅ Problem fixed: guide cursor lands on the control, with tip halo, arrival press and beacon entrance
-- 📄 Help guides updated: post-merge — Guide Blue hex DFC in the 40.3 spec; ledgers record the PR merge
-- 📄 Help guides updated: add testing and development guides, fix stale facts in README and docs/ai
-- ✨ New capability: guide cursor and app-wide motion upgrade
-- ✅ Problem fixed: tour popover stays on screen with a visible pointer arrow, tight anchors, direct-instruction copy (quick 261028-u1z)
-- 📄 Help guides updated: PR lingering Copilot items -- PROJECT.md 40.2 open warnings = WR-05 only; AppShell teardown-key comment adds viewport
-- • Phase 40.2: guidance hardening -- close-button/touch hit targets, tour coordination, deterministic teardown, role-fence test
 
 <!-- /runbook-repo -->
 
@@ -86,7 +86,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 1, 2026
+### 📋 Changelog — November 2, 2026
 
 - • 📊 Audit: 2026-10-26T07:08:11Z
 
@@ -475,7 +475,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 1, 2026
+### 📋 Changelog — November 2, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
