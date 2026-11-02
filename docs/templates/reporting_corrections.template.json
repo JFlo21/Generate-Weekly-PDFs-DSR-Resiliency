@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "corrections": [
+    {
+      "id": "WR90000001-WE2026-03-08",
+      "revision": 1,
+      "wr": "90000001",
+      "week_ending": "2026-03-08",
+      "reason": "Owner-approved re-credit of units entered under the wrong foreman/day (synthetic example)",
+      "reference": "ticket or email reference",
+      "approved_by": "Owner Name",
+      "approved_on": "2026-03-10",
+      "scope_days": ["2026-03-02", "2026-03-03"],
+      "expected_subtotals": {
+        "Foreman B": {"2026-03-02": "100.00"},
+        "Helper H": {"2026-03-03": "44.07"}
+      },
+      "rows": [
+        {
+          "sheet_id": 1000000000000001,
+          "row_id": 2000000000000001,
+          "credit": {"name": "Foreman B", "variant": "primary", "dept": "884", "job": null},
+          "workday": "2026-03-02",
+          "expect": {
+            "pole": "Point 1",
+            "cu": "CU-EXAMPLE-1",
+            "work_type": "Inst",
+            "quantity": 1.0,
+            "units_total_price": "100.00",
+            "snapshot_date": "2026-03-03",
+            "weekly_reference_logged_date": "2026-03-08",
+            "units_completed": true
+          }
+        },
+        {
+          "sheet_id": 1000000000000001,
+          "row_id": 2000000000000002,
+          "credit": {"name": "Helper H", "variant": "helper", "dept": "489", "job": null},
+          "workday": "2026-03-03",
+          "recover_missing_dates": true,
+          "expect": {
+            "pole": "Point 2",
+            "cu": "CU-EXAMPLE-2",
+            "work_type": "Rem",
+            "quantity": 3.0,
+            "units_total_price": "44.07",
+            "snapshot_date": null,
+            "weekly_reference_logged_date": null,
+            "units_completed": true
+          }
+        }
+      ]
+    }
+  ]
+}
