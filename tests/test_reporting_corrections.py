@@ -8,6 +8,8 @@ PASS -- not a dry run, not production observed.
 from __future__ import annotations
 
 import copy
+import datetime
+import inspect
 import io
 import json
 import os
@@ -15,6 +17,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from decimal import Decimal
 from pathlib import Path
@@ -66,6 +69,81 @@ def _snapshot(groups):
             sorted(r['__row_id'] for r in v)]
         for k, v in sorted(groups.items())
     }
+
+
+# Fake attachment ids for the stale-attachment tests (one per identity).
+_ATT_IDS = {
+    '030826_90000001_USER_Foreman_B': 901,
+    '030826_90000001_USER_Foreman_A': 902,
+    '030826_90000001_HELPER2_Helper2_C': 903,
+    '030826_90000001_HELPER_Helper_H': 904,
+    '030826_90000002_USER_Foreman_A': 905,
+}
+_FOREMAN_B = '030826_90000001_USER_Foreman_B'
+
+
+def _real_filenames(test, rows, doc=None):
+    """group key -> the filename generate_excel really writes for it
+    (feature off, or with *doc* applied)."""
+    if doc is None:
+        _config.REPORTING_CORRECTIONS_FILE = None
+        rc.reset_state()
+        groups = generate_weekly_pdfs.group_source_rows(rows)
+    else:
+        groups, _ = test._run(doc, rows=rows)
+    names = {}
+    with mock.patch.object(generate_weekly_pdfs, 'OUTPUT_FOLDER',
+                           test._tmp.name):
+        for key, grows in groups.items():
+            path, *_ = generate_weekly_pdfs.generate_excel(
+                key, grows, grows[0]['__week_ending_date'],
+                data_hash=generate_weekly_pdfs.calculate_data_hash(grows))
+            names[key] = os.path.basename(path)
+    rc.reset_state()
+    return names
+
+
+def _cache(*name_maps):
+    atts = {}
+    for names in name_maps:
+        for key, name in names.items():
+            atts[_ATT_IDS[key]] = SimpleNamespace(id=_ATT_IDS[key],
+                                                  name=name)
+    return {55: [atts[k] for k in sorted(atts)]}
+
+
+def _client():
+    return SimpleNamespace(Attachments=mock.Mock())
+
+
+def _deleted(client):
+    return sorted(c.args[1] for c in
+                  client.Attachments.delete_attachment.call_args_list)
+
+
+def _remove(groups, cache, client, **extra):
+    kwargs = dict(target_sheet_id=1, skip_upload=False)
+    kwargs.update(extra)
+    switches = dict(
+        primary_claim_enabled=(
+            generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED),
+        vac_crew_claim_enabled=(
+            generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED),
+        res_grouping_mode=generate_weekly_pdfs.RES_GROUPING_MODE,
+    )
+    return _orchestrate._remove_empty_displaced_attachments(
+        client, groups, {fx.WR: SimpleNamespace(id=55)}, cache, switches,
+        **kwargs)
+
+
+def _retired_doc():
+    """Revision 1 (applied before) superseded by a retired revision 2."""
+    doc = fx.correction_doc()
+    rev2 = copy.deepcopy(doc['corrections'][0])
+    rev2['revision'] = 2
+    rev2['retired'] = True
+    doc['corrections'].append(rev2)
+    return doc
 
 
 class _Base(unittest.TestCase):
@@ -295,41 +373,51 @@ class AppliedCorrectionTests(_Base):
         self.assertEqual(rows[0]['__effective_user'], 'Foreman A')
 
     def test_empty_displaced_group_attachment_is_removed(self):
+        # The stale HELPER2 file is named exactly as generate_excel names
+        # it on a feature-off run; the REAL delete helper must match it
+        # through build_group_identity and remove only that attachment.
+        names = _real_filenames(self, fx.admitted_rows())
+        helper2 = names['030826_90000001_HELPER2_Helper2_C']
+        self.assertEqual(
+            generate_weekly_pdfs.build_group_identity(helper2),
+            (fx.WR, '030826', 'helper2', 'Helper2_C'))
         groups, _ = self._run(fx.correction_doc())
-        target_row = SimpleNamespace(id=55)
-        calls = []
+        self.assertNotIn('030826_90000001_HELPER2_Helper2_C', groups)
+        cache = _cache(names)
+        for skip, deleted in ((True, []), (False, [903])):
+            client = _client()
+            handled = _remove(groups, cache, client, skip_upload=skip)
+            self.assertEqual(handled, 1)
+            self.assertEqual(_deleted(client), deleted)
+        # held / quarantined pairs are never touched (L10)
+        for extra in ({'blocked_wrs': {fx.WR}},
+                      {'held_wr_weeks': {(fx.WR, '030826')}}):
+            client = _client()
+            self.assertEqual(_remove(groups, cache, client, **extra), 0)
+            self.assertEqual(_deleted(client), [])
+        # nothing stale left in the cache -> quiet no-op (L6)
+        client = _client()
+        rest = {55: [a for a in cache[55] if a.id != 903]}
+        self.assertEqual(_remove(groups, rest, client), 0)
+        self.assertEqual(_deleted(client), [])
 
-        def _fake_delete(*args, **kwargs):
-            calls.append((args, kwargs))
-            return 1, False
-
-        switches = dict(
-            primary_claim_enabled=(
-                generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED),
-            vac_crew_claim_enabled=(
-                generate_weekly_pdfs.VAC_CREW_CLAIM_ATTRIBUTION_ENABLED),
-            res_grouping_mode=generate_weekly_pdfs.RES_GROUPING_MODE,
-        )
-        with mock.patch.object(_orchestrate, 'delete_old_excel_attachments',
-                               side_effect=_fake_delete):
-            for skip in (False, True):
-                handled = _orchestrate._remove_empty_displaced_attachments(
-                    object(), groups, {fx.WR: target_row}, {55: []},
-                    switches, target_sheet_id=1, skip_upload=skip)
-                self.assertEqual(handled, 1)
-            # held / quarantined pairs are never touched
-            self.assertEqual(
-                _orchestrate._remove_empty_displaced_attachments(
-                    object(), groups, {fx.WR: target_row}, {}, switches,
-                    target_sheet_id=1, skip_upload=False,
-                    blocked_wrs={fx.WR}), 0)
-        self.assertEqual(len(calls), 2)
-        args, kwargs = calls[0]
-        self.assertEqual(args[3:5], (fx.WR, '030826'))
-        self.assertEqual(kwargs['variant'], 'helper2')
-        self.assertEqual(kwargs['identifier'], 'Helper2_C')
-        self.assertTrue(kwargs['force_generation'])
-        self.assertEqual([c[1]['dry_run'] for c in calls], [False, True])
+    def test_removal_waits_for_the_receiving_groups_and_budget(self):
+        names = _real_filenames(self, fx.admitted_rows())
+        groups, _ = self._run(fx.correction_doc())
+        cache = _cache(names)
+        pair_keys = {k for k in groups if '_90000001_' in k}
+        for kwargs in (
+            {'settled_group_keys': set(groups) - {sorted(pair_keys)[0]}},
+            {'time_budget_exceeded': True},
+        ):
+            client = _client()
+            self.assertEqual(_remove(groups, cache, client, **kwargs), 0)
+            self.assertEqual(_deleted(client), [])
+        client = _client()
+        self.assertEqual(
+            _remove(groups, cache, client, settled_group_keys=pair_keys),
+            1)
+        self.assertEqual(_deleted(client), [903])
 
 
 class BlockedCorrectionTests(_Base):
@@ -611,6 +699,340 @@ class PreviewZeroWriteTests(_Base):
         with mock.patch('sys.stdout', buf):
             self.assertEqual(rc.main(['validate', '--file', path]), 2)
         self.assertIn('INVALID', buf.getvalue())
+
+
+class RollbackTests(_Base):
+    """H2: retired / blocked / revised cases leave no stale file."""
+
+    def test_retired_case_removes_correction_only_file_and_regenerates(
+            self):
+        generate_weekly_pdfs.EXTENDED_CHANGE_DETECTION = True
+        applied_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        applied = _snapshot(self._run(fx.correction_doc())[0])
+        self.assertIn(_FOREMAN_B, applied_names)
+        groups, summary = self._run(_retired_doc())
+        self.assertEqual((summary['applied'], summary['retired']), (0, 1))
+        self.assertEqual(set(groups), set(_GOLDEN[True]))
+        for grows in groups.values():
+            self.assertFalse(any(r.get('__corr_credit') for r in grows))
+        snap = _snapshot(groups)
+        for key, (digest, row_ids) in _GOLDEN[True].items():
+            self.assertEqual(snap[key][1], row_ids)
+            if '90000002' in key:
+                self.assertEqual(snap[key][0], digest)
+            else:  # regenerates: differs from today AND the applied file
+                self.assertNotEqual(snap[key][0], digest, key)
+                self.assertNotEqual(snap[key][0],
+                                    applied.get(key, [None])[0], key)
+        self.assertIn(_FOREMAN_B, rc.displaced_groups())
+        client = _client()
+        self.assertEqual(_remove(groups, _cache(applied_names), client), 1)
+        self.assertEqual(_deleted(client), [901])
+
+    def test_retired_case_recovers_nothing(self):
+        self._configure(_retired_doc())
+        self.assertIsNone(
+            rc.recovery_for_row(fx.recovered_row(), fx.SHEET, 108))
+
+    def test_blocked_after_applied_removes_correction_only_file(self):
+        applied_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        rows = fx.admitted_rows()
+        rows[1]['Units Total Price'] = '111.00'  # live edit on row 102
+        with self.assertLogs(level='WARNING'):
+            groups, summary = self._run(fx.correction_doc(), rows=rows)
+        self.assertEqual(summary['blocked'], 1)
+        self.assertNotIn(_FOREMAN_B, groups)
+        self.assertIn('030826_90000001_HELPER2_Helper2_C', groups)
+        client = _client()
+        self.assertEqual(_remove(groups, _cache(applied_names), client), 1)
+        self.assertEqual(_deleted(client), [901])
+
+    def test_revision_moving_credit_removes_the_old_identity(self):
+        rev1_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        doc = fx.correction_doc()
+        rev2 = copy.deepcopy(doc['corrections'][0])
+        rev2['revision'] = 2
+        rev2['rows'][0]['credit']['name'] = 'Foreman D'
+        subs = rev2['expected_subtotals']
+        subs['Foreman D'] = subs.pop('Foreman B')
+        doc['corrections'].append(rev2)
+        groups, summary = self._run(doc)
+        self.assertEqual(summary['applied'], 1)
+        self.assertIn('030826_90000001_USER_Foreman_D', groups)
+        self.assertNotIn(_FOREMAN_B, groups)
+        client = _client()
+        self.assertEqual(_remove(groups, _cache(rev1_names), client), 1)
+        self.assertEqual(_deleted(client), [901])
+
+    def test_retired_must_be_boolean(self):
+        doc = _retired_doc()
+        doc['corrections'][1]['retired'] = 'yes'
+        with self.assertRaises(rc.CorrectionError) as cm:
+            rc.parse_corrections(doc)
+        self.assertIn('retired must be boolean',
+                      ' | '.join(cm.exception.problems))
+
+
+class WeekGuardTests(_Base):
+    """H1: a row must belong to the correction's week."""
+
+    def test_loader_rejects_a_row_from_another_week(self):
+        doc = fx.correction_doc()
+        doc['corrections'][0]['rows'][0]['expect'][
+            'weekly_reference_logged_date'] = '2026-03-01'
+        with self.assertRaises(rc.CorrectionError) as cm:
+            rc.parse_corrections(doc)
+        self.assertIn('must equal week_ending',
+                      ' | '.join(cm.exception.problems))
+
+    def test_live_week_mismatch_blocks_the_case(self):
+        doc = fx.correction_doc()
+        corr = doc['corrections'][0]
+        corr['week_ending'] = '2026-03-15'
+        corr.pop('scope_days')
+        corr.pop('expected_subtotals')
+        corr['rows'] = [r for r in corr['rows']
+                        if r['row_id'] not in (108, 110)]
+        for row in corr['rows']:
+            row['workday'] = '2026-03-10'
+            row['expect']['weekly_reference_logged_date'] = '2026-03-15'
+        with self.assertLogs(level='WARNING'):
+            groups, summary = self._run(doc)
+        self.assertEqual(summary['blocked'], 1)
+        res = rc.evaluate(rc.get_active_set(), fx.admitted_rows())[0]
+        self.assertEqual(len(res.mismatched), len(corr['rows']))
+        for _, diffs in res.mismatched:
+            self.assertTrue(any(d.startswith('week ending') for d in diffs))
+        self.assertEqual(set(groups), set(_GOLDEN[True]))
+        for grows in groups.values():
+            self.assertFalse(any(r.get('__corr_credit') for r in grows))
+
+
+class EarlyHoldAndFallbackTests(_Base):
+    """M1 / M2: recovered rows never reach memory or audit inputs."""
+
+    def _rows_with_recovered(self):
+        rows = fx.admitted_rows()
+        rec = fx.recovered_row()
+        rec.update(rc.recovery_for_row(rec, fx.SHEET, 108))
+        rows.insert(2, rec)
+        return rows
+
+    def test_recovered_row_is_held_out_until_prepare_run(self):
+        self._configure(fx.correction_doc())
+        rows = self._rows_with_recovered()
+        held = rc.hold_recovered_rows(rows)
+        self.assertEqual([r['__row_id'] for r in held], [108])
+        self.assertNotIn(108, [r['__row_id'] for r in rows])
+        rows.extend(held)  # what main() does just before prepare_run
+        self.assertEqual(rc.prepare_run(rows, group_fn=None)['applied'], 1)
+
+    def test_blocked_case_drops_the_recovered_row_early(self):
+        self._configure(fx.correction_doc())
+        rows = self._rows_with_recovered()
+        rows[0]['Units Total Price'] = '101.00'  # row 101 drifted
+        self.assertEqual(rc.hold_recovered_rows(rows), [])
+        self.assertNotIn(108, [r['__row_id'] for r in rows])
+
+    def test_feature_off_hold_is_a_no_op(self):
+        rows = fx.admitted_rows()
+        before = copy.deepcopy(rows)
+        self.assertEqual(rc.hold_recovered_rows(rows), [])
+        self.assertEqual(rows, before)
+
+    def test_memory_write_never_sends_recovered_rows(self):
+        self._configure(fx.correction_doc())
+        rows = self._rows_with_recovered()
+        sent = []
+
+        def _upsert(_sheet_id, _run_id, bucket):
+            sent.extend(r['__row_id'] for r in bucket)
+            return {'affected': set(), 'status': 'ok'}
+
+        with mock.patch.multiple(
+                _orchestrate, RUN_MEMORY_WRITE_ENABLED=True,
+                TEST_MODE=False, TIME_BUDGET_MINUTES=0), \
+                mock.patch.object(_orchestrate._mem_writer,
+                                  'upsert_rows_bulk_result',
+                                  side_effect=_upsert), \
+                mock.patch.object(_orchestrate._fn, 'memory_write_blocked',
+                                  return_value=False):
+            _orchestrate._run_memory_write_phase(
+                rows, 'run-x', datetime.datetime.now())
+        self.assertEqual(sorted(sent),
+                         sorted(r['__row_id'] for r in fx.admitted_rows()))
+
+    def test_fail_closed_fallback_drops_recovered_rows_first(self):
+        self._configure(fx.correction_doc())
+        rows = self._rows_with_recovered()
+        rc.prepare_run(rows, group_fn=None)
+        self.assertTrue(any(r.get('__corr_credit') for r in rows))
+        rc.drop_all_corrections(rows)
+        self.assertNotIn(108, [r['__row_id'] for r in rows])
+        for row in rows:
+            self.assertFalse(set(rc.STAMP_KEYS) & set(row))
+        source = inspect.getsource(_orchestrate.main)
+        self.assertIn('_rc.drop_all_corrections(all_rows)', source)
+        self.assertIn('_rc.hold_recovered_rows(all_rows)', source)
+
+
+class ShadowAndSideEffectTests(_Base):
+
+    def test_full_mode_candidate_includes_correction_pairs(self):
+        base = {('11111111', '2026-03-08')}
+        self.assertEqual(
+            _orchestrate._full_mode_candidate_pairs(base, set()), base)
+        self._configure(fx.correction_doc())
+        self.assertEqual(
+            _orchestrate._full_mode_candidate_pairs(base, None),
+            base | {(fx.WR, fx.WEEK)})
+
+    def test_identity_pass_reuses_prefetch_and_writes_nothing(self):
+        import billing_audit.writer as ba_writer
+        import pipeline.grouping as _grouping
+        self._run(fx.correction_doc())
+        expected = set(rc.displaced_groups())
+        self.assertEqual(len(expected), 3)
+        rows = fx.admitted_rows()
+        rec = fx.recovered_row()
+        rec.update(rc.recovery_for_row(rec, fx.SHEET, 108))
+        rows.append(rec)
+        rc.prepare_run(rows, group_fn=None)
+        frozen_key = (fx.WR, datetime.date(2026, 3, 8), 103)
+        prefetch = mock.Mock(return_value=(
+            {frozen_key: {'primary': 'Foreman A'}}, 'success'))
+        hold = mock.Mock()
+        with mock.patch.object(generate_weekly_pdfs,
+                               'BILLING_AUDIT_AVAILABLE', True), \
+                mock.patch.object(ba_writer, 'prefetch_attribution',
+                                  prefetch), \
+                mock.patch.object(ba_writer, 'record_attribution_hold',
+                                  hold), \
+                mock.patch.object(_grouping,
+                                  'sentry_capture_message_with_context'
+                                  ) as sentry:
+            generate_weekly_pdfs.group_source_rows(rows)
+            published = _grouping.get_prefetched_frozen_row_keys()
+            conflicts = _grouping.get_helper2_conflict_count()
+            registered = rc.register_displaced(
+                rows, lambda r: generate_weekly_pdfs.group_source_rows(
+                    r, side_effects=False))
+        self.assertEqual(prefetch.call_count, 1)
+        hold.assert_not_called()
+        sentry.assert_not_called()
+        self.assertEqual(_grouping.get_prefetched_frozen_row_keys(),
+                         published)
+        self.assertEqual(_grouping.get_helper2_conflict_count(), conflicts)
+        self.assertEqual(registered, len(expected))
+        self.assertEqual(set(rc.displaced_groups()), expected)
+
+
+class HardeningTests(_Base):
+    """Review round 1 low-severity items (L1-L9)."""
+
+    _COLS = FetchRecoveryTests._COLS
+    _fetch = FetchRecoveryTests._fetch
+
+    def _problems(self, doc):
+        with self.assertRaises(rc.CorrectionError) as cm:
+            rc.parse_corrections(doc)
+        return ' | '.join(cm.exception.problems)
+
+    def test_non_finite_numbers_and_bad_wr_are_rejected(self):
+        for key, value in (('quantity', float('nan')),
+                           ('units_total_price', float('inf'))):
+            doc = fx.correction_doc()
+            doc['corrections'][0]['rows'][0]['expect'][key] = value
+            self.assertIn(f'expect.{key} must be a finite number',
+                          self._problems(doc))
+        doc = fx.correction_doc()
+        doc['corrections'][0]['wr'] = 'WR-1'
+        self.assertIn('wr must be a numeric', self._problems(doc))
+
+    def test_expect_dates_are_normalised(self):
+        doc = fx.correction_doc()
+        doc['corrections'][0]['rows'][0]['expect'].update(
+            weekly_reference_logged_date='20260308')
+        entry = rc.parse_corrections(doc).corrections[0].rows[0]
+        self.assertEqual(entry.expect['weekly_reference_logged_date'],
+                         fx.WEEK)
+
+    def test_bom_file_loads(self):
+        path = os.path.join(self._tmp.name, 'bom.json')
+        with open(path, 'w', encoding='utf-8-sig') as fh:
+            json.dump(fx.correction_doc(), fh)
+        self.assertEqual(len(rc.load_corrections(path).corrections), 1)
+
+    def test_unexpected_load_error_means_feature_off(self):
+        self._configure(fx.correction_doc())
+        with mock.patch.object(rc, 'load_corrections',
+                               side_effect=RuntimeError('boom')), \
+                self.assertLogs(level='ERROR'):
+            self.assertIsNone(rc.get_active_set())
+        self.assertEqual(rc.correction_pairs(), set())
+
+    def test_summary_is_logged_at_info_counts_only(self):
+        with self.assertLogs(level='INFO') as cm:
+            self._run(fx.correction_doc())
+        lines = [m for m in cm.output if 'corrections summary' in m]
+        self.assertEqual(len(lines), 1)
+        self.assertNotIn('Foreman', lines[0])
+
+    def test_each_applied_row_lands_in_exactly_one_group(self):
+        groups, _ = self._run(fx.correction_doc())
+        self.assertEqual(rc.check_applied_placement(groups), 0)
+        broken = dict(groups)
+        broken[_FOREMAN_B] = [r for r in groups[_FOREMAN_B]
+                              if r['__row_id'] != 101]
+        with self.assertLogs(level='WARNING'):
+            self.assertEqual(rc.check_applied_placement(broken), 1)
+
+    def test_token_covers_every_group_of_an_aggregated_bucket(self):
+        groups, _ = self._run(fx.correction_doc())
+        a = [r for r in groups['030826_90000001_USER_Foreman_A']
+             if not r.get('__corr_credit')]
+        h = [r for r in groups['030826_90000001_HELPER_Helper_H']
+             if not r.get('__corr_credit')]
+        both = rc.group_correction_token(a + h)
+        self.assertTrue(both)
+        self.assertNotEqual(both, rc.group_correction_token(a))
+        self.assertNotEqual(both, rc.group_correction_token(h))
+        self.assertEqual(both, rc.group_correction_token(h + a))
+
+    def test_cli_handles_bad_inputs(self):
+        doc_path = self._configure(fx.correction_doc())
+        buf = io.StringIO()
+        with mock.patch('sys.stdout', buf):
+            code = rc.main(['preview', '--file', doc_path, '--rows-json',
+                            os.path.join(self._tmp.name, 'missing.json')])
+        self.assertEqual(code, 2)
+        self.assertIn('cannot read input JSON', buf.getvalue())
+        dump = {'S': [
+            {'sheet_id': str(fx.SHEET), 'row_id': '101',
+             'cells': {'CU': ['CU-1', 'CU-1']}},
+            {'sheet_id': fx.SHEET, 'row_id': 102, 'cells': ['bad']},
+        ]}
+        rows = rc._rows_from_dump(dump)
+        self.assertEqual([(r['__sheet_id'], r['__row_id']) for r in rows],
+                         [(fx.SHEET, 101)])
+
+    def test_correction_file_is_read_once_on_the_calling_thread(self):
+        self._configure(fx.correction_doc())
+        threads = []
+        real = rc.correction_sheet_ids
+
+        def _spy():
+            threads.append(threading.current_thread().name)
+            return real()
+
+        with mock.patch.object(rc, 'correction_sheet_ids',
+                               side_effect=_spy):
+            got = self._fetch([fx.recovered_row()])
+        self.assertEqual([r['__row_id'] for r in got], [108])
+        self.assertEqual(threads, [threading.current_thread().name])
 
 
 if __name__ == '__main__':

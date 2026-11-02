@@ -504,6 +504,15 @@ def get_all_source_rows(client, source_sheets):
     foreman_raw_counts = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(foreman values as-seen)
     wr_exclusion_reasons = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(reason)
 
+    # Reporting corrections: load the (cached) correction file ONCE, on
+    # this thread, before the fetch workers start (empty when off; an
+    # unexpected error means feature off, never a failed fetch).
+    try:
+        _corr_sheet_ids = _rc.correction_sheet_ids()
+    except Exception:  # noqa: BLE001
+        logging.error("🚫 Reporting corrections unavailable; feature off")
+        _corr_sheet_ids = set()
+
     def _fetch_and_process_sheet(source):
         """Fetch and process a single source sheet. Returns (rows, sheet_exclusion_counts, sheet_foreman_counts, sheet_wr_exclusion_reasons, row_count)."""
         sheet_rows = []
@@ -674,7 +683,7 @@ def get_all_source_rows(client, source_sheets):
 
                 # Reporting corrections: recovery is only possible on a
                 # sheet the active correction file lists (False when off).
-                _corr_active = source['id'] in _rc.correction_sheet_ids()
+                _corr_active = source['id'] in _corr_sheet_ids
 
                 # Process all rows
                 for row in sheet.rows:
@@ -911,9 +920,12 @@ def get_all_source_rows(client, source_sheets):
                         # the rate-recalc inputs above are untouched;
                         # every other blank-date row keeps today's gate.
                         if not weekly_date and _corr_active:
-                            _corr_rec = _rc.recovery_for_row(
-                                row_data, source['id'], row.id,
-                            )
+                            try:
+                                _corr_rec = _rc.recovery_for_row(
+                                    row_data, source['id'], row.id,
+                                )
+                            except Exception:  # noqa: BLE001
+                                _corr_rec = None  # never recover on a bug
                             if _corr_rec:
                                 row_data.update(_corr_rec)
                                 weekly_date = _corr_rec['__corr_week_ending']

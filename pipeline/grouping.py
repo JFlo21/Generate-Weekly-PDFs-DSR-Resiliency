@@ -94,6 +94,12 @@ def get_prefetched_helper2_missing_keys() -> frozenset[
 # get_helper2_conflict_count() after group_source_rows() returns.
 _HELPER2_CONFLICT_COUNT: int = 0
 
+# Reporting corrections (M5): the last side-effecting call's attribution
+# prefetch ``(map, status)``. A ``side_effects=False`` call (the
+# reporting-corrections identity pass, run AFTER the main grouping)
+# reuses it instead of issuing a second prefetch RPC.
+_LAST_ATTR_PREFETCH: tuple[dict, str] | None = None
+
 
 def get_helper2_conflict_count() -> int:
     """Return the number of rows the last group_source_rows() call
@@ -145,8 +151,15 @@ def _record_helper2_wins_conflict(
     )
 
 
-def group_source_rows(rows):
+def group_source_rows(rows, *, side_effects=True):
     """
+    ``side_effects=False`` (reporting-corrections identity pass only):
+    same keys and rows, but no attribution prefetch RPC (the previous
+    side-effecting call's map is reused), no per-row lookup fallback, no
+    ``record_attribution_hold`` write, no ``helper2_conflict_hold`` log /
+    count / Sentry event, no grouping-validation Sentry event, and the
+    module-level prefetch publications are left untouched.
+
     VARIANT-AWARE GROUPING: Groups rows by Work Request #, Week Ending Date, and Variant (primary/helper/vac_crew).
     
     Primary Variant:
@@ -200,10 +213,11 @@ def group_source_rows(rows):
     # orchestrator's freeze-row cache warm start. Reset first so a call
     # whose prefetch is disabled or fails never leaks a stale set.
     global _PREFETCHED_FROZEN_ROW_KEYS, _HELPER2_CONFLICT_COUNT
-    global _PREFETCHED_HELPER2_MISSING_KEYS
-    _PREFETCHED_FROZEN_ROW_KEYS = frozenset()
-    _PREFETCHED_HELPER2_MISSING_KEYS = frozenset()
-    _HELPER2_CONFLICT_COUNT = 0
+    global _PREFETCHED_HELPER2_MISSING_KEYS, _LAST_ATTR_PREFETCH
+    if side_effects:
+        _PREFETCHED_FROZEN_ROW_KEYS = frozenset()
+        _PREFETCHED_HELPER2_MISSING_KEYS = frozenset()
+        _HELPER2_CONFLICT_COUNT = 0
     # Phase 09 W4 (behaviour-preserving relocation): bind the
     # test-mutable / facade-resident constants from the
     # generate_weekly_pdfs facade so test-time rebinds on
@@ -258,7 +272,9 @@ def group_source_rows(rows):
     # (fixes incident run 26439205107: 372 garbage _User__NO_MATCH files).
     _attr_map: dict = {}
     _attr_status: str = 'disabled'
-    if BILLING_AUDIT_AVAILABLE and (
+    if not side_effects:
+        _attr_map, _attr_status = _LAST_ATTR_PREFETCH or ({}, 'disabled')
+    elif BILLING_AUDIT_AVAILABLE and (
         SUBCONTRACTOR_RATE_VARIANTS_ENABLED
         or VAC_CREW_CLAIM_ATTRIBUTION_ENABLED
         or PRIMARY_CLAIM_ATTRIBUTION_ENABLED
@@ -322,7 +338,9 @@ def group_source_rows(rows):
     # outage (fetch_failure) still HOLDs B/C. The fallback is bounded: per-row
     # resolution only happens for the rows B/C/sub-helper actually process this
     # run, so it cannot reintroduce the 137k per-row storm.
-    _attr_use_per_row_fallback = (
+    if side_effects:
+        _LAST_ATTR_PREFETCH = (_attr_map, _attr_status)
+    _attr_use_per_row_fallback = side_effects and (
         _attr_status == 'rpc_missing' and ATTRIBUTION_BULK_PREFETCH_FALLBACK
     )
     if _attr_use_per_row_fallback:
@@ -705,13 +723,16 @@ def group_source_rows(rows):
                         _c_vac_claimer = None  # defer — correctness over availability
                         try:
                             from billing_audit.writer import record_attribution_hold
-                            record_attribution_hold(
-                                wr_key,
-                                week_ending_date.date()
-                                if isinstance(week_ending_date, datetime.datetime)
-                                else week_ending_date,
-                                'vac_crew',
-                            )
+                            if side_effects:  # corrections pass: no writes
+                                record_attribution_hold(
+                                    wr_key,
+                                    week_ending_date.date()
+                                    if isinstance(
+                                        week_ending_date, datetime.datetime
+                                    )
+                                    else week_ending_date,
+                                    'vac_crew',
+                                )
                         except Exception:
                             logging.exception(
                                 "⚠️ Subproject C: record_attribution_hold failed"
@@ -882,12 +903,13 @@ def group_source_rows(rows):
                     # their conflict is recorded exactly once at the
                     # shadow-leg site instead, so it is never double-counted.
                     if not is_subcontractor_row:
-                        _record_helper2_wins_conflict(
-                            wr_key=wr_key,
-                            week_end_for_key=week_end_for_key,
-                            sheet_id=r.get('__source_sheet_id'),
-                            leg='plain',
-                        )
+                        if side_effects:  # corrections pass: no writes
+                            _record_helper2_wins_conflict(
+                                wr_key=wr_key,
+                                week_end_for_key=week_end_for_key,
+                                sheet_id=r.get('__source_sheet_id'),
+                                leg='plain',
+                            )
                     else:
                         logging.debug(
                             f"➖ EXCLUDING from main Excel (subcontractor "
@@ -1058,15 +1080,16 @@ def group_source_rows(rows):
                             # is 'YYYY-MM-DD' (matching the pre-pass
                             # normalization for resolve_claimer), not
                             # 'YYYY-MM-DDT00:00:00'.
-                            record_attribution_hold(
-                                wr_key,
-                                week_ending_date.date()
-                                if isinstance(
-                                    week_ending_date, datetime.datetime
+                            if side_effects:  # corrections pass: no writes
+                                record_attribution_hold(
+                                    wr_key,
+                                    week_ending_date.date()
+                                    if isinstance(
+                                        week_ending_date, datetime.datetime
+                                    )
+                                    else week_ending_date,
+                                    'reduced_sub',
                                 )
-                                else week_ending_date,
-                                'reduced_sub',
-                            )
                         except Exception:
                             logging.exception(
                                 "⚠️ Subproject B: record_attribution_hold failed"
@@ -1419,12 +1442,13 @@ def group_source_rows(rows):
                         # the SOLE place a subcontractor conflicted row's
                         # conflict is recorded -- the plain-leg site defers
                         # subcontractor rows here to avoid double counting.
-                        _record_helper2_wins_conflict(
-                            wr_key=wr_key,
-                            week_end_for_key=week_end_for_key,
-                            sheet_id=r.get('__source_sheet_id'),
-                            leg='shadow',
-                        )
+                        if side_effects:  # corrections pass: no writes
+                            _record_helper2_wins_conflict(
+                                wr_key=wr_key,
+                                week_end_for_key=week_end_for_key,
+                                sheet_id=r.get('__source_sheet_id'),
+                                leg='shadow',
+                            )
 
                     if _valid_helper2_row and _helper_mode_enabled:
                         # Phase 14 (D-14-06): sibling of the Helper #1
@@ -1622,17 +1646,21 @@ def group_source_rows(rows):
     if validation_errors:
         error_msg = "CRITICAL GROUPING ERRORS: " + "; ".join(validation_errors)
         logging.error(error_msg)
-        sentry_capture_message_with_context(
-            message=error_msg,
-            level="error",
-            context_name="grouping_validation",
-            context_data={
-                "total_groups": len(groups),
-                "validation_errors": validation_errors,
-                "error_count": len(validation_errors),
-            },
-            tags={"error_location": "group_validation", "error_type": "data_integrity"}
-        )
+        if side_effects:
+            sentry_capture_message_with_context(
+                message=error_msg,
+                level="error",
+                context_name="grouping_validation",
+                context_data={
+                    "total_groups": len(groups),
+                    "validation_errors": validation_errors,
+                    "error_count": len(validation_errors),
+                },
+                tags={
+                    "error_location": "group_validation",
+                    "error_type": "data_integrity",
+                },
+            )
     else:
         logging.info(f"✅ Grouping validation passed: {len(groups)} groups, each with exactly 1 work request")
     

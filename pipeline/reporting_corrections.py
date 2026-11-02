@@ -17,9 +17,14 @@ Seams (each is a small, additive call from the owning module):
 
 * ``pipeline.fetch``          -- ``recovery_for_row``: pre-admission
   recovery of explicitly listed rows whose two date cells are blank.
-* ``pipeline.orchestrate``    -- ``prepare_run``: validate every
-  correction against the admitted rows, stamp applied rows, block
-  mismatched cases, compute displaced group keys, count audit findings.
+* ``pipeline.orchestrate``    -- ``hold_recovered_rows`` right after the
+  fetch (recovered rows never reach the memory write or the audits);
+  ``prepare_run``: validate every correction against the admitted rows,
+  stamp applied rows, block mismatched / skip retired cases, count audit
+  findings; ``register_displaced`` + ``check_applied_placement`` after
+  the main grouping (displaced keys, stale identities of retired /
+  blocked cases and superseded revisions); ``drop_all_corrections`` is
+  the fail-closed fallback.
 * ``pipeline.grouping``       -- ``apply_credit_overrides``: exclusive
   credit for stamped rows, after the frozen-claimer maps are built.
 * ``pipeline.excel``          -- ``reporting_workday``: day placement.
@@ -116,6 +121,9 @@ class Correction:
     week_ending: datetime.date
     rows: tuple[CorrectionRow, ...]
     expected_subtotals: Mapping[str, Mapping[str, str]] | None = None
+    # ``retired: true`` (owner rollback): the case applies nothing; its
+    # correction-only files are removed and its groups regenerate.
+    retired: bool = False
 
     @property
     def pair(self) -> tuple[str, datetime.date]:
@@ -128,6 +136,9 @@ class CorrectionSet:
     by_row: Mapping[tuple[int, int], tuple[Correction, CorrectionRow]] = (
         field(default_factory=dict)
     )
+    # Every parsed entry, superseded revisions included: their credited
+    # group identities are cleaned up when a revision moves the credit.
+    history: tuple[Correction, ...] = ()
 
 
 @dataclass
@@ -225,10 +236,27 @@ def _parse_row(raw: Any, where: str, week_ending: datetime.date,
         problems.append(
             f'{where}: recover_missing_dates requires both expected '
             'dates to be null')
+    expect = dict(expect)
     for dkey in ('snapshot_date', 'weekly_reference_logged_date'):
         dval = expect.get(dkey)
-        if dval is not None and _iso_date(dval) is None:
+        if dval is None:
+            continue
+        parsed_d = _iso_date(dval)
+        if parsed_d is None:
             problems.append(f'{where}: expect.{dkey} must be ISO or null')
+        else:
+            # '20260105' parses too: store the canonical spelling the
+            # row-side comparison produces.
+            expect[dkey] = parsed_d.isoformat()
+    week_iso = week_ending.isoformat()
+    if not recover and expect.get('weekly_reference_logged_date') != (
+            week_iso):
+        problems.append(
+            f'{where}: expect.weekly_reference_logged_date must equal '
+            f'week_ending {week_iso} (the row must belong to the week)')
+    for nkey in ('quantity', 'units_total_price'):
+        if nkey in expect and not _finite(expect.get(nkey)):
+            problems.append(f'{where}: expect.{nkey} must be a finite number')
     if len(problems) != before or workday is None:
         return None
     return CorrectionRow(
@@ -256,6 +284,12 @@ def _parse_correction(raw: Any, idx: int,
     wr = _text(raw.get('wr')).split('.')[0]
     if not wr:
         problems.append(f'{where}: wr is required')
+    elif not wr.isdigit():
+        problems.append(f'{where}: wr must be a numeric work request')
+    retired = raw.get('retired', False)
+    if not isinstance(retired, bool):
+        problems.append(f'{where}: retired must be boolean')
+        retired = False
     week_ending = _iso_date(raw.get('week_ending'))
     if week_ending is None:
         problems.append(f'{where}: week_ending must be an ISO date')
@@ -295,7 +329,7 @@ def _parse_correction(raw: Any, idx: int,
     return Correction(
         correction_id=cid, revision=cast(int, revision), wr=wr,
         week_ending=week_ending, rows=tuple(rows),
-        expected_subtotals=subtotals,
+        expected_subtotals=subtotals, retired=retired,
     )
 
 
@@ -353,13 +387,15 @@ def parse_corrections(data: Any) -> CorrectionSet:
             by_row[row.key] = (corr, row)
     if problems:
         raise CorrectionError(problems)
-    return CorrectionSet(corrections=tuple(effective), by_row=by_row)
+    return CorrectionSet(
+        corrections=tuple(effective), by_row=by_row,
+        history=tuple(c for c in parsed if c is not None))
 
 
 def load_corrections(path: str) -> CorrectionSet:
-    """Read and validate the JSON file at *path*."""
+    """Read and validate the JSON file at *path* (a UTF-8 BOM is fine)."""
     try:
-        with open(path, encoding='utf-8') as fh:
+        with open(path, encoding='utf-8-sig') as fh:
             data = json.load(fh)
     except (OSError, ValueError) as exc:
         raise CorrectionError(
@@ -389,6 +425,12 @@ def get_active_set() -> CorrectionSet | None:
                 f'will be applied this run ({len(exc.problems)} '
                 f'problem(s)): {exc.problems[:5]}')
             _ACTIVE_CACHE[path] = None
+        except Exception as exc:  # noqa: BLE001 -- any bug = feature off
+            logging.error(
+                '🚫 Reporting corrections could not be loaded '
+                f'({type(exc).__name__}); NO correction will be applied '
+                'this run')
+            _ACTIVE_CACHE[path] = None
     return _ACTIVE_CACHE[path]
 
 
@@ -397,6 +439,8 @@ def reset_state() -> None:
     _ACTIVE_CACHE.clear()
     _DISPLACED.clear()
     _RUN_COUNTS.clear()
+    _RUN_STATE.clear()
+    _RECOVERED_SEEN.clear()
 
 
 reset_for_tests = reset_state
@@ -409,6 +453,16 @@ def _decimal(value: Any) -> Decimal | None:
         return Decimal(str(value)).quantize(_CENT)
     except (InvalidOperation, ValueError, TypeError):
         return None
+
+
+def _finite(value: Any) -> bool:
+    """A real, finite number (JSON NaN / Infinity and booleans are not)."""
+    if isinstance(value, bool) or value is None:
+        return False
+    try:
+        return Decimal(str(value).strip()).is_finite()
+    except (InvalidOperation, ValueError, TypeError):
+        return False
 
 
 def row_key(row: Mapping[str, Any]) -> tuple[int, int] | None:
@@ -459,6 +513,17 @@ def row_differences(entry: CorrectionRow, corr: Correction,
     diffs: list[str] = []
     if _row_wr(row) != corr.wr:
         diffs.append('work request differs')
+    # The row must belong to the correction's week: its live Weekly
+    # Reference Logged Date (a recovered row: its reporting week; a
+    # listed blank-date row can only ever be recovered into this week).
+    row_week = _row_date_iso(row, 'Weekly Reference Logged Date') or (
+        _iso_date(row.get('__corr_week_ending')))
+    if row_week is None and entry.recover_missing_dates:
+        row_week = corr.week_ending
+    if row_week is None or str(row_week) != corr.week_ending.isoformat():
+        diffs.append(
+            f'week ending: {row_week} != correction week '
+            f'{corr.week_ending}')
     checks = (
         ('pole', _text(row.get('Pole #') or row.get('Point #')
                        or row.get('Point Number')),
@@ -547,6 +612,11 @@ def evaluate(cset: CorrectionSet,
     results = []
     for corr in cset.corrections:
         res = CorrectionResult(correction=corr)
+        if corr.retired:
+            res.status = 'retired'
+            res.reasons.append('retired by the owner (nothing applied)')
+            results.append(res)
+            continue
         for entry in corr.rows:
             hit_row = index.get(entry.key)
             if hit_row is None:
@@ -657,7 +727,8 @@ def recovery_for_row(row_data: Mapping[str, Any],
     if hit is None:
         return None
     corr, entry = hit
-    if not entry.recover_missing_dates or entry.reconcile_only:
+    if (corr.retired or not entry.recover_missing_dates
+            or entry.reconcile_only):
         return None
     if row_differences(entry, corr, row_data):
         return None
@@ -679,16 +750,78 @@ def _entry_tuple(entry: CorrectionRow, revision: int) -> tuple:
             entry.dept, entry.job, entry.workday.isoformat(), revision)
 
 
-# group key -> frozenset of correction tuples displaced from that group;
-# group key -> uncorrected rows (for identity of now-empty groups).
+# group key -> {'tokens': set of correction tuples displaced from (or
+# retired out of) that group, 'rows': rows for the group's identity}.
+# Keys absent from today's grouping are stale identities whose old
+# attachment is removed (orchestrate._remove_empty_displaced_attachments).
 _DISPLACED: dict[str, Any] = {}
 _RUN_COUNTS: dict[str, int] = {}
+# This run's evaluation: 'applied' {row key: (corr, entry)} and
+# 'status' {correction id: applied | blocked | retired}.
+_RUN_STATE: dict[str, Any] = {}
+# Recovered rows seen this run (copies), kept for identity computation
+# after a blocked / retired case drops them from the row list.
+_RECOVERED_SEEN: dict[tuple[int, int], dict[str, Any]] = {}
 
 
 def _uncorrected_copy(row: Mapping[str, Any]) -> dict[str, Any]:
     copy = dict(row)
     _strip(copy)
     return copy
+
+
+def _retired_token(corr: Correction) -> tuple:
+    return ('retired', corr.correction_id, corr.revision)
+
+
+def hold_recovered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """orchestrate.py seam, right after the fetch.
+
+    Recovered rows are reporting-only: they must never reach the memory
+    write, the billing audit, the audit-memory or the drift phases.
+    Every ``__corr_recovered`` row is removed from *rows* (in place);
+    the ones whose case evaluates as applied NOW are returned so the
+    caller can re-add them just before ``prepare_run`` (which stays the
+    final authority). Recovered rows of a blocked / retired case are
+    dropped here. Feature off -> nothing is recovered -> ``[]`` and
+    *rows* is untouched.
+    """
+    if not any(r.get('__corr_recovered') for r in rows):
+        return []
+    cset = get_active_set()
+    status: dict[str, str] = {}
+    if cset is not None:
+        status = {res.correction.correction_id: res.status
+                  for res in evaluate(cset, rows)}
+    held: list[dict[str, Any]] = []
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for row in rows:
+        if not row.get('__corr_recovered'):
+            kept.append(row)
+            continue
+        key = row_key(row)
+        if key is not None:
+            _RECOVERED_SEEN[key] = dict(row)
+        if status.get(str(row.get('__corr_id'))) == 'applied':
+            held.append(row)
+        else:
+            dropped += 1
+    rows[:] = kept
+    logging.info(
+        f'✏️ Reporting corrections: {len(held)} recovered row(s) held '
+        f'out of memory/audit inputs, {dropped} dropped (case not '
+        'applicable)')
+    return held
+
+
+def drop_all_corrections(rows: list[dict[str, Any]]) -> None:
+    """Fail-closed fallback: drop every recovered row FIRST (the marker
+    is one of the stamps), then strip every stamp, then forget state."""
+    rows[:] = [r for r in rows if not r.get('__corr_recovered')]
+    for row in rows:
+        _strip(row)
+    reset_state()
 
 
 def prepare_run(
@@ -700,28 +833,36 @@ def prepare_run(
     """orchestrate.py seam, after fetch and before grouping.
 
     Evaluates every active correction against *rows* (mutated in place):
-    applied corrections stamp their rows; blocked corrections strip any
-    stamp and drop their recovered rows (so today's blank-date safeguard
-    holds). Displaced group keys -- the keys corrected rows would have
-    had WITHOUT the correction -- are computed with *group_fn* over the
-    uncorrected copies of the corrected (wr, week) pairs only, and
-    registered for the ``CORR=`` token and empty-group cleanup.
+    applied corrections stamp their rows; blocked / retired corrections
+    strip any stamp and drop their recovered rows (so today's blank-date
+    safeguard holds). With *group_fn* the displaced / stale group keys
+    are registered right away (``register_displaced``); orchestrate
+    passes ``None`` and registers them after its main grouping instead,
+    reusing that pass's attribution prefetch (no second RPC).
 
-    Returns a summary of counts (no names). Feature off -> ``{}`` and
-    nothing is touched.
+    Returns a summary of counts (no names), also logged at INFO. Feature
+    off -> ``{}`` and nothing is touched.
     """
     _DISPLACED.clear()
     _RUN_COUNTS.clear()
+    _RUN_STATE.clear()
     cset = get_active_set()
     if cset is None:
         return {}
     results = evaluate(cset, rows)
     applied_rows: dict[tuple[int, int], tuple[Correction, CorrectionRow]] = {}
-    blocked_ids: set[str] = set()
+    status: dict[str, str] = {}
     for res in results:
         corr = res.correction
+        status[corr.correction_id] = res.status
+        if res.status == 'retired':
+            logging.warning(
+                f'↩️ Reporting correction {corr.correction_id} (rev '
+                f'{corr.revision}) RETIRED for WR {corr.wr} week '
+                f'{corr.week_ending}: nothing applied; its correction-only '
+                'files are removed and its groups regenerate')
+            continue
         if res.status == 'blocked':
-            blocked_ids.add(corr.correction_id)
             logging.warning(
                 f'⛔ Reporting correction {corr.correction_id} '
                 f'(rev {corr.revision}) BLOCKED for WR {corr.wr} week '
@@ -744,6 +885,8 @@ def prepare_run(
     recovered = 0
     for row in rows:
         key = row_key(row)
+        if key is not None and row.get('__corr_recovered'):
+            _RECOVERED_SEEN[key] = dict(row)
         hit = applied_rows.get(key) if key is not None else None
         if hit is None:
             if row.get('__corr_recovered') or row.get('__corr_id'):
@@ -762,9 +905,11 @@ def prepare_run(
             recovered += 1
         kept.append(row)
     rows[:] = kept
+    _RUN_STATE['applied'] = applied_rows
+    _RUN_STATE['status'] = status
     displaced = 0
-    if applied_rows and group_fn is not None:
-        displaced = _register_displaced(rows, applied_rows, group_fn)
+    if group_fn is not None:
+        displaced = register_displaced(rows, group_fn)
     findings = {
         'blank_source_dates': sum(
             len(r.blank_date_rows) for r in results
@@ -776,10 +921,13 @@ def prepare_run(
         # never performs; the preview CLI evaluates them (--memory-json).
         'source_memory_differences': None,
     }
+    counts = {s: sum(1 for v in status.values() if v == s)
+              for s in ('applied', 'blocked', 'retired')}
     summary = {
         'corrections': len(results),
-        'applied': len(results) - len(blocked_ids),
-        'blocked': len(blocked_ids),
+        'applied': counts['applied'],
+        'blocked': counts['blocked'],
+        'retired': counts['retired'],
         'rows_applied': len(applied_rows),
         'rows_recovered': recovered,
         'rows_reconcile_only': sum(
@@ -790,20 +938,78 @@ def prepare_run(
     }
     if isinstance(audit_summary, dict):
         audit_summary['reporting_corrections'] = summary
-    if findings['blank_source_dates'] or blocked_ids:
+    # The audit sheet row is written before this seam runs, so the
+    # summary is persisted here, in the run log (counts only).
+    logging.info(f'✏️ Reporting corrections summary: {summary}')
+    if findings['blank_source_dates'] or counts['blocked']:
         logging.warning(
             f'🔎 Reporting-correction audit: {summary} -- review the '
             'flagged rows; nothing is auto-resolved')
     return summary
 
 
-def _register_displaced(
+def register_displaced(
     rows: list[dict[str, Any]],
-    applied_rows: Mapping[tuple[int, int], tuple[Correction,
-                                                 CorrectionRow]],
     group_fn: Callable[[list[dict[str, Any]]], Mapping[str, list]],
 ) -> int:
-    pairs = {corr.pair for corr, _ in applied_rows.values()}
+    """Register this run's displaced / stale group keys (after
+    ``prepare_run``). *group_fn* must be side-effect free (orchestrate
+    passes ``group_source_rows(..., side_effects=False)``).
+
+    * displaced: keys the applied rows would have had WITHOUT the
+      correction (the ``CORR=`` token; an emptied one is cleaned up);
+    * retired: every group holding a retired case's row gets a token
+      (it regenerates once, distinct from any applied version);
+    * stale: credited identities of a retired / blocked case and of
+      superseded revisions -- absent from today's grouping, their old
+      correction-only file is removed. Bounded to each case's WR/week.
+
+    Returns the number of registered keys; never raises.
+    """
+    _DISPLACED.clear()
+    cset = get_active_set()
+    status = _RUN_STATE.get('status') or {}
+    if cset is None or not status:
+        return 0
+    saved_counts = dict(_RUN_COUNTS)
+    try:
+        _register_uncorrected(rows, cset, status, group_fn)
+        _register_credited(rows, cset, status, group_fn)
+    except Exception as exc:  # never block the run on a diagnostic pass
+        logging.warning(
+            '⚠️ Reporting corrections: displaced-group pass failed '
+            f'({type(exc).__name__}); corrected groups still carry CORR=')
+    finally:
+        # the side passes must not inflate this run's override counts
+        _RUN_COUNTS.clear()
+        _RUN_COUNTS.update(saved_counts)
+    logging.info(
+        f'✏️ Reporting corrections: {len(_DISPLACED)} displaced / stale '
+        'group key(s) registered')
+    return len(_DISPLACED)
+
+
+def _add_displaced(gkey: str, grows: list, tokens: set) -> None:
+    slot = _DISPLACED.setdefault(gkey, {'tokens': set(), 'rows': []})
+    slot['tokens'] |= tokens
+    if not slot['rows']:
+        slot['rows'] = list(grows)
+
+
+def _register_uncorrected(rows, cset: CorrectionSet,
+                          status: Mapping[str, str], group_fn) -> None:
+    applied = _RUN_STATE.get('applied') or {}
+    retired_tokens = {
+        entry.key: _retired_token(corr)
+        for corr in cset.corrections if status.get(
+            corr.correction_id) == 'retired'
+        for entry in corr.rows
+    }
+    pairs = {corr.pair for corr, _ in applied.values()} | {
+        corr.pair for corr in cset.corrections
+        if status.get(corr.correction_id) == 'retired'}
+    if not pairs:
+        return
     subset = []
     for row in rows:
         if row.get('__corr_recovered'):
@@ -812,23 +1018,82 @@ def _register_displaced(
         if week is None or (_row_wr(row), week.date()) not in pairs:
             continue
         subset.append(_uncorrected_copy(row))
-    try:
-        groups = group_fn(subset) if subset else {}
-    except Exception as exc:  # never block the run on a diagnostic pass
-        logging.warning(
-            '⚠️ Reporting corrections: displaced-group pass failed '
-            f'({type(exc).__name__}); corrected groups still carry CORR=')
-        return 0
+    groups = group_fn(subset) if subset else {}
     for gkey, grows in (groups or {}).items():
-        tuples = set()
+        tokens = set()
         for grow in grows:
-            hit = applied_rows.get(row_key(grow) or (0, 0))
+            key = row_key(grow) or (0, 0)
+            hit = applied.get(key)
             if hit is not None:
-                tuples.add(_entry_tuple(hit[1], hit[0].revision))
-        if tuples:
-            _DISPLACED[gkey] = {'tokens': frozenset(tuples),
-                                'rows': list(grows)}
-    return len(_DISPLACED)
+                tokens.add(_entry_tuple(hit[1], hit[0].revision))
+            if key in retired_tokens:
+                tokens.add(retired_tokens[key])
+        if tokens:
+            _add_displaced(gkey, grows, tokens)
+
+
+def _register_credited(rows, cset: CorrectionSet,
+                       status: Mapping[str, str], group_fn) -> None:
+    by_key: dict[tuple[int, int], Mapping[str, Any]] = {}
+    for row in rows:
+        key = row_key(row)
+        if key is not None:
+            by_key[key] = row
+    for key, row in _RECOVERED_SEEN.items():
+        by_key.setdefault(key, row)
+    effective = {c.correction_id: c for c in cset.corrections}
+    for corr in cset.history:
+        eff = effective.get(corr.correction_id)
+        state = status.get(corr.correction_id)
+        if eff is None or (corr is eff and state == 'applied'):
+            continue
+        token = {_retired_token(eff)} if state == 'retired' else set()
+        copies = []
+        for entry in corr.rows:
+            src = by_key.get(entry.key)
+            if src is None or entry.reconcile_only:
+                continue
+            copy = _uncorrected_copy(src)
+            if not copy.get('Weekly Reference Logged Date'):
+                copy['__corr_week_ending'] = corr.week_ending.isoformat()
+            copy['__corr_id'] = corr.correction_id
+            copy['__corr_revision'] = corr.revision
+            copy['__corr_credit'] = (entry.name, entry.variant,
+                                     entry.dept, entry.job)
+            copy['__corr_workday'] = entry.workday.isoformat()
+            copies.append(copy)
+        if not copies:
+            continue
+        week_key = corr.week_ending.strftime('%m%d%y')
+        for gkey, grows in (group_fn(copies) or {}).items():
+            if (not grows or gkey.split('_', 1)[0] != week_key
+                    or _row_wr(grows[0]) != corr.wr):
+                continue  # bounded to this case's WR / week
+            _add_displaced(gkey, grows, token)
+
+
+def check_applied_placement(groups: Mapping[Any, list]) -> int:
+    """Post-grouping check: every applied row must land in exactly one
+    group (e.g. a VAC claim elsewhere would leave it in none). Logs row
+    ids and counts only; returns the number of misplaced rows."""
+    applied = _RUN_STATE.get('applied') or {}
+    if not applied:
+        return 0
+    seen: dict[tuple[int, int], int] = {}
+    for grows in groups.values():
+        for row in grows:
+            key = row_key(row)
+            if key is not None and key in applied and row.get(
+                    '__corr_credit'):
+                seen[key] = seen.get(key, 0) + 1
+    bad = sorted(k for k in applied if seen.get(k, 0) != 1)
+    _RUN_COUNTS['misplaced_rows'] = len(bad)
+    if bad:
+        logging.warning(
+            f'⚠️ Reporting corrections: {len(bad)} applied row(s) are not '
+            f'in exactly one group (row ids {[k[1] for k in bad[:10]]}) '
+            '-- review before relying on the corrected files')
+    return len(bad)
 
 
 def correction_pairs() -> set[tuple[str, str]]:
@@ -848,7 +1113,7 @@ def correction_sheet_ids() -> set[int]:
 
 
 def displaced_groups() -> dict[str, list[dict[str, Any]]]:
-    """Displaced group key -> its uncorrected rows (copy)."""
+    """Displaced / stale group key -> rows for its identity (copy)."""
     return {k: list(v['rows']) for k, v in _DISPLACED.items()}
 
 
@@ -973,8 +1238,14 @@ def reporting_workday(row: Mapping[str, Any]) -> Any:
 def group_correction_token(sorted_rows: Iterable[Mapping[str, Any]],
                            group_key: str | None = None) -> str:
     """change_detection.py seam: the ``CORR=`` token, '' when the group
-    holds no corrected row and lost none (byte-identical hash)."""
+    holds no corrected row and lost none (byte-identical hash).
+
+    Without an explicit *group_key* every distinct ``__grouping_key`` in
+    the rows contributes its registered tokens, so an aggregated bucket
+    spanning several groups carries all of them (not just the first's).
+    """
     tuples = set()
+    keys = {group_key} if group_key else set()
     for row in sorted_rows:
         credit = row.get('__corr_credit')
         if credit and isinstance(row.get('__row_id'), int):
@@ -982,12 +1253,11 @@ def group_correction_token(sorted_rows: Iterable[Mapping[str, Any]],
             tuples.add((sid, row['__row_id'], credit[0], credit[1],
                         credit[2], credit[3], row.get('__corr_workday'),
                         row.get('__corr_revision')))
-            if group_key is None:
-                group_key = row.get('__grouping_key')
-        elif group_key is None and row.get('__grouping_key'):
-            group_key = row.get('__grouping_key')
-    if group_key and group_key in _DISPLACED:
-        tuples |= set(_DISPLACED[group_key]['tokens'])
+        if group_key is None and row.get('__grouping_key'):
+            keys.add(row['__grouping_key'])
+    for key in keys:
+        if key in _DISPLACED:
+            tuples |= set(_DISPLACED[key]['tokens'])
     if not tuples:
         return ''
     payload = '\n'.join(repr(t) for t in sorted(tuples, key=repr))
@@ -1007,7 +1277,8 @@ def _rows_from_dump(data: Any) -> list[dict[str, Any]]:
         if not isinstance(value, list):
             continue
         for raw in value:
-            if not isinstance(raw, dict) or 'cells' not in raw:
+            if not isinstance(raw, dict) or not isinstance(
+                    raw.get('cells'), dict):
                 continue
             row: dict[str, Any] = {}
             for title, cell in raw['cells'].items():
@@ -1015,11 +1286,23 @@ def _rows_from_dump(data: Any) -> list[dict[str, Any]]:
                     row[title] = cell[0] if cell[0] is not None else cell[1]
                 else:
                     row[title] = cell
-            row['__sheet_id'] = row['__source_sheet_id'] = raw.get(
-                'sheet_id')
-            row['__row_id'] = raw.get('row_id')
+            row['__sheet_id'] = row['__source_sheet_id'] = _int_id(
+                raw.get('sheet_id'))
+            row['__row_id'] = _int_id(raw.get('row_id'))
             rows.append(row)
     return rows
+
+
+def _int_id(value: Any) -> Any:
+    """Dump ids may be strings ('7001'); match them as integers."""
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return value
+
+
+def _read_json(path: str) -> Any:
+    with open(path, encoding='utf-8-sig') as fh:
+        return json.load(fh)
 
 
 def _money(value: Decimal) -> str:
@@ -1123,12 +1406,16 @@ def main(argv: list[str] | None = None) -> int:
     if not args.rows_json:
         print('preview needs --rows-json (a private row dump)')
         return 2
-    with open(args.rows_json, encoding='utf-8') as fh:
-        rows = _rows_from_dump(json.load(fh))
-    memory = None
-    if args.memory_json:
-        with open(args.memory_json, encoding='utf-8') as fh:
-            memory = json.load(fh)
+    try:
+        rows = _rows_from_dump(_read_json(args.rows_json))
+        memory = (_read_json(args.memory_json) if args.memory_json
+                  else None)
+    except (OSError, ValueError) as exc:
+        print(f'cannot read input JSON: {type(exc).__name__}')
+        return 2
+    if memory is not None and not isinstance(memory, dict):
+        print('--memory-json must be an object keyed by row id')
+        return 2
     return preview(cset, rows, memory)
 
 

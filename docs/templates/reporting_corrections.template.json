@@ -4,6 +4,7 @@
     {
       "id": "WR90000001-WE2026-03-08",
       "revision": 1,
+      "retired": false,
       "wr": "90000001",
       "week_ending": "2026-03-08",
       "reason": "Owner-approved re-credit of units entered under the wrong foreman/day (synthetic example)",
