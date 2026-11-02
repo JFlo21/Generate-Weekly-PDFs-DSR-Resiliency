@@ -17,7 +17,7 @@ This is a Python-based automated billing system that generates weekly Excel repo
     - Helper rows with both "Helping Foreman Completed Unit?" and "Units Completed?" checkboxes checked now ONLY appear in helper Excel files
     - Previously these rows were appearing in both main and helper Excel files, causing double-counting
     - Main Excel files now correctly exclude these helper rows when RES_GROUPING_MODE is 'both' or 'helper'
-    - Created test_helper_exclusion.py to verify the logic works correctly
+    - Created test_helper_exclusion.py to verify the logic works correctly (historical; that file was later folded into `tests/` and no longer exists under that name)
   - Fixed Excel generation errors:
     - Resolved cell merging errors and XML issues by implementing safe_merge_cells function
     - Fixed Job # field not being populated - now checks multiple column name variations (Job #, Job#, Job Number, etc.)
@@ -31,7 +31,7 @@ This is a Python-based automated billing system that generates weekly Excel repo
 ## Project Architecture
 
 ### Main Scripts
-- `generate_weekly_pdfs_complete_fixed.py` - Primary production script for generating weekly PDFs
+- `generate_weekly_pdfs.py` - Primary production script (facade over `pipeline/`); the older `generate_weekly_pdfs_complete_fixed.py` is retained only under `archive/`
 - `generate_weekly_pdfs.py` - Main weekly PDF generator (alternative version)
 - `audit_billing_changes.py` - Monitors Smartsheet for unauthorized billing changes
 - `cleanup_excels.py` - Cleans up old Excel files

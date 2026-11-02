@@ -1,5 +1,8 @@
 # Sub-project E — Supabase Hash-Store + Filename Token Stripping Implementation Plan
 
+> **Layout note (2026-11-02):** written against the pre-Phase-14 monolith. The symbols named below now live in `pipeline/*` (`generate_weekly_pdfs.py` is a thin facade that re-exports them), the local `hash_history.json` cache and its helpers were retired in Phase 11 Plan 08 in favour of `pipeline_memory.group_state`, and Living Ledger entries go in `memory-bank/living-ledger.md`, never `CLAUDE.md`.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Supabase the durable per-group change-detection hash store and strip the `_<timestamp>`/`_<hash>` tokens from generated Excel filenames, behind a default-OFF kill switch with day-one shadow writes.

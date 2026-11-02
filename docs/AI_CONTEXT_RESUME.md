@@ -63,7 +63,7 @@ _Last updated: 2026-09-10 (pointer + dated snapshots, newest first; body below t
 > extension-bearing (was 235/235). Close-out: `5121c30` reverted the executor's premature OWN-02/OWN-03 Complete
 > marks; `7ce962a` flipped `12-06-SUMMARY.md` to `status: blocked` (the only re-entrant state); `634d93b` committed
 > the advisory code-quality report (1 blocker, 9 warnings, 2 info). **CR-01 (verified):** `_FILENAME_HASH_SUFFIX_RE`
-> matches a 6-hex tail while `pipeline/excel.py:412` emits `hexdigest()[:16]`, so a hash-tailed placeholder would
+> matches a 6-hex tail while `pipeline/change_detection.py` emits `hexdigest()[:16]` (lines ~416-645; `excel.py` only embeds the result in the filename), so a hash-tailed placeholder would
 > pass every guard; a read-only count shows 0 of 116,906 live artifact filenames carry any hash tail, so latent
 > while `SUPABASE_HASH_STORE_AUTHORITATIVE=1`. **WR-01 (verified):** `tests/test_own04_documentation.py` pins
 > D-12-C/D-12-D to the NEWEST living-ledger entry — do not append the ledger until it is fixed. Next: `/clear` →
@@ -269,7 +269,7 @@ Sequencing — **A → B → C → D → E**:
    attribution; fix the sub-helper filename/upload/change-key asymmetry; add a
    blank-foreman guard at freeze; one-time controlled re-attribution of the 5,183
    `Unknown Foreman` rows + the WR 14527770 weeks (manual Supabase + re-freeze
-   runbook). Full diagnosis: `.planning/debug/frozen-claim-history-gap.md`.
+   runbook). Full diagnosis: was recorded in a scratch debug note that is not in the repository (superseded 2026-11-02: the file `.planning/debug/frozen-claim-history-gap.md` never landed; the findings are summarised in this section).
 3. **Subproject E** (last claim-attribution rollout item, not started) — Supabase
    change-detection cutover + filename `_<hash>`/`_<timestamp>` strip. Lands
    cleaner *after* Phase 09 modularizes the upload/change-detection code.

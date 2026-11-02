@@ -576,7 +576,7 @@ exception, `PARALLEL_WORKERS_DISCOVERY = 8`, and the retry wrapper are unchanged
 fix on the first post-merge scheduled **skip-MISS** run: `⚡ Phase 1 complete` should be low
 single-digit minutes and the Python `• Duration:` line under ~75 min (never the Actions job
 clock). See `memory-bank/living-ledger.md` `[2026-09-02 14:35]` and
-`.planning/debug/11.1-discovery-full-validation-cost.md`.
+`.planning/debug/11.1-discovery-full-validation-cost.md` (note 2026-11-02: that file is not in the repository or its history; the cost figures survive in the `[2026-09-02 17:45]` living-ledger entry).
 
 **Outcome (2026-09-02, 17:45 CDT).** #384 merged as `13e8e76`; the first scheduled run on a
 build containing it (33683979474, a genuine skip-MISS: 0/121 registry skips, 121 fully

@@ -1,5 +1,8 @@
 # Subproject B — Subcontractor Primary Claim Attribution Implementation Plan
 
+> **Layout note (2026-11-02):** written against the pre-Phase-14 monolith. The symbols named below now live in `pipeline/*` (`generate_weekly_pdfs.py` is a thin facade that re-exports them), the local `hash_history.json` cache and its helpers were retired in Phase 11 Plan 08 in favour of `pipeline_memory.group_state`, and Living Ledger entries go in `memory-bank/living-ledger.md`, never `CLAUDE.md`.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Re-partition the subcontractor primary Excel variants (`reduced_sub` / `aep_billable`) by the frozen primary claimer from `billing_audit`, consuming Foundation A's `resolve_claimer` + HOLD contract, with a clean migration of legacy unpartitioned files.

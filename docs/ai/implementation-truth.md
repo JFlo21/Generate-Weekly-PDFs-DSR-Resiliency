@@ -39,12 +39,12 @@ instruct Claude. Never store secrets in any tier.
 | Config | `pipeline/config.py` | All `os.getenv`-derived constants (~60), regex compiles, folder-ID parsing | Imports stdlib only; never another `pipeline` module |
 | Discovery | `pipeline/discovery.py` | Smartsheet source-sheet discovery + column-mapping validation | Owns 3 PEP-562 live-proxy globals; local discovery cache retired (Phase 11 Plan 08); registry-version skip index (D-11.1-01) lets a sheet reuse its stored `sheet_registry` name + column mapping, any doubt → full validation |
 | Fetch | `pipeline/fetch.py` | Parallel row fetch (`ThreadPoolExecutor`, `PARALLEL_WORKERS<=8`) | Owns `_RATES_FINGERPRINT` live-proxy global |
-| Grouping | `pipeline/grouping.py` | `group_source_rows` (~1640 lines, `:147-1787`) — WR/week/variant/foreman/dept/job grouping + helper dual-checkbox exclusion | Relocated byte-for-byte, no decomposition |
+| Grouping | `pipeline/grouping.py` | `group_source_rows` (~1640 lines, `:154-1831`) — WR/week/variant/foreman/dept/job grouping + helper dual-checkbox exclusion | Relocated byte-for-byte, no decomposition |
 | Pricing | `pipeline/pricing.py` | Rate loading (CSV) + price resolution + rate recalculation | Pure calculator; no Smartsheet calls |
 | Change detection | `pipeline/change_detection.py` | `build_group_identity` + `calculate_data_hash` (SHA-256) | Change-detection key preserved verbatim: `(WR, week_ending, variant, foreman, dept, job)` |
 | Excel | `pipeline/excel.py` | `openpyxl` generation, `safe_merge_cells()` | Never write `oddFooter.right.text`; openpyxl only, no xlsxwriter |
 | Attribution | `pipeline/attribution.py` | WR-scope builders, hash-history pruning, claimer remediation, billing-audit row cache I/O | Gates on `__variant`, never a key-substring scan |
-| Cleanup | `pipeline/cleanup.py` | Stale-Excel + Smartsheet attachment cleanup/purge | `_has_existing_week_attachment` (`:778`), `delete_old_excel_attachments` (`:678`), `cleanup_untracked_sheet_attachments` (`:198`) |
+| Cleanup | `pipeline/cleanup.py` | Stale-Excel + Smartsheet attachment cleanup/purge | `_has_existing_week_attachment` (`:796`), `delete_old_excel_attachments` (`:696`), `cleanup_untracked_sheet_attachments` (`:198`) |
 | Upload | `pipeline/upload.py` | Target-sheet WR# map builders + per-group upload-task builder | Dual-routes to `TARGET_SHEET_ID` + `SUBCONTRACTOR_PPP_SHEET_ID` |
 | Retry | `pipeline/retry.py` | Centralized transient-failure retry for Smartsheet calls | Matches `ApiError` result codes 4000 / 0-transient; not exception type |
 | Snapshot drift | `pipeline/snapshot_drift.py` | Detects "Snapshot Date" auto-re-stamp drift, holds affected rows | `apply_snapshot_drift_holds()`, called pre-grouping from `orchestrate.py` |
@@ -64,9 +64,9 @@ instruct Claude. Never store secrets in any tier.
   `audit_billing_changes.BillingAudit.audit_financial_data` → `pipeline.upload` / `pipeline.cleanup`
   (delete-old-then-upload) attach the file back to `TARGET_SHEET_ID`.
 - **Attachment identity resolution:** `pipeline_memory.reader.get_group_state_attachments_by_wr`
-  (`pipeline_memory/reader.py:494`) resolves the `attachment_id`/`attachment_name` this pipeline itself
+  (`pipeline_memory/reader.py:545`) resolves the `attachment_id`/`attachment_name` this pipeline itself
   previously uploaded per group; `_has_existing_week_attachment` / `delete_old_excel_attachments`
-  (`pipeline/cleanup.py:778`, `:678`) prefer that identity and fall back to a per-row on-demand
+  (`pipeline/cleanup.py:796`, `:696`) prefer that identity and fall back to a per-row on-demand
   `list_row_attachments` lookup on any miss. `cleanup_untracked_sheet_attachments`
   (`pipeline/cleanup.py:198`) always uses the on-demand lookup (it prunes off-contract/legacy
   attachments `group_state` never wrote).
@@ -111,10 +111,10 @@ instruct Claude. Never store secrets in any tier.
   drift logged with the `Frequent-run full-validation` label before the first registry write);
   skip-admitted sheets echo their stored mapping unmarked. Any other case (missing watermark,
   version mismatch, registry or probe failure) falls through to `_validate_single_sheet`, whose read is
-  bounded to `row_numbers=[1, 2, 3]` (Plan 11.1-04). `pipeline/discovery.py:227-365` (`_build_discovery_skip_index`, called at `:497`), `:503-538` (`_validate_single_sheet`).
-- **Time-budget family:** `TIME_BUDGET_MINUTES` (`pipeline/config.py:114`, default `0`/disabled locally)
+  bounded to `row_numbers=[1, 2, 3]` (Plan 11.1-04). `pipeline/discovery.py:236` (`_build_discovery_skip_index`, called at `:506`), `:512` (`_validate_single_sheet`).
+- **Time-budget family:** `TIME_BUDGET_MINUTES` (`pipeline/config.py:148`, default `0`/disabled locally)
   must stay strictly below the GitHub Actions `timeout-minutes` (currently `180`); production sets it to
-  `165` (`.github/workflows/weekly-excel-generation.yml:545`).
+  `165` (`.github/workflows/weekly-excel-generation.yml:557`).
 - **`advanced_options` parser** (`.github/workflows/weekly-excel-generation.yml:100,187-211`) packs
   `max_groups:N,regen_weeks:MMDDYY1;MMDDYY2,reset_wr_list:WR1;WR2` into one `workflow_dispatch` field to
   stay under GitHub's input-count limit — do not delete the parser even if input count drops.

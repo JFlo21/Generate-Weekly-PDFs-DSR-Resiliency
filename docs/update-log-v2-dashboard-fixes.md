@@ -1,5 +1,8 @@
 # Update Log — Dashboard & Artifact Explorer Stabilization
 
+> **Status (2026-11-02):** dated update log. Several items below describe `portal-v2` code that was later removed or reworked (`useRuns.ts`, `lib/api.ts`, the `MOCK_ARTIFACTS` fallback, `isSampleData`, the three-state pill, `ArtifactPanel`/`ArtifactExplorer`) and the legacy Express `portal/` removed in 03153c3. Read as history, not as a description of the current dashboard.
+
+
 **Date:** 2026-04-18
 **Branch:** `railway-disconnection-plan`
 **Scope:** `portal-v2/` frontend only. No backend code touched.

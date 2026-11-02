@@ -163,7 +163,7 @@ The following data is **intentionally NOT captured** or sent to Sentry:
 
 | Data | How it's excluded |
 |------|-------------------|
-| Smartsheet API token | Never included in Sentry context; filtered in `before_send` |
+| Smartsheet API token | Never included in Sentry context: it is read from the environment only and never logged or attached as context; `before_send_filter` does not inspect event payloads for it (it drops SDK logger noise and 404 attachment errors and scrubs sheet-drop frame variables) |
 | Session cookies | `Authorization`, `Cookie`, `Set-Cookie` headers stripped in backend `beforeSend`/`beforeSendTransaction` |
 | CSRF tokens | `X-CSRF-Token` header stripped in backend |
 | Supabase keys | Only VITE_SUPABASE_ANON_KEY is in the frontend bundle; it is not added to Sentry context |
@@ -228,11 +228,11 @@ Or run a workflow dispatch in GitHub Actions — Sentry will receive the cron ch
 
 #### Sentry Logs (structured logs product)
 
-`generate_weekly_pdfs.py` wires the SDK to support the Sentry **Logs** product (requires `sentry-sdk>=2.35.0`; `requirements.txt` pins `sentry-sdk>=2.54.0`, which satisfies it). Log forwarding is **gated and opt-in**: it activates only when the environment variable `SENTRY_ENABLE_LOGS` is set to `1` / `true` / `yes` / `on`. When unset (default) or `false`, `enable_logs` is `False` and no stdlib records are shipped to the Logs product — existing breadcrumb and event behavior is unaffected.
+`pipeline/observability.py` (initialised from `generate_weekly_pdfs.py` via `init_sentry()`) wires the SDK to support the Sentry **Logs** product (requires `sentry-sdk>=2.35.0`; `requirements.txt` pins `sentry-sdk>=2.54.0`, which satisfies it). Log forwarding is **gated and opt-in**: it activates only when the environment variable `SENTRY_ENABLE_LOGS` is set to `1` / `true` / `yes` / `on`. When unset (default) or `false`, `enable_logs` is `False` and no stdlib records are shipped to the Logs product — existing breadcrumb and event behavior is unaffected.
 
 > **Privacy note.** Enabling `SENTRY_ENABLE_LOGS` ships every stdlib `logging` record captured by `LoggingIntegration(level=logging.INFO, ...)` to Sentry. This engine has INFO-level debug paths (e.g. `PER_CELL_DEBUG_ENABLED`, row-sample logs) that can include raw cell values, foreman names, dept/job numbers, WR numbers, and price values — all of which are billing-row PII per the [Privacy / Security](#privacy--security) section above. Before flipping `SENTRY_ENABLE_LOGS=true` in any environment, audit the log call sites, keep `PER_CELL_DEBUG_ENABLED` and row-sample debug flags **off** in production, and never add new log lines that embed billing row/cell content.
 >
-> **Defense-in-depth sanitizer.** Even with the gate on, `generate_weekly_pdfs.py` registers a `before_send_log` hook that drops records whose body matches any of the known PII markers in `_PII_LOG_MARKERS` (row-sample diagnostics, cell dumps, helper / vac-crew detection logs, rate-recalc traces, foreman assignment logs, etc.). Adding a new INFO log that embeds row content? Either remove the embedded PII or extend `_PII_LOG_MARKERS` in the same change so the sanitizer keeps up — do **not** rely on the env gate alone.
+> **Defense-in-depth sanitizer.** Even with the gate on, `pipeline/observability.py` registers a `before_send_log` hook that drops records whose body matches any of the known PII markers in `_PII_LOG_MARKERS` (row-sample diagnostics, cell dumps, helper / vac-crew detection logs, rate-recalc traces, foreman assignment logs, etc.). Adding a new INFO log that embeds row content? Either remove the embedded PII or extend `_PII_LOG_MARKERS` in the same change so the sanitizer keeps up — do **not** rely on the env gate alone.
 
 With the gate on, two paths are relevant in this repo:
 

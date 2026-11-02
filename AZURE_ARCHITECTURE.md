@@ -19,7 +19,7 @@
 │                                                                   │
 │   Trigger: master branch push                                    │
 │   Agent: Ubuntu Latest                                           │
-│   Auth: System.AccessToken (OAuth)                              │
+│   Auth: PAT (AZDO_PAT secret variable)                          │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 │ (2) Execute pipeline
@@ -36,16 +36,16 @@
 │           └── Set user.email                                    │
 │                                                                   │
 │   Step 3: Add Azure DevOps remote                               │
-│           └── git remote add azure-devops <url>                 │
+│           └── git remote add azure <url>                        │
 │                                                                   │
 │   Step 4: Push to Azure DevOps                                  │
-│           └── git push azure-devops master:master --force       │
+│           └── git push --force-with-lease azure master:master   │
 │                                                                   │
-│   Step 5: Verify sync                                            │
-│           └── Compare commit SHAs                               │
+│   Step 5: Optional (commented out): full mirror, diagnostics    │
+│           └── Not run by default                                │
 └─────────────────────────────────────────────────────────────────┘
                                 │
-                                │ (3) Force push with OAuth
+                                │ (3) Force push (with lease) with PAT
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                  Azure DevOps Git Repository                     │
@@ -75,26 +75,25 @@ Developer Workflow:
    └── Full git history (fetchDepth: 0)
 
 4. Pipeline configures Git
-   ├── git config user.name "Azure Pipeline Sync Bot"
-   └── git config user.email "pipeline-sync@azure-devops.com"
+   ├── git config user.name "Azure Pipelines"
+   └── git config user.email "buildagent@azuredevops.local"
 
 5. Pipeline adds Azure DevOps remote
-   ├── URL from variable: AzureDevOpsRepoUrl
-   └── git remote add azure-devops <url>
+   ├── URL built from AZDO_ORG, AZDO_PROJECT, AZDO_REPO
+   └── git remote add azure <url>
 
 6. Pipeline authenticates
-   ├── Uses System.AccessToken (OAuth)
-   └── http.extraheader="AUTHORIZATION: bearer <token>"
+   ├── Uses PAT from secret variable AZDO_PAT
+   └── http.extraheader="AUTHORIZATION: Basic <base64(:PAT)>"
 
 7. Pipeline pushes to Azure DevOps
-   ├── git push azure-devops master:master --force
+   ├── git push --force-with-lease azure master:master
    ├── Syncs all commits
    └── Overwrites Azure DevOps master
 
-8. Pipeline verifies sync
-   ├── Fetches Azure DevOps master
-   ├── Compares commit SHAs
-   └── Reports: ✅ Success or ⚠️ Warning
+8. Pipeline ends after the push
+   ├── No separate verification step
+   └── A rejected push fails the job
 
 9. Azure DevOps master updated
    └── Same commits as GitHub master
@@ -111,24 +110,23 @@ Developer Workflow:
 │  Agent       │
 └──────┬───────┘
        │
-       │ (1) Request OAuth token
+       │ (1) Read secret variable AZDO_PAT
        ▼
 ┌──────────────────────────────┐
-│  Azure DevOps                │
-│  OAuth Service               │
+│  Pipeline secret variable    │
 │                              │
-│  Generates:                  │
-│  System.AccessToken          │
+│  Holds:                      │
+│  AZDO_PAT                    │
 └──────────┬───────────────────┘
            │
-           │ (2) Token issued
-           │     (limited scope: this pipeline)
+           │ (2) Encoded as Basic header
+           │     (~/.azdo_header, mode 600)
            ▼
 ┌──────────────────────────────┐
 │  Git Push Operation          │
 │                              │
 │  Authorization Header:       │
-│  Bearer <System.AccessToken> │
+│  Basic <base64(:PAT)>        │
 └──────────┬───────────────────┘
            │
            │ (3) Authenticated request
@@ -136,8 +134,8 @@ Developer Workflow:
 ┌──────────────────────────────┐
 │  Azure DevOps Repository     │
 │                              │
-│  Validates token             │
-│  Checks Build Service perms  │
+│  Validates PAT               │
+│  Checks PAT owner perms      │
 │  Allows push if authorized   │
 └──────────────────────────────┘
 ```
@@ -174,7 +172,7 @@ Azure DevOps Commit Data:
 Event Evaluation:
 ────────────────────────────────────────────
 
-Is it a push to GitHub?
+Is it a push to GitHub (or a PR targeting master)?
   ├── YES → Continue
   └── NO → Exit
 
@@ -182,10 +180,8 @@ Is the branch 'master'?
   ├── YES → Continue
   └── NO → Exit (other branches ignored)
 
-Are changed files excluded?
-  ├── README.md → Skip (excluded)
-  ├── .github/** → Skip (excluded)
-  └── Other files → TRIGGER PIPELINE ✅
+Are changed files filtered?
+  └── No paths filter → any change TRIGGERS PIPELINE ✅
 
 Pipeline runs:
   └── Syncs master to Azure DevOps
@@ -196,27 +192,27 @@ Pipeline runs:
 ```
 Required Variables:
 ┌────────────────────────────────────────┐
-│  Name: AzureDevOpsRepoUrl              │
-│  Value: https://dev.azure.com/...     │
-│  Scope: Pipeline                       │
+│  Name: AZDO_PAT                        │
+│  Value: (secret; never commit it)      │
+│  Scope: Pipeline (secret variable)     │
 │  Required: ✅ YES                      │
 └────────────────────────────────────────┘
 
 Required Permissions:
 ┌────────────────────────────────────────┐
-│  Build Service Account:                │
+│  PAT owner account:                    │
 │    ✅ Contribute                       │
 │    ✅ Force Push                       │
 │    ✅ Create Branch                    │
 │                                        │
-│  Pipeline Setting:                     │
-│    ✅ Allow OAuth token access         │
+│  Pipeline Variable:                    │
+│    ✅ AZDO_PAT set as a secret         │
 └────────────────────────────────────────┘
 
 Git Configuration:
 ┌────────────────────────────────────────┐
-│  user.name: "Azure Pipeline Sync Bot"  │
-│  user.email: "pipeline-sync@..."       │
+│  user.name: "Azure Pipelines"          │
+│  user.email: "buildagent@azuredevops.local"│
 └────────────────────────────────────────┘
 ```
 
@@ -228,8 +224,8 @@ Sync Success Indicators:
 
 ✅ Pipeline completes without errors
 ✅ Push operation succeeds
-✅ Verification step shows matching commits
-✅ Logs show: "Successfully synced to Azure DevOps!"
+✅ Seed fetch of azure master succeeds
+✅ Logs show: "Prepared PAT header for Azure DevOps pushes."
 ✅ Azure DevOps repo shows latest commit from GitHub
 ✅ Commit SHA matches exactly
 
@@ -240,7 +236,7 @@ Failure Indicators:
 ❌ Permission denied
 ❌ Variable not configured
 ❌ Push rejected
-❌ Commits don't match in verification
+❌ AZDO_PAT not set (sync is skipped with a warning)
 ```
 
 ## 🛠️ Maintenance Mode
@@ -262,7 +258,7 @@ To modify sync behavior:
 To sync different branch:
 ────────────────────────────────────────────
 Change push command:
-  git push azure-devops <source>:<target>
+  git push --force-with-lease azure <source>:<target>
 ```
 
 ## 🔍 Monitoring Points
@@ -271,26 +267,20 @@ Change push command:
 Key Log Checkpoints:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. ✅ "Configuring Git..." 
-   └── Git setup successful
+1. ✅ "Azure remote set to:" 
+   └── Remote configured (URL printed below it)
 
-2. ✅ "Source (GitHub): ..." 
-   └── URLs configured correctly
+2. ✅ "Prepared PAT header for Azure DevOps pushes." 
+   └── PAT header ready
 
-3. ✅ "Syncing commit: SHA: abc123..." 
-   └── Correct commit being synced
+3. ✅ "Converting shallow clone to full clone..." 
+   └── Only printed if the checkout was shallow
 
-4. ✅ "Adding Azure DevOps remote..." 
-   └── Remote configured
+4. ⚠️ "AZDO_PAT is not set or not replaced. Skipping ..." 
+   └── Sync was skipped (the step exits 0)
 
-5. ✅ "Pushing to Azure DevOps repository..." 
-   └── Push initiated
-
-6. ✅ "Successfully synced to Azure DevOps!" 
-   └── Sync completed
-
-7. ✅ "Verification successful - commits match!" 
-   └── Sync verified
+5. ✅ Step "Mirror GitHub → Azure DevOps (default branch, safer force)" completes 
+   └── Push succeeded
 ```
 
 ---

@@ -1,5 +1,8 @@
 # Subproject B — Subcontractor Primary Claim Attribution
 
+> **Layout note (2026-11-02):** written against the pre-Phase-14 monolith. The symbols named below now live in `pipeline/*` (`generate_weekly_pdfs.py` is a thin facade that re-exports them), the local `hash_history.json` cache and its helpers were retired in Phase 11 Plan 08 in favour of `pipeline_memory.group_state`, and Living Ledger entries go in `memory-bank/living-ledger.md`, never `CLAUDE.md`.
+
+
 **Date:** 2026-05-20
 **Status:** Approved design (pre-implementation)
 **Author:** Brainstormed with the operator; design Parts 1–2 approved.
