@@ -99,6 +99,14 @@ class CorrectionRow:
     def key(self) -> tuple[int, int]:
         return (self.sheet_id, self.row_id)
 
+    @property
+    def reconcile_only(self) -> bool:
+        """A $0.00 row: kept for the audit trail only. The pipeline never
+        admits a zero-price row, so it is never credited or placed in a
+        workbook, and its absence from the admitted rows is expected."""
+        return _decimal(self.expect.get('units_total_price')) == Decimal(
+            '0.00')
+
 
 @dataclass(frozen=True)
 class Correction:
@@ -137,6 +145,7 @@ class CorrectionResult:
     credited_totals: dict[str, Decimal] = field(default_factory=dict)
     blank_date_rows: list[CorrectionRow] = field(default_factory=list)
     reassigned_rows: list[CorrectionRow] = field(default_factory=list)
+    reconcile_only: list[CorrectionRow] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------- loader
@@ -205,6 +214,11 @@ def _parse_row(raw: Any, where: str, week_ending: datetime.date,
     if not isinstance(recover, bool):
         problems.append(f'{where}: recover_missing_dates must be boolean')
         recover = False
+    if recover and _decimal(expect.get('units_total_price')) == Decimal(
+            '0.00'):
+        problems.append(
+            f'{where}: a $0.00 row is reconciliation-only and cannot use '
+            'recover_missing_dates')
     if recover and (expect.get('snapshot_date') is not None
                     or expect.get('weekly_reference_logged_date')
                     is not None):
@@ -519,6 +533,11 @@ def evaluate(cset: CorrectionSet,
     A correction is ``blocked`` when any of its rows is missing, differs
     from its expectation, or its subtotals disagree with
     ``expected_subtotals``; a blocked correction applies nothing.
+
+    Rows expected at $0.00 are reconciliation-only: absent (the normal
+    case -- the admission gate drops zero-price rows) or present at $0.00
+    they are listed in ``reconcile_only`` and never credited; present
+    with any difference (e.g. a live non-zero price) they block the case.
     """
     index: dict[tuple[int, int], Mapping[str, Any]] = {}
     for row in rows:
@@ -531,12 +550,18 @@ def evaluate(cset: CorrectionSet,
         for entry in corr.rows:
             hit_row = index.get(entry.key)
             if hit_row is None:
-                res.missing.append(entry)
+                if entry.reconcile_only:
+                    res.reconcile_only.append(entry)
+                else:
+                    res.missing.append(entry)
                 continue
             row = hit_row
             diffs = row_differences(entry, corr, row)
             if diffs:
                 res.mismatched.append((entry, diffs))
+                continue
+            if entry.reconcile_only:
+                res.reconcile_only.append(entry)
                 continue
             res.matched.append(entry)
             amount = row_amount(row)
@@ -568,7 +593,10 @@ def evaluate(cset: CorrectionSet,
                 for name, days in corr.expected_subtotals.items()
                 for day, amount in days.items()
             }
-            if want != res.subtotals:
+            # $0.00 entries carry no money: compare non-zero amounts only
+            # (a reconcile-only row never enters res.subtotals).
+            if ({k: v for k, v in want.items() if v}
+                    != {k: v for k, v in res.subtotals.items() if v}):
                 res.reasons.append('subtotals differ from expected')
         if res.reasons:
             res.status = 'blocked'
@@ -629,7 +657,7 @@ def recovery_for_row(row_data: Mapping[str, Any],
     if hit is None:
         return None
     corr, entry = hit
-    if not entry.recover_missing_dates:
+    if not entry.recover_missing_dates or entry.reconcile_only:
         return None
     if row_differences(entry, corr, row_data):
         return None
@@ -710,7 +738,8 @@ def prepare_run(
             f'{corr.revision}) APPLIED to WR {corr.wr} week '
             f'{corr.week_ending}: {len(res.matched)} row(s), '
             f'{len(res.reassigned_rows)} re-credited, '
-            f'{len(res.blank_date_rows)} with blank source dates')
+            f'{len(res.blank_date_rows)} with blank source dates, '
+            f'{len(res.reconcile_only)} $0.00 reconcile-only (not credited)')
     kept: list[dict[str, Any]] = []
     recovered = 0
     for row in rows:
@@ -753,6 +782,9 @@ def prepare_run(
         'blocked': len(blocked_ids),
         'rows_applied': len(applied_rows),
         'rows_recovered': recovered,
+        'rows_reconcile_only': sum(
+            len(r.reconcile_only) for r in results
+            if r.status == 'applied'),
         'displaced_groups': displaced,
         'findings': findings,
     }
@@ -994,6 +1026,22 @@ def _money(value: Decimal) -> str:
     return f'{value:,.2f}'
 
 
+def _print_reconcile_only(res: CorrectionResult, out) -> None:
+    """$0.00 rows: never admitted / credited, listed for the audit trail."""
+    groups: dict[tuple[str, str], list[Decimal]] = {}
+    for entry in res.reconcile_only:
+        groups.setdefault((entry.name, entry.workday.isoformat()), []).append(
+            _decimal(entry.expect.get('units_total_price')) or Decimal(
+                '0.00'))
+    total = sum((sum(v, Decimal('0.00')) for v in groups.values()),
+                Decimal('0.00'))
+    print(f'   reconcile-only $0.00 rows (never admitted, never credited): '
+          f'{len(res.reconcile_only)} rows, total {_money(total)}', file=out)
+    for (name, day), amounts in sorted(groups.items()):
+        print(f'     {name:<28} {day}  {len(amounts):>4} rows  '
+              f'{_money(sum(amounts, Decimal("0.00"))):>12}', file=out)
+
+
 def preview(cset: CorrectionSet, rows: list[dict[str, Any]],
             memory_images: Mapping[Any, Any] | None = None,
             out=None) -> int:
@@ -1006,9 +1054,9 @@ def preview(cset: CorrectionSet, rows: list[dict[str, Any]],
         corr = res.correction
         print(f'== {corr.correction_id} rev {corr.revision} WR {corr.wr} '
               f'week {corr.week_ending}: {res.status.upper()}', file=out)
-        print(f'   matched {len(res.matched)} / unmatched '
-              f'{len(res.missing)} / mismatched {len(res.mismatched)}',
-              file=out)
+        print(f'   matched {len(res.matched)} billable / reconcile-only '
+              f'{len(res.reconcile_only)} / unmatched {len(res.missing)} / '
+              f'mismatched {len(res.mismatched)}', file=out)
         for reason in res.reasons:
             print(f'   reason: {reason}', file=out)
         for entry in res.missing[:20]:
@@ -1024,6 +1072,7 @@ def preview(cset: CorrectionSet, rows: list[dict[str, Any]],
                   f' rows  {_money(amount):>12}', file=out)
         print(f'     {"TOTAL":<28} {"":10}  {len(res.matched):>4} rows  '
               f'{_money(total):>12}', file=out)
+        _print_reconcile_only(res, out)
         print('   monetary deltas (observed -> credited):', file=out)
         for name in sorted(set(res.observed_totals) | set(
                 res.credited_totals)):
@@ -1047,6 +1096,7 @@ def preview(cset: CorrectionSet, rows: list[dict[str, Any]],
     blocked = sum(1 for r in results if r.status == 'blocked')
     print(f'SUMMARY corrections={len(results)} blocked={blocked} '
           f'matched={sum(len(r.matched) for r in results)} '
+          f'reconcile_only={sum(len(r.reconcile_only) for r in results)} '
           f'unmatched={sum(len(r.missing) for r in results)}', file=out)
     return 1 if blocked else 0
 

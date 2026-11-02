@@ -105,6 +105,12 @@ def unlisted_blank_row():
                  cu='CU-10')
 
 
+def zero_price_row():
+    """$0.00 row the allocation lists: reconciliation-only, never admitted
+    by today's gate (price_missing_or_zero)."""
+    return _base(110, '2026-03-03', '0.00', pole='Point 11', cu='CU-11')
+
+
 def _expect(row):
     def _iso(v):
         return v
@@ -125,6 +131,7 @@ def correction_doc(revision=1, rows=None):
     """The approved correction for WR 90000001 / week 2026-03-08."""
     by_id = {r['__row_id']: r for r in (rows or admitted_rows())}
     by_id[108] = recovered_row()
+    by_id[110] = zero_price_row()
 
     def entry(rid, name, variant, dept, workday, **extra):
         item = {
@@ -160,6 +167,7 @@ def correction_doc(revision=1, rows=None):
                 entry(106, 'Helper H', 'helper', '489', '2026-03-03'),
                 entry(108, 'Helper H', 'helper', '489', '2026-03-04',
                       recover_missing_dates=True),
+                entry(110, 'Foreman B', 'primary', '884', '2026-03-03'),
             ],
         }],
     }

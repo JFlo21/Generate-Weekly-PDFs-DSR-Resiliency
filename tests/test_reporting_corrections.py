@@ -119,7 +119,7 @@ class LoaderValidationTests(_Base):
 
     def test_valid_fixture_and_template_parse(self):
         cset = rc.parse_corrections(fx.correction_doc())
-        self.assertEqual(len(cset.by_row), 6)
+        self.assertEqual(len(cset.by_row), 7)
         template = _REPO_ROOT / 'docs' / 'templates' / (
             'reporting_corrections.template.json')
         tset = rc.load_corrections(str(template))
@@ -366,6 +366,52 @@ class BlockedCorrectionTests(_Base):
         self.assertIn('work request differs', diffs[101])
 
 
+class ReconcileOnlyTests(_Base):
+    """$0.00 rows are reconciliation-only (coordinator decision)."""
+
+    def test_absent_zero_row_is_expected_and_never_credited(self):
+        groups, summary = self._run(fx.correction_doc())
+        self.assertEqual(summary['applied'], 1)
+        self.assertEqual(summary['rows_reconcile_only'], 1)
+        self.assertEqual(summary['rows_applied'], 6)
+        seen = [r['__row_id'] for v in groups.values() for r in v]
+        self.assertNotIn(110, seen)
+        res = rc.evaluate(rc.get_active_set(), fx.admitted_rows())[0]
+        self.assertEqual([e.row_id for e in res.reconcile_only], [110])
+        self.assertNotIn(110, [e.row_id for e in res.missing])
+
+    def test_zero_row_present_at_zero_in_a_dump_stays_reconcile_only(self):
+        cset = rc.parse_corrections(fx.correction_doc())
+        rows = fx.admitted_rows() + [fx.recovered_row(),
+                                     fx.zero_price_row()]
+        res = rc.evaluate(cset, rows)[0]
+        self.assertEqual(res.status, 'applied')
+        self.assertEqual([e.row_id for e in res.reconcile_only], [110])
+        self.assertNotIn(110, [e.row_id for e in res.matched])
+
+    def test_zero_row_admitted_live_with_price_blocks_the_case(self):
+        live = fx.zero_price_row()
+        live['Units Total Price'] = '12.50'
+        rows = fx.admitted_rows() + [live]
+        with self.assertLogs(level='WARNING') as cm:
+            groups, summary = self._run(fx.correction_doc(), rows=rows)
+        self.assertEqual(summary['blocked'], 1)
+        text = ' | '.join(cm.output)
+        self.assertIn('units_total_price: 12.50 != expected 0.00', text)
+        for grows in groups.values():
+            for row in grows:
+                self.assertFalse(row.get('__corr_credit'))
+
+    def test_zero_row_cannot_be_recovered(self):
+        doc = fx.correction_doc()
+        doc['corrections'][0]['rows'][-1]['recover_missing_dates'] = True
+        doc['corrections'][0]['rows'][-1]['expect'].update(
+            snapshot_date=None, weekly_reference_logged_date=None)
+        with self.assertRaises(rc.CorrectionError) as cm:
+            rc.parse_corrections(doc)
+        self.assertIn('reconciliation-only', ' '.join(cm.exception.problems))
+
+
 class ExcelReadbackTests(_Base):
 
     def _read(self, path):
@@ -531,7 +577,10 @@ class PreviewZeroWriteTests(_Base):
         self.assertEqual(code, 0)
         self.assertEqual(attempted, [])
         text = buf.getvalue()
-        self.assertIn('matched 6 / unmatched 0 / mismatched 0', text)
+        self.assertIn('matched 6 billable / reconcile-only 1 / '
+                      'unmatched 0 / mismatched 0', text)
+        self.assertIn('reconcile-only $0.00 rows (never admitted, never '
+                      'credited): 1 rows, total 0.00', text)
         self.assertIn('source vs memory differences 1', text)
         self.assertIn('blocked=0', text)
 
