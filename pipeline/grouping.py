@@ -31,6 +31,7 @@ import logging
 from dateutil import parser  # type: ignore[import-untyped]  # untyped third-party (matches facade)
 
 import pipeline.discovery as _discovery
+from pipeline import reporting_corrections as _rc
 from pipeline.config import (
     _RE_SANITIZE_HELPER_NAME,
     _RE_SANITIZE_IDENTIFIER,
@@ -563,9 +564,24 @@ def group_source_rows(rows):
                 _vcu,
             ))
 
+    # Reporting corrections (opt-in): exclusive credit for rows an
+    # applied correction stamped, AFTER every claimer map above so a
+    # frozen claimer can never win over the approved credit. Returns
+    # ``rows`` itself when no row is stamped (feature off).
+    rows = _rc.apply_credit_overrides(
+        rows, _primary_claimer_map, _sub_primary_claimer_map,
+        _vac_crew_claimer_map,
+    )
+
     for r in rows:
         wr = r.get('Work Request #')
-        log_date_str = r.get('Weekly Reference Logged Date')
+        # A recovered correction row has a blank raw week date; its
+        # reporting-only week comes from __corr_week_ending (None for
+        # every other row, so their behaviour is unchanged).
+        log_date_str = (
+            r.get('Weekly Reference Logged Date')
+            or r.get('__corr_week_ending')
+        )
         units_completed = r.get('Units Completed?')
         total_price = parse_price(r.get('Units Total Price', 0))
         

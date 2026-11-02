@@ -40,6 +40,7 @@ from pipeline.config import (
     PER_CELL_DEBUG_ENABLED,
 )
 from pipeline import foreman_notes as _fn
+from pipeline import reporting_corrections as _rc
 from pipeline.types import normalize_helper_value
 from pipeline.retry import smartsheet_call_with_retry
 from pipeline.pricing import (
@@ -671,6 +672,10 @@ def get_all_source_rows(client, source_sheets):
                 # Note: Unmapped column logging skipped - we now only fetch mapped columns for performance
                 # This reduces API payload size by ~64% and prevents Error 4000 for large sheets
 
+                # Reporting corrections: recovery is only possible on a
+                # sheet the active correction file lists (False when off).
+                _corr_active = source['id'] in _rc.correction_sheet_ids()
+
                 # Process all rows
                 for row in sheet.rows:
                     row_data = {}
@@ -898,6 +903,26 @@ def get_all_source_rows(client, source_sheets):
                                         f"CU={row_data.get('CU')}, "
                                         f"rescued=${_rescued:.2f}"
                                     )
+
+                        # Reporting corrections (opt-in, owner-approved):
+                        # an explicitly listed row whose two date cells
+                        # are blank is admitted with reporting-only
+                        # __corr_* fields. Raw cells, __mem_* images and
+                        # the rate-recalc inputs above are untouched;
+                        # every other blank-date row keeps today's gate.
+                        if not weekly_date and _corr_active:
+                            _corr_rec = _rc.recovery_for_row(
+                                row_data, source['id'], row.id,
+                            )
+                            if _corr_rec:
+                                row_data.update(_corr_rec)
+                                weekly_date = _corr_rec['__corr_week_ending']
+                                logging.warning(
+                                    "✏️ Reporting correction recovery: "
+                                    f"row {row.id} WR "
+                                    f"{str(work_request).split('.')[0]} "
+                                    "admitted with blank source dates"
+                                )
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0

@@ -29,6 +29,7 @@ from openpyxl.worksheet.properties import PageSetupProperties
 from dateutil import parser  # type: ignore[import-untyped]  # untyped third-party (matches facade)
 
 from pipeline import foreman_notes as _fn
+from pipeline import reporting_corrections as _rc
 from pipeline.config import (
     LOGO_PATH,
     _RE_EXTRACT_NUMBERS,
@@ -847,7 +848,9 @@ def generate_excel(group_key, group_rows, snapshot_date, ai_analysis_results=Non
         week_end_date = None
     
     for row in group_rows:
-        snap = row.get('Snapshot Date')
+        # Reporting corrections: an approved reporting workday wins over
+        # Snapshot Date (absent for every uncorrected row -> unchanged).
+        snap = _rc.reporting_workday(row)
         try:
             dt = excel_serial_to_date(snap)
             if dt is None:
