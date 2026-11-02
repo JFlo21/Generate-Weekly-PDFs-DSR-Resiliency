@@ -9793,3 +9793,26 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   only in the masked secret `FOREMAN_NOTES_PILOT_GFS`, never in a variable or tracked file.
 - Widening past the 3 pilot GFs (scope `all`) is a reviewed workflow PR, not a variable flip.
 - Evidence: PR #445; workflow-contract + Foreman Notes tests 824 passed / 2 skipped; diff name scan 0.
+
+## [2026-11-02 18:30] Reporting corrections module (owner-approved re-credit path) + docs-update pass
+
+- What: `pipeline/reporting_corrections.py` (opt-in via `REPORTING_CORRECTIONS_FILE`; template
+  `docs/templates/reporting_corrections.template.json`; runbook `website/docs/runbook/reporting-corrections.md`).
+  Seams: fetch-time recovery of listed blank-date rows, exclusive credit override after the claimer maps,
+  `reporting_workday` day placement, `CORR=` token in both hash modes, stale-identity removal for retired /
+  blocked / superseded cases bounded to the WR/week, side-effect-free identity pass (`group_source_rows(...,
+  side_effects=False)`), recovered rows held out of memory/audit/drift phases until validated.
+- Why: a mis-assigned week (one foreman out, another covering, an email with two days reversed) needed a
+  row-level re-credit without editing Python or raw cells; future corrections must be data, not code.
+- Rules learned: (1) a correction case must pin `week_ending` to every row's weekly date or rows fall out of the
+  day blocks silently; (2) rollback = append a `retired: true` revision, run, wait for the
+  `🗑️ Reporting corrections … deleted` line, then remove — never edit a revision in place and never delete the
+  secret first, or a correction-only workbook stays on the sheet and bills twice; (3) $0.00 rows are
+  reconcile-only (never rendered), so approved row counts and rendered counts differ by design;
+  (4) `SKIP_UPLOAD` does not stop Supabase writes — only `TEST_MODE`/blank env does.
+- Evidence: commits `c5536351`..`462796d9` on `fix/wr-91006877-reporting-correction` (worktree, not pushed);
+  pytest 2909 passed / 3 skipped; `run_6_gates.sh` exit 0; feature-off golden hashes pinned to `ead47993`;
+  staged-diff name scan 0; reviewer + production-risk-reviewer + re-verification (GO-with-fixes → closed).
+- Docs pass (`63787962`): 48 docs verified by `gsd-doc-verifier`; Azure mirror docs now describe the PAT
+  pipeline; `AGENTS.md` is Codex-owned and never read.
+- Open for owner: workflow step + secret (protected), PR, helper-vs-primary file for the covering helper.

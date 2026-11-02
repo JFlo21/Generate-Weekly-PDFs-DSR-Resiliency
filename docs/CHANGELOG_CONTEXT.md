@@ -9,6 +9,14 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-11-02 — Reporting corrections module + docs-update pass
+
+Branch `fix/wr-91006877-reporting-correction` (worktree, not pushed). Opt-in row-level re-credit path with
+retire/rollback semantics, two independent reviews and a re-verification; full suite and 6 gates green; feature
+OFF byte-identical. Docs: 48 docs verified, Azure docs corrected, four new guides and two reference pages.
+Details and rules: `memory-bank/living-ledger.md` `[2026-11-02 18:30]`. Owner gates: workflow step + secret,
+PR, helper-vs-primary choice.
+
 ## 2026-10-31 — PR #445 Foreman Notes pilot switch
 
 The weekly workflow now passes `FOREMAN_NOTES_SCOPE: 'pilot'`, the `FOREMAN_NOTES_PILOT_GFS` secret and

@@ -1,11 +1,24 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-10-30 (GF-lookup hold + Foreman Notes Sentry upgrade, draft PR #444 stacked on #437) · **overwrite-in-place each session** — this is
+_Last updated: 2026-11-02 (reporting-corrections module on branch `fix/wr-91006877-reporting-correction`, not pushed; docs-update pass) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
 ## Where it stands
 
+- **Reporting corrections (2026-11-02, branch `fix/wr-91006877-reporting-correction` in worktree `gwp-corr`, NOT pushed)**:
+  opt-in `pipeline/reporting_corrections.py` (`REPORTING_CORRECTIONS_FILE`; unset = byte-identical OFF) re-credits
+  listed `(sheet_id,row_id)` rows to an approved foreman/variant/workday, recovers listed blank-date rows, retires
+  via `retired: true`, and adds a `CORR=` hash token so gaining and displaced groups regenerate once. Two independent
+  reviews + one re-verification: H1/H2/M1–M5 closed (`4b1f6b5a`, `462796d9`); suite 2909 passed, 6 gates green,
+  feature-off golden hashes unchanged. One private correction case is prepared offline (350 rows reconcile exactly to the
+  approved total; see session scratchpad, never tracked). **Blocked on owner**: workflow step + secret
+  `REPORTING_CORRECTIONS_JSON_B64` (hook-protected), PR review/merge, and the helper-vs-primary file choice for the
+  third foreman. Runbook: `website/docs/runbook/reporting-corrections.md`.
+- **Docs-update pass (2026-11-02, `63787962` on the same branch)**: 6 canonical docs (README/architecture supplements,
+  4 new `docs/guides/*`), 2 gap docs (`docs/ai/supabase-layers.md`, `docs/ai/scripts-reference.md`), 40 hand-written
+  docs verified (47/48 verified, AGENTS.md skipped as Codex-owned); Azure mirror docs rewritten to the real PAT pipeline;
+  stale anchors fixed; dated plans/specs carry a layout note.
 - **Milestone v1.4 "Supabase Run Memory"**: Phases 10 (2026-08-25), 11 (2026-08-31), and 11.1 (2026-09-02,
   PR #384 `13e8e76`) are closed. Production posture: `pipeline_memory` write path ON since PR #353
   (`RUN_MEMORY_WRITE_ENABLED='1'` on the `Generate reports` step only); `RUN_MEMORY_INCREMENTAL_ENABLED` OFF;

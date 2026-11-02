@@ -48,8 +48,9 @@ case `(WR, week ending)`:
   Unlisted rows of the same week keep today's logic.
 - **Day** -- the row is shown in the day block of its approved `workday`.
 - **Recovery** -- a listed row with `recover_missing_dates: true` whose two
-  date cells are blank is admitted (once) under the correction's week. Every
-  other blank-date row stays excluded exactly as today.
+  date cells are blank is admitted under the correction's week on every run
+  while the correction is active (it is never written back to the sheet).
+  Every other blank-date row stays excluded exactly as today.
 - **Regeneration** -- the new owners' files *and* the files the rows left
   ("displaced" identities) regenerate once (the `CORR=` hash token); a
   displaced file that ends up empty has its stale attachment removed (planned
@@ -71,7 +72,11 @@ Start from `docs/templates/reporting_corrections.template.json`. One entry per
 `(WR, week_ending)`; `variant` is `primary`, `helper` or `helper2`; `dept` is
 required for helper variants (for `primary` it must equal the row's `Dept #`);
 `workday` must fall inside the reporting week (and inside `scope_days` when
-given). To change an applied case, keep the `id` and raise `revision`.
+given). To change an applied case, **append** a new entry with the same `id`
+and a higher `revision` and keep the old entry in the file: the pipeline
+can only clean up the files the old revision credited while it can still
+see it. Editing a revision in place leaves the old credit file on the sheet.
+To withdraw a case, set `retired: true` (see rolling back).
 
 ## Operator procedure
 
@@ -86,24 +91,39 @@ given). To change an applied case, keep the `id` and raise `revision`.
    --rows-json <private_rows.json> [--memory-json <row_state_images.json>]`
    Continue only with `blocked=0` and subtotals equal to the approved figures.
 4. **Local dry run** limited to the WR with uploads and Supabase writes off
-   (`TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<wr>
-   REPORTING_CORRECTIONS_FILE=<private.json>`; see the operations page), and
+   (`SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<wr>
+   REPORTING_CORRECTIONS_FILE=<private.json>`; blank the token explicitly,
+   otherwise `TEST_MODE` reads every sheet live; see the operations page), and
    read the workbooks back before anything is published. The log must show
    `✏️ Reporting correction ... APPLIED`.
-5. **Activate on the runner:** base64-encode the file into the repository
-   secret `REPORTING_CORRECTIONS_JSON_B64`; the weekly workflow decodes it to
-   `$RUNNER_TEMP/reporting_corrections.json`, validates it, and exports
-   `REPORTING_CORRECTIONS_FILE`. Keep the secret for as long as the correction
-   must stay in effect -- it applies on every run, not once.
+5. **Activate on the runner** (workflow wiring pending owner approval --
+   the weekly workflow does not read the secret until the "Stage reporting
+   corrections" step is added to `weekly-excel-generation.yml`): base64-encode
+   the file into the repository secret `REPORTING_CORRECTIONS_JSON_B64`; the
+   step decodes it to `$RUNNER_TEMP/reporting_corrections.json`, validates it,
+   and exports `REPORTING_CORRECTIONS_FILE`. Keep the secret for as long as
+   the correction must stay in effect -- it applies on every run, not once.
 6. **Check the run log** for the APPLIED line, the expected re-credited /
    recovered counts, and the `reporting_corrections` block in the audit
    summary.
 
 ## Turning it off / rolling back
 
-Delete the repository secret (or the case from the file). The next run
-regenerates the affected files from today's logic -- the `CORR=` token
-disappears, so the change is detected and the files are rebuilt.
+Retire the case first, then remove it. Set `"retired": true` on the case
+(keep its rows and any superseded revisions) and let a run complete: the
+files the rows return to regenerate from today's logic (the `CORR=` token
+changes), and any workbook that existed *only* because of the correction has
+its stale attachment removed. Do not delete the case or the secret until the
+run log shows `🗑️ Reporting corrections: N stale identity(ies) handled, M
+attachment(s) deleted` for it (or you have checked the target row's
+attachments by eye). The removal is deferred, not skipped silently, when the
+run's time budget ran out, a group of that WR/week did not settle (upload
+error, Foreman Notes hold, quarantine), `MAX_GROUPS` truncated the run, or
+the run was `TEST_MODE` / `SKIP_UPLOAD` -- let the next full run finish it.
+Deleting the secret outright skips the retire run: a correction-only
+workbook would then stay on the sheet next to the regenerated files and bill
+those rows twice, so it would have to be deleted by hand. The same cleanup
+runs automatically when a live edit blocks a previously applied case.
 
 ## Audit findings
 
