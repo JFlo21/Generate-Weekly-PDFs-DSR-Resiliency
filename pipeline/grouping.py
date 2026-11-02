@@ -101,6 +101,12 @@ _HELPER2_CONFLICT_COUNT: int = 0
 _LAST_ATTR_PREFETCH: tuple[dict, str] | None = None
 
 
+def get_last_attr_prefetch_status() -> str | None:
+    """Status of the last side-effecting call's attribution prefetch
+    (the one a ``side_effects=False`` call reuses), or None."""
+    return _LAST_ATTR_PREFETCH[1] if _LAST_ATTR_PREFETCH else None
+
+
 def get_helper2_conflict_count() -> int:
     """Return the number of rows the last group_source_rows() call
     resolved via the O-14-A helper2-wins conflict rule."""

@@ -2669,6 +2669,28 @@ def _corr_group_pair(gkey: Any, grows: list[dict[str, Any]]) -> tuple:
     )
 
 
+def _register_corr_displaced(
+    rows: list[dict[str, Any]], summary: dict[str, Any],
+) -> None:
+    """Reporting corrections: register displaced / stale keys from a
+    side-effect-free grouping pass that reuses the main pass's
+    attribution prefetch, and record the count in *summary*.
+
+    Skipped (one warning) when that prefetch is ``rpc_missing``: the
+    main pass may resolve claimers per-row while the reused empty map
+    cannot, so the two passes' keys could differ.
+    """
+    if _grouping.get_last_attr_prefetch_status() == 'rpc_missing':
+        logging.warning(
+            "⚠️ Reporting corrections: attribution prefetch is "
+            "rpc_missing -- displaced / stale key registration skipped "
+            "this run (corrected groups still carry CORR=)"
+        )
+        return
+    summary['displaced_groups'] = _rc.register_displaced(
+        rows, lambda _cr: group_source_rows(_cr, side_effects=False))
+
+
 def _corr_identity_cached(
     cached: list, wr_num: str, week_raw: str, variant: str,
     identifier: Any,
@@ -2697,6 +2719,7 @@ def _remove_empty_displaced_attachments(
     held_wr_weeks: set[tuple[str, str]] | None = None,
     settled_group_keys: set[Any] | None = None,
     time_budget_exceeded: bool = False,
+    live_listings: dict[Any, Any] | None = None,
 ) -> int:
     """Reporting corrections: a registered displaced / stale identity (a
     key corrected rows would have had WITHOUT the correction, or a
@@ -2711,7 +2734,9 @@ def _remove_empty_displaced_attachments(
     is skipped unless every group of it today uploaded or was unchanged
     (*settled_group_keys*; ``None`` = no gate) and nothing runs once the
     time budget stopped the loop -- a receiving file must exist before
-    the old one goes. An identity with no matching cached attachment is
+    the old one goes. The row's LIVE listing (*live_listings*, when the
+    run fetched one) is consulted before *attachment_cache*, whose
+    group_state stubs can miss a file; an identity found in neither is
     skipped quietly (nothing stale left). Returns the number of
     identities handled. No-op (0) when the feature is off.
     """
@@ -2754,6 +2779,10 @@ def _remove_empty_displaced_attachments(
         if target_row is None:
             continue
         cached = attachment_cache.get(target_row.id)
+        live = (live_listings or {}).get(target_row.id)
+        if live is not None and (cached is None or _corr_identity_cached(
+                live, wr_num, week_raw, variant, file_identifier)):
+            cached = live  # live listing first; the cache is the fallback
         if cached is not None and not _corr_identity_cached(
                 cached, wr_num, week_raw, variant, file_identifier):
             logging.debug(
@@ -3991,12 +4020,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # one-group-per-applied-row check. Never fatal.
             if _corr_summary:
                 try:
-                    _rc.register_displaced(
-                        all_rows,
-                        lambda _cr: group_source_rows(
-                            _cr, side_effects=False
-                        ),
-                    )
+                    _register_corr_displaced(all_rows, _corr_summary)
                     _rc.check_applied_placement(groups)
                 except Exception as _corr_reg_exc:
                     logging.warning(
@@ -6185,6 +6209,7 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     },
                     settled_group_keys=_corr_settled,
                     time_budget_exceeded=_time_budget_exceeded,
+                    live_listings=_live_attachment_listings,
                 )
             except Exception as _corr_del_exc:
                 logging.warning(

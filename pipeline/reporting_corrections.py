@@ -727,10 +727,13 @@ def recovery_for_row(row_data: Mapping[str, Any],
     if hit is None:
         return None
     corr, entry = hit
-    if (corr.retired or not entry.recover_missing_dates
-            or entry.reconcile_only):
+    if not entry.recover_missing_dates or entry.reconcile_only:
         return None
-    if row_differences(entry, corr, row_data):
+    # Seen even when nothing is recovered: a retired / blocked case must
+    # still derive this row's credited identity (_register_credited) so
+    # its correction-only file is removed.
+    _RECOVERED_SEEN[(sheet_id, row_id)] = dict(row_data)
+    if corr.retired or row_differences(entry, corr, row_data):
         return None
     return {
         '__corr_week_ending': corr.week_ending.isoformat(),
@@ -907,7 +910,9 @@ def prepare_run(
     rows[:] = kept
     _RUN_STATE['applied'] = applied_rows
     _RUN_STATE['status'] = status
-    displaced = 0
+    # None = not registered yet (orchestrate registers after grouping and
+    # fills this field in with register_displaced's count).
+    displaced: int | None = None
     if group_fn is not None:
         displaced = register_displaced(rows, group_fn)
     findings = {

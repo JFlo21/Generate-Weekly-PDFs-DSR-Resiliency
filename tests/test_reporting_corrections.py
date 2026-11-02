@@ -33,6 +33,7 @@ import openpyxl  # noqa: E402
 import generate_weekly_pdfs  # noqa: E402
 import pipeline.discovery as _discovery  # noqa: E402
 import pipeline.fetch as _fetch  # noqa: E402
+import pipeline.grouping as _grouping  # noqa: E402
 import pipeline.orchestrate as _orchestrate  # noqa: E402
 from pipeline import config as _config  # noqa: E402
 from pipeline import reporting_corrections as rc  # noqa: E402
@@ -78,8 +79,10 @@ _ATT_IDS = {
     '030826_90000001_HELPER2_Helper2_C': 903,
     '030826_90000001_HELPER_Helper_H': 904,
     '030826_90000002_USER_Foreman_A': 905,
+    '030826_90000001_HELPER_Helper_Z': 906,
 }
 _FOREMAN_B = '030826_90000001_USER_Foreman_B'
+_HELPER_Z = '030826_90000001_HELPER_Helper_Z'
 
 
 def _real_filenames(test, rows, doc=None):
@@ -161,6 +164,10 @@ class _Base(unittest.TestCase):
                         'EXTENDED_CHANGE_DETECTION', saved_ext)
         rc.reset_state()
         self.addCleanup(rc.reset_state)
+        # the identity pass reuses the last grouping's prefetch: start
+        # and end every test without one
+        _grouping._LAST_ATTR_PREFETCH = None
+        self.addCleanup(setattr, _grouping, '_LAST_ATTR_PREFETCH', None)
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
 
@@ -767,6 +774,70 @@ class RollbackTests(_Base):
         self.assertEqual(_remove(groups, _cache(rev1_names), client), 1)
         self.assertEqual(_deleted(client), [901])
 
+    @staticmethod
+    def _recovered_only_doc():
+        """Row 108 (recovered, blank dates) is the ONLY row credited to
+        Helper Z: that identity exists only while the case applies."""
+        doc = fx.correction_doc()
+        corr = doc['corrections'][0]
+        for row in corr['rows']:
+            if row['row_id'] == 108:
+                row['credit'] = dict(row['credit'], name='Helper Z')
+        corr.pop('expected_subtotals', None)
+        return doc
+
+    def test_retired_case_removes_recovered_only_identity(self):
+        doc = self._recovered_only_doc()
+        applied_names = _real_filenames(self, fx.admitted_rows(), doc=doc)
+        self.assertIn(_HELPER_Z, applied_names)
+        rev2 = copy.deepcopy(doc['corrections'][0])
+        rev2['revision'] = 2
+        rev2['retired'] = True
+        doc['corrections'].append(rev2)
+        groups, summary = self._run(doc)
+        self.assertEqual((summary['applied'], summary['retired']), (0, 1))
+        self.assertNotIn(_HELPER_Z, groups)
+        self.assertIn(_HELPER_Z, rc.displaced_groups())
+        client = _client()
+        self.assertEqual(_remove(groups, _cache(applied_names), client), 2)
+        self.assertEqual(_deleted(client), [901, 906])
+
+    def test_blocked_recovered_row_removes_recovered_only_identity(self):
+        doc = self._recovered_only_doc()
+        applied_names = _real_filenames(self, fx.admitted_rows(), doc=doc)
+        self._configure(doc)
+        rows = fx.admitted_rows()
+        rec = fx.recovered_row()
+        rec['Units Total Price'] = '45.00'  # its own expect now differs
+        self.assertIsNone(rc.recovery_for_row(rec, fx.SHEET, 108))
+        with self.assertLogs(level='WARNING'):
+            summary = rc.prepare_run(
+                rows, group_fn=generate_weekly_pdfs.group_source_rows)
+        groups = generate_weekly_pdfs.group_source_rows(rows)
+        self.assertEqual(summary['blocked'], 1)
+        self.assertNotIn(_HELPER_Z, groups)
+        self.assertIn(_HELPER_Z, rc.displaced_groups())
+        client = _client()
+        self.assertEqual(_remove(groups, _cache(applied_names), client), 2)
+        self.assertEqual(_deleted(client), [901, 906])
+
+    def test_stale_check_reads_the_live_listing_before_the_cache(self):
+        applied_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        groups, _ = self._run(_retired_doc())
+        live = _cache(applied_names)
+        no_stub = {55: []}  # group_state stubs missed the stale file
+        client = _client()
+        self.assertEqual(_remove(groups, no_stub, client), 0)
+        self.assertEqual(_deleted(client), [])
+        self.assertEqual(
+            _remove(groups, no_stub, client, live_listings=live), 1)
+        self.assertEqual(_deleted(client), [901])
+        client = _client()  # in neither -> quiet skip
+        self.assertEqual(
+            _remove(groups, no_stub, client, live_listings={55: []}), 0)
+        self.assertEqual(_deleted(client), [])
+
     def test_retired_must_be_boolean(self):
         doc = _retired_doc()
         doc['corrections'][1]['retired'] = 'yes'
@@ -890,23 +961,36 @@ class ShadowAndSideEffectTests(_Base):
             _orchestrate._full_mode_candidate_pairs(base, None),
             base | {(fx.WR, fx.WEEK)})
 
-    def test_identity_pass_reuses_prefetch_and_writes_nothing(self):
-        import billing_audit.writer as ba_writer
-        import pipeline.grouping as _grouping
-        self._run(fx.correction_doc())
-        expected = set(rc.displaced_groups())
-        self.assertEqual(len(expected), 3)
+    @staticmethod
+    def _vac_row():
+        """VAC crew row in the corrected WR/week: on a prefetch
+        fetch_failure the main pass records an attribution HOLD."""
+        row = fx._base(111, '2026-03-04', '70.00', pole='Point 12',
+                       cu='CU-12')
+        row.update({'__is_vac_crew': True, '__vac_crew_name': 'Vac V',
+                    '__vac_crew_dept': '777', '__vac_crew_job': ''})
+        return row
+
+    def _rows_prepared(self):
         rows = fx.admitted_rows()
+        rows.append(self._vac_row())
         rec = fx.recovered_row()
         rec.update(rc.recovery_for_row(rec, fx.SHEET, 108))
         rows.append(rec)
-        rc.prepare_run(rows, group_fn=None)
-        frozen_key = (fx.WR, datetime.date(2026, 3, 8), 103)
-        prefetch = mock.Mock(return_value=(
-            {frozen_key: {'primary': 'Foreman A'}}, 'success'))
+        summary = rc.prepare_run(rows, group_fn=None)
+        return rows, summary
+
+    def test_identity_pass_reuses_prefetch_and_writes_nothing(self):
+        import billing_audit.writer as ba_writer
+        self._run(fx.correction_doc())
+        expected = set(rc.displaced_groups())
+        self.assertEqual(len(expected), 3)
+        rows, _ = self._rows_prepared()
+        prefetch = mock.Mock(return_value=({}, 'fetch_failure'))
         hold = mock.Mock()
-        with mock.patch.object(generate_weekly_pdfs,
-                               'BILLING_AUDIT_AVAILABLE', True), \
+        with mock.patch.multiple(generate_weekly_pdfs,
+                                 BILLING_AUDIT_AVAILABLE=True,
+                                 VAC_CREW_CLAIM_ATTRIBUTION_ENABLED=True), \
                 mock.patch.object(ba_writer, 'prefetch_attribution',
                                   prefetch), \
                 mock.patch.object(ba_writer, 'record_attribution_hold',
@@ -915,19 +999,51 @@ class ShadowAndSideEffectTests(_Base):
                                   'sentry_capture_message_with_context'
                                   ) as sentry:
             generate_weekly_pdfs.group_source_rows(rows)
+            holds, alerts = hold.call_count, sentry.call_count
             published = _grouping.get_prefetched_frozen_row_keys()
             conflicts = _grouping.get_helper2_conflict_count()
             registered = rc.register_displaced(
                 rows, lambda r: generate_weekly_pdfs.group_source_rows(
                     r, side_effects=False))
         self.assertEqual(prefetch.call_count, 1)
-        hold.assert_not_called()
-        sentry.assert_not_called()
+        self.assertGreaterEqual(holds, 1)  # the main pass does write
+        self.assertEqual(hold.call_count, holds)  # the side pass never
+        self.assertEqual(sentry.call_count, alerts)
         self.assertEqual(_grouping.get_prefetched_frozen_row_keys(),
                          published)
         self.assertEqual(_grouping.get_helper2_conflict_count(), conflicts)
         self.assertEqual(registered, len(expected))
         self.assertEqual(set(rc.displaced_groups()), expected)
+
+    def test_registration_fills_the_summary_count(self):
+        _, summary = self._run(fx.correction_doc())
+        self.assertEqual(summary['displaced_groups'], 3)
+        self._configure(fx.correction_doc())
+        audit = {}
+        rows = fx.admitted_rows()
+        rec = fx.recovered_row()
+        rec.update(rc.recovery_for_row(rec, fx.SHEET, 108))
+        rows.append(rec)
+        summary = rc.prepare_run(rows, group_fn=None, audit_summary=audit)
+        self.assertIsNone(summary['displaced_groups'])
+        _grouping._LAST_ATTR_PREFETCH = ({}, 'success')
+        _orchestrate._register_corr_displaced(rows, summary)
+        self.assertEqual(summary['displaced_groups'], 3)
+        self.assertEqual(
+            audit['reporting_corrections']['displaced_groups'], 3)
+
+    def test_rpc_missing_skips_the_identity_pass(self):
+        self._configure(fx.correction_doc())
+        rows, summary = self._rows_prepared()
+        _grouping._LAST_ATTR_PREFETCH = ({}, 'rpc_missing')
+        with mock.patch.object(rc, 'register_displaced') as reg, \
+                self.assertLogs(level='WARNING') as logs:
+            _orchestrate._register_corr_displaced(rows, summary)
+        reg.assert_not_called()
+        self.assertEqual(
+            sum('rpc_missing' in line for line in logs.output), 1)
+        self.assertIsNone(summary['displaced_groups'])
+        self.assertEqual(rc.displaced_groups(), {})
 
 
 class HardeningTests(_Base):
