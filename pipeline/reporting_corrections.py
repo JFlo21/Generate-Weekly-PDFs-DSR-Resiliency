@@ -1267,8 +1267,10 @@ def _register_credited(rows: list[dict[str, Any]], cset: CorrectionSet,
             # file is still found and removed.
             copy = (_uncorrected_copy(src) if src is not None
                     else _entry_row(corr, entry))
-            # The old credit file belongs to the CASE week, even when
-            # the row has moved to another week or lost its dates.
+            # The old credit file belongs to the CASE WR and week, even
+            # when the row has moved to another WR / week or lost its
+            # dates: cleanup reads the WR from this row.
+            copy['Work Request #'] = corr.wr
             copy['Weekly Reference Logged Date'] = None
             copy['__corr_week_ending'] = corr.week_ending.isoformat()
             copy['Units Completed?'] = True

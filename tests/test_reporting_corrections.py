@@ -1372,6 +1372,38 @@ class ReviewRoundTests(_Base):
             self.assertNotIn(_FOREMAN_B, groups)
             self.assertIn(_FOREMAN_B, rc.displaced_groups(), change)
 
+    def test_moved_row_keeps_the_stale_identity_on_the_case_wr(self):
+        # row 101 moved to another WR: the case blocks and Foreman B's
+        # old file is still registered on the CASE WR -- cleanup must
+        # read that WR from the slot, never the row's new WR (Codex /
+        # Greptile on f429f892: a new-WR target row has no such file
+        # and the original stale workbook would stay).
+        names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        rows = fx.admitted_rows()
+        rows[0]['Work Request #'] = '90000009'
+        with self.assertLogs(level='WARNING'):
+            groups, summary = self._run(fx.correction_doc(), rows=rows)
+        self.assertEqual(summary['blocked'], 1)
+        slot = rc.displaced_groups()[_FOREMAN_B]
+        self.assertEqual(_orchestrate._corr_group_pair(_FOREMAN_B, slot),
+                         (fx.WR, '030826'))
+        # the new WR's target row: nothing to touch there
+        client = _client()
+        client.Attachments.list_row_attachments.return_value = (
+            SimpleNamespace(data=[]))
+        self.assertEqual(_orchestrate._remove_empty_displaced_attachments(
+            client, groups, {'90000009': SimpleNamespace(id=66)},
+            _cache(names), dict(
+                primary_claim_enabled=True, vac_crew_claim_enabled=True,
+                res_grouping_mode='both'),
+            target_sheet_id=1, skip_upload=False), 0)
+        self.assertEqual(_deleted(client), [])
+        # the case WR's target row: the old owner file goes
+        client = _client()
+        self.assertGreaterEqual(_remove(groups, _cache(names), client), 1)
+        self.assertIn(_ATT_IDS[_FOREMAN_B], _deleted(client))
+
     def test_cleanup_compares_identities_not_keys(self):
         names = _real_filenames(self, fx.admitted_rows())
         cache = _cache(names)
