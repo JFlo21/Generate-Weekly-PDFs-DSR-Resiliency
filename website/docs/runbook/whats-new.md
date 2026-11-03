@@ -5,45 +5,9 @@ title: What's New
 
 # What's New
 
-_Last updated: November 2, 2026 (updated automatically)_
+_Last updated: November 3, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
-## Parser that will offload grid format information from work request completed packets
-
-> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
-
-### 📋 Changelog — November 2, 2026
-
-- ✅ Problem fixed: resolve npm audit findings (21 -&gt; 4, no high)
-- 📄 Help guides updated: refresh project docs, add PRODUCT.md and eight guides
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: raise failing text-contrast pairs to WCAG minimums
-- ✨ New capability: motion always on, in-flow alerts that glide, and accessibility fixes
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: stop advising Destination for the Delivery Detail limit
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
-
-### 📋 Changelog — November 2, 2026
-
-- ✅ Problem fixed: motion audit fixes and follow-ups — exits, ambient gating and pause, GF labels on WAAPI, focus after Regenerate
-- 📄 Help guides updated: close out the arming record (ARM-35.2-07, plans 19-21 summaries)
-- ✅ Problem fixed: guide cursor lands on the control, with tip halo, arrival press and beacon entrance
-- 📄 Help guides updated: post-merge — Guide Blue hex DFC in the 40.3 spec; ledgers record the PR merge
-- 📄 Help guides updated: add testing and development guides, fix stale facts in README and docs/ai
-- ✨ New capability: guide cursor and app-wide motion upgrade
-- ✅ Problem fixed: tour popover stays on screen with a visible pointer arrow, tight anchors, direct-instruction copy (quick 261028-u1z)
-- 📄 Help guides updated: PR lingering Copilot items -- PROJECT.md 40.2 open warnings = WR-05 only; AppShell teardown-key comment adds viewport
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -51,24 +15,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 > ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — November 2, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: foreman notes GF pilot (replaces )
-- ✅ Problem fixed: hold pilot groups on GF lookup failure
-- ✅ Problem fixed: render Mermaid diagrams
-- ✅ Problem fixed: make mobile navbar menu readable
-- ✅ Problem fixed: carry every unconfirmed group as regen debt
-- 📄 Help guides updated: record G-11-37 post-deploy check
-- ✅ Problem fixed: build runbook site on Node 26
 
 <!-- /runbook-repo -->
 
@@ -81,14 +27,68 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
+## Parser that will offload grid format information from work request completed packets
+
+> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
+
+### 📋 Changelog — November 3, 2026
+
+- ✅ Problem fixed: Pillow 13 and requests 2.33+ (52 Dependabot alerts, all critical/high)
+- 📄 Help guides updated: record the review gate as live and the PR stack as closed
+- ✅ Problem fixed: resolve npm audit findings (21 -&gt; 4, no high)
+- 📄 Help guides updated: refresh project docs, add PRODUCT.md and eight guides
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: raise failing text-contrast pairs to WCAG minimums
+- ✨ New capability: motion always on, in-flow alerts that glide, and accessibility fixes
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — November 3, 2026
+
+- ✨ New capability: Phase 40.4 — expressive motion across the web app
+- ✅ Problem fixed: motion audit fixes and follow-ups — exits, ambient gating and pause, GF labels on WAAPI, focus after Regenerate
+- 📄 Help guides updated: close out the arming record (ARM-35.2-07, plans 19-21 summaries)
+- ✅ Problem fixed: guide cursor lands on the control, with tip halo, arrival press and beacon entrance
+- 📄 Help guides updated: post-merge — Guide Blue hex DFC in the 40.3 spec; ledgers record the PR merge
+- 📄 Help guides updated: add testing and development guides, fix stale facts in README and docs/ai
+- ✨ New capability: guide cursor and app-wide motion upgrade
+- ✅ Problem fixed: tour popover stays on screen with a visible pointer arrow, tight anchors, direct-instruction copy (quick 261028-u1z)
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 2, 2026
+### 📋 Changelog — November 3, 2026
 
-- • 📊 Audit: 2026-10-26T07:08:11Z
+- • 📊 Audit: 2026-11-02T06:48:49Z
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — November 3, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✨ New capability: foreman notes GF pilot (replaces )
+- ✅ Problem fixed: hold pilot groups on GF lookup failure
+- ✅ Problem fixed: render Mermaid diagrams
+- ✅ Problem fixed: make mobile navbar menu readable
+- ✅ Problem fixed: carry every unconfirmed group as regen debt
+- 📄 Help guides updated: record G-11-37 post-deploy check
+- ✅ Problem fixed: build runbook site on Node 26
 
 <!-- /runbook-repo -->
 
@@ -475,7 +475,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 2, 2026
+### 📋 Changelog — November 3, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
