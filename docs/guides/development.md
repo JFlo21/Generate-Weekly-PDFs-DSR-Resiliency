@@ -43,8 +43,8 @@ Steps:
 6. For the Node surfaces, install per directory:
 
    ```bash
-   cd portal-v2 && npm install
-   cd website && npm install
+   npm --prefix portal-v2 install
+   npm --prefix website install
    ```
 
    `scripts/cloud-agent-install.sh` is the idempotent bootstrap used by cloud agent environments. It

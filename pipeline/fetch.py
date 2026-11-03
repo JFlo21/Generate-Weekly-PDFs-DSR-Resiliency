@@ -931,7 +931,7 @@ def get_all_source_rows(client, source_sheets):
                                 weekly_date = _corr_rec['__corr_week_ending']
                                 logging.warning(
                                     "✏️ Reporting correction recovery: "
-                                    f"row {row.id} WR "
+                                    f"row {row.id} for WR "
                                     f"{str(work_request).split('.')[0]} "
                                     "admitted with blank source dates"
                                 )

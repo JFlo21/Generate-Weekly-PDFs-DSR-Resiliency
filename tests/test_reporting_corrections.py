@@ -36,6 +36,7 @@ import pipeline.fetch as _fetch  # noqa: E402
 import pipeline.grouping as _grouping  # noqa: E402
 import pipeline.orchestrate as _orchestrate  # noqa: E402
 from pipeline import config as _config  # noqa: E402
+from pipeline import observability as _obs  # noqa: E402
 from pipeline import reporting_corrections as rc  # noqa: E402
 from tests import _reporting_corrections_fixture as fx  # noqa: E402
 
@@ -127,6 +128,16 @@ def _deleted(client):
 def _remove(groups, cache, client, **extra):
     kwargs = dict(target_sheet_id=1, skip_upload=False)
     kwargs.update(extra)
+    # no run-level live listing: the on-demand live read returns what
+    # the cache holds unless *fetched* says otherwise (a list, or an
+    # exception for a failed read)
+    fetched = kwargs.pop('fetched', None)
+    if isinstance(fetched, Exception):
+        client.Attachments.list_row_attachments.side_effect = fetched
+    else:
+        client.Attachments.list_row_attachments.return_value = (
+            SimpleNamespace(data=list(
+                cache.get(55, []) if fetched is None else fetched)))
     switches = dict(
         primary_claim_enabled=(
             generate_weekly_pdfs.PRIMARY_CLAIM_ATTRIBUTION_ENABLED),
@@ -179,8 +190,9 @@ class _Base(unittest.TestCase):
         rc.reset_state()
         return path
 
-    def _run(self, doc=None, rows=None):
-        """fetch-recovery + prepare_run + grouping, like main() does."""
+    def _run(self, doc=None, rows=None, check=True):
+        """fetch-recovery + prepare_run + grouping (+ the placement
+        check unless *check* is False), like main() does."""
         if doc is not None:
             self._configure(doc)
         rows = rows if rows is not None else fx.admitted_rows()
@@ -192,6 +204,8 @@ class _Base(unittest.TestCase):
         summary = rc.prepare_run(
             rows, group_fn=generate_weekly_pdfs.group_source_rows)
         groups = generate_weekly_pdfs.group_source_rows(rows)
+        if check and summary:
+            rc.check_applied_placement(groups)
         return groups, summary
 
 
@@ -223,6 +237,15 @@ class LoaderValidationTests(_Base):
                        'credit.dept is required', 'outside the reporting',
                        "missing ['pole']"):
             self.assertIn(needle, text)
+
+    def test_primary_credit_requires_dept(self):
+        # A blank primary dept would skip the Dept # equality check in
+        # row_differences(): the loader must reject it.
+        for blank in ('', None, '  '):
+            doc = fx.correction_doc()
+            doc['corrections'][0]['rows'][0]['credit']['dept'] = blank
+            self.assertIn('credit.dept is required for primary',
+                          self._problems(doc))
 
     def test_rejects_schema_and_duplicate_rows(self):
         doc = fx.correction_doc()
@@ -426,6 +449,37 @@ class AppliedCorrectionTests(_Base):
             1)
         self.assertEqual(_deleted(client), [903])
 
+    def test_failed_placement_holds_the_pair_cleanup(self):
+        # An applied row in no group (or in two) means no replacement
+        # workbook holds it: the pair is not settled, keep the old file.
+        names = _real_filenames(self, fx.admitted_rows())
+        cache = _cache(names)
+        groups, summary = self._run(fx.correction_doc())
+        broken = dict(groups)
+        broken[_FOREMAN_B] = [r for r in groups[_FOREMAN_B]
+                              if r['__row_id'] != 101]
+        with self.assertLogs(level='WARNING'):
+            self.assertEqual(rc.check_applied_placement(broken), 1)
+        self.assertEqual(rc.unplaced_pairs(), {(fx.WR, '030826')})
+        client = _client()
+        with self.assertLogs(level='WARNING') as cm:
+            self.assertEqual(_remove(broken, cache, client), 0)
+        self.assertEqual(_deleted(client), [])
+        self.assertTrue(any('placement' in m for m in cm.output))
+        self.assertEqual(rc.get_run_counts()['placement_held_pairs'], 1)
+        # placement re-checked clean -> the pair is settled again
+        self.assertEqual(rc.check_applied_placement(groups), 0)
+        self.assertEqual(rc.unplaced_pairs(), set())
+        client = _client()
+        self.assertEqual(_remove(groups, cache, client), 1)
+        self.assertEqual(_deleted(client), [903])
+        # placement never checked this run -> unverified, held as well
+        groups, _ = self._run(fx.correction_doc(), check=False)
+        self.assertEqual(rc.unplaced_pairs(), {(fx.WR, '030826')})
+        client = _client()
+        self.assertEqual(_remove(groups, cache, client), 0)
+        self.assertEqual(_deleted(client), [])
+
 
 class BlockedCorrectionTests(_Base):
 
@@ -448,6 +502,34 @@ class BlockedCorrectionTests(_Base):
         for grows in groups.values():
             for row in grows:
                 self.assertFalse(row.get('__corr_credit'))
+
+    def test_variant_the_grouping_switches_cannot_produce_blocks(self):
+        # A helper credit under RES_GROUPING_MODE=primary (or a helper2
+        # credit with HELPER2_ENABLED off) would land in the primary
+        # workbook yet report APPLIED: block it before stamping.
+        with mock.patch.object(generate_weekly_pdfs, 'RES_GROUPING_MODE',
+                               'primary'), \
+                self.assertLogs(level='WARNING') as cm:
+            groups, summary = self._run(fx.correction_doc())
+        self.assertEqual((summary['applied'], summary['blocked']), (0, 1))
+        self.assertEqual(
+            summary['findings']['variant_not_produced'], 1)
+        blocked = [m for m in cm.output if 'BLOCKED' in m]
+        self.assertTrue(blocked)
+        self.assertIn('RES_GROUPING_MODE=primary', blocked[0])
+        self.assertNotIn('Helper H', ' '.join(cm.output))
+        self.assertFalse(any(r.get('__corr_credit')
+                             for grows in groups.values() for r in grows))
+        doc = fx.correction_doc()
+        row106 = doc['corrections'][0]['rows'][4]
+        self.assertEqual(row106['row_id'], 106)
+        row106['credit']['variant'] = 'helper2'
+        for enabled, applied in ((False, 0), (True, 1)):
+            with mock.patch.object(_config, 'HELPER2_ENABLED', enabled):
+                _, summary = self._run(doc)
+            self.assertEqual(summary['applied'], applied)
+            self.assertEqual(
+                summary['findings']['variant_not_produced'], 1 - applied)
 
     def test_missing_row_and_wrong_wr_block(self):
         cset = rc.parse_corrections(fx.correction_doc())
@@ -492,7 +574,13 @@ class ReconcileOnlyTests(_Base):
             groups, summary = self._run(fx.correction_doc(), rows=rows)
         self.assertEqual(summary['blocked'], 1)
         text = ' | '.join(cm.output)
-        self.assertIn('units_total_price: 12.50 != expected 0.00', text)
+        # field name only: live / expected values never reach the log
+        self.assertIn('row 110 for WR 90000001: 1 field(s) differ: '
+                      'units_total_price', text)
+        self.assertNotIn('12.50', text)
+        res = rc.evaluate(rc.get_active_set(), rows)[0]
+        self.assertIn('units_total_price: 12.50 != expected 0.00',
+                      dict((e.row_id, d) for e, d in res.mismatched)[110])
         for grows in groups.values():
             for row in grows:
                 self.assertFalse(row.get('__corr_credit'))
@@ -1176,6 +1264,189 @@ class HardeningTests(_Base):
             got = self._fetch([fx.recovered_row()])
         self.assertEqual([r['__row_id'] for r in got], [108])
         self.assertEqual(threads, [threading.current_thread().name])
+
+
+class ReviewRoundTests(_Base):
+    """PR #447 review round: fail-closed placement, identity cleanup,
+    loader strictness and log hygiene."""
+
+    def _vac_copy_of_101(self):
+        vac = fx._base(301, '2026-03-02', '100.00', pole='Point 1',
+                       cu='CU-1')
+        vac.update({'__source_sheet_id': 7002, '__sheet_id': 7002,
+                    '__is_vac_crew': True})
+        return vac
+
+    def test_vac_claimed_unit_blocks_the_case(self):
+        # grouping bills a VAC-claimed unit on the VacCrew sheet only and
+        # drops the foreman copy: a correction crediting that copy can
+        # not be placed -> blocked, never reported APPLIED (no double
+        # billing either).
+        rows = fx.admitted_rows() + [self._vac_copy_of_101()]
+        with self.assertLogs(level='WARNING') as cm:
+            groups, summary = self._run(fx.correction_doc(), rows=rows)
+        self.assertEqual((summary['applied'], summary['blocked']), (0, 1))
+        self.assertEqual(summary['findings']['vac_claimed_unit'], 1)
+        self.assertTrue(any('VAC crew' in m for m in cm.output))
+        for grows in groups.values():
+            self.assertFalse(any(r.get('__corr_credit') for r in grows))
+
+    def test_legacy_primary_identity_blocks_an_owner_change(self):
+        with mock.patch.object(generate_weekly_pdfs,
+                               'PRIMARY_CLAIM_ATTRIBUTION_ENABLED', False), \
+                self.assertLogs(level='WARNING') as cm:
+            groups, summary = self._run(fx.correction_doc())
+        self.assertEqual((summary['applied'], summary['blocked']), (0, 1))
+        self.assertEqual(summary['findings']['variant_not_produced'], 1)
+        self.assertTrue(any('PRIMARY_CLAIM_ATTRIBUTION_ENABLED is off' in m
+                            for m in cm.output))
+        for grows in groups.values():
+            self.assertFalse(any(r.get('__corr_credit') for r in grows))
+        # same owner (workday only) is still produced in legacy mode
+        doc = fx.correction_doc()
+        corr = doc['corrections'][0]
+        corr.pop('expected_subtotals')
+        corr['rows'] = [r for r in corr['rows'] if r['row_id'] == 102]
+        with mock.patch.object(generate_weekly_pdfs,
+                               'PRIMARY_CLAIM_ATTRIBUTION_ENABLED', False):
+            _, summary = self._run(doc)
+        self.assertEqual(summary['applied'], 1)
+
+    def test_units_completed_must_be_boolean(self):
+        doc = fx.correction_doc()
+        doc['corrections'][0]['rows'][0]['expect'][
+            'units_completed'] = 'false'
+        with self.assertRaises(rc.CorrectionError) as cm:
+            rc.parse_corrections(doc)
+        self.assertIn('units_completed must be true or false',
+                      ' | '.join(cm.exception.problems))
+
+    def test_quantity_uses_the_shared_parser_without_rounding(self):
+        doc = fx.correction_doc()
+        doc['corrections'][0]['rows'][0]['expect']['quantity'] = 1.004
+        cset = rc.parse_corrections(doc)
+        corr, entry = cset.by_row[(fx.SHEET, 101)]
+        row = fx.admitted_rows()[0]
+        row['Quantity'] = 1.001
+        self.assertTrue(any(d.startswith('quantity') for d in
+                            rc.row_differences(entry, corr, row)))
+        corr, entry = rc.parse_corrections(
+            fx.correction_doc()).by_row[(fx.SHEET, 101)]
+        row['Quantity'] = '1 EA'
+        self.assertFalse(any(d.startswith('quantity') for d in
+                             rc.row_differences(entry, corr, row)))
+
+    def test_blocked_log_lines_carry_no_cell_values(self):
+        rows = fx.admitted_rows()
+        rows[1]['Units Total Price'] = '111.00'
+        rows[1]['Pole #'] = 'Point 2X'
+        rows[1]['Quantity'] = 7.0
+        with self.assertLogs(level='INFO') as cm:
+            self._run(fx.correction_doc(), rows=rows)
+        text = ' | '.join(cm.output)
+        for value in ('111.00', 'Point 2X', '7.0', "'Point 2'"):
+            self.assertNotIn(value, text)
+        self.assertIn('pole, quantity, units_total_price', text)
+        # every correction line naming the WR is caught by the marker
+        # sweep (GitHub log keeps it; Sentry breadcrumbs drop it)
+        for rec in cm.records:
+            msg = rec.getMessage()
+            if 'correction' in msg and fx.WR in msg:
+                self.assertTrue(
+                    any(m in msg for m in _obs._PII_LOG_MARKERS), msg)
+
+    def test_credited_identity_found_without_a_live_row(self):
+        # row 101 unchecked (fetch drops it) or moved to another week:
+        # the case blocks and Foreman B's correction-only identity must
+        # still be registered for removal.
+        for change in ('removed', 'moved'):
+            rows = fx.admitted_rows()
+            if change == 'removed':
+                rows = [r for r in rows if r['__row_id'] != 101]
+            else:
+                rows[0]['Weekly Reference Logged Date'] = '2026-03-15'
+            with self.assertLogs(level='WARNING'):
+                groups, summary = self._run(fx.correction_doc(),
+                                            rows=rows)
+            self.assertEqual(summary['blocked'], 1, change)
+            self.assertNotIn(_FOREMAN_B, groups)
+            self.assertIn(_FOREMAN_B, rc.displaced_groups(), change)
+
+    def test_cleanup_compares_identities_not_keys(self):
+        names = _real_filenames(self, fx.admitted_rows())
+        cache = _cache(names)
+        groups, _ = self._run(fx.correction_doc())
+        key = '030826_90000001_HELPER2_Helper2_C'
+        stale_rows = rc.displaced_groups()[key]
+        other = [dict(r, __helper2_foreman='Helper2 Z')
+                 for r in stale_rows]
+        # same key today, another identity -> the old file is stale
+        client = _client()
+        self.assertEqual(_remove(dict(groups, **{key: other}), cache,
+                                 client), 1)
+        self.assertEqual(_deleted(client), [903])
+        # another key today carries the same identity -> never deleted
+        client = _client()
+        same = dict(groups, **{'030826_90000001_HELPER2_Other':
+                               [dict(r) for r in stale_rows]})
+        self.assertEqual(_remove(same, cache, client), 0)
+        self.assertEqual(_deleted(client), [])
+
+    def test_live_listing_decides_removal(self):
+        names = _real_filenames(self, fx.admitted_rows())
+        cache = _cache(names)
+        groups, _ = self._run(fx.correction_doc())
+        # run-level live listing lacks it: the stale cache stub loses
+        client = _client()
+        self.assertEqual(
+            _remove(groups, cache, client, live_listings={55: []}), 0)
+        self.assertEqual(_deleted(client), [])
+        # cache misses it, the on-demand live read has it -> removed
+        no_stub = {55: [a for a in cache[55] if a.id != 903]}
+        client = _client()
+        self.assertEqual(
+            _remove(groups, no_stub, client, fetched=cache[55]), 1)
+        self.assertEqual(_deleted(client), [903])
+        # live read failed -> kept, retried next run
+        client = _client()
+        with self.assertLogs(level='WARNING') as cm:
+            self.assertEqual(_remove(groups, cache, client,
+                                     fetched=RuntimeError('down')), 0)
+        self.assertEqual(_deleted(client), [])
+        self.assertTrue(any('listing unavailable' in m
+                            for m in cm.output))
+
+    def test_incremental_full_read_never_writes_recovered_rows(self):
+        self._configure(fx.correction_doc())
+        rows = fx.admitted_rows()
+        rec = fx.recovered_row()
+        rec.update(rc.recovery_for_row(rec, fx.SHEET, 108))
+        rows.append(rec)
+        sent = []
+
+        def _upsert(_sheet_id, _run_id, bucket):
+            sent.extend(r['__row_id'] for r in bucket)
+            return {'affected': set(), 'status': 'ok'}
+
+        with mock.patch.multiple(
+                _orchestrate, RUN_MEMORY_WRITE_ENABLED=True,
+                TEST_MODE=False, TIME_BUDGET_MINUTES=0), \
+                mock.patch.object(_orchestrate, 'get_all_source_rows',
+                                  return_value=rows), \
+                mock.patch.object(_orchestrate._mem_reader,
+                                  'map_affected_to_sheets',
+                                  return_value=set()), \
+                mock.patch.object(_orchestrate._mem_writer,
+                                  'upsert_rows_bulk_result',
+                                  side_effect=_upsert), \
+                mock.patch.object(_orchestrate._fn, 'memory_write_blocked',
+                                  return_value=False):
+            _orchestrate._run_phase2_incremental(
+                client=mock.Mock(), source_sheets=[{'id': fx.SHEET}],
+                watermarks={}, per_sheet_reasons={fx.SHEET: 'trigger1'},
+                mem_run_id='run-x', session_start=datetime.datetime.now())
+        self.assertTrue(sent)
+        self.assertNotIn(108, sent)
 
 
 if __name__ == '__main__':

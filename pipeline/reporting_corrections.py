@@ -55,10 +55,10 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable, Iterable, Mapping, cast
+from typing import Any, Callable, Iterable, Mapping, TextIO, cast
 
 from pipeline import config as _cfg
-from pipeline.pricing import parse_price
+from pipeline.pricing import _parse_quantity, parse_price
 from pipeline.types import normalize_helper_value
 from pipeline.utils import excel_serial_to_date, is_checked
 
@@ -204,8 +204,13 @@ def _parse_row(raw: Any, where: str, week_ending: datetime.date,
     if variant not in VARIANTS:
         problems.append(
             f'{where}: credit.variant must be one of {list(VARIANTS)}')
-    elif variant in ('helper', 'helper2') and not dept:
-        problems.append(f'{where}: credit.dept is required for {variant}')
+    elif not dept:
+        # primary: row_differences() compares it with the row's Dept #;
+        # a blank value would silently skip that equality check.
+        problems.append(
+            f'{where}: credit.dept is required for {variant}'
+            + (" (it must equal the row's Dept #)"
+               if variant == 'primary' else ''))
     workday = _iso_date(raw.get('workday'))
     if workday is None:
         problems.append(f'{where}: workday must be an ISO date')
@@ -259,6 +264,11 @@ def _parse_row(raw: Any, where: str, week_ending: datetime.date,
     for nkey in ('quantity', 'units_total_price'):
         if nkey in expect and not _finite(expect.get(nkey)):
             problems.append(f'{where}: expect.{nkey} must be a finite number')
+    # bool('false') is True: a string would match a completed row.
+    if 'units_completed' in expect and not isinstance(
+            expect.get('units_completed'), bool):
+        problems.append(
+            f'{where}: expect.units_completed must be true or false')
     if len(problems) != before or workday is None:
         return None
     return CorrectionRow(
@@ -485,6 +495,16 @@ def _decimal(value: Any) -> Decimal | None:
         return None
 
 
+def _same_quantity(raw: Any, expected: Any) -> bool:
+    """*raw* (a ``Quantity`` cell) equals *expected* exactly, read with
+    the shared pricing / display parser (``'2 EA'`` -> 2) and compared
+    without money rounding (1.001 != 1.004)."""
+    if raw is None or _text(raw) == '' or not _finite(expected):
+        return False
+    got = _parse_quantity(raw)
+    return Decimal(repr(got)) == Decimal(str(expected).strip())
+
+
 def _finite(value: Any) -> bool:
     """A real, finite number (JSON NaN / Infinity and booleans are not)."""
     if isinstance(value, bool) or value is None:
@@ -566,8 +586,7 @@ def row_differences(entry: CorrectionRow, corr: Correction,
     for label, got, want in checks:
         if got != want:
             diffs.append(f'{label}: {got!r} != expected {want!r}')
-    got_qty = _decimal(row.get('Quantity'))
-    if got_qty is None or got_qty != _decimal(exp.get('quantity')):
+    if not _same_quantity(row.get('Quantity'), exp.get('quantity')):
         diffs.append(
             f"quantity: {row.get('Quantity')!r} != expected "
             f"{exp.get('quantity')!r}")
@@ -599,6 +618,12 @@ def row_differences(entry: CorrectionRow, corr: Correction,
                 'primary credit job differs from the row Job # '
                 '(a primary job override is not supported)')
     return diffs
+
+
+def diff_fields(diffs: Iterable[str]) -> list[str]:
+    """The field label of each ``row_differences`` text, without the
+    live / expected values it may carry (safe to log)."""
+    return [d.split(':', 1)[0].split(' (', 1)[0] for d in diffs]
 
 
 def observed_owner(row: Mapping[str, Any]) -> str:
@@ -857,6 +882,85 @@ def drop_all_corrections(rows: list[dict[str, Any]]) -> None:
     reset_state()
 
 
+def _unproduced_variants() -> dict[str, str]:
+    """Credit variant -> the switch that keeps grouping from producing
+    its workbook this run (empty when every variant is produced). The
+    ``'primary_owner'`` entry means a primary owner CHANGE is not
+    produced: the primary file identity is the legacy one (one bare
+    file per WR / week, named from the row's ``User`` field).
+
+    RES_GROUPING_MODE and PRIMARY_CLAIM_ATTRIBUTION_ENABLED are read
+    from the facade, exactly as ``pipeline.grouping`` reads them;
+    HELPER2_ENABLED is the Helper #2 kill switch (``pipeline.config``).
+    """
+    import generate_weekly_pdfs as _gwp  # noqa: PLC0415 -- live facade
+    mode = getattr(_gwp, 'RES_GROUPING_MODE', _cfg.RES_GROUPING_MODE)
+    claim = getattr(_gwp, 'PRIMARY_CLAIM_ATTRIBUTION_ENABLED',
+                    _cfg.PRIMARY_CLAIM_ATTRIBUTION_ENABLED)
+    off: dict[str, str] = {}
+    if mode == 'primary':
+        off['helper'] = off['helper2'] = 'RES_GROUPING_MODE=primary'
+        off['primary_owner'] = 'RES_GROUPING_MODE=primary'
+    else:
+        if not getattr(_cfg, 'HELPER2_ENABLED', False):
+            off['helper2'] = 'HELPER2_ENABLED is off'
+        if not claim:
+            off['primary_owner'] = (
+                'PRIMARY_CLAIM_ATTRIBUTION_ENABLED is off')
+    return off
+
+
+def _block_unsupported(results: list[CorrectionResult],
+                       rows: list[dict[str, Any]]) -> tuple[int, int]:
+    """Block every non-retired correction this run cannot place in the
+    approved workbook (the row would fall back elsewhere -- or nowhere
+    -- while the case reported APPLIED):
+
+    * a credited variant the grouping switches do not produce, or a
+      primary owner change under the legacy primary file identity;
+    * a credited row whose unit (WR, week, Point, CU) a completed VAC
+      crew row claims: grouping bills that unit on the VacCrew sheet
+      only and drops this copy (no double billing).
+
+    Reconcile-only ($0.00) rows are never credited and are ignored.
+    Returns (variant-blocked, VAC-blocked) correction counts."""
+    from pipeline.grouping import (  # noqa: PLC0415 -- import cycle
+        unit_point_cu, vac_claimed_units,
+    )
+    off = _unproduced_variants()
+    claimed = vac_claimed_units(rows)
+    by_key = {row_key(r): r for r in rows} if claimed else {}
+    variant_blocked = vac_blocked = 0
+    for res in results:
+        if res.status == 'retired':
+            continue
+        corr = res.correction
+        bad = [e for e in corr.rows if not e.reconcile_only and (
+            e.variant in off or (e.variant == 'primary'
+                                 and 'primary_owner' in off
+                                 and e in res.reassigned_rows))]
+        if bad:
+            why = sorted({
+                f'{e.variant} ({off.get(e.variant) or off["primary_owner"]})'
+                for e in bad})
+            res.reasons.append(
+                f'{len(bad)} row(s) credit a workbook this run does not '
+                f'produce: {", ".join(why)}')
+            variant_blocked += 1
+        week = corr.week_ending.strftime('%m%d%y')
+        vac = [e for e in res.matched if (
+            corr.wr, week, *unit_point_cu(by_key.get(e.key) or {}))
+            in claimed]
+        if vac:
+            res.reasons.append(
+                f'{len(vac)} row(s) share a unit a VAC crew row claims '
+                '(billed on the VacCrew sheet only)')
+            vac_blocked += 1
+        if bad or vac:
+            res.status = 'blocked'
+    return variant_blocked, vac_blocked
+
+
 def prepare_run(
     rows: list[dict[str, Any]],
     *,
@@ -883,6 +987,7 @@ def prepare_run(
     if cset is None:
         return {}
     results = evaluate(cset, rows)
+    variant_blocked, vac_blocked = _block_unsupported(results, rows)
     applied_rows: dict[tuple[int, int], tuple[Correction, CorrectionRow]] = {}
     status: dict[str, str] = {}
     for res in results:
@@ -901,15 +1006,18 @@ def prepare_run(
                 f'(rev {corr.revision}) BLOCKED for WR {corr.wr} week '
                 f'{corr.week_ending}: {"; ".join(res.reasons)} -- nothing '
                 'applied; existing logic stays in force')
+            # field NAMES only: a diff text carries live cell values
             for entry, diffs in res.mismatched[:10]:
                 logging.warning(
-                    f'   row {entry.row_id}: {"; ".join(diffs)[:300]}')
+                    f'   row {entry.row_id} for WR {corr.wr}: '
+                    f'{len(diffs)} field(s) differ: '
+                    f'{", ".join(diff_fields(diffs))}')
             continue
         for entry in res.matched:
             applied_rows[entry.key] = (corr, entry)
         logging.warning(
             f'✏️ Reporting correction {corr.correction_id} (rev '
-            f'{corr.revision}) APPLIED to WR {corr.wr} week '
+            f'{corr.revision}) APPLIED for WR {corr.wr} week '
             f'{corr.week_ending}: {len(res.matched)} row(s), '
             f'{len(res.reassigned_rows)} re-credited, '
             f'{len(res.blank_date_rows)} with blank source dates, '
@@ -955,6 +1063,11 @@ def prepare_run(
         # Source-vs-memory differences need a row_state read this module
         # never performs; the preview CLI evaluates them (--memory-json).
         'source_memory_differences': None,
+        # cases blocked because a credited variant is not produced under
+        # this run's RES_GROUPING_MODE / HELPER2_ENABLED switches
+        'variant_not_produced': variant_blocked,
+        # cases blocked because a credited row's unit is VAC-claimed
+        'vac_claimed_unit': vac_blocked,
     }
     counts = {s: sum(1 for v in status.values() if v == s)
               for s in ('applied', 'blocked', 'retired')}
@@ -1031,8 +1144,12 @@ def _add_displaced(gkey: str, grows: list, tokens: set) -> None:
         slot['rows'] = list(grows)
 
 
-def _register_uncorrected(rows, cset: CorrectionSet,
-                          status: Mapping[str, str], group_fn) -> None:
+_GroupFn = Callable[[list[dict[str, Any]]], Mapping[str, list]]
+
+
+def _register_uncorrected(rows: list[dict[str, Any]], cset: CorrectionSet,
+                          status: Mapping[str, str],
+                          group_fn: _GroupFn) -> None:
     applied = _RUN_STATE.get('applied') or {}
     retired_tokens = {
         entry.key: _retired_token(corr)
@@ -1067,8 +1184,9 @@ def _register_uncorrected(rows, cset: CorrectionSet,
             _add_displaced(gkey, grows, tokens)
 
 
-def _register_credited(rows, cset: CorrectionSet,
-                       status: Mapping[str, str], group_fn) -> None:
+def _register_credited(rows: list[dict[str, Any]], cset: CorrectionSet,
+                       status: Mapping[str, str],
+                       group_fn: _GroupFn) -> None:
     by_key: dict[tuple[int, int], Mapping[str, Any]] = {}
     for row in rows:
         key = row_key(row)
@@ -1085,12 +1203,19 @@ def _register_credited(rows, cset: CorrectionSet,
         token = {_retired_token(eff)} if state == 'retired' else set()
         copies = []
         for entry in corr.rows:
-            src = by_key.get(entry.key)
-            if src is None or entry.reconcile_only:
+            if entry.reconcile_only:
                 continue
-            copy = _uncorrected_copy(src)
-            if not copy.get('Weekly Reference Logged Date'):
-                copy['__corr_week_ending'] = corr.week_ending.isoformat()
+            src = by_key.get(entry.key)
+            # No live row (unchecked, not admitted, ...): the identity is
+            # derived from the approved entry alone, so the old credit
+            # file is still found and removed.
+            copy = (_uncorrected_copy(src) if src is not None
+                    else _entry_row(corr, entry))
+            # The old credit file belongs to the CASE week, even when
+            # the row has moved to another week or lost its dates.
+            copy['Weekly Reference Logged Date'] = None
+            copy['__corr_week_ending'] = corr.week_ending.isoformat()
+            copy['Units Completed?'] = True
             copy['__corr_id'] = corr.correction_id
             copy['__corr_revision'] = corr.revision
             copy['__corr_credit'] = (entry.name, entry.variant,
@@ -1105,6 +1230,26 @@ def _register_credited(rows, cset: CorrectionSet,
                     or _row_wr(grows[0]) != corr.wr):
                 continue  # bounded to this case's WR / week
             _add_displaced(gkey, grows, token)
+
+
+def _entry_row(corr: Correction, entry: CorrectionRow) -> dict[str, Any]:
+    """A stand-in source row built from an approved entry (identity
+    computation only; never billed, never written)."""
+    exp = entry.expect
+    return {
+        'Work Request #': corr.wr,
+        'Pole #': _text(exp.get('pole')),
+        'CU': _text(exp.get('cu')),
+        'Work Type': _text(exp.get('work_type')),
+        'Quantity': exp.get('quantity'),
+        'Units Total Price': exp.get('units_total_price'),
+        'Dept #': entry.dept,
+        'Job #': entry.job,
+        '__effective_user': entry.name,
+        '__row_id': entry.row_id,
+        '__sheet_id': entry.sheet_id,
+        '__source_sheet_id': entry.sheet_id,
+    }
 
 
 def check_applied_placement(groups: Mapping[Any, list]) -> int:
@@ -1123,12 +1268,31 @@ def check_applied_placement(groups: Mapping[Any, list]) -> int:
                 seen[key] = seen.get(key, 0) + 1
     bad = sorted(k for k in applied if seen.get(k, 0) != 1)
     _RUN_COUNTS['misplaced_rows'] = len(bad)
+    _RUN_STATE['misplaced'] = set(bad)
     if bad:
         logging.warning(
             f'⚠️ Reporting corrections: {len(bad)} applied row(s) are not '
             f'in exactly one group (row ids {[k[1] for k in bad[:10]]}) '
             '-- review before relying on the corrected files')
     return len(bad)
+
+
+def unplaced_pairs() -> set[tuple[str, str]]:
+    """(wr, MMDDYY week) pairs whose stale-attachment cleanup must wait:
+    a pair with an applied row that is not in exactly one group, or --
+    fail-closed -- every applied pair while ``check_applied_placement``
+    has not run this run. Such a pair is not settled: no replacement
+    workbook is known to hold its corrected rows. Records the count as
+    ``placement_held_pairs`` in the run counts. Empty when off."""
+    applied = _RUN_STATE.get('applied') or {}
+    misplaced = _RUN_STATE.get('misplaced')
+    keys = applied if misplaced is None else misplaced
+    pairs = {
+        (applied[k][0].wr, applied[k][0].week_ending.strftime('%m%d%y'))
+        for k in keys if k in applied
+    }
+    _RUN_COUNTS['placement_held_pairs'] = len(pairs)
+    return pairs
 
 
 def correction_pairs() -> set[tuple[str, str]]:
@@ -1344,7 +1508,7 @@ def _money(value: Decimal) -> str:
     return f'{value:,.2f}'
 
 
-def _print_reconcile_only(res: CorrectionResult, out) -> None:
+def _print_reconcile_only(res: CorrectionResult, out: TextIO) -> None:
     """$0.00 rows: never admitted / credited, listed for the audit trail."""
     groups: dict[tuple[str, str], list[Decimal]] = {}
     for entry in res.reconcile_only:
@@ -1362,7 +1526,7 @@ def _print_reconcile_only(res: CorrectionResult, out) -> None:
 
 def preview(cset: CorrectionSet, rows: list[dict[str, Any]],
             memory_images: Mapping[Any, Any] | None = None,
-            out=None) -> int:
+            out: TextIO | None = None) -> int:
     """Print the dry-run report; return 0 when every correction would
     apply, 1 otherwise. Reads only its inputs, writes only to *out*."""
     out = out or sys.stdout

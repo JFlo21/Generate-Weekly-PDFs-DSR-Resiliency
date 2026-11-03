@@ -157,6 +157,49 @@ def _record_helper2_wins_conflict(
     )
 
 
+def unit_point_cu(row) -> tuple[str, str]:
+    """``(Point, CU)`` of a row at the VAC reconciliation UNIT grain."""
+    point = str(
+        row.get('Pole #') or row.get('Point #')
+        or row.get('Point Number') or ''
+    ).strip()
+    cu = str(row.get('CU') or row.get('Billable Unit Code') or '').strip()
+    return point, cu
+
+
+def vac_claimed_units(rows) -> set[tuple[str, str, str, str]]:
+    """``(WR, MMDDYY week, Point, CU)`` of every unit a COMPLETED VAC-crew
+    row claims (operator contract 2026-06-08; see group_source_rows)."""
+    claimed = set()
+    for _vr in rows:
+        if not _vr.get('__is_vac_crew'):
+            continue
+        # LOW-01 hardening (2026-06-27): mirror the consumer emission
+        # gate's Units Completed? rule. A VAC claim may only suppress
+        # the foreman/helper copy when the VAC crew is ACTUALLY billed
+        # for the unit (Units Completed? checked). A VAC row without it
+        # is dropped downstream, so suppressing the foreman's completed
+        # copy would bill the unit to nobody (silent under-billing).
+        if not is_checked(_vr.get('Units Completed?')):
+            continue
+        _vwr = _vr.get('Work Request #')
+        _vdate_raw = _vr.get('Weekly Reference Logged Date')
+        if not _vwr or not _vdate_raw:
+            continue
+        _vweek_date = excel_serial_to_date(_vdate_raw)
+        if _vweek_date is None:
+            continue
+        _vpoint, _vcu = unit_point_cu(_vr)
+        if _vpoint and _vcu:
+            claimed.add((
+                str(_vwr).split('.')[0],
+                _vweek_date.strftime("%m%d%y"),
+                _vpoint,
+                _vcu,
+            ))
+    return claimed
+
+
 def group_source_rows(rows, *, side_effects=True):
     """
     ``side_effects=False`` (reporting-corrections identity pass only):
@@ -554,39 +597,8 @@ def group_source_rows(rows, *, side_effects=True):
     # that is VAC-claimed on ANY row. Keyed at the UNIT grain
     # (WR + week + Point + CU) — NOT the pole — so the foreman's OTHER units on
     # the same pole are retained (operator: per-unit, not per-pole).
-    _vac_claimed_units = set()
-    for _vr in rows:
-        if not _vr.get('__is_vac_crew'):
-            continue
-        # LOW-01 hardening (2026-06-27): mirror the consumer emission gate's
-        # Units Completed? rule. A VAC claim may only suppress the
-        # foreman/helper copy when the VAC crew is ACTUALLY billed for the
-        # unit (Units Completed? checked). A VAC row without it is dropped
-        # downstream, so suppressing the foreman's completed copy would bill
-        # the unit to nobody (silent under-billing).
-        if not is_checked(_vr.get('Units Completed?')):
-            continue
-        _vwr = _vr.get('Work Request #')
-        _vdate_raw = _vr.get('Weekly Reference Logged Date')
-        if not _vwr or not _vdate_raw:
-            continue
-        _vweek_date = excel_serial_to_date(_vdate_raw)
-        if _vweek_date is None:
-            continue
-        _vpoint = str(
-            _vr.get('Pole #') or _vr.get('Point #')
-            or _vr.get('Point Number') or ''
-        ).strip()
-        _vcu = str(
-            _vr.get('CU') or _vr.get('Billable Unit Code') or ''
-        ).strip()
-        if _vpoint and _vcu:
-            _vac_claimed_units.add((
-                str(_vwr).split('.')[0],
-                _vweek_date.strftime("%m%d%y"),
-                _vpoint,
-                _vcu,
-            ))
+    # (Shared with reporting corrections' pre-stamp check: one definition.)
+    _vac_claimed_units = vac_claimed_units(rows)
 
     # Reporting corrections (opt-in): exclusive credit for rows an
     # applied correction stamped, AFTER every claimer map above so a
@@ -656,13 +668,7 @@ def group_source_rows(rows, *, side_effects=True):
             # VacCrew sheet (operator contract 2026-06-08; per-unit, not
             # per-pole). The VAC crew's own row is untouched.
             if not is_vac_crew_row:
-                _unit_point = str(
-                    r.get('Pole #') or r.get('Point #')
-                    or r.get('Point Number') or ''
-                ).strip()
-                _unit_cu = str(
-                    r.get('CU') or r.get('Billable Unit Code') or ''
-                ).strip()
+                _unit_point, _unit_cu = unit_point_cu(r)
                 if _unit_point and _unit_cu and (
                     wr_key, week_end_for_key, _unit_point, _unit_cu
                 ) in _vac_claimed_units:

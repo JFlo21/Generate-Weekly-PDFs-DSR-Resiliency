@@ -2724,7 +2724,7 @@ def _remove_empty_displaced_attachments(
     """Reporting corrections: a registered displaced / stale identity (a
     key corrected rows would have had WITHOUT the correction, or a
     credited identity of a retired / blocked case or superseded
-    revision) that is ABSENT from today's grouping keeps a stale
+    revision) whose IDENTITY no group carries today keeps a stale
     attachment nobody regenerates -- remove it with the existing
     identity-scoped ``delete_old_excel_attachments`` (``dry_run`` under
     SKIP_UPLOAD logs a planned delete only).
@@ -2732,13 +2732,16 @@ def _remove_empty_displaced_attachments(
     Bounded to the registered keys of the correction (wr, week) pairs; a
     quarantined WR or a Foreman-Notes-held pair is never touched. A pair
     is skipped unless every group of it today uploaded or was unchanged
-    (*settled_group_keys*; ``None`` = no gate) and nothing runs once the
-    time budget stopped the loop -- a receiving file must exist before
-    the old one goes. The row's LIVE listing (*live_listings*, when the
-    run fetched one) is consulted before *attachment_cache*, whose
-    group_state stubs can miss a file; an identity found in neither is
-    skipped quietly (nothing stale left). Returns the number of
-    identities handled. No-op (0) when the feature is off.
+    (*settled_group_keys*; ``None`` = no gate) and its applied rows
+    passed the placement check (``_rc.unplaced_pairs``), and nothing
+    runs once the time budget stopped the loop -- a receiving file must
+    exist before the old one goes. Only the row's LIVE listing decides
+    (*live_listings*, else fetched on demand): *attachment_cache*'s
+    group_state stubs neither prove a file absent nor present, so they
+    are not consulted. An identity the live listing lacks is skipped
+    quietly (nothing stale left); no listing -> kept, retried next
+    run. Returns the number of identities handled. No-op (0) when the
+    feature is off.
     """
     displaced = _rc.displaced_groups()
     if not displaced:
@@ -2749,15 +2752,47 @@ def _remove_empty_displaced_attachments(
             "attachment removal deferred to the next run"
         )
         return 0
+    # A pair whose applied rows are not each in exactly one group (or
+    # whose placement was never checked) is not settled: no receiving
+    # file is known to hold the corrected row -- hold its cleanup.
+    unplaced = _rc.unplaced_pairs()
+    if unplaced:
+        logging.warning(
+            f"⏭️ Reporting corrections: {len(unplaced)} pair(s) held -- "
+            "applied-row placement failed or unverified; stale "
+            "attachment(s) kept for now"
+        )
+    held = set(held_wr_weeks or ()) | unplaced
+    present: dict[tuple, set[tuple]] = {}
+
+    def _present(pair: tuple) -> set[tuple]:
+        # (variant, file identifier) of today's groups of *pair*
+        if pair not in present:
+            present[pair] = set()
+            for k, g in groups.items():
+                if g and _corr_group_pair(k, g) == pair:
+                    row = canonical_first_row(g)
+                    present[pair].add((
+                        row.get('__variant', 'primary'),
+                        derive_group_identity(
+                            row, **identity_switches)[1]))
+        return present[pair]
+
     handled = 0
     deleted_total = 0
     for gkey, grows in displaced.items():
-        if gkey in groups or not grows or '_' not in gkey:
+        if not grows or '_' not in gkey:
             continue
         first = canonical_first_row(grows)
         wr_num, week_raw = _corr_group_pair(gkey, grows)
-        if wr_num in blocked_wrs or (wr_num, week_raw) in (
-                held_wr_weeks or set()):
+        if wr_num in blocked_wrs or (wr_num, week_raw) in held:
+            continue
+        variant = first.get('__variant', 'primary')
+        _, file_identifier = derive_group_identity(
+            first, **identity_switches)
+        # Stale = no group today carries this IDENTITY (a same-key group
+        # can carry another one, e.g. a legacy bare primary file).
+        if (variant, file_identifier) in _present((wr_num, week_raw)):
             continue
         if settled_group_keys is not None:
             unsettled = [
@@ -2767,28 +2802,35 @@ def _remove_empty_displaced_attachments(
             ]
             if unsettled:
                 logging.info(
-                    f"⏭️ Reporting correction: WR {wr_num} week "
+                    f"⏭️ Reporting correction for WR {wr_num} week "
                     f"{week_raw} has {len(unsettled)} group(s) not "
                     "uploaded this run -- stale attachment kept for now"
                 )
                 continue
-        variant = first.get('__variant', 'primary')
-        _, file_identifier = derive_group_identity(
-            first, **identity_switches)
         target_row = target_map.get(wr_num) if target_map else None
         if target_row is None:
             continue
-        cached = attachment_cache.get(target_row.id)
+        # The LIVE listing decides: a group_state stub can miss a file
+        # that exists, or list one that is gone. Fetched on demand when
+        # the run holds none; no listing -> keep, retry next run.
         live = (live_listings or {}).get(target_row.id)
-        if live is not None and (cached is None or _corr_identity_cached(
-                live, wr_num, week_raw, variant, file_identifier)):
-            cached = live  # live listing first; the cache is the fallback
-        if cached is not None and not _corr_identity_cached(
-                cached, wr_num, week_raw, variant, file_identifier):
+        if live is None:
+            live = _live_row_attachments(
+                client, target_sheet_id, target_row.id, live_listings)
+        if live is None:
+            logging.warning(
+                "⚠️ Reporting correction: live attachment listing "
+                f"unavailable for WR {wr_num} week {week_raw} -- stale "
+                "attachment kept for now"
+            )
+            continue
+        if not _corr_identity_cached(
+                live, wr_num, week_raw, variant, file_identifier):
             logging.debug(
                 f"Reporting correction: no stale {variant} attachment "
                 f"left for WR {wr_num} week {week_raw}")
             continue
+        cached = live
         logging.warning(
             f"🗑️ Reporting correction: {variant} identity for WR "
             f"{wr_num} week {week_raw} no longer exists -- "
@@ -4017,11 +4059,21 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # Reporting corrections ({} summary when off -> skipped):
             # displaced / stale keys from a side-effect-free pass that
             # reuses this grouping's attribution prefetch, then the
-            # one-group-per-applied-row check. Never fatal.
+            # one-group-per-applied-row check. Never fatal. A failed (or,
+            # after an exception here, unverified) placement holds that
+            # pair's stale-attachment cleanup (_rc.unplaced_pairs).
             if _corr_summary:
                 try:
                     _register_corr_displaced(all_rows, _corr_summary)
-                    _rc.check_applied_placement(groups)
+                    _corr_misplaced = _rc.check_applied_placement(groups)
+                    _corr_summary['misplaced_rows'] = _corr_misplaced
+                    if _corr_misplaced:
+                        logging.warning(
+                            "⚠️ Reporting corrections: "
+                            f"{_corr_misplaced} applied row(s) misplaced "
+                            "-- stale-attachment cleanup of the "
+                            "affected pair(s) is held this run"
+                        )
                 except Exception as _corr_reg_exc:
                     logging.warning(
                         "⚠️ Reporting corrections displaced-key pass "

@@ -139,7 +139,8 @@ Smartsheet cell. Logic lives in `pipeline/reporting_corrections.py`; the operato
 | Valid file | Each correction case `(WR, week ending)` is validated row by row against the admitted rows; a mismatch blocks that case only. |
 | Invalid file | Logged at ERROR with no names; nothing is applied (the run behaves as if the variable were unset). |
 | Failure inside the run | A failure while preparing corrections is non-fatal: the stamps are cleared and no correction is applied that run. |
-| Side effects | The affected workbooks regenerate once (a `CORR=` token joins the change-detection hash). Removing the variable regenerates them again from today's logic. |
+| Side effects | The affected workbooks regenerate once (a `CORR=` token joins the change-detection hash). |
+| Rollback | Retire first: set `"retired": true` on the case and let a run finish, which regenerates the files the rows return to and removes any correction-only workbook. Only then remove the case or the variable. Removing the variable outright leaves correction-only workbooks on the sheet (they bill those rows twice). See [Turning it off / rolling back](../../website/docs/runbook/reporting-corrections.md#turning-it-off--rolling-back). |
 
 File format: start from [`docs/templates/reporting_corrections.template.json`](../templates/reporting_corrections.template.json).
 The real file is private. Keep it outside the repository and never put it, or any name, WR number or

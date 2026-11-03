@@ -35,7 +35,15 @@ case `(WR, week ending)`:
   dates, Units Completed). A missing row, wrong WR, any difference, or a
   subtotal that disagrees with `expected_subtotals` **blocks the whole case**:
   nothing of it applies and the run logs `⛔ Reporting correction ... BLOCKED`
-  with the per-row differences. Other cases still apply.
+  with the per-row differences. Other cases still apply. A case that credits a
+  `helper` / `helper2` row while `RES_GROUPING_MODE=primary`, or a `helper2`
+  row while `HELPER2_ENABLED` is off, or a primary owner change while the
+  primary file identity is the legacy one (`PRIMARY_CLAIM_ATTRIBUTION_ENABLED`
+  off or `RES_GROUPING_MODE=primary`), blocks the same way: that run cannot
+  produce the approved workbook. So does a credited row whose unit (WR, week,
+  Point, CU) a completed VAC-crew row claims -- that unit is billed on the
+  VacCrew sheet only. The per-row lines name the differing fields, never
+  their values.
 - **Zero-price rows** -- a listed row whose expected price is $0.00 is
   *reconciliation-only*: the pipeline never admits it, never credits it and
   never renders it, and its absence is expected. It stays in the file so the
@@ -54,8 +62,10 @@ case `(WR, week ending)`:
 - **Regeneration** -- the new owners' files *and* the files the rows left
   ("displaced" identities) regenerate once (the `CORR=` hash token); a
   displaced file that ends up empty has its stale attachment removed (planned
-  delete only under `SKIP_UPLOAD`). Repeat runs with the same file and revision
-  skip as usual; raising `revision` regenerates the case again.
+  delete only under `SKIP_UPLOAD`). The removal waits while any applied row of
+  the pair is not in exactly one group this run (`⏭️ ... pair(s) held --
+  applied-row placement failed or unverified`). Repeat runs with the same file
+  and revision skip as usual; raising `revision` regenerates the case again.
 - **Never changed:** raw Smartsheet cells, prices, `pipeline_memory` row
   images, rate-recalculation inputs, and the freeze path
   (`attribution_snapshot` is not written for corrected rows). Holds, collision
@@ -70,7 +80,7 @@ nothing.
 
 Start from `docs/templates/reporting_corrections.template.json`. One entry per
 `(WR, week_ending)`; `variant` is `primary`, `helper` or `helper2`; `dept` is
-required for helper variants (for `primary` it must equal the row's `Dept #`);
+required for every variant (for `primary` it must equal the row's `Dept #`);
 `workday` must fall inside the reporting week (and inside `scope_days` when
 given). To change an applied case, **append** a new entry with the same `id`
 and a higher `revision` and keep the old entry in the file: the pipeline
@@ -93,12 +103,20 @@ To withdraw a case, set `retired: true` (see rolling back).
    `python -m pipeline.reporting_corrections preview --file <private.json>
    --rows-json <private_rows.json> [--memory-json <row_state_images.json>]`
    Continue only with `blocked=0` and subtotals equal to the approved figures.
-4. **Local dry run** limited to the WR with uploads and Supabase writes off
-   (`SMARTSHEET_API_TOKEN= TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<wr>
-   REPORTING_CORRECTIONS_FILE=<private.json>`; blank the token explicitly,
-   otherwise `TEST_MODE` reads every sheet live; see the operations page), and
-   read the workbooks back before anything is published. The log must show
-   `✏️ Reporting correction ... APPLIED`.
+4. **Local dry run with live reads**, limited to the WR, with uploads and
+   Supabase writes off. Keep a read-capable `SMARTSHEET_API_TOKEN` set and run
+   `SENTRY_DSN= SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY= TEST_MODE=true
+   WR_FILTER=<wr> REPORTING_CORRECTIONS_FILE=<private.json> PYTHONUTF8=1
+   python generate_weekly_pdfs.py`. With a token, `TEST_MODE` reads the real
+   sheets, honours `WR_FILTER` (it is ignored outside `TEST_MODE`), creates no
+   upload tasks and gates every `billing_audit` / `pipeline_memory` write off;
+   the empty Supabase / Sentry values are a second guard against a developer
+   `.env`. `SKIP_UPLOAD=true` alone is **not** write-free (attribution freezes
+   still run). Do **not** blank the token: without it `TEST_MODE` builds the
+   synthetic dataset, which never runs the corrections step and cannot print
+   the `APPLIED` line. Read the workbooks back before anything is published.
+   The log must show `✏️ Reporting correction ... APPLIED`. Stale-attachment
+   removal never runs in `TEST_MODE`.
 5. **Activate on the runner** (workflow wiring pending owner approval --
    the weekly workflow does not read the secret until the "Stage reporting
    corrections" step is added to `weekly-excel-generation.yml`): base64-encode
@@ -121,8 +139,11 @@ run log shows `🗑️ Reporting corrections: N stale identity(ies) handled, M
 attachment(s) deleted` for it (or you have checked the target row's
 attachments by eye). The removal is deferred, not skipped silently, when the
 run's time budget ran out, a group of that WR/week did not settle (upload
-error, Foreman Notes hold, quarantine), `MAX_GROUPS` truncated the run, or
-the run was `TEST_MODE` / `SKIP_UPLOAD` -- let the next full run finish it.
+error, Foreman Notes hold, quarantine), an applied row was not placed in
+exactly one group, the target row's live attachment listing could not be
+read, `MAX_GROUPS` truncated the run, or the run was `TEST_MODE` /
+`SKIP_UPLOAD` -- let the next full run finish it. Removal is decided by the
+row's live listing, never by the group-state cache alone.
 Deleting the secret outright skips the retire run: a correction-only
 workbook would then stay on the sheet next to the regenerated files and bill
 those rows twice, so it would have to be deleted by hand. The same cleanup
