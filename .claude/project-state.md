@@ -27,7 +27,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `.planning/todos/pending/2026-10-30-foreman-notes-gf-lookup-failure-churns-pilot-groups.md` stays open
   (hold-for-run shipped in #444; reuse-last-known-set still an owner option).
 - **WR 91006877 reporting correction (branch `fix/wr-91006877-reporting-correction`, worktree `gwp-corr`)**:
-  10 commits above master (`c5536351`..`2b19836a`): opt-in `pipeline/reporting_corrections.py` (exact
+  branch starts at `c5536351`; the head moves with review fixes (count and SHA: PR #447): opt-in `pipeline/reporting_corrections.py` (exact
   `(sheet_id, row_id)` re-credit to an approved owner/workday; `$0.00` rows reconcile-only; recovered-only
   identity rollback gap closed), seams in fetch/grouping/orchestrate/change_detection (`CORR=` hash token),
   1155-line test module, runbook page `website/docs/runbook/reporting-corrections.md`. No workflow file
