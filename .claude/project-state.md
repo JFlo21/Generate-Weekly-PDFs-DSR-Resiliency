@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-11-03 (Foreman Notes pilot LIVE since 2026-10-31; WR 91006877 corrections branch pushed as a draft PR) · **overwrite-in-place each session** — this is
+_Last updated: 2026-11-03 (Foreman Notes pilot LIVE since 2026-10-31; WR 91006877 corrections branch open as PR #447) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -32,7 +32,8 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   identity rollback gap closed), seams in fetch/grouping/orchestrate/change_detection (`CORR=` hash token),
   1155-line test module, runbook page `website/docs/runbook/reporting-corrections.md`. No workflow file
   touched. Validation 2026-11-03: pytest 2909 passed / 3 skipped / 856 subtests; 6-gate harness ALL PASSED.
-  Pushed 2026-11-03 as draft PR #447. **Owner gates still open**: workflow step and the
+  Opened 2026-11-03 as PR #447 (ready for review, approved; CodeQL path-guard and Copilot
+  findings being addressed on the branch). **Owner gates still open**: workflow step and the
   `REPORTING_CORRECTIONS_JSON_B64` secret (separate PR after approval), covering-helper choice.
 - **Phase 12 (Ownership)**: **COMPLETE 2026-09-10** — 10/10 plans (incl. 4 gap-closure plans). `/gsd-verify-work 12`
   passed: `12-UAT.md` 34/34, `12-VERIFICATION.md` 77/77 must-haves; 5 open advisory gaps for owner follow-up, the 6th — runbook WR-09 — fixed in the PR; docs PR #404

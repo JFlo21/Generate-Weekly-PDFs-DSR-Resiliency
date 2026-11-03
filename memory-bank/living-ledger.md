@@ -9794,7 +9794,7 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
 - Widening past the 3 pilot GFs (scope `all`) is a reviewed workflow PR, not a variable flip.
 - Evidence: PR #445; workflow-contract + Foreman Notes tests 824 passed / 2 skipped; diff name scan 0.
 
-## [2026-11-03 14:05] Foreman Notes pilot verified live; corrections branch opened as draft PR #447.
+## [2026-11-03 14:05] Foreman Notes pilot verified live; corrections branch opened as PR #447.
 
 - Pilot: `FOREMAN_NOTES_UPLOAD=1` read back; run 41681444921 (2026-11-03 17:09Z) logged
   `Foreman notes: allowlist=3 gf_rows=920 pilot_wrs=289`; 8 consecutive scheduled runs succeeded
@@ -9804,7 +9804,7 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   id. `GENERATE-WEEKLY-EXCEL-AK` (2026-11-03) is the same "154 groups across 137 WR values have no row on
   target sheet" data-entry alert as `GENERATE-WEEKLY-EXCEL-A3` (since 2026-08-27, 234 events) — compare the
   message before treating a "new" issue as a regression.
-- Corrections: `fix/wr-91006877-reporting-correction` pushed as draft PR #447 (10 commits, no workflow
+- Corrections: `fix/wr-91006877-reporting-correction` opened as PR #447 — created as a draft, marked ready the same day (10 commits, no workflow
   file); pytest 2909/3 skipped/856 subtests, 6 gates passed. Secret + workflow step stay out until approved.
 - Branch hygiene: 22 local branches whose upstream is gone all map to MERGED PRs (3 still hold worktrees
   `gwp-1115`, `gwp-mermaid`, `gwp-regen`, all clean); 9 tracked branches map to merged/closed PRs. Deletion
