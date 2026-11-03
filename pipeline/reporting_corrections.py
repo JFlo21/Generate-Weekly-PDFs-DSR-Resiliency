@@ -1137,6 +1137,9 @@ def register_displaced(
     * stale: credited identities of a retired / blocked case and of
       superseded revisions -- absent from today's grouping, their old
       correction-only file is removed. Bounded to each case's WR/week.
+      These identities are the ones the credit was PUBLISHED under,
+      fixed by the approved entry (``_credit_identity``); they are not
+      re-derived with this run's grouping switches.
 
     Returns the number of registered keys; never raises.
     """
@@ -1148,7 +1151,7 @@ def register_displaced(
     saved_counts = dict(_RUN_COUNTS)
     try:
         _register_uncorrected(rows, cset, status, group_fn)
-        _register_credited(rows, cset, status, group_fn)
+        _register_credited(rows, cset, status)
     except Exception as exc:  # never block the run on a diagnostic pass
         logging.warning(
             '⚠️ Reporting corrections: displaced-group pass failed '
@@ -1163,11 +1166,15 @@ def register_displaced(
     return len(_DISPLACED)
 
 
-def _add_displaced(gkey: str, grows: list, tokens: set) -> None:
-    slot = _DISPLACED.setdefault(gkey, {'tokens': set(), 'rows': []})
+def _add_displaced(gkey: str, grows: list, tokens: set,
+                   identity: tuple[str, str] | None = None) -> None:
+    slot = _DISPLACED.setdefault(
+        gkey, {'tokens': set(), 'rows': [], 'identity': None})
     slot['tokens'] |= tokens
     if not slot['rows']:
         slot['rows'] = list(grows)
+    if identity is not None:
+        slot['identity'] = identity
 
 
 _GroupFn = Callable[[list[dict[str, Any]]], Mapping[str, list]]
@@ -1210,9 +1217,31 @@ def _register_uncorrected(rows: list[dict[str, Any]], cset: CorrectionSet,
             _add_displaced(gkey, grows, tokens)
 
 
+def _credit_identity(entry: CorrectionRow) -> tuple[str, str, str]:
+    """``(group-key suffix, variant, file identifier)`` an applied credit
+    was published under. Fixed by the approved entry alone: a credit is
+    only ever applied when the grouping switches produce exactly this
+    workbook (``_block_unsupported``), so the identity is historical
+    fact, not a function of the switches a later (retire / rollback)
+    run happens to use. Mirrors ``group_source_rows`` /
+    ``derive_group_identity`` for the three credit variants."""
+    if entry.variant == 'primary':
+        ident = _cfg._RE_SANITIZE_IDENTIFIER.sub('_', entry.name)[:50]
+        return f'USER_{ident}', 'primary', ident
+    ident = _cfg._RE_SANITIZE_HELPER_NAME.sub('_', entry.name)[:50]
+    tag = 'HELPER' if entry.variant == 'helper' else 'HELPER2'
+    return f'{tag}_{ident}', entry.variant, ident
+
+
 def _register_credited(rows: list[dict[str, Any]], cset: CorrectionSet,
-                       status: Mapping[str, str],
-                       group_fn: _GroupFn) -> None:
+                       status: Mapping[str, str]) -> None:
+    """Register the published identity of every credit of a retired /
+    blocked case or superseded revision, one slot per credited
+    workbook. The slots are built from the approved entries -- never by
+    re-grouping stand-in rows under this run's switches, which would
+    merge the owners into one legacy file (attribution off) or drop the
+    helper workbooks (``RES_GROUPING_MODE=primary``) and so never match
+    the file that was actually uploaded."""
     by_key: dict[tuple[int, int], Mapping[str, Any]] = {}
     for row in rows:
         key = row_key(row)
@@ -1227,7 +1256,8 @@ def _register_credited(rows: list[dict[str, Any]], cset: CorrectionSet,
         if eff is None or (corr is eff and state == 'applied'):
             continue
         token = {_retired_token(eff)} if state == 'retired' else set()
-        copies = []
+        week_key = corr.week_ending.strftime('%m%d%y')
+        slots: dict[str, tuple[tuple[str, str], list]] = {}
         for entry in corr.rows:
             if entry.reconcile_only:
                 continue
@@ -1247,15 +1277,13 @@ def _register_credited(rows: list[dict[str, Any]], cset: CorrectionSet,
             copy['__corr_credit'] = (entry.name, entry.variant,
                                      entry.dept, entry.job)
             copy['__corr_workday'] = entry.workday.isoformat()
-            copies.append(copy)
-        if not copies:
-            continue
-        week_key = corr.week_ending.strftime('%m%d%y')
-        for gkey, grows in (group_fn(copies) or {}).items():
-            if (not grows or gkey.split('_', 1)[0] != week_key
-                    or _row_wr(grows[0]) != corr.wr):
-                continue  # bounded to this case's WR / week
-            _add_displaced(gkey, grows, token)
+            suffix, variant, ident = _credit_identity(entry)
+            copy['__variant'] = variant
+            # bounded to this case's WR / week by construction
+            gkey = f'{week_key}_{corr.wr}_{suffix}'
+            slots.setdefault(gkey, ((variant, ident), []))[1].append(copy)
+        for gkey, (identity, grows) in slots.items():
+            _add_displaced(gkey, grows, token, identity)
 
 
 def _entry_row(corr: Correction, entry: CorrectionRow) -> dict[str, Any]:
@@ -1345,27 +1373,6 @@ def failed_sheet_pairs(
     return pairs
 
 
-def cleanup_switch_hold(grouping_mode: Any,
-                        primary_claim_enabled: Any) -> str | None:
-    """The switch that stops stale-attachment cleanup this run, or
-    ``None``. Displaced / credited identities are produced under the
-    production switches (RES_GROUPING_MODE=both,
-    PRIMARY_CLAIM_ATTRIBUTION_ENABLED on); under others the helper /
-    helper2 / owner identities are not produced (a re-grouped stand-in
-    gets another file identifier), so a stale file can be neither
-    matched nor judged. Records ``mode_held`` and ``switch_held``
-    (1 / 0) in the run counts."""
-    mode_off = str(grouping_mode).strip().lower() != 'both'
-    claim_off = not primary_claim_enabled
-    _RUN_COUNTS['mode_held'] = int(mode_off)
-    _RUN_COUNTS['switch_held'] = int(claim_off)
-    if mode_off:
-        return 'RES_GROUPING_MODE=both'
-    if claim_off:
-        return 'PRIMARY_CLAIM_ATTRIBUTION_ENABLED on'
-    return None
-
-
 def correction_pairs() -> set[tuple[str, str]]:
     """(wr, week ISO) pairs of every active correction (incremental
     mode's explicit, bounded fallback). Empty when the feature is off."""
@@ -1385,6 +1392,14 @@ def correction_sheet_ids() -> set[int]:
 def displaced_groups() -> dict[str, list[dict[str, Any]]]:
     """Displaced / stale group key -> rows for its identity (copy)."""
     return {k: list(v['rows']) for k, v in _DISPLACED.items()}
+
+
+def displaced_identities() -> dict[str, tuple[str, str]]:
+    """Stale group key -> the ``(variant, file identifier)`` the credit
+    was published under (credited slots only; a displaced key of the
+    uncorrected pass derives its identity under the run's switches)."""
+    return {k: v['identity'] for k, v in _DISPLACED.items()
+            if v.get('identity') is not None}
 
 
 def apply_credit_overrides(rows: list[dict[str, Any]],

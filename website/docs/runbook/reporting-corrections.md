@@ -152,9 +152,12 @@ partial`), the target row's live attachment listing could not be
 read, `MAX_GROUPS` truncated the run, or the run was `TEST_MODE` /
 `SKIP_UPLOAD` -- let the next full run finish it. Removal is decided by the
 row's live listing, never by the group-state cache alone.
-Retirement cleanup only runs under the production switches
-(RES_GROUPING_MODE=both, PRIMARY_CLAIM_ATTRIBUTION_ENABLED on); with either
-off the stale file is kept and logged.
+The file a credit published is matched by the identity recorded from the
+approved entry (owner or helper name, variant), not by re-grouping under
+the switches of the retire run: a rollback with
+`PRIMARY_CLAIM_ATTRIBUTION_ENABLED` off or another `RES_GROUPING_MODE`
+still finds and removes the old owner / helper workbook once its rows are
+in today's files.
 Deleting the secret outright skips the retire run: a correction-only
 workbook would then stay on the sheet next to the regenerated files and bill
 those rows twice, so it would have to be deleted by hand. The same cleanup

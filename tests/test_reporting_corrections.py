@@ -1476,30 +1476,13 @@ class ReviewRoundTests(_Base):
             self.assertGreater(_remove(groups, cache, client), 0)
         self.assertTrue(_deleted(client))
 
-    def test_cleanup_held_outside_both_grouping_mode(self):
-        # helper / helper2 identities are not produced outside 'both':
-        # a displaced identity cannot be judged stale -> nothing runs.
-        names = _real_filenames(self, fx.admitted_rows())
-        groups, _ = self._run(fx.correction_doc())
-        key = '030826_90000001_HELPER2_Helper2_C'
-        other = [dict(r, __helper2_foreman='Helper2 Z')
-                 for r in rc.displaced_groups()[key]]
-        client = _client()
-        with mock.patch.object(generate_weekly_pdfs, 'RES_GROUPING_MODE',
-                               'helper'), \
-                self.assertLogs(level='WARNING') as cm:
-            self.assertEqual(_remove(dict(groups, **{key: other}),
-                                     _cache(names), client), 0)
-        self.assertEqual(_deleted(client), [])
-        client.Attachments.list_row_attachments.assert_not_called()
-        self.assertTrue(any('only under RES_GROUPING_MODE=both' in m
-                            for m in cm.output))
-        self.assertEqual(rc.get_run_counts()['mode_held'], 1)
-
-    def test_retire_with_attribution_off_keeps_the_file(self):
-        # applied under attribution on; retired after it was turned off:
-        # the stand-in re-groups to another identifier, so the old
-        # correction-only file can not be matched -> held and logged.
+    def test_retire_with_attribution_off_removes_the_owner_file(self):
+        # applied under attribution on; retired after it was turned off.
+        # Today's grouping merges both owners into the legacy primary
+        # file, so re-deriving the stand-ins' identity under the retire
+        # run's switches would match nothing (Copilot, PR #447): the
+        # published identities must come from the approved entries and
+        # the correction-only owner file must go.
         applied_names = _real_filenames(
             self, fx.admitted_rows(), doc=fx.correction_doc())
         self.assertIn(_FOREMAN_B, applied_names)
@@ -1507,15 +1490,39 @@ class ReviewRoundTests(_Base):
                                'PRIMARY_CLAIM_ATTRIBUTION_ENABLED', False):
             groups, summary = self._run(_retired_doc())
             self.assertEqual(summary['retired'], 1)
+            self.assertNotIn(_FOREMAN_B, groups)
+            # both owners keep their own slot, each with its identity
+            published = rc.displaced_identities()
+            self.assertEqual(published[_FOREMAN_B],
+                             ('primary', 'Foreman_B'))
+            self.assertEqual(
+                published['030826_90000001_USER_Foreman_A'],
+                ('primary', 'Foreman_A'))
             client = _client()
-            with self.assertLogs(level='WARNING') as cm:
-                self.assertEqual(
-                    _remove(groups, _cache(applied_names), client), 0)
-        self.assertEqual(_deleted(client), [])
-        self.assertTrue(any(
-            'only under PRIMARY_CLAIM_ATTRIBUTION_ENABLED on' in m
-            for m in cm.output))
-        self.assertEqual(rc.get_run_counts()['switch_held'], 1)
+            self.assertGreaterEqual(
+                _remove(groups, _cache(applied_names), client), 1)
+        self.assertIn(_ATT_IDS[_FOREMAN_B], _deleted(client))
+
+    def test_retire_in_primary_mode_removes_the_helper_file(self):
+        # helper workbooks are not produced under RES_GROUPING_MODE=
+        # primary: the published helper identity is still known from
+        # the approved entry, so the stale helper file is removed once
+        # its rows are in today's (primary-only) files.
+        applied_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        helper_key = '030826_90000001_HELPER_Helper_H'
+        self.assertIn(helper_key, applied_names)
+        with mock.patch.object(generate_weekly_pdfs, 'RES_GROUPING_MODE',
+                               'primary'):
+            groups, summary = self._run(_retired_doc())
+            self.assertEqual(summary['retired'], 1)
+            self.assertNotIn(helper_key, groups)
+            self.assertEqual(rc.displaced_identities()[helper_key],
+                             ('helper', 'Helper_H'))
+            client = _client()
+            self.assertGreaterEqual(
+                _remove(groups, _cache(applied_names), client), 1)
+        self.assertIn(_ATT_IDS[helper_key], _deleted(client))
 
     def test_feature_off_cleanup_touches_nothing(self):
         # REPORTING_CORRECTIONS_FILE unset: no listing, no delete.

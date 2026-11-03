@@ -2735,10 +2735,13 @@ def _remove_empty_displaced_attachments(
     (*settled_group_keys*; ``None`` = no gate) and its applied rows
     passed the placement check (``_rc.unplaced_pairs``) and no sheet
     holding its rows failed to read (``_rc.failed_sheet_pairs``).
-    Nothing runs once the time budget stopped the loop, or outside the
-    production switches the identities were produced under
-    (``_rc.cleanup_switch_hold``) -- a receiving file must exist
-    before the old one goes. Only the row's LIVE listing decides
+    Nothing runs once the time budget stopped the loop. A credited
+    identity is the one the correction PUBLISHED (``_rc.displaced_
+    identities``, fixed by the approved entry), so a retire / rollback
+    run under other switches (attribution off, another grouping mode)
+    still matches the old owner / helper file instead of re-deriving a
+    legacy identifier that matches nothing; today's groups are judged
+    under this run's switches. Only the row's LIVE listing decides
     (*live_listings*, else fetched on demand): *attachment_cache*'s
     group_state stubs neither prove a file absent nor present, so they
     are not consulted. An identity the live listing lacks is skipped
@@ -2749,15 +2752,7 @@ def _remove_empty_displaced_attachments(
     displaced = _rc.displaced_groups()
     if not displaced:
         return 0
-    switch = _rc.cleanup_switch_hold(
-        identity_switches.get('res_grouping_mode'),
-        identity_switches.get('primary_claim_enabled'))
-    if switch:
-        logging.warning(
-            "⏭️ Reporting corrections: stale-attachment cleanup runs "
-            f"only under {switch} -- stale attachment(s) kept for now"
-        )
-        return 0
+    published = _rc.displaced_identities()
     if time_budget_exceeded:
         logging.warning(
             "⏳ Reporting corrections: time budget reached -- stale "
@@ -2813,9 +2808,14 @@ def _remove_empty_displaced_attachments(
         wr_num, week_raw = _corr_group_pair(gkey, grows)
         if wr_num in blocked_wrs or (wr_num, week_raw) in held:
             continue
-        variant = first.get('__variant', 'primary')
-        _, file_identifier = derive_group_identity(
-            first, **identity_switches)
+        if gkey in published:
+            # the identity the credit was published under -- never
+            # re-derived with this run's switches
+            variant, file_identifier = published[gkey]
+        else:
+            variant = first.get('__variant', 'primary')
+            _, file_identifier = derive_group_identity(
+                first, **identity_switches)
         # Stale = no group today carries this IDENTITY (a same-key group
         # can carry another one, e.g. a legacy bare primary file).
         if (variant, file_identifier) in _present((wr_num, week_raw)):
