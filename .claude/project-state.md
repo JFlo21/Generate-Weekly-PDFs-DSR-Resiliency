@@ -19,7 +19,7 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   secret allowlist) merged 2026-10-31; repo variable `FOREMAN_NOTES_UPLOAD=1` (read back 2026-11-03). Parity
   streak 5 (2026-10-30T18:32:34Z) in `11-VERIFICATION.md`; D-15-13 met; FN-13 closed at merge. Run
   41681444921 (2026-11-03 17:09Z) logged `Foreman notes: allowlist=3 gf_rows=920 pilot_wrs=289`; the 8 runs
-  from 2026-11-02 19:08Z through 2026-11-03 17:09Z all succeeded. Sentry (checked 2026-11-03): zero error
+  from 2026-11-02 19:08Z through 2026-11-03 19:07Z all succeeded (run list read 2026-11-03 21:00Z). Sentry (checked 2026-11-03): zero error
   events mentioning foreman notes / notes upload / GF lookup in 7 days; the only new issue,
   `GENERATE-WEEKLY-EXCEL-AK` ("154 groups across 137 WR values have no row on target sheet"), is the
   pre-existing data-entry alert `GENERATE-WEEKLY-EXCEL-A3` (since 2026-08-27, 234 events) under a new

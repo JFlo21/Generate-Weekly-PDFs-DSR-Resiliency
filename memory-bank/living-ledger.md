@@ -9798,7 +9798,7 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
 
 - Pilot: `FOREMAN_NOTES_UPLOAD=1` read back; run 41681444921 (2026-11-03 17:09Z) logged
   `Foreman notes: allowlist=3 gf_rows=920 pilot_wrs=289`; 8 consecutive scheduled runs succeeded
-  (2026-11-02 19:08Z .. 2026-11-03 17:09Z). Sentry 7-day error search for foreman notes / notes upload /
+  (2026-11-02 19:08Z .. 2026-11-03 19:07Z, run list read 21:00Z). Sentry 7-day error search for foreman notes / notes upload /
   GF lookup: 0 events.
 - Rule: after a Sentry SDK/tagging change (PR #444), expect existing alerts to reappear under a NEW issue
   id. `GENERATE-WEEKLY-EXCEL-AK` (2026-11-03) is the same "154 groups across 137 WR values have no row on
