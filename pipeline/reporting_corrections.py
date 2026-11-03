@@ -407,29 +407,23 @@ def _allowed_roots() -> tuple[str, ...]:
                  for c in candidates if c)
 
 
-def _confine_path(path: str) -> str:
-    """Resolve *path* and require it to sit under an allowed root.
-
-    Returns the resolved path so the value handed to ``open()`` is the
-    one that was checked (same shape as ``config._sanitize_csv_path``).
-    Rejecting with a :class:`CorrectionError` keeps the fail-safe: the
-    loader logs it and runs with NO correction, never a partial one.
-    """
-    resolved = os.path.normpath(os.path.realpath(path))
-    for root in _allowed_roots():
-        if resolved == root or resolved.startswith(root + os.sep):
-            return resolved
-    raise CorrectionError(
-        ['corrections file must live under the working directory, the '
-         'system temp directory or $RUNNER_TEMP'])
-
-
 def load_corrections(path: str) -> CorrectionSet:
     """Read and validate the JSON file at *path* (a UTF-8 BOM is fine).
 
-    The path must resolve under one of :func:`_allowed_roots`.
+    The path is resolved and must sit under one of
+    :func:`_allowed_roots`; the resolved value is the one handed to
+    ``open()``. Rejecting with a :class:`CorrectionError` keeps the
+    fail-safe: the loader logs it and runs with NO correction, never a
+    partial one.
     """
-    resolved = _confine_path(path)
+    resolved = os.path.normpath(os.path.realpath(path))
+    for root in _allowed_roots():
+        if resolved.startswith(root + os.sep):
+            break
+    else:
+        raise CorrectionError(
+            ['corrections file must live under the working directory, '
+             'the system temp directory or $RUNNER_TEMP'])
     try:
         with open(resolved, encoding='utf-8-sig') as fh:
             data = json.load(fh)
