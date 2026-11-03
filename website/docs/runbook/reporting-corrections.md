@@ -103,6 +103,12 @@ To withdraw a case, set `retired: true` (see rolling back).
    `python -m pipeline.reporting_corrections preview --file <private.json>
    --rows-json <private_rows.json> [--memory-json <row_state_images.json>]`
    Continue only with `blocked=0` and subtotals equal to the approved figures.
+   The preview applies the same placement blocks as a run (a credited
+   workbook the grouping switches do not produce, a VAC-claimed unit) using
+   the switches in its first line (`grouping switches read from
+   pipeline.config: RES_GROUPING_MODE=... HELPER2_ENABLED=...
+   PRIMARY_CLAIM_ATTRIBUTION_ENABLED=...`); set the same values as the
+   production run before trusting `blocked=0`.
 4. **Local dry run with live reads**, limited to the WR, with uploads and
    Supabase writes off. Keep a read-capable `SMARTSHEET_API_TOKEN` set and run
    `SENTRY_DSN= SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY= TEST_MODE=true
@@ -140,10 +146,15 @@ attachment(s) deleted` for it (or you have checked the target row's
 attachments by eye). The removal is deferred, not skipped silently, when the
 run's time budget ran out, a group of that WR/week did not settle (upload
 error, Foreman Notes hold, quarantine), an applied row was not placed in
-exactly one group, the target row's live attachment listing could not be
+exactly one group, a source sheet holding the case's rows failed or was only
+partly read (`⏭️ ... pair(s) held -- a source sheet read failed or was
+partial`), the target row's live attachment listing could not be
 read, `MAX_GROUPS` truncated the run, or the run was `TEST_MODE` /
 `SKIP_UPLOAD` -- let the next full run finish it. Removal is decided by the
 row's live listing, never by the group-state cache alone.
+Retirement cleanup only runs under the production switches
+(RES_GROUPING_MODE=both, PRIMARY_CLAIM_ATTRIBUTION_ENABLED on); with either
+off the stale file is kept and logged.
 Deleting the secret outright skips the retire run: a correction-only
 workbook would then stay on the sheet next to the regenerated files and bill
 those rows twice, so it would have to be deleted by hand. The same cleanup

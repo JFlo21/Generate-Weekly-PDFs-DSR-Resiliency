@@ -882,27 +882,46 @@ def drop_all_corrections(rows: list[dict[str, Any]]) -> None:
     reset_state()
 
 
-def _unproduced_variants() -> dict[str, str]:
+def _grouping_switches(facade: bool = True) -> dict[str, Any]:
+    """RES_GROUPING_MODE, HELPER2_ENABLED and
+    PRIMARY_CLAIM_ATTRIBUTION_ENABLED as grouping reads them: the mode
+    and claim switch from the facade (as ``pipeline.grouping`` does),
+    HELPER2_ENABLED from ``pipeline.config``. *facade* False reads all
+    three from ``pipeline.config`` -- the preview CLI, where importing
+    the facade would load ``.env``, print its banner and import the
+    Smartsheet SDK."""
+    mode = _cfg.RES_GROUPING_MODE
+    claim = _cfg.PRIMARY_CLAIM_ATTRIBUTION_ENABLED
+    if facade:
+        import generate_weekly_pdfs as _gwp  # noqa: PLC0415 -- facade
+        mode = getattr(_gwp, 'RES_GROUPING_MODE', mode)
+        claim = getattr(_gwp, 'PRIMARY_CLAIM_ATTRIBUTION_ENABLED', claim)
+    return {
+        'RES_GROUPING_MODE': mode,
+        'HELPER2_ENABLED': bool(getattr(_cfg, 'HELPER2_ENABLED', False)),
+        'PRIMARY_CLAIM_ATTRIBUTION_ENABLED': claim,
+    }
+
+
+def _unproduced_variants(
+        switches: Mapping[str, Any] | None = None) -> dict[str, str]:
     """Credit variant -> the switch that keeps grouping from producing
     its workbook this run (empty when every variant is produced). The
     ``'primary_owner'`` entry means a primary owner CHANGE is not
     produced: the primary file identity is the legacy one (one bare
     file per WR / week, named from the row's ``User`` field).
 
-    RES_GROUPING_MODE and PRIMARY_CLAIM_ATTRIBUTION_ENABLED are read
-    from the facade, exactly as ``pipeline.grouping`` reads them;
-    HELPER2_ENABLED is the Helper #2 kill switch (``pipeline.config``).
+    *switches* defaults to ``_grouping_switches()`` (live facade).
     """
-    import generate_weekly_pdfs as _gwp  # noqa: PLC0415 -- live facade
-    mode = getattr(_gwp, 'RES_GROUPING_MODE', _cfg.RES_GROUPING_MODE)
-    claim = getattr(_gwp, 'PRIMARY_CLAIM_ATTRIBUTION_ENABLED',
-                    _cfg.PRIMARY_CLAIM_ATTRIBUTION_ENABLED)
+    sw = switches if switches is not None else _grouping_switches()
+    mode = sw['RES_GROUPING_MODE']
+    claim = sw['PRIMARY_CLAIM_ATTRIBUTION_ENABLED']
     off: dict[str, str] = {}
     if mode == 'primary':
         off['helper'] = off['helper2'] = 'RES_GROUPING_MODE=primary'
         off['primary_owner'] = 'RES_GROUPING_MODE=primary'
     else:
-        if not getattr(_cfg, 'HELPER2_ENABLED', False):
+        if not sw['HELPER2_ENABLED']:
             off['helper2'] = 'HELPER2_ENABLED is off'
         if not claim:
             off['primary_owner'] = (
@@ -911,7 +930,9 @@ def _unproduced_variants() -> dict[str, str]:
 
 
 def _block_unsupported(results: list[CorrectionResult],
-                       rows: list[dict[str, Any]]) -> tuple[int, int]:
+                       rows: list[dict[str, Any]],
+                       switches: Mapping[str, Any] | None = None,
+                       ) -> tuple[int, int]:
     """Block every non-retired correction this run cannot place in the
     approved workbook (the row would fall back elsewhere -- or nowhere
     -- while the case reported APPLIED):
@@ -923,12 +944,17 @@ def _block_unsupported(results: list[CorrectionResult],
       only and drops this copy (no double billing).
 
     Reconcile-only ($0.00) rows are never credited and are ignored.
-    Returns (variant-blocked, VAC-blocked) correction counts."""
-    from pipeline.grouping import (  # noqa: PLC0415 -- import cycle
-        unit_point_cu, vac_claimed_units,
-    )
-    off = _unproduced_variants()
-    claimed = vac_claimed_units(rows)
+    *switches*: see ``_unproduced_variants``. Returns (variant-blocked,
+    VAC-blocked) correction counts."""
+    off = _unproduced_variants(switches)
+    claimed: set[tuple[str, str, str, str]] = set()
+    if any(r.get('__is_vac_crew') for r in rows):
+        # only with a VAC row: pipeline.grouping imports discovery (the
+        # Smartsheet SDK), which the preview CLI otherwise never loads
+        from pipeline.grouping import (  # noqa: PLC0415 -- import cycle
+            unit_point_cu, vac_claimed_units,
+        )
+        claimed = vac_claimed_units(rows)
     by_key = {row_key(r): r for r in rows} if claimed else {}
     variant_blocked = vac_blocked = 0
     for res in results:
@@ -950,7 +976,7 @@ def _block_unsupported(results: list[CorrectionResult],
         week = corr.week_ending.strftime('%m%d%y')
         vac = [e for e in res.matched if (
             corr.wr, week, *unit_point_cu(by_key.get(e.key) or {}))
-            in claimed]
+            in claimed] if claimed else []
         if vac:
             res.reasons.append(
                 f'{len(vac)} row(s) share a unit a VAC crew row claims '
@@ -1295,6 +1321,51 @@ def unplaced_pairs() -> set[tuple[str, str]]:
     return pairs
 
 
+def failed_sheet_pairs(
+        failed_sheet_ids: Iterable[Any] | None) -> set[tuple[str, str]]:
+    """(wr, MMDDYY week) pairs whose stale-attachment cleanup must wait
+    because a sheet holding any of the correction's rows failed or was
+    only partly read this run (``fetch.get_last_full_read_failed_sheet_
+    ids``): the case blocks, its credited identities are rebuilt from
+    the approved entries, and no group proves a replacement exists.
+    ``None`` (failed set unknowable) holds every correction pair -- fail
+    closed. Records ``read_failed_held_pairs``. Empty when off."""
+    cset = get_active_set()
+    if cset is None:
+        return set()
+    failed = (None if failed_sheet_ids is None
+              else {str(s) for s in failed_sheet_ids})
+    pairs = {
+        (c.wr, c.week_ending.strftime('%m%d%y'))
+        for c in cset.corrections
+        if failed is None or any(str(e.sheet_id) in failed
+                                 for e in c.rows)
+    }
+    _RUN_COUNTS['read_failed_held_pairs'] = len(pairs)
+    return pairs
+
+
+def cleanup_switch_hold(grouping_mode: Any,
+                        primary_claim_enabled: Any) -> str | None:
+    """The switch that stops stale-attachment cleanup this run, or
+    ``None``. Displaced / credited identities are produced under the
+    production switches (RES_GROUPING_MODE=both,
+    PRIMARY_CLAIM_ATTRIBUTION_ENABLED on); under others the helper /
+    helper2 / owner identities are not produced (a re-grouped stand-in
+    gets another file identifier), so a stale file can be neither
+    matched nor judged. Records ``mode_held`` and ``switch_held``
+    (1 / 0) in the run counts."""
+    mode_off = str(grouping_mode).strip().lower() != 'both'
+    claim_off = not primary_claim_enabled
+    _RUN_COUNTS['mode_held'] = int(mode_off)
+    _RUN_COUNTS['switch_held'] = int(claim_off)
+    if mode_off:
+        return 'RES_GROUPING_MODE=both'
+    if claim_off:
+        return 'PRIMARY_CLAIM_ATTRIBUTION_ENABLED on'
+    return None
+
+
 def correction_pairs() -> set[tuple[str, str]]:
     """(wr, week ISO) pairs of every active correction (incremental
     mode's explicit, bounded fallback). Empty when the feature is off."""
@@ -1528,9 +1599,16 @@ def preview(cset: CorrectionSet, rows: list[dict[str, Any]],
             memory_images: Mapping[Any, Any] | None = None,
             out: TextIO | None = None) -> int:
     """Print the dry-run report; return 0 when every correction would
-    apply, 1 otherwise. Reads only its inputs, writes only to *out*."""
+    apply, 1 otherwise. Reads only its inputs, writes only to *out*.
+    Runs the same unsupported-placement block as ``prepare_run``, with
+    the grouping switches read from ``pipeline.config`` (printed in the
+    header) -- the facade is never imported here."""
     out = out or sys.stdout
     results = evaluate(cset, rows)
+    switches = _grouping_switches(facade=False)
+    print('grouping switches read from pipeline.config: ' + ' '.join(
+        f'{k}={v}' for k, v in switches.items()), file=out)
+    _block_unsupported(results, rows, switches)
     index = {row_key(r): r for r in rows}
     for res in results:
         corr = res.correction

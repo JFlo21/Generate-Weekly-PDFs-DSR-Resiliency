@@ -90,7 +90,7 @@ cp portal-v2/.env.example portal-v2/.env.local   # VITE_SUPABASE_URL, VITE_SUPAB
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | `portal-v2/.env.local` | Frontend Supabase (anon key only — never the service-role key). |
 | `SUPABASE_SERVICE_ROLE_KEY` | GitHub Actions secret only | Used by `billing_audit/`; **never** put in a committed file or the frontend. |
 
-The full 30+ env-var reference is in `.github/prompts/configuration-environment.md` and
+The full 30+ env-var reference is in
 `.github/prompts/configuration-environment.md`. For production, secrets live in
 **GitHub repository secrets** (Settings → Secrets and variables → Actions), not
 in any file.

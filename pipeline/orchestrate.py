@@ -2733,9 +2733,12 @@ def _remove_empty_displaced_attachments(
     quarantined WR or a Foreman-Notes-held pair is never touched. A pair
     is skipped unless every group of it today uploaded or was unchanged
     (*settled_group_keys*; ``None`` = no gate) and its applied rows
-    passed the placement check (``_rc.unplaced_pairs``), and nothing
-    runs once the time budget stopped the loop -- a receiving file must
-    exist before the old one goes. Only the row's LIVE listing decides
+    passed the placement check (``_rc.unplaced_pairs``) and no sheet
+    holding its rows failed to read (``_rc.failed_sheet_pairs``).
+    Nothing runs once the time budget stopped the loop, or outside the
+    production switches the identities were produced under
+    (``_rc.cleanup_switch_hold``) -- a receiving file must exist
+    before the old one goes. Only the row's LIVE listing decides
     (*live_listings*, else fetched on demand): *attachment_cache*'s
     group_state stubs neither prove a file absent nor present, so they
     are not consulted. An identity the live listing lacks is skipped
@@ -2745,6 +2748,15 @@ def _remove_empty_displaced_attachments(
     """
     displaced = _rc.displaced_groups()
     if not displaced:
+        return 0
+    switch = _rc.cleanup_switch_hold(
+        identity_switches.get('res_grouping_mode'),
+        identity_switches.get('primary_claim_enabled'))
+    if switch:
+        logging.warning(
+            "⏭️ Reporting corrections: stale-attachment cleanup runs "
+            f"only under {switch} -- stale attachment(s) kept for now"
+        )
         return 0
     if time_budget_exceeded:
         logging.warning(
@@ -2762,7 +2774,21 @@ def _remove_empty_displaced_attachments(
             "applied-row placement failed or unverified; stale "
             "attachment(s) kept for now"
         )
-    held = set(held_wr_weeks or ()) | unplaced
+    # A pair with a row on a sheet whose read failed / was partial is
+    # not settled either (the case blocked on missing rows; no group
+    # proves a replacement). Unknowable failed set -> hold every pair.
+    try:
+        failed_ids = _fetch.get_last_full_read_failed_sheet_ids()
+    except Exception:  # noqa: BLE001 - fail closed
+        failed_ids = None
+    read_failed = _rc.failed_sheet_pairs(failed_ids)
+    if read_failed:
+        logging.warning(
+            f"⏭️ Reporting corrections: {len(read_failed)} pair(s) held "
+            "-- a source sheet read failed or was partial; stale "
+            "attachment(s) kept for now"
+        )
+    held = set(held_wr_weeks or ()) | unplaced | read_failed
     present: dict[tuple, set[tuple]] = {}
 
     def _present(pair: tuple) -> set[tuple]:

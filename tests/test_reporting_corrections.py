@@ -1448,6 +1448,100 @@ class ReviewRoundTests(_Base):
         self.assertTrue(sent)
         self.assertNotIn(108, sent)
 
+    def test_read_failed_sheet_holds_cleanup(self):
+        # the correction's sheet failed to read: the case blocks, its
+        # credited identities are rebuilt from the approved entries and
+        # no group holds the pair -- cleanup must hold, never delete the
+        # published corrected files with no replacement.
+        names = _real_filenames(self, fx.admitted_rows())
+        cache = _cache(names)
+        with self.assertLogs(level='WARNING'):
+            groups, summary = self._run(fx.correction_doc(), rows=[])
+        self.assertEqual(summary['blocked'], 1)
+        getter = 'get_last_full_read_failed_sheet_ids'
+        for failed in ({'return_value': {fx.SHEET}},
+                       {'side_effect': RuntimeError('unknowable')}):
+            client = _client()
+            with mock.patch.object(_fetch, getter, **failed), \
+                    self.assertLogs(level='WARNING') as cm:
+                self.assertEqual(_remove(groups, cache, client), 0)
+            self.assertEqual(_deleted(client), [])
+            self.assertTrue(any('source sheet read failed' in m
+                                for m in cm.output))
+            self.assertEqual(
+                rc.get_run_counts()['read_failed_held_pairs'], 1)
+        # control: only an unrelated sheet failed -> not held
+        client = _client()
+        with mock.patch.object(_fetch, getter, return_value={1}):
+            self.assertGreater(_remove(groups, cache, client), 0)
+        self.assertTrue(_deleted(client))
+
+    def test_cleanup_held_outside_both_grouping_mode(self):
+        # helper / helper2 identities are not produced outside 'both':
+        # a displaced identity cannot be judged stale -> nothing runs.
+        names = _real_filenames(self, fx.admitted_rows())
+        groups, _ = self._run(fx.correction_doc())
+        key = '030826_90000001_HELPER2_Helper2_C'
+        other = [dict(r, __helper2_foreman='Helper2 Z')
+                 for r in rc.displaced_groups()[key]]
+        client = _client()
+        with mock.patch.object(generate_weekly_pdfs, 'RES_GROUPING_MODE',
+                               'helper'), \
+                self.assertLogs(level='WARNING') as cm:
+            self.assertEqual(_remove(dict(groups, **{key: other}),
+                                     _cache(names), client), 0)
+        self.assertEqual(_deleted(client), [])
+        client.Attachments.list_row_attachments.assert_not_called()
+        self.assertTrue(any('only under RES_GROUPING_MODE=both' in m
+                            for m in cm.output))
+        self.assertEqual(rc.get_run_counts()['mode_held'], 1)
+
+    def test_retire_with_attribution_off_keeps_the_file(self):
+        # applied under attribution on; retired after it was turned off:
+        # the stand-in re-groups to another identifier, so the old
+        # correction-only file can not be matched -> held and logged.
+        applied_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        self.assertIn(_FOREMAN_B, applied_names)
+        with mock.patch.object(generate_weekly_pdfs,
+                               'PRIMARY_CLAIM_ATTRIBUTION_ENABLED', False):
+            groups, summary = self._run(_retired_doc())
+            self.assertEqual(summary['retired'], 1)
+            client = _client()
+            with self.assertLogs(level='WARNING') as cm:
+                self.assertEqual(
+                    _remove(groups, _cache(applied_names), client), 0)
+        self.assertEqual(_deleted(client), [])
+        self.assertTrue(any(
+            'only under PRIMARY_CLAIM_ATTRIBUTION_ENABLED on' in m
+            for m in cm.output))
+        self.assertEqual(rc.get_run_counts()['switch_held'], 1)
+
+    def test_feature_off_cleanup_touches_nothing(self):
+        # REPORTING_CORRECTIONS_FILE unset: no listing, no delete.
+        self.assertIsNone(rc.get_active_set())
+        client = _client()
+        self.assertEqual(_remove({}, {}, client), 0)
+        client.Attachments.list_row_attachments.assert_not_called()
+        self.assertEqual(_deleted(client), [])
+
+    def test_preview_reports_the_unsupported_block(self):
+        # preview must show BLOCKED (same reason) for a case prepare_run
+        # blocks, and print the switches it read.
+        cset = rc.load_corrections(self._configure(fx.correction_doc()))
+        rows = fx.admitted_rows() + [fx.recovered_row()]
+        buf = io.StringIO()
+        with mock.patch.object(_config,
+                               'PRIMARY_CLAIM_ATTRIBUTION_ENABLED', False):
+            code = rc.preview(cset, rows, out=buf)
+        text = buf.getvalue()
+        self.assertEqual(code, 1)
+        self.assertIn('grouping switches read from pipeline.config', text)
+        self.assertIn('PRIMARY_CLAIM_ATTRIBUTION_ENABLED=False', text)
+        self.assertIn(': BLOCKED', text)
+        self.assertIn('PRIMARY_CLAIM_ATTRIBUTION_ENABLED is off', text)
+        self.assertIn('blocked=1', text)
+
 
 if __name__ == '__main__':
     unittest.main()
