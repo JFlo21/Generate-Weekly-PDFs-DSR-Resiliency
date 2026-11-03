@@ -1082,6 +1082,33 @@ class HardeningTests(_Base):
             json.dump(fx.correction_doc(), fh)
         self.assertEqual(len(rc.load_corrections(path).corrections), 1)
 
+    def test_file_outside_allowed_roots_means_feature_off(self):
+        path = self._configure(fx.correction_doc())
+        elsewhere = os.path.join(self._tmp.name, 'other-root')
+        with mock.patch.object(rc, '_allowed_roots',
+                               return_value=(elsewhere,)):
+            with self.assertRaises(rc.CorrectionError) as cm:
+                rc.load_corrections(path)
+            self.assertIn('must live under', cm.exception.problems[0])
+            with self.assertLogs(level='ERROR'):
+                self.assertIsNone(rc.get_active_set())
+
+    def test_runner_temp_is_an_allowed_root(self):
+        runner_tmp = os.path.join(self._tmp.name, 'runner')
+        os.makedirs(runner_tmp)
+        path = os.path.join(runner_tmp, 'reporting_corrections.json')
+        with open(path, 'w', encoding='utf-8') as fh:
+            json.dump(fx.correction_doc(), fh)
+        with mock.patch.dict(os.environ, {'RUNNER_TEMP': runner_tmp}), \
+                mock.patch.object(tempfile, 'gettempdir',
+                                  return_value=os.path.join(
+                                      self._tmp.name, 'not-this')), \
+                mock.patch.object(os, 'getcwd', return_value=os.path.join(
+                    self._tmp.name, 'nor-this')):
+            self.assertIn(os.path.normpath(os.path.realpath(runner_tmp)),
+                          rc._allowed_roots())
+            self.assertEqual(len(rc.load_corrections(path).corrections), 1)
+
     def test_unexpected_load_error_means_feature_off(self):
         self._configure(fx.correction_doc())
         with mock.patch.object(rc, 'load_corrections',

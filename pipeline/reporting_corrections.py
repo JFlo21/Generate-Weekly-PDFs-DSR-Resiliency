@@ -50,7 +50,9 @@ import datetime
 import hashlib
 import json
 import logging
+import os
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Iterable, Mapping, cast
@@ -392,10 +394,44 @@ def parse_corrections(data: Any) -> CorrectionSet:
         history=tuple(c for c in parsed if c is not None))
 
 
+def _allowed_roots() -> tuple[str, ...]:
+    """Directories a corrections file may live under (resolved).
+
+    The working directory (the repo template, local dry runs), the
+    system temp directory (operator-built private files) and
+    ``$RUNNER_TEMP`` (where the workflow step decodes the secret).
+    """
+    candidates = [os.getcwd(), tempfile.gettempdir(),
+                  os.environ.get('RUNNER_TEMP', '')]
+    return tuple(os.path.normpath(os.path.realpath(c))
+                 for c in candidates if c)
+
+
+def _confine_path(path: str) -> str:
+    """Resolve *path* and require it to sit under an allowed root.
+
+    Returns the resolved path so the value handed to ``open()`` is the
+    one that was checked (same shape as ``config._sanitize_csv_path``).
+    Rejecting with a :class:`CorrectionError` keeps the fail-safe: the
+    loader logs it and runs with NO correction, never a partial one.
+    """
+    resolved = os.path.normpath(os.path.realpath(path))
+    for root in _allowed_roots():
+        if resolved == root or resolved.startswith(root + os.sep):
+            return resolved
+    raise CorrectionError(
+        ['corrections file must live under the working directory, the '
+         'system temp directory or $RUNNER_TEMP'])
+
+
 def load_corrections(path: str) -> CorrectionSet:
-    """Read and validate the JSON file at *path* (a UTF-8 BOM is fine)."""
+    """Read and validate the JSON file at *path* (a UTF-8 BOM is fine).
+
+    The path must resolve under one of :func:`_allowed_roots`.
+    """
+    resolved = _confine_path(path)
     try:
-        with open(path, encoding='utf-8-sig') as fh:
+        with open(resolved, encoding='utf-8-sig') as fh:
             data = json.load(fh)
     except (OSError, ValueError) as exc:
         raise CorrectionError(

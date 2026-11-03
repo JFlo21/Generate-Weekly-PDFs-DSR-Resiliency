@@ -81,7 +81,10 @@ To withdraw a case, set `retired: true` (see rolling back).
 ## Operator procedure
 
 1. **Build the private file** outside the repository from the approved
-   allocation.
+   allocation, in your system temp directory. The loader only opens a file
+   that resolves under the working directory, the system temp directory
+   or `$RUNNER_TEMP`; any other location is logged at ERROR and the run
+   proceeds with no correction.
 2. **Validate:**
    `python -m pipeline.reporting_corrections validate --file <private.json>`
 3. **Preview against a private row dump** (zero external writes; prints
