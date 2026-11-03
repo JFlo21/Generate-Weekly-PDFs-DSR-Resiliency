@@ -9,6 +9,24 @@ _Last updated: November 3, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — November 3, 2026
+
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✨ New capability: foreman notes GF pilot (replaces )
+- ✅ Problem fixed: hold pilot groups on GF lookup failure
+- ✅ Problem fixed: render Mermaid diagrams
+- ✅ Problem fixed: make mobile navbar menu readable
+- ✅ Problem fixed: carry every unconfirmed group as regen debt
+- 📄 Help guides updated: record G-11-37 post-deploy check
+- ✅ Problem fixed: build runbook site on Node 26
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
 
@@ -71,24 +89,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 ### 📋 Changelog — November 3, 2026
 
 - • 📊 Audit: 2026-11-02T06:48:49Z
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — November 3, 2026
-
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✨ New capability: foreman notes GF pilot (replaces )
-- ✅ Problem fixed: hold pilot groups on GF lookup failure
-- ✅ Problem fixed: render Mermaid diagrams
-- ✅ Problem fixed: make mobile navbar menu readable
-- ✅ Problem fixed: carry every unconfirmed group as regen debt
-- 📄 Help guides updated: record G-11-37 post-deploy check
-- ✅ Problem fixed: build runbook site on Node 26
 
 <!-- /runbook-repo -->
 
