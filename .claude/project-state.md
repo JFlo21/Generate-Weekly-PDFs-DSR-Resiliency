@@ -31,9 +31,13 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `(sheet_id, row_id)` re-credit to an approved owner/workday; `$0.00` rows reconcile-only; recovered-only
   identity rollback gap closed), seams in fetch/grouping/orchestrate/change_detection (`CORR=` hash token),
   1155-line test module, runbook page `website/docs/runbook/reporting-corrections.md`. No workflow file
-  touched. Validation 2026-11-03: pytest 2909 passed / 3 skipped / 856 subtests; 6-gate harness ALL PASSED.
-  Opened 2026-11-03 as PR #447 (ready for review, approved; CodeQL path-guard and Copilot
-  findings being addressed on the branch). **Owner gates still open**: workflow step and the
+  touched. Opened 2026-11-03 as PR #447 (ready for review, approved). Review rounds 1-3 landed the same
+  day (`157f3506` path guard, `4e3e2290`, `8bceceaa`): cleanup held on failed/partial sheet reads and gated
+  on `RES_GROUPING_MODE=both` + claim attribution on; helper/VAC/legacy-owner cases BLOCK rather than
+  mis-credit; preview runs the same checks; logs carry field names only. Validation at `8bceceaa`: pytest
+  2928 passed / 3 skipped; 6 gates passed; CodeQL clean. **Owner decisions from review**: may a correction
+  ever override the VAC duplicate-unit rule (now blocked); primary owner change under legacy grouping (now
+  blocked). **Owner gates still open**: workflow step and the
   `REPORTING_CORRECTIONS_JSON_B64` secret (separate PR after approval), covering-helper choice.
 - **Phase 12 (Ownership)**: **COMPLETE 2026-09-10** — 10/10 plans (incl. 4 gap-closure plans). `/gsd-verify-work 12`
   passed: `12-UAT.md` 34/34, `12-VERIFICATION.md` 77/77 must-haves; 5 open advisory gaps for owner follow-up, the 6th — runbook WR-09 — fixed in the PR; docs PR #404
