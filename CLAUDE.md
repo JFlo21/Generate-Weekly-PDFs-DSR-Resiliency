@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Rules, guardrails, and pointers only. Architecture, env vars, schedules, and history live in the
-files linked below (moved, never deleted, by `align-instruction-files`; ledger `[2026-09-02 22:05]`).
+Rules, guardrails, and pointers only; architecture, env vars, schedules and history live in the files
+linked below (moved, never deleted, by `align-instruction-files`; ledger `[2026-09-02 22:05]`, `[2026-11-03 20:30]`).
 
 ## What this repo is
 
@@ -18,8 +18,8 @@ Three coupled components share one contract (full map: `docs/ai/architecture.md`
 2. `portal-v2/` — React 18 + TypeScript + Vite + Tailwind + Supabase; deploys to Vercel.
 3. `website/` — Docusaurus living runbook; deploys to Vercel.
 
-Legacy Express `portal/` was removed in 03153c3 (2026-06-02) — never `cd portal`; Cloud Agent
-installs use `scripts/cloud-agent-install.sh`. Also `scripts/` (6-gate harness, backfills, Notion sync), `tests/`.
+Legacy Express `portal/` was removed in 03153c3 — never `cd portal`; Cloud Agent installs use
+`scripts/cloud-agent-install.sh`. Also `scripts/` (6-gate harness, backfills, Notion sync) and `tests/`.
 
 ## Role
 
@@ -94,49 +94,49 @@ Required: `SMARTSHEET_API_TOKEN`. Everything else is `os.getenv()` with defaults
 (common flags, discovery folders, rate tables, time-budget family, debug flags, retired no-ops,
 documented-but-unconsumed flags) is `.github/prompts/configuration-environment.md` § Operator quick reference.
 
-## Pipeline flow (one screen)
+## Pipeline flow
 
-Smartsheet folder discovery (local discovery cache retired; a sheet skips full validation only when
-its live version matches `pipeline_memory.sheet_registry`, a stored column mapping exists, and the
-`helper2-v1` mapping marker is set; any doubt → full validation, D-11.1-01 + Phase 14) → parallel fetch (≤ 8 workers) → filter and group by
-`(WR, week_ending, variant, foreman, dept, job)` → attachment identity from `pipeline_memory.group_state`
-→ SHA-256 change detection → Excel (`openpyxl`;
-`generated_docs/WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant_suffix}_{hash}.xlsx`) → billing audit
-(`audit_billing_changes.py`, LOW/MEDIUM/HIGH) → delete the old attachment, then upload to
-`TARGET_SHEET_ID`. Module map, data stores, schedule/timeouts, variant/grouping model:
-`docs/ai/architecture.md`. Verified behavior notes: `docs/ai/implementation-truth.md`.
+Discovery → parallel fetch (≤ 8 workers) → group by `(WR, week_ending, variant, foreman, dept, job)` →
+attachment identity from `pipeline_memory.group_state` → SHA-256 change detection → Excel → billing
+audit → delete the old attachment, then upload. The step-by-step flow, registry skip rule
+(`helper2-v1` marker, D-11.1-01), filename pattern, module map, data stores and schedule/timeouts:
+`docs/ai/architecture.md` § Diagram-in-words. Verified behavior notes: `docs/ai/implementation-truth.md`.
 
 ## Conventions
 
 - **Python:** PEP 8, type hints, 4-space indent, ≤ 79-char lines, PEP 257 docstrings
-  (`.github/instructions/python.instructions.md`). Release tagging stays compatible with the
-  GitHub Actions release workflows.
+  (`.github/instructions/python.instructions.md`); release tagging stays compatible with the release workflows.
 - **Node (`portal-v2/`):** ES2022+ ESM, `async`/`await` only, prefer `undefined` over `null`,
   functions over classes, minimal deps. Tests use Vitest; never change production code to make
   it testable (`.github/instructions/nodejs-javascript-vitest.instructions.md`).
-- **Subcontractor pricing:** folder-based discovery is the primary path
-  (`.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`).
+- **Subcontractor pricing:** folder-based discovery is the primary path (`.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`).
 - **Commits:** Conventional Commits, subject ≤ 50 chars, bulleted body for complex changes.
   **PR titles** reference the tracking issue (`feat: implement Smartsheet sync (#42)`).
   **PR descriptions** have three sections: Objective · Changes Made · Production Safety Check.
-- **Runbook edits** (`website/`): `.claude/rules/documentation-maintenance.md`.
+- **Operator-visible changes** (new or retired env flags, schedule/timeout changes, data contracts, new
+  guardrails) need a synthesized runbook changelog entry even from a code-only session:
+  `.claude/rules/documentation-maintenance.md` § 1 (path-scoped to `website/**` + `docs-changelog.yml`; open it on purpose).
 
 ## Living Ledger and cloud memory injection
 
-`memory-bank/living-ledger.md` is the dated ledger of repo learnings, incident root causes, and rules
-(moved out of this file on 2026-05-28). When a fix or feature — including an `@claude` run from a
-GitHub issue — introduces a new architectural standard, recurring fix, or operational rule, append a
-`[YYYY-MM-DD HH:MM]` entry to the BOTTOM of the ledger in the same PR. Never inline the ledger back
-into this file. The other `memory-bank/*.md` pages are retired pointer stubs.
+`memory-bank/living-ledger.md` is the dated ledger of repo learnings, incident root causes, and rules.
+When a fix or feature — including an `@claude` run from a GitHub issue — introduces a new standard,
+recurring fix, or operational rule, append a `[YYYY-MM-DD HH:MM]` entry to the BOTTOM of the ledger in
+the same PR. Never inline the ledger here. The other `memory-bank/*.md` pages are retired pointer stubs.
 
 ## Second-brain write-back
 
-Repo-scoped subagents never edit Juan's second brain (the OneDrive `my-wiki` vault) directly.
-They return a compact write-back packet (what changed · why it matters · target vault page),
-dropping a file in `.claude/writeback-pending/` when needed; the main session applies vault
-edits via `global-second-brain-writeback-bridge` / `global-context-continuity` and clears the
-packet (audited by the global `~/.claude/hooks/audit_vault_writes.js` hook). Never place secrets
-in a packet (status and navigation pointers: see "Where to read next").
+Repo-scoped subagents never edit Juan's second brain (the OneDrive `my-wiki` vault) directly. They
+return a compact write-back packet (what changed · why it matters · target vault page), as a file in
+`.claude/writeback-pending/` when needed; the main session applies vault edits via
+`global-second-brain-writeback-bridge` / `global-context-continuity` and clears the packet. No secrets in a packet.
+
+## Session hygiene and compact instructions
+
+`CLAUDE.md` and `billing-pipeline-guardrails.md` load every turn; the other three rules are `paths:`-scoped
+(docs maintenance: `website/**` + `docs-changelog.yml`; the two Python rules: `**/*.py`). `/clear` between unrelated
+tasks. A `/compact` keeps branch + worktree, changed files, test and gate results, owner decisions and open gates,
+the active PR and its unresolved threads, and the next action; it drops tool output and resolved review rounds.
 
 ## Where to read next
 

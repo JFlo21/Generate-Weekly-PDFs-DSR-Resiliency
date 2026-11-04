@@ -27,3 +27,9 @@
 - **Result**: 0 critical, 0 warning, 2 suggestion
 - **Key findings**: `token_failed_total` duplicates `held_by_reason["notes_token_failed"]` in the run report (one count, two keys); `test_predicates_never_raise` asserts five behaviours in one test
 - **Strengths**: the hold key is computed at the failure site and checked at the decision site from the same `group_rows` object, order-independent, carrying no notes or names; GF-hold event and log shapes are pinned unchanged when no token hold happened
+## 2026-11-04 — Corrections file fail-closed gate (stacked on PR #447)
+- **Scope**: 2 pipeline files + 1 test file (orchestration + reporting-corrections module), runbook/config docs
+- **Atoms**: clean-code, secure-coding, test-quality
+- **Result**: 0 critical, 0 warning, 3 suggestion (unreachable `_txn` branch kept as defence; off-run test documents the regression rather than the gate; synthetic problem_count=1 for unexpected errors)
+- **Key findings**: Opus production-risk round fixed wording (failure-path run_ledger row is still written), `del path` before raise (Sentry captures locals), denylist→allowlist AST test, opt-in `vars.REPORTING_CORRECTIONS_REQUIRED` guard
+- **Strengths**: error surface is class + count only, no chained cause; gate placement proven by AST allowlist and a behavioural main() test
