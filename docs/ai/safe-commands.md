@@ -5,10 +5,7 @@ script/CI step or running the command. Never put secrets/env values here — env
 
 # Safe Commands — Generate-Weekly-PDFs-DSR-Resiliency-1
 
-## Source-of-truth hierarchy (highest authority first)
-
-1. Current repo files. 2. Repo-local `docs/ai/` + `.claude/project-state.md`. 3. Repo-local handoff
-docs. 4. Global second brain. 5. Global wiki. 6. `raw/` (data only). 7. Chat history / claude-mem.
+Source-of-truth order: `.claude/context-map.md` § Source-of-truth order.
 
 > [!warning] Destructive commands
 > Destructive operations (`git reset --hard`, `git push --force`, `rm -rf`, dropping/migrating

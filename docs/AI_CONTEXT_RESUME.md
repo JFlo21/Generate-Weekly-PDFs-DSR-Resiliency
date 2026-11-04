@@ -10,13 +10,28 @@
 > frozen Codex-side pointer, not maintained by ClaudeOS.) This file is the *status / resume*
 > layer, not the rulebook.
 
-_Last updated: 2026-09-10 (pointer + dated snapshots, newest first; body below the snapshots is the 2026-06-30 state)._
+_Last updated: 2026-11-03 (pointer + dated snapshots, newest first; body below the snapshots is the 2026-06-30 state)._
 
 > **Live status moved.** Since Phase 10 the current picture is kept in
 > `.claude/project-state.md` (repo status, watch lists, owner decisions) and
 > `.planning/STATE.md` (GSD position, session continuity), with dated evidence in
 > `memory-bank/living-ledger.md`. Read those first; the sections below describe
 > the v1.3 / Phase 09 state and are kept for history.
+>
+> **Snapshot 2026-11-03 — Foreman Notes pilot LIVE; corrections PR #447 approved; fail-closed token fix in flight.**
+> Pilot (#437/#444/#445, `FOREMAN_NOTES_UPLOAD=1` since 2026-10-31): 8 clean runs through 2026-11-03 19:07Z, zero
+> foreman-notes Sentry errors; `GENERATE-WEEKLY-EXCEL-AK` is the old `A3` data-entry alert refingerprinted. PR #447
+> (`fix/wr-91006877-reporting-correction`, opt-in `pipeline/reporting_corrections.py`, `CORR=` hash token) passed
+> review rounds 1-3 at `8bceceaa` (pytest 2928 / 3 skipped, 6 gates, CodeQL clean); owner gates: workflow step +
+> `REPORTING_CORRECTIONS_JSON_B64` secret (separate PR), VAC override, legacy-owner change, covering-helper.
+> Bug found: a `group_notes_token` failure returns `""` so the group fingerprints as "no notes" — fix on
+> `fix/foreman-notes-token-fail-closed` (worktree `gwp-fntoken`): hold the pilot group like a GF-lookup hold,
+> RED-first tests, failure surfaced in run reporting. Docs: PR #448 refreshes `.claude/project-state.md`;
+> PR #449 (`docs/claudeos-doc-alignment`) cuts it under the 120-line cap, `paths:`-scopes the area rules, adds
+> compact instructions to `CLAUDE.md` and freezes `AGENTS.md` to the `FROZEN MIRROR` pointer (owner-approved).
+> **Next:** owner merges #449, then #447, then #450 (token hold, PR open); owner decides the RESET-purge-before-
+> hold interaction on #450, the PR #447 gates and branch cleanup.
+> Details: `.claude/project-state.md`, ledger `[2026-11-03 14:05]`, `[2026-11-03 15:00]`, `[2026-11-03 20:30]`.
 >
 > **Snapshot 2026-09-10 (04:45Z) — Phase 14 "Foreman Helper #2" COMPLETE; O-14-E RESOLVED; code review DONE.**
 > 14/14 plans merged (last: plan 14-14, PR #396 → `736141a`; docs #397 → `92c9ed6`; closure PR #398 → `45bdbbf`;
@@ -269,7 +284,8 @@ Sequencing — **A → B → C → D → E**:
    attribution; fix the sub-helper filename/upload/change-key asymmetry; add a
    blank-foreman guard at freeze; one-time controlled re-attribution of the 5,183
    `Unknown Foreman` rows + the WR 14527770 weeks (manual Supabase + re-freeze
-   runbook). Full diagnosis: `.planning/debug/frozen-claim-history-gap.md`.
+   runbook). Full diagnosis: `.planning/debug/frozen-claim-history-gap.md`
+   (session-local, gitignored); durable summary: ledger `[2026-06-26 14:30]`.
 3. **Subproject E** (last claim-attribution rollout item, not started) — Supabase
    change-detection cutover + filename `_<hash>`/`_<timestamp>` strip. Lands
    cleaner *after* Phase 09 modularizes the upload/change-detection code.
