@@ -9856,7 +9856,8 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
 
 ## [2026-11-04 00:40] Instruction-file drift check round 2 (docs PR #449)
 
-- Step 0 after the 2026-11-03 alignment: CLAUDE.md 150, project-state 114, context-map 64, rules ≤ 60,
+- Step 0 after the 2026-11-03 alignment: CLAUDE.md 150, project-state 114 at check time (120 after
+  this round's own entries; cap 120), context-map 64 (71 after the source-of-truth section), rules ≤ 60,
   copilot mirror in sync, AGENTS.md frozen, 0 dangling pointers in CLAUDE.md / context map. Breaches:
   `docs/ai/architecture.md` 147, `implementation-truth.md` 138, `safe-commands.md` 133 (cap 130).
 - Repairs (no claim changed, no Last-verified date bumped): the "Source-of-truth hierarchy" block the

@@ -115,7 +115,7 @@ audit → delete the old attachment, then upload. The step-by-step flow, registr
   **PR descriptions** have three sections: Objective · Changes Made · Production Safety Check.
 - **Operator-visible changes** (new or retired env flags, schedule/timeout changes, data contracts, new
   guardrails) need a synthesized runbook changelog entry even from a code-only session:
-  `.claude/rules/documentation-maintenance.md` § 1 (path-scoped to `website/**`; open it on purpose).
+  `.claude/rules/documentation-maintenance.md` § 1 (path-scoped to `website/**` + `docs-changelog.yml`; open it on purpose).
 
 ## Living Ledger and cloud memory injection
 

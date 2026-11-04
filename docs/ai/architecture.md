@@ -4,7 +4,7 @@ Repo-local implementation truth — outranks second-brain notes; verified from r
 
 # Architecture — Generate-Weekly-PDFs-DSR-Resiliency-1
 
-Source-of-truth order: `.claude/context-map.md` § Read order.
+Source-of-truth order: `.claude/context-map.md` § Source-of-truth order.
 
 ## Components & boundaries
 

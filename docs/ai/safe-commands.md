@@ -5,7 +5,7 @@ script/CI step or running the command. Never put secrets/env values here — env
 
 # Safe Commands — Generate-Weekly-PDFs-DSR-Resiliency-1
 
-Source-of-truth order: `.claude/context-map.md` § Read order.
+Source-of-truth order: `.claude/context-map.md` § Source-of-truth order.
 
 > [!warning] Destructive commands
 > Destructive operations (`git reset --hard`, `git push --force`, `rm -rf`, dropping/migrating

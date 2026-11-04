@@ -1,7 +1,7 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-11-03 (Foreman Notes pilot LIVE; PR #447 corrections open; fail-closed notes-token
-fix and doc alignment in flight) · **overwrite-in-place each session** — the canonical "where the project
+_Last updated: 2026-11-04 (Foreman Notes pilot LIVE; PRs #447/#449/#450/#451 open; corrections
+fail-closed gate and doc alignment in review) · **overwrite-in-place each session** — the canonical "where the project
 stands" landing spot for the global Stop write-back reminder. Cap ≤ 120 lines (`align-instruction-files`);
 history goes to `memory-bank/living-ledger.md` (grep the dated header), never here._
 

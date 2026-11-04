@@ -26,7 +26,7 @@ let the SDK return the full sheet in a single response.
 - If you need parallelism across multiple sheets, cap concurrent
   workers at **8** (`PARALLEL_WORKERS ≤ 8`) to stay within quota.
 - Never invent column names — verify against
-  `_validate_single_sheet()` mappings in `generate_weekly_pdfs.py`
+  `_validate_single_sheet()` mappings in `pipeline/discovery.py`
   (synonyms for `Weekly Reference Logged Date`, `helper_dept`,
   `helper_foreman`, `Job #`, etc.).
 - **Never** use, write, or suggest the Smartsheet `@cell` function in
