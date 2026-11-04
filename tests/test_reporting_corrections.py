@@ -1303,11 +1303,26 @@ class ReviewRoundTests(_Base):
                             for m in cm.output))
         for grows in groups.values():
             self.assertFalse(any(r.get('__corr_credit') for r in grows))
-        # same owner (workday only) is still produced in legacy mode
+        # same owner (workday only) blocks too: the legacy bare primary
+        # file carries no _User_ suffix, so the credit's published
+        # identity could never be found on retirement (Codex, PR #447)
         doc = fx.correction_doc()
         corr = doc['corrections'][0]
         corr.pop('expected_subtotals')
         corr['rows'] = [r for r in corr['rows'] if r['row_id'] == 102]
+        for switch, value in (('PRIMARY_CLAIM_ATTRIBUTION_ENABLED', False),
+                              ('RES_GROUPING_MODE', 'primary')):
+            with mock.patch.object(generate_weekly_pdfs, switch, value), \
+                    self.assertLogs(level='WARNING'):
+                _, summary = self._run(doc)
+            self.assertEqual((summary['applied'], summary['blocked']),
+                             (0, 1), switch)
+        # the helper credit alone is still produced with attribution off
+        doc = fx.correction_doc()
+        corr = doc['corrections'][0]
+        corr.pop('expected_subtotals')
+        corr['rows'] = [r for r in corr['rows']
+                        if r['credit']['variant'] == 'helper']
         with mock.patch.object(generate_weekly_pdfs,
                                'PRIMARY_CLAIM_ATTRIBUTION_ENABLED', False):
             _, summary = self._run(doc)
@@ -1408,6 +1423,38 @@ class ReviewRoundTests(_Base):
         rc.prepare_run(list(rows), group_fn=None)
         self.assertEqual(rc.cleanup_hold(),
                          'early recovered-row check failed')
+        rc.reset_state()
+        self.assertIsNone(rc.cleanup_hold())
+
+    def test_fail_closed_fallback_keeps_the_run_wide_hold(self):
+        # hold raised by the early check, then prepare_run raises and
+        # main() falls back to drop_all_corrections: the hold must
+        # survive (and be raised by the fallback even without one), so
+        # nothing stale is deleted with nothing verified (Copilot on
+        # 759ccbd4).
+        names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        rows = [r for r in fx.admitted_rows() if r['__row_id'] != 101]
+        with self.assertLogs(level='WARNING'):
+            groups, _ = self._run(fx.correction_doc(), rows=rows)
+        rc.hold_cleanup('early recovered-row check failed')
+        rc.drop_all_corrections(rows)
+        self.assertEqual(rc.cleanup_hold(),
+                         'early recovered-row check failed')
+        self.assertEqual(rc.displaced_groups(), {})
+        client = _client()
+        self.assertEqual(_remove(groups, _cache(names), client), 0)
+        self.assertEqual(_deleted(client), [])
+        client.Attachments.list_row_attachments.assert_not_called()
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+            {(fx.WR, '030826')})
+        # no earlier hold: the fallback raises its own
+        rc.reset_state()
+        self._configure(fx.correction_doc())
+        rc.drop_all_corrections(list(rows))
+        self.assertEqual(rc.cleanup_hold(),
+                         'corrections dropped after a failure')
         rc.reset_state()
         self.assertIsNone(rc.cleanup_hold())
 

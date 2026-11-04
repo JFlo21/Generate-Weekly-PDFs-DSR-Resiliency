@@ -37,10 +37,12 @@ case `(WR, week ending)`:
   nothing of it applies and the run logs `⛔ Reporting correction ... BLOCKED`
   with the per-row differences. Other cases still apply. A case that credits a
   `helper` / `helper2` row while `RES_GROUPING_MODE=primary`, or a `helper2`
-  row while `HELPER2_ENABLED` is off, or a primary owner change while the
-  primary file identity is the legacy one (`PRIMARY_CLAIM_ATTRIBUTION_ENABLED`
-  off or `RES_GROUPING_MODE=primary`), blocks the same way: that run cannot
-  produce the approved workbook. So does a credited row whose unit (WR, week,
+  row while `HELPER2_ENABLED` is off, or any `primary` row while the primary
+  file identity is the legacy one (`PRIMARY_CLAIM_ATTRIBUTION_ENABLED` off or
+  `RES_GROUPING_MODE=primary`: the bare file would not carry the credited
+  owner, so a later retirement could never find it), blocks the same way:
+  that run cannot produce the approved workbook. So does a credited row whose
+  unit (WR, week,
   Point, CU) a completed VAC-crew row claims -- that unit is billed on the
   VacCrew sheet only. The per-row lines name the differing fields, never
   their values.

@@ -901,11 +901,16 @@ def hold_recovered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def drop_all_corrections(rows: list[dict[str, Any]]) -> None:
     """Fail-closed fallback: drop every recovered row FIRST (the marker
-    is one of the stamps), then strip every stamp, then forget state."""
+    is one of the stamps), then strip every stamp, then forget state --
+    except the run-wide cleanup hold, which this fallback raises (or
+    keeps): no case's placement is verifiable once the corrections were
+    dropped mid-run, so no published correction-only file may go."""
+    reason = _CLEANUP_HOLD or 'corrections dropped after a failure'
     rows[:] = [r for r in rows if not r.get('__corr_recovered')]
     for row in rows:
         _strip(row)
     reset_state()
+    hold_cleanup(reason)
 
 
 def _grouping_switches(facade: bool = True) -> dict[str, Any]:
@@ -933,9 +938,11 @@ def _unproduced_variants(
         switches: Mapping[str, Any] | None = None) -> dict[str, str]:
     """Credit variant -> the switch that keeps grouping from producing
     its workbook this run (empty when every variant is produced). The
-    ``'primary_owner'`` entry means a primary owner CHANGE is not
-    produced: the primary file identity is the legacy one (one bare
-    file per WR / week, named from the row's ``User`` field).
+    ``'primary_owner'`` entry means no primary credit is produced: the
+    primary file identity is the legacy one (one bare file per WR /
+    week, no ``_User_`` suffix), so the published file could never
+    carry the credit's identity (``_credit_identity``) and an owner
+    change is not expressed at all.
 
     *switches* defaults to ``_grouping_switches()`` (live facade).
     """
@@ -963,8 +970,10 @@ def _block_unsupported(results: list[CorrectionResult],
     approved workbook (the row would fall back elsewhere -- or nowhere
     -- while the case reported APPLIED):
 
-    * a credited variant the grouping switches do not produce, or a
-      primary owner change under the legacy primary file identity;
+    * a credited variant the grouping switches do not produce, or any
+      primary credit under the legacy primary file identity (the bare
+      file would not carry the credit's published identity, so its
+      later retirement could never find it);
     * a credited row whose unit (WR, week, Point, CU) a completed VAC
       crew row claims: grouping bills that unit on the VacCrew sheet
       only and drops this copy (no double billing).
@@ -989,8 +998,7 @@ def _block_unsupported(results: list[CorrectionResult],
         corr = res.correction
         bad = [e for e in corr.rows if not e.reconcile_only and (
             e.variant in off or (e.variant == 'primary'
-                                 and 'primary_owner' in off
-                                 and e in res.reassigned_rows))]
+                                 and 'primary_owner' in off))]
         if bad:
             why = sorted({
                 f'{e.variant} ({off.get(e.variant) or off["primary_owner"]})'
