@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: November 3, 2026 (updated automatically)_
+_Last updated: November 4, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 3, 2026
+### 📋 Changelog — November 4, 2026
 
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 📄 Help guides updated: pilot live, Sentry check, PR ledger
 - ✨ New capability: foreman notes GF pilot (replaces )
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✅ Problem fixed: hold pilot groups on GF lookup failure
 - ✅ Problem fixed: render Mermaid diagrams
 - ✅ Problem fixed: make mobile navbar menu readable
 - ✅ Problem fixed: carry every unconfirmed group as regen debt
 - 📄 Help guides updated: record G-11-37 post-deploy check
-- ✅ Problem fixed: build runbook site on Node 26
 
 <!-- /runbook-repo -->
 
@@ -516,4 +516,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
