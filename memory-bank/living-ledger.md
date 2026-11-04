@@ -9816,3 +9816,50 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
 - Docs pass (`63787962`): 48 docs verified by `gsd-doc-verifier`; Azure mirror docs now describe the PAT
   pipeline; `AGENTS.md` is Codex-owned and never read.
 - Open for owner: workflow step + secret (protected), PR, helper-vs-primary file for the covering helper.
+## [2026-11-03 14:05] Foreman Notes pilot verified live; corrections branch opened as PR #447.
+
+- Pilot: `FOREMAN_NOTES_UPLOAD=1` read back; run 41681444921 (2026-11-03 17:09Z) logged
+  `Foreman notes: allowlist=3 gf_rows=920 pilot_wrs=289`; 8 consecutive scheduled runs succeeded
+  (2026-11-02 19:08Z .. 2026-11-03 19:07Z, run list read 21:00Z). Sentry 7-day error search for foreman notes / notes upload /
+  GF lookup: 0 events.
+- Rule: after a Sentry SDK/tagging change (PR #444), expect existing alerts to reappear under a NEW issue
+  id. `GENERATE-WEEKLY-EXCEL-AK` (2026-11-03) is the same "154 groups across 137 WR values have no row on
+  target sheet" data-entry alert as `GENERATE-WEEKLY-EXCEL-A3` (since 2026-08-27, 234 events) — compare the
+  message before treating a "new" issue as a regression.
+- Corrections: `fix/wr-91006877-reporting-correction` opened as PR #447 — created as a draft, marked ready the same day (10 commits, no workflow
+  file); pytest 2909/3 skipped/856 subtests, 6 gates passed. Secret + workflow step stay out until approved.
+- Branch hygiene: 22 local branches whose upstream is gone all map to MERGED PRs (3 still hold worktrees
+  `gwp-1115`, `gwp-mermaid`, `gwp-regen`, all clean); 9 tracked branches map to merged/closed PRs. Deletion
+  is an owner call.
+
+## [2026-11-03 15:00] PR #447 review rounds 1-3 (corrections module).
+
+- Rule: a review-fix round on a branch runs in ONE session at a time; two sessions edited `gwp-corr`
+  concurrently today and the second coder had to stop. Settle ownership before dispatching a writer.
+- Rule: correction cleanup (`_remove_empty_displaced_attachments`) runs only when the full read had no
+  failed/partial sheets, `RES_GROUPING_MODE=both` and claim attribution is on; stand-in identities for
+  withdrawn rows make this gate load-bearing (a transient read failure must never delete a credit file).
+- Rule: a correction the active switches cannot honour (helper under `primary`, helper2 with
+  `HELPER2_ENABLED` off, VAC-claimed unit, primary owner change under legacy identity) BLOCKS; it never
+  lands in the wrong workbook. Preview applies the same checks.
+- Evidence: `8bceceaa` full suite 2928 passed / 3 skipped, 6 gates passed; CodeQL clean from `3eed17a0`.
+
+## [2026-11-03 19:30] PR #447 review rounds 4-6 (published-identity cleanup) -- supersedes the 15:00 switch rule.
+
+- Rule (replaces "cleanup runs only under RES_GROUPING_MODE=both + claim attribution on"): a stale credit
+  identity is the one the correction PUBLISHED, fixed by the approved entry (`_credit_identity`: owner /
+  helper name + variant, one slot per workbook), never re-derived by re-grouping stand-ins under the retire
+  run's switches -- re-grouping merged owners into the legacy file or dropped helper workbooks, so the old
+  file was never matched and kept billing. Today's groups are still judged under the run's switches.
+- Rule: a stale credit row is pinned to the CASE WR and week (cleanup reads both from the row); a row moved
+  to another WR must never point cleanup at the new WR's target row.
+- Rule: cleanup fails closed on an early corrections failure -- `hold_recovered_rows` raising, or the
+  `prepare_run` fallback `drop_all_corrections` -- via a run-wide hold that survives `prepare_run` and
+  clears only per run; unsettled correction pairs (generated-but-not-uploaded group, placement / read hold,
+  TEST_MODE, MAX_GROUPS, time budget, failed pass) also join the Foreman Notes holds handed to the
+  sheet-wide `cleanup_untracked_sheet_attachments`, whose variant-migration branch trusts generated files.
+- Rule: under the legacy primary identity (attribution off or `RES_GROUPING_MODE=primary`) EVERY primary
+  credit blocks, not only an owner change -- the bare file carries no `_User_` suffix, so the published
+  identity could never be found on retirement.
+- Evidence: `f429f892`, `9aad5b91`, `759ccbd4`, `abc93bae` on PR #447; full suite 2933 passed / 3 skipped /
+  856 subtests, 6 gates passed at `abc93bae`; preview on the private file still APPLIED 260 / 90 / blocked 0.
