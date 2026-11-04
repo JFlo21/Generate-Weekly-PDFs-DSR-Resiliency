@@ -56,3 +56,10 @@ or remove entries that stop being true. Repo-local; no secrets, no status.
 - Exclusions must not clear what is already owed: `row_state` advances before upload, so dropping a pending
   pair narrows scope on an unproven outcome (PR #439). Filter what a step ADDS to regen debt; a pair leaves the
   debt only on proof. "Scope only widens" is the test, even when a bot asks for the narrower reading.
+
+- "Feature off" stops being fail-safe once the feature has published state: a configured-but-unloadable
+  input (REPORTING_CORRECTIONS_FILE set, file bad) must stop the run, not degrade to feature-off, because
+  the degraded run re-publishes what the feature retired (double billing until the next good run). Gate at
+  the top of main(), before any external call; pin it with an allowlist of what may precede it, not a
+  denylist. Guard the layer above too (workflow: a required-variable so a vanished secret cannot degrade
+  silently). Found while closing PR #447's Copilot round (2026-11-04).

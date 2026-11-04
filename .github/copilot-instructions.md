@@ -1,6 +1,6 @@
 # Project Guidelines
 
-<!-- Generated from CLAUDE.md on 2026-10-29 (branch docs/align-instruction-files) by the
+<!-- Generated from CLAUDE.md on 2026-11-03 (branch docs/claudeos-doc-alignment) by the
      align-instruction-files skill. Do not hand-edit; regenerate from CLAUDE.md when it changes. -->
 
 ## Overview
@@ -62,6 +62,15 @@ Full command list: `docs/ai/safe-commands.md`. Env-var catalog:
   Objective · Changes Made · Production Safety Check.
 - New rules and incident root causes go to the bottom of `memory-bank/living-ledger.md` as dated
   `[YYYY-MM-DD HH:MM]` entries, in the same PR as the code change.
+
+## Session hygiene
+
+`CLAUDE.md` and `.claude/rules/billing-pipeline-guardrails.md` load every turn; the other three rules are
+`paths:`-scoped (docs maintenance: `website/**` + `.github/workflows/docs-changelog.yml`; the two Python rules:
+`**/*.py`). Operator-visible changes (env flags, schedule/timeout, data contracts, new guardrails) need a
+synthesized runbook changelog entry even from a code-only session (`documentation-maintenance.md` § 1). When compacting,
+keep branch + worktree, changed files, test and gate results, owner decisions and open gates, the active
+PR and its unresolved threads, and the next action; drop tool output and resolved review rounds.
 
 ## Pointers
 
