@@ -9863,3 +9863,53 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   identity could never be found on retirement.
 - Evidence: `f429f892`, `9aad5b91`, `759ccbd4`, `abc93bae` on PR #447; full suite 2933 passed / 3 skipped /
   856 subtests, 6 gates passed at `abc93bae`; preview on the private file still APPLIED 260 / 90 / blocked 0.
+## [2026-11-03 20:30] Instruction files re-aligned for context cost (Claude Code docs pass).
+
+- What moved: `CLAUDE.md` § Pipeline flow (one screen) → pointer to `docs/ai/architecture.md` § Diagram-in-words
+  (every fact was already there: registry skip rule, filename pattern, audit levels, `TARGET_SHEET_ID`);
+  Living-Ledger and second-brain paragraphs compressed, no rule dropped; new § "Session hygiene and compact
+  instructions" (what a `/compact` must keep). `.claude/project-state.md` cut 239 → 107 lines (cap 120); the dropped
+  Phase 11/13/14 detail is in the ledger (`[2026-09-09..14]`, `[2026-10-30 07:20]`) and `.planning/`.
+- Carried here from project-state (no ledger header existed for 2026-09-12/13): Phase 11 Nyquist closed
+  2026-09-12 (`ccdaa08`, 30 rows green); security gates closed 11 (`7965507`, 45 threats, 5 accepted
+  AR-11-01..05), 11.1 (`ad24b01`, 18 threats, 2 accepted), 12 (`61b40d3`, 61 entries, 2 accepted), 13
+  (`2047a67`, 41 threats, 8 accepted → AR-13-01..03) on 2026-09-12 and 14 (`c96a141`, 70 threats, 14
+  accepted AR-14-01..04) on 2026-09-13; Phase 13 Nyquist 2026-09-12 (`e320155`, 14/14 rows); v1.4
+  re-audit 2026-09-13 (`859c98c`, `gaps_found` 19/23, SECURITY.md complete for 11/11.1/12/13/14).
+- Rule: `.claude/rules/*.md` load every turn unless they carry `paths:` frontmatter (Claude Code memory
+  docs, read 2026-11-03). `documentation-maintenance.md` is now scoped to `website/**` and the docs
+  changelog workflow; `smartsheet-python-optimization.md` to `**/*.py` (`python-module-architecture.md`
+  was already scoped to `**/*.py`) — together ~175 lines leave every non-matching turn. Path-scoped rules
+  reload on demand after compaction; the one rule that must survive compaction unconditionally stays
+  unscoped (`billing-pipeline-guardrails.md`).
+- Rule: the Copilot mirror is regenerated with the CLAUDE.md change (header date + hygiene section), never
+  hand-edited. `AGENTS.md` (367 lines, auto-loaded) frozen to the 5-line `FROZEN MIRROR` pointer with the
+  owner's chat approval (`32c6e7ff`); the harness-boundary hook did not block the shell redirect write.
+  Review round: `smartsheet-python-optimization.md` full text moved to
+  `.github/instructions/smartsheet-python-optimization.instructions.md` (rule now a pointer under the
+  60-line cap), `documentation-maintenance.md` rewritten under the cap with the same rules, and
+  `CLAUDE.md` § Conventions carries the always-loaded "operator-visible change needs a changelog
+  entry" reminder.
+- Evidence: drift check (skill step 0) after the edits — CLAUDE.md 150, project-state 107, context map
+  64, mirror in sync, zero `MISSING:` pointers. Docs-only branch `docs/claudeos-doc-alignment` stacked on
+  PR #448. Skipped on purpose: `/gsd:health` and `/gsd:docs-update` (Phase 15 pilot live; GSD STATE churn
+  would collide with the docs PR — the skill's own "when not to use" case).
+
+## [2026-11-04 00:40] Instruction-file drift check round 2 (docs PR #449)
+
+- Step 0 after the 2026-11-03 alignment: CLAUDE.md 150, project-state 114 at check time (120 after
+  this round's own entries; cap 120), context-map 64 (71 after the source-of-truth section), rules ≤ 60,
+  copilot mirror in sync, AGENTS.md frozen, 0 dangling pointers in CLAUDE.md / context map. Breaches:
+  `docs/ai/architecture.md` 147, `implementation-truth.md` 138, `safe-commands.md` 133 (cap 130).
+- Repairs (no claim changed, no Last-verified date bumped): the "Source-of-truth hierarchy" block the
+  three pages repeated → one pointer to `.claude/context-map.md` § Read order; time-budget raise history
+  and the retired local-JSON-cache row → this ledger (`[2026-04-22 17:10]`, INC-05); Last-verified
+  provenance compressed. `docs/AI_CONTEXT_RESUME.md` now says `.planning/debug/*` is session-local
+  (gitignored) and points at `[2026-06-26 14:30]`. `.agents/skills/run-billing-pipeline-locally` had
+  drifted from `.claude/skills` (WR_FILTER needs TEST_MODE) → resynced. `.gitignore` ignores
+  `**/.claude/session-delta.jsonl` (hook output in `website/.claude/`). `.serena/project.yml` +
+  `.serena/.gitignore` tracked (Serena ignores cache + local file itself; memories dir empty).
+- Rule: `docs/ai/*` pages carry no copy of the source-of-truth order — it lives in the context map.
+- Left to the owner: whether `.agents/` (untracked since 2026-08-12, documented as a cross-runtime
+  mirror) is tracked or ignored; `.planning/state.json` / `.continue-here.md` / `.gitkeep` are GSD
+  working files; `/gsd:health` and `/gsd:docs-update` skipped again (Phase 15 live).

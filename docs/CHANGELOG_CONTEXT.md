@@ -16,6 +16,16 @@ retire/rollback semantics, two independent reviews and a re-verification; full s
 OFF byte-identical. Docs: 48 docs verified, Azure docs corrected, four new guides and two reference pages.
 Details and rules: `memory-bank/living-ledger.md` `[2026-11-02 18:30]`. Owner gates: workflow step + secret,
 PR, helper-vs-primary choice.
+## 2026-11-03 — Instruction files re-aligned for context cost
+
+What: `.claude/project-state.md` cut to its 120-line cap (history already in the ledger); `CLAUDE.md`'s
+pipeline-flow prose replaced by a pointer to `docs/ai/architecture.md` and a new "Session hygiene and
+compact instructions" section added; the Docusaurus and Smartsheet/Python optimization rules now carry
+`paths:` frontmatter so they load only when `website/**` or Python files are touched; Copilot mirror,
+context map and `docs/AI_CONTEXT_RESUME.md` snapshot refreshed. Why: Claude Code's memory docs say
+every unscoped `CLAUDE.md`/rules line is paid on every turn; the pre-cut state file alone was twice its
+cap. How it affects operators: no runtime change; `AGENTS.md` is now the 5-line `FROZEN MIRROR` pointer
+(owner-approved in chat). Ledger `[2026-11-03 20:30]`.
 
 ## 2026-10-31 — PR #445 Foreman Notes pilot switch
 
@@ -1464,3 +1474,10 @@ the sheet/column IDs and fix steps; lookup-failed, style and digest failure even
 tags. WR numbers only in the scoped `foreman_notes` context (DECISIONS.md exception); GF names and note text never.
 Why: the last blocker before `FOREMAN_NOTES_UPLOAD` (owner decisions 2026-10-30). Evidence: pytest 2848 passed, 6
 gates pass, independent Opus review merge-safe, Greptile 5/5. Production unchanged while scope is off.
+
+## 2026-11-04 — Drift-check repairs after the alignment
+
+`docs/ai/architecture.md`, `implementation-truth.md`, `safe-commands.md` back under the 130-line cap
+(duplicated source-of-truth block → context-map pointer; history → ledger); resume doc points at the
+ledger for the gitignored debug record; `.agents/skills` mirror resynced; nested hook output ignored;
+Serena project config tracked. Ledger `[2026-11-04 00:40]`.
