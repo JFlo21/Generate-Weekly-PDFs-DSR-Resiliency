@@ -27,9 +27,10 @@ _Last updated: 2026-11-03 (pointer + dated snapshots, newest first; body below t
 > Bug found: a `group_notes_token` failure returns `""` so the group fingerprints as "no notes" — fix on
 > `fix/foreman-notes-token-fail-closed` (worktree `gwp-fntoken`): hold the pilot group like a GF-lookup hold,
 > RED-first tests, failure surfaced in run reporting. Docs: PR #448 refreshes `.claude/project-state.md`;
-> branch `docs/claudeos-doc-alignment` (stacked on #448) cuts it to the 120-line cap, `paths:`-scopes two
-> rules, adds compact instructions to `CLAUDE.md`. **Next:** finish + review + PR the token fix; open the
-> alignment PR (owner pastes the `AGENTS.md` freeze header); owner decides PR #447 gates and branch cleanup.
+> PR #449 (`docs/claudeos-doc-alignment`) cuts it under the 120-line cap, `paths:`-scopes the area rules, adds
+> compact instructions to `CLAUDE.md` and freezes `AGENTS.md` to the `FROZEN MIRROR` pointer (owner-approved).
+> **Next:** owner merges #449, then #447, then #450 (token hold, PR open); owner decides the RESET-purge-before-
+> hold interaction on #450, the PR #447 gates and branch cleanup.
 > Details: `.claude/project-state.md`, ledger `[2026-11-03 14:05]`, `[2026-11-03 15:00]`, `[2026-11-03 20:30]`.
 >
 > **Snapshot 2026-09-10 (04:45Z) — Phase 14 "Foreman Helper #2" COMPLETE; O-14-E RESOLVED; code review DONE.**

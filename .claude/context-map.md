@@ -18,8 +18,8 @@ Legacy Express `portal/` was removed (03153c3) — never `cd portal`.
 
 ## Read order for a fresh session
 1. `CLAUDE.md` + `.claude/rules/*.md` (billing guardrails load every turn; docs maintenance is
-   `paths:`-scoped to `website/**`, **Python module architecture** and Smartsheet/Python
-   optimization to `**/*.py`).
+   `paths:`-scoped to `website/**` + `.github/workflows/docs-changelog.yml`; **Python module
+   architecture** and Smartsheet/Python optimization to `**/*.py`).
 2. `.claude/project-state.md` — where the project stands (overwrite-in-place ledger).
 3. `.planning/STATE.md` → `ROADMAP.md` → `phases/<current>/` — GSD position, plans, research.
 4. `docs/ai/` — repo-local implementation truth (`architecture`, `implementation-truth`,

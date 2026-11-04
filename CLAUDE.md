@@ -18,8 +18,8 @@ Three coupled components share one contract (full map: `docs/ai/architecture.md`
 2. `portal-v2/` — React 18 + TypeScript + Vite + Tailwind + Supabase; deploys to Vercel.
 3. `website/` — Docusaurus living runbook; deploys to Vercel.
 
-Legacy Express `portal/` was removed in 03153c3 (2026-06-02) — never `cd portal`; Cloud Agent
-installs use `scripts/cloud-agent-install.sh`. Also `scripts/` (6-gate harness, backfills, Notion sync), `tests/`.
+Legacy Express `portal/` was removed in 03153c3 — never `cd portal`; Cloud Agent installs use
+`scripts/cloud-agent-install.sh`. Also `scripts/` (6-gate harness, backfills, Notion sync) and `tests/`.
 
 ## Role
 
@@ -105,17 +105,17 @@ audit → delete the old attachment, then upload. The step-by-step flow, registr
 ## Conventions
 
 - **Python:** PEP 8, type hints, 4-space indent, ≤ 79-char lines, PEP 257 docstrings
-  (`.github/instructions/python.instructions.md`). Release tagging stays compatible with the
-  GitHub Actions release workflows.
+  (`.github/instructions/python.instructions.md`); release tagging stays compatible with the release workflows.
 - **Node (`portal-v2/`):** ES2022+ ESM, `async`/`await` only, prefer `undefined` over `null`,
   functions over classes, minimal deps. Tests use Vitest; never change production code to make
   it testable (`.github/instructions/nodejs-javascript-vitest.instructions.md`).
-- **Subcontractor pricing:** folder-based discovery is the primary path
-  (`.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`).
+- **Subcontractor pricing:** folder-based discovery is the primary path (`.github/instructions/subcontractor-pricing-folder-discovery.instructions.md`).
 - **Commits:** Conventional Commits, subject ≤ 50 chars, bulleted body for complex changes.
   **PR titles** reference the tracking issue (`feat: implement Smartsheet sync (#42)`).
   **PR descriptions** have three sections: Objective · Changes Made · Production Safety Check.
-- **Runbook edits** (`website/`): `.claude/rules/documentation-maintenance.md`.
+- **Operator-visible changes** (new or retired env flags, schedule/timeout changes, data contracts, new
+  guardrails) need a synthesized runbook changelog entry even from a code-only session:
+  `.claude/rules/documentation-maintenance.md` § 1 (path-scoped to `website/**`; open it on purpose).
 
 ## Living Ledger and cloud memory injection
 
@@ -133,8 +133,8 @@ return a compact write-back packet (what changed · why it matters · target vau
 
 ## Session hygiene and compact instructions
 
-`CLAUDE.md` and `.claude/rules/billing-pipeline-guardrails.md` load every turn; the other three rules are
-`paths:`-scoped (`website/**` for docs maintenance, `**/*.py` for the two Python rules). `/clear` between unrelated
+`CLAUDE.md` and `billing-pipeline-guardrails.md` load every turn; the other three rules are `paths:`-scoped
+(docs maintenance: `website/**` + `docs-changelog.yml`; the two Python rules: `**/*.py`). `/clear` between unrelated
 tasks. A `/compact` keeps branch + worktree, changed files, test and gate results, owner decisions and open gates,
 the active PR and its unresolved threads, and the next action; it drops tool output and resolved review rounds.
 

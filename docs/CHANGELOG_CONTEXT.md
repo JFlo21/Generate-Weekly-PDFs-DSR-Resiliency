@@ -17,8 +17,8 @@ compact instructions" section added; the Docusaurus and Smartsheet/Python optimi
 `paths:` frontmatter so they load only when `website/**` or Python files are touched; Copilot mirror,
 context map and `docs/AI_CONTEXT_RESUME.md` snapshot refreshed. Why: Claude Code's memory docs say
 every unscoped `CLAUDE.md`/rules line is paid on every turn; the pre-cut state file alone was twice its
-cap. How it affects operators: no runtime change; `AGENTS.md` still needs the owner's `FROZEN MIRROR`
-header by hand. Ledger `[2026-11-03 20:30]`.
+cap. How it affects operators: no runtime change; `AGENTS.md` is now the 5-line `FROZEN MIRROR` pointer
+(owner-approved in chat). Ledger `[2026-11-03 20:30]`.
 
 ## 2026-10-31 — PR #445 Foreman Notes pilot switch
 

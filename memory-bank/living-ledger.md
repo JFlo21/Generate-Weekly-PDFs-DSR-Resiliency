@@ -9827,7 +9827,7 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
 - What moved: `CLAUDE.md` § Pipeline flow (one screen) → pointer to `docs/ai/architecture.md` § Diagram-in-words
   (every fact was already there: registry skip rule, filename pattern, audit levels, `TARGET_SHEET_ID`);
   Living-Ledger and second-brain paragraphs compressed, no rule dropped; new § "Session hygiene and compact
-  instructions" (what a `/compact` must keep). `.claude/project-state.md` cut 239 → 120 lines; the dropped
+  instructions" (what a `/compact` must keep). `.claude/project-state.md` cut 239 → 107 lines (cap 120); the dropped
   Phase 11/13/14 detail is in the ledger (`[2026-09-09..14]`, `[2026-10-30 07:20]`) and `.planning/`.
 - Carried here from project-state (no ledger header existed for 2026-09-12/13): Phase 11 Nyquist closed
   2026-09-12 (`ccdaa08`, 30 rows green); security gates closed 11 (`7965507`, 45 threats, 5 accepted
@@ -9842,9 +9842,14 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   reload on demand after compaction; the one rule that must survive compaction unconditionally stays
   unscoped (`billing-pipeline-guardrails.md`).
 - Rule: the Copilot mirror is regenerated with the CLAUDE.md change (header date + hygiene section), never
-  hand-edited. `AGENTS.md` (367 lines, Codex-owned, auto-loaded) still needs the owner's `FROZEN MIRROR`
-  header (skill step 3.4); ClaudeOS cannot write it.
-- Evidence: drift check (skill step 0) after the edits — CLAUDE.md 150, project-state 120, context map
+  hand-edited. `AGENTS.md` (367 lines, auto-loaded) frozen to the 5-line `FROZEN MIRROR` pointer with the
+  owner's chat approval (`32c6e7ff`); the harness-boundary hook did not block the shell redirect write.
+  Review round: `smartsheet-python-optimization.md` full text moved to
+  `.github/instructions/smartsheet-python-optimization.instructions.md` (rule now a pointer under the
+  60-line cap), `documentation-maintenance.md` rewritten under the cap with the same rules, and
+  `CLAUDE.md` § Conventions carries the always-loaded "operator-visible change needs a changelog
+  entry" reminder.
+- Evidence: drift check (skill step 0) after the edits — CLAUDE.md 150, project-state 107, context map
   64, mirror in sync, zero `MISSING:` pointers. Docs-only branch `docs/claudeos-doc-alignment` stacked on
   PR #448. Skipped on purpose: `/gsd:health` and `/gsd:docs-update` (Phase 15 pilot live; GSD STATE churn
   would collide with the docs PR — the skill's own "when not to use" case).
