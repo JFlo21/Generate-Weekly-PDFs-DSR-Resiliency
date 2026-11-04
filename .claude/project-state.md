@@ -7,15 +7,12 @@ history goes to `memory-bank/living-ledger.md` (grep the dated header), never he
 
 ## Where it stands
 
-- PR #451 `fix/corrections-load-fail-closed` (stacked on #447; retarget to master after #447 merges):
-  `REPORTING_CORRECTIONS_FILE` set but unloadable now stops the run (ERROR check-in, exit 1) instead of
-  running feature-off and double-billing an applied correction. Owner hand steps: paste the runbook
-  "Stage reporting corrections" step into the workflow (hook-blocked in-session), create the secret, set
-  `REPORTING_CORRECTIONS_REQUIRED=true` while a correction is applied. Merge order: #449 → #447 → #451 → #450.
-- 2026-11-04 drift-check repairs (docs PR #449): `docs/ai/` pages back under 130 lines (hierarchy →
-  context-map pointer, history → ledger), `.agents/skills` mirror resynced, nested hook output ignored,
-  `.serena/project.yml` tracked. Open: track or ignore `.agents/`; `.planning/state.json` +
-  `.continue-here.md` are GSD-owned (commit via `/gsd:*`); `/gsd:health` skipped while Phase 15 is live.
+- PR #451 `fix/corrections-load-fail-closed` (stacked on #447; retarget to master after it merges): a set but
+  unloadable `REPORTING_CORRECTIONS_FILE` stops the run (ERROR check-in, exit 1) instead of running feature-off
+  and double-billing an applied correction. Owner hand steps: paste the runbook "Stage reporting corrections"
+  step (hook-blocked in-session), create the secret, set `REPORTING_CORRECTIONS_REQUIRED=true` while applied.
+- 2026-11-04 drift-check repairs (PR #449): `docs/ai/` under 130 lines, `.agents/skills` resynced, nested hook
+  output ignored, `.serena/project.yml` tracked. Open: track or ignore `.agents/`; `/gsd:health` skipped (Phase 15).
 - **Production posture (milestone v1.4 "Supabase Run Memory")**: Phases 10, 11.1, 12, 14 closed;
   `pipeline_memory` write path ON (`RUN_MEMORY_WRITE_ENABLED='1'` on the `Generate reports` step only);
   `RUN_MEMORY_INCREMENTAL_ENABLED` OFF; change detection and attachment identity are `group_state`-backed;
