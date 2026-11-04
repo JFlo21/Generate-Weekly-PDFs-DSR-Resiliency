@@ -1,6 +1,6 @@
 # Project Guidelines
 
-<!-- Generated from CLAUDE.md on 2026-10-29 (branch docs/align-instruction-files) by the
+<!-- Generated from CLAUDE.md on 2026-11-03 (branch docs/claudeos-doc-alignment) by the
      align-instruction-files skill. Do not hand-edit; regenerate from CLAUDE.md when it changes. -->
 
 ## Overview
@@ -62,6 +62,13 @@ Full command list: `docs/ai/safe-commands.md`. Env-var catalog:
   Objective · Changes Made · Production Safety Check.
 - New rules and incident root causes go to the bottom of `memory-bank/living-ledger.md` as dated
   `[YYYY-MM-DD HH:MM]` entries, in the same PR as the code change.
+
+## Session hygiene
+
+`CLAUDE.md` and root-level `.claude/rules/*.md` load every turn; the documentation-maintenance and
+Smartsheet/Python-optimization rules are `paths:`-scoped (website / Python edits only). When compacting,
+keep branch + worktree, changed files, test and gate results, owner decisions and open gates, the active
+PR and its unresolved threads, and the next action; drop tool output and resolved review rounds.
 
 ## Pointers
 

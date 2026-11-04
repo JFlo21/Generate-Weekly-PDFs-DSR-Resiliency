@@ -9,6 +9,17 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-11-03 — Instruction files re-aligned for context cost
+
+What: `.claude/project-state.md` cut to its 120-line cap (history already in the ledger); `CLAUDE.md`'s
+pipeline-flow prose replaced by a pointer to `docs/ai/architecture.md` and a new "Session hygiene and
+compact instructions" section added; the Docusaurus and Smartsheet/Python optimization rules now carry
+`paths:` frontmatter so they load only when `website/**` or Python files are touched; Copilot mirror,
+context map and `docs/AI_CONTEXT_RESUME.md` snapshot refreshed. Why: Claude Code's memory docs say
+every unscoped `CLAUDE.md`/rules line is paid on every turn; the pre-cut state file alone was twice its
+cap. How it affects operators: no runtime change; `AGENTS.md` still needs the owner's `FROZEN MIRROR`
+header by hand. Ledger `[2026-11-03 20:30]`.
+
 ## 2026-10-31 — PR #445 Foreman Notes pilot switch
 
 The weekly workflow now passes `FOREMAN_NOTES_SCOPE: 'pilot'`, the `FOREMAN_NOTES_PILOT_GFS` secret and

@@ -1,3 +1,8 @@
+---
+paths:
+  - "website/**"
+  - ".github/workflows/docs-changelog.yml"
+---
 # Documentation Maintenance Rules (Docusaurus Runbook)
 
 Living documentation lives in `website/` (Docusaurus). These rules

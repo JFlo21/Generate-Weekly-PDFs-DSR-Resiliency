@@ -2,7 +2,7 @@
 
 One-screen index so a fresh session routes to the right files **without scanning the
 whole repo**. Read this (Default-Startup step 2), then open only what the task needs.
-_Rewritten 2026-09-02 (supersedes the 2026-06-27 map): `portal/` removed in 03153c3,
+_Rewritten 2026-09-02, rules scoping noted 2026-11-03 (supersedes the 2026-06-27 map): `portal/` removed in 03153c3,
 `.remember/` retired 2026-08-23 → claude-mem, Phase 9 `pipeline/` split, Phases 10–11
 `pipeline_memory`, GSD `.planning/`, Lattice `.lattice/`, `docs/ai/` implementation truth._
 
@@ -17,8 +17,9 @@ _Rewritten 2026-09-02 (supersedes the 2026-06-27 map): `portal/` removed in 0315
 Legacy Express `portal/` was removed (03153c3) — never `cd portal`.
 
 ## Read order for a fresh session
-1. `CLAUDE.md` + `.claude/rules/*.md` (auto-loaded: billing guardrails, docs maintenance,
-   Smartsheet/Python optimization, **Python module architecture**).
+1. `CLAUDE.md` + `.claude/rules/*.md` (billing guardrails and **Python module architecture** load
+   every turn; docs maintenance and Smartsheet/Python optimization are `paths:`-scoped to
+   `website/**` and `**/*.py`).
 2. `.claude/project-state.md` — where the project stands (overwrite-in-place ledger).
 3. `.planning/STATE.md` → `ROADMAP.md` → `phases/<current>/` — GSD position, plans, research.
 4. `docs/ai/` — repo-local implementation truth (`architecture`, `implementation-truth`,
@@ -38,7 +39,7 @@ Legacy Express `portal/` was removed (03153c3) — never `cd portal`.
 | Handoff snapshot | `docs/AI_CONTEXT_RESUME.md` |
 | Implementation truth (verified from code) | `docs/ai/` |
 | GSD planning | `.planning/` (`STATE.md`, `ROADMAP.md`, `REQUIREMENTS.md`, `PROJECT.md`, `phases/`, `config.json`) |
-| Longer-form context | `memory-bank/` (`projectbrief`, `systemPatterns`, `techContext`, …) |
+| Longer-form context | retired — `memory-bank/*` non-ledger pages are ≤ 8-line pointer stubs; read `docs/ai/` instead |
 | Full env-var reference | `.github/prompts/configuration-environment.md` |
 | Recent session continuity | claude-mem (auto-captured; `mem-search` skill). `.remember/` is a frozen archive. |
 | Second brain | vault `wiki/projects/Generate-Weekly-PDFs-DSR-Resiliency.md` + `project-dashboard.md`. **Main session writes only**; subagents return packets to `.claude/writeback-pending/`. |

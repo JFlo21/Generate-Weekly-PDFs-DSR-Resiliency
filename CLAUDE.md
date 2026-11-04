@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Rules, guardrails, and pointers only. Architecture, env vars, schedules, and history live in the
-files linked below (moved, never deleted, by `align-instruction-files`; ledger `[2026-09-02 22:05]`).
+Rules, guardrails, and pointers only; architecture, env vars, schedules and history live in the files
+linked below (moved, never deleted, by `align-instruction-files`; ledger `[2026-09-02 22:05]`, `[2026-11-03 20:30]`).
 
 ## What this repo is
 
@@ -94,17 +94,13 @@ Required: `SMARTSHEET_API_TOKEN`. Everything else is `os.getenv()` with defaults
 (common flags, discovery folders, rate tables, time-budget family, debug flags, retired no-ops,
 documented-but-unconsumed flags) is `.github/prompts/configuration-environment.md` § Operator quick reference.
 
-## Pipeline flow (one screen)
+## Pipeline flow
 
-Smartsheet folder discovery (local discovery cache retired; a sheet skips full validation only when
-its live version matches `pipeline_memory.sheet_registry`, a stored column mapping exists, and the
-`helper2-v1` mapping marker is set; any doubt → full validation, D-11.1-01 + Phase 14) → parallel fetch (≤ 8 workers) → filter and group by
-`(WR, week_ending, variant, foreman, dept, job)` → attachment identity from `pipeline_memory.group_state`
-→ SHA-256 change detection → Excel (`openpyxl`;
-`generated_docs/WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant_suffix}_{hash}.xlsx`) → billing audit
-(`audit_billing_changes.py`, LOW/MEDIUM/HIGH) → delete the old attachment, then upload to
-`TARGET_SHEET_ID`. Module map, data stores, schedule/timeouts, variant/grouping model:
-`docs/ai/architecture.md`. Verified behavior notes: `docs/ai/implementation-truth.md`.
+Discovery → parallel fetch (≤ 8 workers) → group by `(WR, week_ending, variant, foreman, dept, job)` →
+attachment identity from `pipeline_memory.group_state` → SHA-256 change detection → Excel → billing
+audit → delete the old attachment, then upload. The step-by-step flow, registry skip rule
+(`helper2-v1` marker, D-11.1-01), filename pattern, module map, data stores and schedule/timeouts:
+`docs/ai/architecture.md` § Diagram-in-words. Verified behavior notes: `docs/ai/implementation-truth.md`.
 
 ## Conventions
 
@@ -123,20 +119,24 @@ its live version matches `pipeline_memory.sheet_registry`, a stored column mappi
 
 ## Living Ledger and cloud memory injection
 
-`memory-bank/living-ledger.md` is the dated ledger of repo learnings, incident root causes, and rules
-(moved out of this file on 2026-05-28). When a fix or feature — including an `@claude` run from a
-GitHub issue — introduces a new architectural standard, recurring fix, or operational rule, append a
-`[YYYY-MM-DD HH:MM]` entry to the BOTTOM of the ledger in the same PR. Never inline the ledger back
-into this file. The other `memory-bank/*.md` pages are retired pointer stubs.
+`memory-bank/living-ledger.md` is the dated ledger of repo learnings, incident root causes, and rules.
+When a fix or feature — including an `@claude` run from a GitHub issue — introduces a new standard,
+recurring fix, or operational rule, append a `[YYYY-MM-DD HH:MM]` entry to the BOTTOM of the ledger in
+the same PR. Never inline the ledger here. The other `memory-bank/*.md` pages are retired pointer stubs.
 
 ## Second-brain write-back
 
-Repo-scoped subagents never edit Juan's second brain (the OneDrive `my-wiki` vault) directly.
-They return a compact write-back packet (what changed · why it matters · target vault page),
-dropping a file in `.claude/writeback-pending/` when needed; the main session applies vault
-edits via `global-second-brain-writeback-bridge` / `global-context-continuity` and clears the
-packet (audited by the global `~/.claude/hooks/audit_vault_writes.js` hook). Never place secrets
-in a packet (status and navigation pointers: see "Where to read next").
+Repo-scoped subagents never edit Juan's second brain (the OneDrive `my-wiki` vault) directly. They
+return a compact write-back packet (what changed · why it matters · target vault page), as a file in
+`.claude/writeback-pending/` when needed; the main session applies vault edits via
+`global-second-brain-writeback-bridge` / `global-context-continuity` and clears the packet. No secrets in a packet.
+
+## Session hygiene and compact instructions
+
+`CLAUDE.md` and unscoped `.claude/rules/*.md` load every turn; `documentation-maintenance` and
+`smartsheet-python-optimization` are `paths:`-scoped (website / Python edits only). `/clear` between unrelated
+tasks. A `/compact` keeps branch + worktree, changed files, test and gate results, owner decisions and open gates,
+the active PR and its unresolved threads, and the next action; it drops tool output and resolved review rounds.
 
 ## Where to read next
 

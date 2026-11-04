@@ -1,3 +1,7 @@
+---
+paths:
+  - "**/*.py"
+---
 # Smartsheet & Python Optimization Rules
 
 > **Scope:** These rules apply to *new* Python scripts in this

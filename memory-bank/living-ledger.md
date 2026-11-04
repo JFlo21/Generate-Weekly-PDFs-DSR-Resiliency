@@ -9821,3 +9821,29 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   `HELPER2_ENABLED` off, VAC-claimed unit, primary owner change under legacy identity) BLOCKS; it never
   lands in the wrong workbook. Preview applies the same checks.
 - Evidence: `8bceceaa` full suite 2928 passed / 3 skipped, 6 gates passed; CodeQL clean from `3eed17a0`.
+
+## [2026-11-03 20:30] Instruction files re-aligned for context cost (Claude Code docs pass).
+
+- What moved: `CLAUDE.md` § Pipeline flow (one screen) → pointer to `docs/ai/architecture.md` § Diagram-in-words
+  (every fact was already there: registry skip rule, filename pattern, audit levels, `TARGET_SHEET_ID`);
+  Living-Ledger and second-brain paragraphs compressed, no rule dropped; new § "Session hygiene and compact
+  instructions" (what a `/compact` must keep). `.claude/project-state.md` cut 239 → 120 lines; the dropped
+  Phase 11/13/14 detail is in the ledger (`[2026-09-09..14]`, `[2026-10-30 07:20]`) and `.planning/`.
+- Carried here from project-state (no ledger header existed for 2026-09-12/13): Phase 11 Nyquist closed
+  2026-09-12 (`ccdaa08`, 30 rows green); security gates closed 11 (`7965507`, 45 threats, 5 accepted
+  AR-11-01..05), 11.1 (`ad24b01`, 18 threats, 2 accepted), 12 (`61b40d3`, 61 entries, 2 accepted), 13
+  (`2047a67`, 41 threats, 8 accepted → AR-13-01..03) on 2026-09-12 and 14 (`c96a141`, 70 threats, 14
+  accepted AR-14-01..04) on 2026-09-13; Phase 13 Nyquist 2026-09-12 (`e320155`, 14/14 rows); v1.4
+  re-audit 2026-09-13 (`859c98c`, `gaps_found` 19/23, SECURITY.md complete for 11/11.1/12/13/14).
+- Rule: `.claude/rules/*.md` load every turn unless they carry `paths:` frontmatter (Claude Code memory
+  docs, read 2026-11-03). `documentation-maintenance.md` is now scoped to `website/**` and the docs
+  changelog workflow; `smartsheet-python-optimization.md` to `**/*.py` — together ~175 lines leave every
+  non-matching turn. Path-scoped rules reload on demand after compaction; a rule that must survive
+  compaction unconditionally stays unscoped (billing guardrails, Python module architecture).
+- Rule: the Copilot mirror is regenerated with the CLAUDE.md change (header date + hygiene section), never
+  hand-edited. `AGENTS.md` (367 lines, Codex-owned, auto-loaded) still needs the owner's `FROZEN MIRROR`
+  header (skill step 3.4); ClaudeOS cannot write it.
+- Evidence: drift check (skill step 0) after the edits — CLAUDE.md 150, project-state 120, context map
+  64, mirror in sync, zero `MISSING:` pointers. Docs-only branch `docs/claudeos-doc-alignment` stacked on
+  PR #448. Skipped on purpose: `/gsd:health` and `/gsd:docs-update` (Phase 15 pilot live; GSD STATE churn
+  would collide with the docs PR — the skill's own "when not to use" case).
