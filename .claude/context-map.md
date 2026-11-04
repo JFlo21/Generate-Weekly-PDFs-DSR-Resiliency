@@ -17,9 +17,9 @@ _Rewritten 2026-09-02, rules scoping noted 2026-11-03 (supersedes the 2026-06-27
 Legacy Express `portal/` was removed (03153c3) — never `cd portal`.
 
 ## Read order for a fresh session
-1. `CLAUDE.md` + `.claude/rules/*.md` (billing guardrails and **Python module architecture** load
-   every turn; docs maintenance and Smartsheet/Python optimization are `paths:`-scoped to
-   `website/**` and `**/*.py`).
+1. `CLAUDE.md` + `.claude/rules/*.md` (billing guardrails load every turn; docs maintenance is
+   `paths:`-scoped to `website/**`, **Python module architecture** and Smartsheet/Python
+   optimization to `**/*.py`).
 2. `.claude/project-state.md` — where the project stands (overwrite-in-place ledger).
 3. `.planning/STATE.md` → `ROADMAP.md` → `phases/<current>/` — GSD position, plans, research.
 4. `docs/ai/` — repo-local implementation truth (`architecture`, `implementation-truth`,
@@ -50,7 +50,7 @@ Legacy Express `portal/` was removed (03153c3) — never `cd portal`.
 - `public.artifacts` — generated-file registry read by `portal-v2`.
 
 ## MCP / tools
-Smartsheet MCP · Sentry MCP · Supabase MCP (portal-v2 + run-memory reads) · Context7 for SDK docs · Serena for symbol navigation (`.serena/cache/` is local, gitignored). Codex assets (`.codex/`, `AGENTS.md`) are foreign to ClaudeOS — never routed (`~/.claude/rules/production-guardrails.md` § Harness boundary).
+Smartsheet MCP · Sentry MCP · Supabase MCP (portal-v2 + run-memory reads) · Context7 for SDK docs · Serena for symbol navigation (`.serena/` holds local, gitignored config and cache). Codex assets (`.codex/`, `AGENTS.md`) are foreign to ClaudeOS — never routed (`~/.claude/rules/production-guardrails.md` § Harness boundary).
 
 ## Skills & agents (repo-local)
 - Skills `.claude/skills/`: `run-billing-pipeline-locally`, `force-week-regeneration`, `investigate-price-anomaly` (mirrored in `.agents/skills/` for cross-runtime use).

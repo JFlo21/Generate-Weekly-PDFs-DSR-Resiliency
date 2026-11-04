@@ -9837,9 +9837,10 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   re-audit 2026-09-13 (`859c98c`, `gaps_found` 19/23, SECURITY.md complete for 11/11.1/12/13/14).
 - Rule: `.claude/rules/*.md` load every turn unless they carry `paths:` frontmatter (Claude Code memory
   docs, read 2026-11-03). `documentation-maintenance.md` is now scoped to `website/**` and the docs
-  changelog workflow; `smartsheet-python-optimization.md` to `**/*.py` — together ~175 lines leave every
-  non-matching turn. Path-scoped rules reload on demand after compaction; a rule that must survive
-  compaction unconditionally stays unscoped (billing guardrails, Python module architecture).
+  changelog workflow; `smartsheet-python-optimization.md` to `**/*.py` (`python-module-architecture.md`
+  was already scoped to `**/*.py`) — together ~175 lines leave every non-matching turn. Path-scoped rules
+  reload on demand after compaction; the one rule that must survive compaction unconditionally stays
+  unscoped (`billing-pipeline-guardrails.md`).
 - Rule: the Copilot mirror is regenerated with the CLAUDE.md change (header date + hygiene section), never
   hand-edited. `AGENTS.md` (367 lines, Codex-owned, auto-loaded) still needs the owner's `FROZEN MIRROR`
   header (skill step 3.4); ClaudeOS cannot write it.

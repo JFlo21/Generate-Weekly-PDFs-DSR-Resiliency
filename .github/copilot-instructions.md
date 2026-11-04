@@ -65,8 +65,8 @@ Full command list: `docs/ai/safe-commands.md`. Env-var catalog:
 
 ## Session hygiene
 
-`CLAUDE.md` and root-level `.claude/rules/*.md` load every turn; the documentation-maintenance and
-Smartsheet/Python-optimization rules are `paths:`-scoped (website / Python edits only). When compacting,
+`CLAUDE.md` and `.claude/rules/billing-pipeline-guardrails.md` load every turn; the other three rules are
+`paths:`-scoped (`website/**` for docs maintenance, `**/*.py` for the two Python rules). When compacting,
 keep branch + worktree, changed files, test and gate results, owner decisions and open gates, the active
 PR and its unresolved threads, and the next action; drop tool output and resolved review rounds.
 

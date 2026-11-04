@@ -133,8 +133,8 @@ return a compact write-back packet (what changed · why it matters · target vau
 
 ## Session hygiene and compact instructions
 
-`CLAUDE.md` and unscoped `.claude/rules/*.md` load every turn; `documentation-maintenance` and
-`smartsheet-python-optimization` are `paths:`-scoped (website / Python edits only). `/clear` between unrelated
+`CLAUDE.md` and `.claude/rules/billing-pipeline-guardrails.md` load every turn; the other three rules are
+`paths:`-scoped (`website/**` for docs maintenance, `**/*.py` for the two Python rules). `/clear` between unrelated
 tasks. A `/compact` keeps branch + worktree, changed files, test and gate results, owner decisions and open gates,
 the active PR and its unresolved threads, and the next action; it drops tool output and resolved review rounds.
 
