@@ -74,9 +74,10 @@ case `(WR, week ending)`:
   quarantine, the dual-checkbox helper rule and sentinel backfills behave
   exactly as today.
 
-Feature off (variable unset) is byte-identical to a run without the module. An
-invalid file logs `🚫 Reporting corrections file is invalid` and applies
-nothing.
+Feature off (variable unset) is byte-identical to a run without the module. A
+set but unloadable file (missing, unreadable, invalid, off-root) **stops the
+run** (fail-closed rule, step 5); only the `validate` / `preview` CLI treats an
+invalid file as "nothing applied".
 
 ## File format
 
@@ -143,8 +144,9 @@ To withdraw a case, set `retired: true` (see rolling back).
    non-zero (the job fails) and the Sentry cron check-in reports ERROR. It
    never runs "feature off" instead: after a correction has been applied, a
    feature-off run would re-upload the old owner's workbook next to the
-   correction workbook and bill those rows twice. Fix or remove the
-   variable, then rerun. Only the existing failure-path `run_ledger` row
+   correction workbook and bill those rows twice. Restore a valid file,
+   then rerun; to switch corrections off, follow the retire-and-cleanup
+   procedure below first, never by removing the variable. Only the existing failure-path `run_ledger` row
    (`status='failed'`) is written. The check runs before the token and
    synthetic-data branches, so `TEST_MODE`, `SKIP_UPLOAD` and synthetic
    local runs with a broken file stop the same way. With the variable unset
