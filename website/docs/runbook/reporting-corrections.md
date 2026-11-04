@@ -46,6 +46,13 @@ case `(WR, week ending)`:
   Point, CU) a completed VAC-crew row claims -- that unit is billed on the
   VacCrew sheet only. The per-row lines name the differing fields, never
   their values.
+  The whole file is rejected at load (the run stops under the fail-closed
+  rule in step 5) when a `credit.name` -- as written or after the
+  filename sanitizer (`Unknown/Foreman` becomes `Unknown_Foreman`) -- is a
+  placeholder the attribution layer never bills (`Unknown Foreman`, `Unknown
+  Helper`, `#NO MATCH`, their `_` / case spellings, `#` error tokens), or when
+  two credits in one case normalize to the same workbook identity (`Ana Lee`
+  and `Ana/Lee`); the problem text gives row indices only.
 - **Zero-price rows** -- a listed row whose expected price is $0.00 is
   *reconciliation-only*: the pipeline never admits it, never credits it and
   never renders it, and its absence is expected. It stays in the file so the
@@ -240,7 +247,10 @@ read failed, was partial or was not read`), the attribution prefetch was
 `rpc_missing` or the displaced-group pass failed (both hold every pair), the
 early recovered-row check failed (`🚫 Reporting corrections
 early check failed ... cleanup held for this run`), the target row's live
-attachment listing could not be read, `MAX_GROUPS` truncated the run, or
+attachment listing could not be read, the case's WR is in `EXCLUDE_WRS`
+(grouping drops every group of it, so nothing proves a replacement:
+`⏭️ ... pair(s) held -- WR excluded from generation`), `MAX_GROUPS`
+truncated the run, or
 the run was `TEST_MODE` / `SKIP_UPLOAD` -- let the next full run finish it.
 The same held pairs are kept out of the sheet-wide attachment pruning that
 follows (`⏭️ ... pair(s) held out of sheet-wide attachment pruning`), so a

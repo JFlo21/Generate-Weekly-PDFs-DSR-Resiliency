@@ -254,6 +254,109 @@ class LoaderValidationTests(_Base):
             self.assertIn('credit.dept is required for primary',
                           self._problems(doc))
 
+    def test_rejects_sentinel_credit_names(self):
+        # Round 8 (Copilot): a placeholder claimer must never publish a
+        # _User_ / _Helper_ workbook -- every spelling / case the
+        # attribution layer treats as "not a person" is rejected.
+        for name in ('Unknown Foreman', 'unknown foreman',
+                     'UNKNOWN_FOREMAN', '  Unknown   Foreman ',
+                     'Unknown', 'Unknown Helper', 'unknown_helper',
+                     'Unknown Helper 2', 'Unknown VAC Crew',
+                     'UNKNOWN_VAC_CREW', '#NO MATCH', '#no match',
+                     '_NO_MATCH', 'No Match', '#REF!', '#INVALID'):
+            for idx in (0, 3):  # a primary and a helper credit
+                with self.subTest(name=name, idx=idx):
+                    doc = fx.correction_doc()
+                    doc['corrections'][0]['rows'][idx]['credit'][
+                        'name'] = name
+                    self.assertIn('placeholder', self._problems(doc))
+
+    def test_rejects_names_that_sanitize_to_a_sentinel(self):
+        # Round 8 fix round (W1): the workbook token is the SANITIZED
+        # name, so 'Unknown/Foreman' publishes USER_Unknown_Foreman --
+        # the real placeholder group's identity.
+        for name, idx in (('Unknown/Foreman', 0),  # primary
+                          ('Unknown,Foreman', 0),
+                          ('Unknown.Helper', 3),   # helper drops '.'
+                          ('No/Match', 3)):
+            with self.subTest(name=name, idx=idx):
+                doc = fx.correction_doc()
+                doc['corrections'][0]['rows'][idx]['credit'][
+                    'name'] = name
+                text = self._problems(doc)
+                self.assertIn('placeholder', text)
+                self.assertNotIn(name, text)  # problems are logged
+
+    def test_real_names_near_the_sentinels_still_parse(self):
+        for name, idx in (('Unknown Person', 0), ('Ana Unknown', 0),
+                          ('Matcher No', 0), ('Unknown Person', 3),
+                          ('Matcher No', 3),
+                          # the primary token keeps '.': not a sentinel
+                          ('Unknown.Helper', 0)):
+            with self.subTest(name=name, idx=idx):
+                doc = fx.correction_doc()
+                doc['corrections'][0]['rows'][idx]['credit'][
+                    'name'] = name
+                rc.parse_corrections(doc)
+
+    def test_sentinel_rule_matches_the_attribution_layer(self):
+        # The loader cannot import billing_audit (the CLI must stay
+        # writer-free), so its twin vocabulary is pinned here against
+        # billing_audit.writer.is_sentinel_claimer.
+        from billing_audit import writer as ba_writer
+        self.assertEqual(
+            rc._SENTINEL_CREDIT_NAMES,
+            ba_writer._SENTINEL_CLAIMERS
+            | ba_writer._HELPER2_SENTINEL_CLAIMERS)
+        samples = sorted(rc._SENTINEL_CREDIT_NAMES) + [
+            'Unknown_Foreman', '#NO MATCH', '_NO_MATCH', '#REF!',
+            ' unknown  helper 2 ', 'Unknown Person', 'Ana Lee',
+            'Foreman B', '_REF_', '', '   ']
+        for value in samples:
+            with self.subTest(value=value):
+                self.assertEqual(rc._is_sentinel_credit_name(value),
+                                 ba_writer.is_sentinel_claimer(value))
+        # a sentinel set the writer adds later (any module-level
+        # frozenset named *SENTINEL*) must reach the twin too
+        sets = {k: v for k, v in vars(ba_writer).items()
+                if isinstance(v, frozenset) and 'SENTINEL' in k}
+        self.assertGreaterEqual(set(sets), {
+            '_SENTINEL_CLAIMERS', '_HELPER2_SENTINEL_CLAIMERS'})
+        for set_name, values in sets.items():
+            for value in values:
+                with self.subTest(set=set_name, value=value):
+                    self.assertTrue(ba_writer.is_sentinel_claimer(value))
+                    self.assertTrue(rc._is_sentinel_credit_name(value))
+                    self.assertIn(value, rc._SENTINEL_CREDIT_NAMES)
+
+    def test_rejects_credits_colliding_on_one_workbook_identity(self):
+        # Round 8 (Copilot): the group key / filename sanitizes the
+        # credit name, so two distinct names can land in ONE workbook.
+        doc = fx.correction_doc()
+        rows = doc['corrections'][0]['rows']
+        rows[1]['credit']['name'] = 'Foreman/B'  # primary: = Foreman_B
+        text = self._problems(doc)
+        self.assertIn('rows[1]: credit.name differs from rows[0]', text)
+        self.assertIn('collide on one primary workbook', text)
+        self.assertNotIn('Foreman', text)  # problems are logged
+        doc = fx.correction_doc()
+        rows = doc['corrections'][0]['rows']
+        rows[4]['credit']['name'] = 'Helper.H'  # helper: = Helper_H
+        text = self._problems(doc)
+        self.assertIn('rows[4]: credit.name differs from rows[3]', text)
+        self.assertIn('helper workbook', text)
+        self.assertNotIn('Helper.H', text)
+        # the primary sanitizer keeps '.', so this is another workbook
+        doc = fx.correction_doc()
+        doc['corrections'][0]['rows'][1]['credit']['name'] = 'Foreman.B'
+        rc.parse_corrections(doc)
+        # the 50-char truncation collides too
+        doc = fx.correction_doc()
+        rows = doc['corrections'][0]['rows']
+        rows[0]['credit']['name'] = 'A' * 50 + 'x'
+        rows[1]['credit']['name'] = 'A' * 50 + 'y'
+        self.assertIn('collide', self._problems(doc))
+
     def test_rejects_schema_and_duplicate_rows(self):
         doc = fx.correction_doc()
         doc['schema'] = 2
@@ -2067,6 +2170,106 @@ class FailClosedMainGateTests(_Base):
         _, _, _, m = self._run_main(dsn='https://example.invalid/1')
         status = m['checkin'].call_args.kwargs['status']
         self.assertEqual(status, _orchestrate.MonitorStatus.ERROR)
+
+
+class Round8Tests(_Base):
+    """Review round 8: EXCLUDE_WRS holds, handler ordering."""
+
+    def _excluded(self):
+        patcher = mock.patch.object(generate_weekly_pdfs, 'EXCLUDE_WRS',
+                                    [fx.WR])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_excluded_wr_holds_the_displaced_pass(self):
+        # Greptile P1: EXCLUDE_WRS drops every group of the WR, so "no
+        # group today carries this identity" is not evidence -- a
+        # retired case must not delete its published file unreplaced.
+        applied_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        self._excluded()
+        groups, summary = self._run(_retired_doc())
+        self.assertEqual(summary['retired'], 1)
+        self.assertFalse(any(fx.WR in k for k in groups))
+        self.assertIn(_FOREMAN_B, rc.displaced_groups())
+        client = _client()
+        with self.assertLogs(level='WARNING') as logs:
+            self.assertEqual(
+                _remove(groups, _cache(applied_names), client), 0)
+        self.assertEqual(_deleted(client), [])
+        self.assertTrue(any('EXCLUDE_WRS' in m for m in logs.output))
+        for line in logs.output:  # counts only, never a name
+            self.assertNotIn('Foreman', line)
+
+    def test_excluded_wr_is_held_out_of_sheet_wide_pruning(self):
+        self._excluded()
+        groups, _ = self._run(_retired_doc())
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+            {(fx.WR, '030826')})
+
+    def test_unreadable_exclude_wrs_holds_every_pair(self):
+        # fail closed: EXCLUDE_WRS that cannot be read holds every
+        # active pair in BOTH passes.
+        class _Unreadable:
+            def __bool__(self):
+                return True
+
+            def __iter__(self):
+                raise RuntimeError('unreadable')
+
+        applied_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        groups, _ = self._run(_retired_doc())
+        patcher = mock.patch.object(generate_weekly_pdfs, 'EXCLUDE_WRS',
+                                    _Unreadable())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.assertEqual(_orchestrate._corr_excluded_pairs(),
+                         rc.active_pairs())
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+            {(fx.WR, '030826')})
+        client = _client()
+        with self.assertLogs(level='WARNING'):
+            self.assertEqual(
+                _remove(groups, _cache(applied_names), client), 0)
+        self.assertEqual(_deleted(client), [])
+
+    def test_other_wr_exclusion_holds_nothing(self):
+        patcher = mock.patch.object(generate_weekly_pdfs, 'EXCLUDE_WRS',
+                                    ['12345678'])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        applied_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        groups, _ = self._run(_retired_doc())
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+            set())
+        client = _client()
+        self.assertEqual(_remove(groups, _cache(applied_names), client), 1)
+        self.assertEqual(_deleted(client), [901])
+
+    def test_early_check_handler_holds_before_dropping_rows(self):
+        # Cursor (defense in depth): the run-wide hold is raised BEFORE
+        # the recovered rows are dropped, so nothing between them can
+        # leave rows dropped with no hold.
+        tree = ast.parse(inspect.getsource(_orchestrate))
+        main = next(n for n in tree.body
+                    if isinstance(n, ast.FunctionDef)
+                    and n.name == 'main')
+        tries = [
+            n for n in ast.walk(main) if isinstance(n, ast.Try)
+            and any(isinstance(c, ast.Call)
+                    and isinstance(c.func, ast.Attribute)
+                    and c.func.attr == 'hold_recovered_rows'
+                    for b in n.body for c in ast.walk(b))]
+        inner = min(tries, key=lambda n: n.end_lineno - n.lineno)
+        (handler,) = inner.handlers
+        first = handler.body[0]
+        self.assertIsInstance(first, ast.Expr)
+        self.assertEqual(ast.unparse(first.value.func), '_rc.hold_cleanup')
 
 
 if __name__ == '__main__':

@@ -9947,3 +9947,39 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   `tests/test_reporting_corrections.py` + `tests/test_foreman_notes_gf_hold.py` 134 passed; after the
   review fix round (allowlist placement test, frame-locals test) `tests/test_reporting_corrections.py`
   96 passed, full suite 2949 passed / 3 skipped / 856 subtests. FIXTURE PASS only -- not a dry run, not production observed.
+
+## [2026-11-04 01:45] PR #447 review round 8 (corrections module) -- verdicts and rules.
+
+- Rule (A, valid): a correction `credit.name` in the attribution sentinel family (`Unknown Foreman`,
+  `Unknown`, `Unknown Helper`, `Unknown Helper 2`, `Unknown VAC Crew`, `#`-tokens, `_NO_MATCH`; any case,
+  `_`/space spelling) fails file validation. `pipeline/reporting_corrections.py` carries a TWIN of
+  `billing_audit.writer.is_sentinel_claimer` (`_SENTINEL_CREDIT_NAMES`), not an import: the validate /
+  preview CLI must never load `billing_audit` (`test_cli_never_imports_writer_packages`). A test pins the
+  twin to the writer's sets and predicate -- extend BOTH when the sentinel family grows.
+- Rule (W1, fix round): the sentinel check runs on the raw name AND on the sanitized workbook token
+  (`_credit_token`, the `_credit_identity` sanitizer): `Unknown/Foreman` / `Unknown,Foreman` (primary) and
+  `Unknown.Helper` (helper drops `.`) publish the real placeholder identity (`USER_Unknown_Foreman`). The
+  parity test also walks every writer frozenset named `*SENTINEL*`, so a later third set reaches the twin.
+- Rule (C, valid): two distinct credit names that sanitize to one workbook token in one correction
+  (`_credit_identity` suffix: primary keeps `.@-`, helpers keep `-`; 50-char cut) fail validation --
+  they would merge into one `_User_` / `_Helper_` file. Problem texts carry row indices only (they are
+  logged at ERROR), never a name.
+- Rule (B, valid): an `EXCLUDE_WRS` WR has no group today, so "no group carries this identity" proves
+  nothing -- its correction pairs are held out of the displaced pass AND carried into
+  `_corr_unsettled_pairs` (`_corr_excluded_pairs`, read from the facade like grouping; counts-only log).
+  Without it a retired / superseded case's published file was deleted with no replacement.
+- E (valid, defense in depth): the `hold_recovered_rows` except handler raises `_rc.hold_cleanup` FIRST,
+  before the log and the recovered-row drop (AST-pinned).
+- D (unreachable in one process): the version map is cumulative, but every fetch scope of one `main()`
+  (2a probe / 2a full / 2b narrowed, which always adds `correction_sheet_ids()`, or the full fallback)
+  re-reads every correction sheet present in `source_sheets`, and a read failure lands in the failed set;
+  production runs one `main()` per process. No change.
+- F / G / H (no defect): the `side_effects=False` pass runs only after the main side-effecting grouping and
+  reads `_attr_map` without mutating it; `apply_credit_overrides` pops from the three per-call claimer
+  dicts (typed `dict`, intentionally not `Mapping`); `_allowed_roots` rejects the root path itself (a
+  directory, never a file).
+- Evidence: RED->GREEN `test_rejects_sentinel_credit_names`, `test_sentinel_rule_matches_the_attribution_
+  layer`, `test_rejects_credits_colliding_on_one_workbook_identity`, `Round8Tests` (excluded-WR displaced
+  pass + sheet-wide hold, unreadable-EXCLUDE_WRS fail-closed, handler order), fix round RED->GREEN
+  `test_rejects_names_that_sanitize_to_a_sentinel`; full suite 2946 passed / 3 skipped / 921 subtests
+  (uncommitted).
