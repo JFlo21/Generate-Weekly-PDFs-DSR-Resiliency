@@ -7,6 +7,7 @@ PASS -- not a dry run, not production observed.
 
 from __future__ import annotations
 
+import ast
 import copy
 import datetime
 import inspect
@@ -1371,6 +1372,112 @@ class ReviewRoundTests(_Base):
             self.assertEqual(summary['blocked'], 1, change)
             self.assertNotIn(_FOREMAN_B, groups)
             self.assertIn(_FOREMAN_B, rc.displaced_groups(), change)
+
+    def test_run_wide_hold_stops_the_displaced_pass(self):
+        # an early corrections step failed (hold_recovered_rows raised):
+        # the case blocks on "missing" rows and its published identity
+        # registers as stale with no placement / read hold to stop its
+        # removal (Copilot on 9aad5b91) -> a run-wide hold must stop
+        # the pass before any listing or delete; prepare_run must not
+        # clear it; reset_state (next run) does.
+        names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        rows = [r for r in fx.admitted_rows() if r['__row_id'] != 101]
+        with self.assertLogs(level='WARNING'):
+            groups, summary = self._run(fx.correction_doc(), rows=rows)
+        self.assertEqual(summary['blocked'], 1)
+        rc.hold_cleanup('early recovered-row check failed')
+        self.assertIn(_FOREMAN_B, rc.displaced_identities())
+        self.assertEqual(rc.cleanup_hold(),
+                         'early recovered-row check failed')
+        client = _client()
+        with self.assertLogs(level='WARNING') as cm:
+            self.assertEqual(_remove(groups, _cache(names), client), 0)
+        self.assertEqual(_deleted(client), [])
+        client.Attachments.list_row_attachments.assert_not_called()
+        self.assertTrue(any('cleanup held for this run' in m
+                            for m in cm.output))
+        self.assertEqual(rc.cleanup_held_pairs(set()),
+                         {(fx.WR, '030826')})
+        self.assertEqual(rc.get_run_counts()['cleanup_held_pairs'], 1)
+        # sheet-wide pruning holds the pair too
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+            {(fx.WR, '030826')})
+        # raised after the fetch: the later prepare_run must keep it
+        rc.prepare_run(list(rows), group_fn=None)
+        self.assertEqual(rc.cleanup_hold(),
+                         'early recovered-row check failed')
+        rc.reset_state()
+        self.assertIsNone(rc.cleanup_hold())
+
+    def test_early_check_failure_raises_the_run_wide_hold(self):
+        # main(): the handler of the hold_recovered_rows try block calls
+        # _rc.hold_cleanup, and the single _fn_held_wr_weeks assignment
+        # carries _corr_unsettled into the sheet-wide pruning calls.
+        tree = ast.parse(inspect.getsource(_orchestrate))
+        main = next(n for n in tree.body
+                    if isinstance(n, ast.FunctionDef)
+                    and n.name == 'main')
+
+        def _dotted(call):
+            f = call.func
+            if isinstance(f, ast.Attribute) and isinstance(
+                    f.value, ast.Name):
+                return f'{f.value.id}.{f.attr}'
+            return None
+
+        def _calls(node, dotted):
+            return [n for n in ast.walk(node)
+                    if isinstance(n, ast.Call) and _dotted(n) == dotted]
+
+        tries = [n for n in ast.walk(main) if isinstance(n, ast.Try)
+                 and any(_calls(b, '_rc.hold_recovered_rows')
+                         for b in n.body)]
+        self.assertTrue(tries)
+        inner = min(tries, key=lambda n: n.end_lineno - n.lineno)
+        self.assertTrue(any(_calls(h, '_rc.hold_cleanup')
+                            for h in inner.handlers))
+        sources = [
+            n.value for n in ast.walk(main) if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name)
+                    and t.id == '_fn_held_wr_weeks' for t in n.targets)
+        ]
+        self.assertEqual(len(sources), 1)
+        self.assertIn('_corr_unsettled', {
+            n.id for n in ast.walk(sources[0]) if isinstance(n, ast.Name)})
+
+    def test_unsettled_pairs_reach_sheet_wide_pruning(self):
+        # a correction group generated but not uploaded (helper upload
+        # failed) keeps its pair out of the sheet-wide pruning, whose
+        # variant-migration branch would otherwise delete the old
+        # primary file on the strength of a helper file that is not
+        # live (Codex on 9aad5b91).
+        groups, _ = self._run(fx.correction_doc())
+        pair = (fx.WR, '030826')
+        unsettled = next(k for k in groups if k.startswith('030826_'))
+        settled = set(groups) - {unsettled}
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, settled), {pair})
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+            set())
+        # fail closed: settlement unknown, hold_all, or a failed read
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, None), {pair})
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, set(groups),
+                                               hold_all=True), {pair})
+        getter = 'get_last_full_read_failed_sheet_ids'
+        with mock.patch.object(_fetch, getter, return_value={fx.SHEET}):
+            self.assertEqual(
+                _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+                {pair})
+        # feature off -> nothing held
+        rc.reset_state()
+        _config.REPORTING_CORRECTIONS_FILE = None
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, None), set())
 
     def test_moved_row_keeps_the_stale_identity_on_the_case_wr(self):
         # row 101 moved to another WR: the case blocks and Foreman B's

@@ -476,11 +476,37 @@ def get_active_set() -> CorrectionSet | None:
 
 def reset_state() -> None:
     """Forget the cached file and this run's registries."""
+    global _CLEANUP_HOLD
     _ACTIVE_CACHE.clear()
     _DISPLACED.clear()
     _RUN_COUNTS.clear()
     _RUN_STATE.clear()
     _RECOVERED_SEEN.clear()
+    _CLEANUP_HOLD = None
+
+
+# A run-wide stale-attachment cleanup hold (reason), raised by orchestrate
+# when an early corrections step failed in a way that leaves the cases'
+# placement unverifiable (e.g. ``hold_recovered_rows`` raised and the
+# recovered rows were dropped: the case then blocks on "missing" rows,
+# its published identities register as stale, and no placement or
+# failed-sheet hold would stop their removal). Survives ``prepare_run``
+# (which resets the per-run registries); cleared by ``reset_state``
+# only, i.e. per run. The next run starts without it and releases the
+# hold by validating placement normally.
+_CLEANUP_HOLD: str | None = None
+
+
+def hold_cleanup(reason: str) -> None:
+    """Hold every correction pair out of this run's stale-attachment
+    cleanup (displaced pass and sheet-wide pruning)."""
+    global _CLEANUP_HOLD
+    _CLEANUP_HOLD = reason or 'held'
+
+
+def cleanup_hold() -> str | None:
+    """The run-wide cleanup hold reason, or ``None``."""
+    return _CLEANUP_HOLD
 
 
 reset_for_tests = reset_state
@@ -1382,6 +1408,30 @@ def correction_pairs() -> set[tuple[str, str]]:
     if cset is None:
         return set()
     return {(c.wr, c.week_ending.isoformat()) for c in cset.corrections}
+
+
+def active_pairs() -> set[tuple[str, str]]:
+    """(wr, MMDDYY week) pairs of every active correction -- the
+    attachment scope shape (``_corr_group_pair``). Empty when off."""
+    cset = get_active_set()
+    if cset is None:
+        return set()
+    return {(c.wr, c.week_ending.strftime('%m%d%y'))
+            for c in cset.corrections}
+
+
+def cleanup_held_pairs(
+        failed_sheet_ids: Iterable[Any] | None) -> set[tuple[str, str]]:
+    """(wr, MMDDYY week) pairs no stale-attachment cleanup may touch this
+    run: every active pair under a run-wide hold (``cleanup_hold``),
+    else the placement-held (``unplaced_pairs``) and read-failed
+    (``failed_sheet_pairs``) pairs. Records ``cleanup_held_pairs``."""
+    if cleanup_hold():
+        pairs = active_pairs()
+    else:
+        pairs = unplaced_pairs() | failed_sheet_pairs(failed_sheet_ids)
+    _RUN_COUNTS['cleanup_held_pairs'] = len(pairs)
+    return pairs
 
 
 def correction_sheet_ids() -> set[int]:

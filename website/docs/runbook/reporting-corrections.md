@@ -148,9 +148,14 @@ run's time budget ran out, a group of that WR/week did not settle (upload
 error, Foreman Notes hold, quarantine), an applied row was not placed in
 exactly one group, a source sheet holding the case's rows failed or was only
 partly read (`⏭️ ... pair(s) held -- a source sheet read failed or was
-partial`), the target row's live attachment listing could not be
-read, `MAX_GROUPS` truncated the run, or the run was `TEST_MODE` /
-`SKIP_UPLOAD` -- let the next full run finish it. Removal is decided by the
+partial`), the early recovered-row check failed (`🚫 Reporting corrections
+early check failed ... cleanup held for this run`), the target row's live
+attachment listing could not be read, `MAX_GROUPS` truncated the run, or
+the run was `TEST_MODE` / `SKIP_UPLOAD` -- let the next full run finish it.
+The same held pairs are kept out of the sheet-wide attachment pruning that
+follows (`⏭️ ... pair(s) held out of sheet-wide attachment pruning`), so a
+correction's old primary file is never removed on the strength of a
+replacement that was generated but not uploaded. Removal is decided by the
 row's live listing, never by the group-state cache alone.
 The file a credit published is matched by the identity recorded from the
 approved entry (owner or helper name, variant), not by re-grouping under

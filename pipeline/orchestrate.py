@@ -2691,6 +2691,51 @@ def _register_corr_displaced(
         rows, lambda _cr: group_source_rows(_cr, side_effects=False))
 
 
+def _corr_unsettled_pairs(
+    groups: dict[Any, list[dict[str, Any]]],
+    settled_group_keys: set[Any] | None,
+    *,
+    hold_all: bool = False,
+) -> set[tuple[str, str]]:
+    """Reporting corrections: the (wr, MMDDYY week) correction pairs the
+    sheet-wide ``cleanup_untracked_sheet_attachments`` must hold this
+    run, in the same shape as the Foreman Notes holds. A pair is
+    unsettled when any group of it today was generated but not uploaded
+    / unchanged (``valid_wr_weeks`` lists generated files regardless of
+    upload success, and the variant-migration branch would then delete
+    the old primary file on the strength of a helper file that is not
+    live), when its placement or source read is held, or -- fail closed
+    -- for every active pair when *hold_all* (TEST_MODE, MAX_GROUPS
+    truncation, time budget, a failed displaced pass) or a run-wide
+    hold applies. Empty when the feature is off. Never raises.
+    """
+    try:
+        pairs = _rc.active_pairs()
+        if not pairs:
+            return set()
+        if hold_all or _rc.cleanup_hold():
+            return set(pairs)
+        try:
+            failed_ids = _fetch.get_last_full_read_failed_sheet_ids()
+        except Exception:  # noqa: BLE001 - fail closed
+            failed_ids = None
+        held = set(_rc.cleanup_held_pairs(failed_ids)) & pairs
+        if settled_group_keys is None:
+            return held | pairs
+        for gkey, grows in groups.items():
+            if not grows or gkey in settled_group_keys:
+                continue
+            pair = _corr_group_pair(gkey, grows)
+            if pair in pairs:
+                held.add(pair)
+        return held
+    except Exception:  # noqa: BLE001 - fail closed
+        try:
+            return set(_rc.active_pairs())
+        except Exception:  # noqa: BLE001
+            return set()
+
+
 def _corr_identity_cached(
     cached: list, wr_num: str, week_raw: str, variant: str,
     identifier: Any,
@@ -2735,7 +2780,9 @@ def _remove_empty_displaced_attachments(
     (*settled_group_keys*; ``None`` = no gate) and its applied rows
     passed the placement check (``_rc.unplaced_pairs``) and no sheet
     holding its rows failed to read (``_rc.failed_sheet_pairs``).
-    Nothing runs once the time budget stopped the loop. A credited
+    Nothing runs once the time budget stopped the loop or under a
+    run-wide hold (``_rc.cleanup_hold``: an early corrections step
+    failed, so no case's placement is verifiable). A credited
     identity is the one the correction PUBLISHED (``_rc.displaced_
     identities``, fixed by the approved entry), so a retire / rollback
     run under other switches (attribution off, another grouping mode)
@@ -2753,6 +2800,13 @@ def _remove_empty_displaced_attachments(
     if not displaced:
         return 0
     published = _rc.displaced_identities()
+    run_hold = _rc.cleanup_hold()
+    if run_hold:
+        logging.warning(
+            f"⏭️ Reporting corrections: {run_hold} -- stale-attachment "
+            "cleanup held for this run"
+        )
+        return 0
     if time_budget_exceeded:
         logging.warning(
             "⏳ Reporting corrections: time budget reached -- stale "
@@ -3721,12 +3775,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         except Exception as _corr_hold_exc:
             logging.error(
                 "🚫 Reporting corrections early check failed "
-                f"({type(_corr_hold_exc).__name__}); recovered rows dropped"
+                f"({type(_corr_hold_exc).__name__}); recovered rows "
+                "dropped, stale-attachment cleanup held for this run"
             )
             all_rows[:] = [
                 _r for _r in all_rows if not _r.get('__corr_recovered')
             ]
             _corr_held_rows = []
+            # Fail closed: the dropped rows make their case block on
+            # "missing" rows and its published identities register as
+            # stale, with no placement / failed-sheet hold to stop their
+            # removal -- hold every correction pair out of both cleanup
+            # passes; the next run validates placement normally.
+            _rc.hold_cleanup('early recovered-row check failed')
 
         # Phase 10 (MEM-02/MEM-03): per-sheet row-state shadow write.
         # Full mode ONLY (Phase 11 Plan 04) -- in incremental mode this
@@ -6268,14 +6329,15 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # correction identities absent today (no-op when off). Skipped in
         # TEST_MODE (no target map) and on a MAX_GROUPS-truncated run,
         # where an absent key does not mean "empty".
+        # A pair is cleaned only once every group of it today is
+        # unchanged or uploaded (planned only under SKIP_UPLOAD).
+        _corr_settled = set(_mem_confirmed_skip_keys) | {
+            _k for _k, _ok in _mem_group_upload_ok.items()
+            if _ok or SKIP_UPLOAD
+        }
+        _corr_pass_failed = False
         if not TEST_MODE and not _mem_groups_truncated:
             try:
-                # A pair is cleaned only once every group of it today is
-                # unchanged or uploaded (planned only under SKIP_UPLOAD).
-                _corr_settled = set(_mem_confirmed_skip_keys) | {
-                    _k for _k, _ok in _mem_group_upload_ok.items()
-                    if _ok or SKIP_UPLOAD
-                }
                 _remove_empty_displaced_attachments(
                     client, groups, target_map, attachment_cache,
                     _identity_switches,
@@ -6290,10 +6352,23 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                     live_listings=_live_attachment_listings,
                 )
             except Exception as _corr_del_exc:
+                _corr_pass_failed = True
                 logging.warning(
                     "⚠️ Reporting correction displaced-attachment pass "
                     f"failed ({type(_corr_del_exc).__name__}); non-fatal"
                 )
+        # Correction pairs the sheet-wide pruning below must hold (same
+        # settlement gate as the displaced pass; fail closed otherwise).
+        _corr_unsettled = _corr_unsettled_pairs(
+            groups, _corr_settled,
+            hold_all=(TEST_MODE or _mem_groups_truncated
+                      or _time_budget_exceeded or _corr_pass_failed),
+        )
+        if _corr_unsettled:
+            logging.info(
+                f"⏭️ Reporting corrections: {len(_corr_unsettled)} "
+                "pair(s) held out of sheet-wide attachment pruning"
+            )
 
         # Build identity set for sheet pruning: (wr, week, variant, identifier) 4-tuples
         valid_wr_weeks = set()
@@ -6361,9 +6436,11 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
             # Quick 261030-suf F7: (wr, week) pairs held after a Foreman
             # Notes GF lookup failure; cleanup keeps their files until a
             # replacement is uploaded. None when nothing was held.
-            _fn_held_wr_weeks = {
+            # Reporting corrections: unsettled correction pairs join the
+            # same hold (their replacement is not live either).
+            _fn_held_wr_weeks = ({
                 (_h[0], _h[1]) for _h in _fn_held_groups.values()
-            } or None
+            } | _corr_unsettled) or None
             _need_sub_scope = (
                 SUBCONTRACTOR_LEGACY_HELPER_CLEANUP_ENABLED
                 or SUBCONTRACTOR_LEGACY_PRIMARY_CLEANUP_ENABLED
