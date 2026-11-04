@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — November 4, 2026
 
+- 📄 Help guides updated: align instruction files for context cost
 - 📄 Help guides updated: pilot live, Sentry check, PR ledger
 - ✨ New capability: foreman notes GF pilot (replaces )
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✅ Problem fixed: render Mermaid diagrams
 - ✅ Problem fixed: make mobile navbar menu readable
 - ✅ Problem fixed: carry every unconfirmed group as regen debt
-- 📄 Help guides updated: record G-11-37 post-deploy check
 
 <!-- /runbook-repo -->
 
@@ -516,4 +516,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
