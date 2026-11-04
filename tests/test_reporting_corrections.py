@@ -2023,5 +2023,140 @@ class Round8Tests(_Base):
         self.assertEqual(ast.unparse(first.value.func), '_rc.hold_cleanup')
 
 
+class MovedCreditedRowTests(_Base):
+    """A credited row later moved to another WR / week: the case blocks
+    and its published credit file registers as stale, but that file
+    may go only once the row's NEW group (outside the case's pair)
+    uploaded or was unchanged -- else it is the only published report
+    of those units."""
+
+    _PAIR = (fx.WR, '030826')
+
+    def _moved(self, change):
+        rows = fx.admitted_rows()
+        if change == 'wr':
+            rows[0]['Work Request #'] = float(fx.OTHER_WR)
+            return rows, '030826_90000002_USER_Foreman_A'
+        rows[0]['Weekly Reference Logged Date'] = '2026-03-15'
+        return rows, '031526_90000001_USER_Foreman_A'
+
+    def _blocked(self, change):
+        rows, dest = self._moved(change)
+        with self.assertLogs(level='WARNING'):
+            groups, summary = self._run(fx.correction_doc(), rows=rows)
+        self.assertEqual(summary['blocked'], 1, change)
+        self.assertIn(101, [r['__row_id'] for r in groups[dest]])
+        self.assertIn(_FOREMAN_B, rc.displaced_identities())
+        return groups, dest
+
+    def test_unsettled_destination_holds_the_displaced_pass(self):
+        names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        for change in ('wr', 'week'):
+            groups, dest = self._blocked(change)
+            client = _client()
+            with self.assertLogs(level='WARNING') as logs:
+                self.assertEqual(_remove(
+                    groups, _cache(names), client,
+                    settled_group_keys=set(groups) - {dest}), 0)
+            self.assertEqual(_deleted(client), [], change)
+            self.assertTrue(any('moved' in m for m in logs.output))
+            for line in logs.output:  # counts only, never a name
+                self.assertNotIn('Foreman', line)
+
+    def test_unsettled_destination_holds_sheet_wide_pruning(self):
+        for change in ('wr', 'week'):
+            groups, dest = self._blocked(change)
+            self.assertEqual(
+                _orchestrate._corr_unsettled_pairs(
+                    groups, set(groups) - {dest}),
+                {self._PAIR}, change)
+
+    def test_settled_destination_releases_cleanup(self):
+        names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        for change in ('wr', 'week'):
+            groups, _ = self._blocked(change)
+            client = _client()
+            self.assertEqual(_remove(
+                groups, _cache(names), client,
+                settled_group_keys=set(groups)), 1)
+            self.assertEqual(_deleted(client), [901], change)
+            self.assertEqual(
+                _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+                set())
+
+    def test_unknowable_live_location_fails_closed(self):
+        names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        groups, _ = self._blocked('wr')
+        with mock.patch.object(rc, 'displaced_row_keys', create=True,
+                               side_effect=RuntimeError('boom')):
+            client = _client()
+            with self.assertLogs(level='WARNING'):
+                self.assertEqual(_remove(
+                    groups, _cache(names), client,
+                    settled_group_keys=set(groups)), 0)
+            self.assertEqual(_deleted(client), [])
+            self.assertEqual(
+                _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+                {self._PAIR})
+
+    def test_row_moved_into_excluded_wr_holds_cleanup(self):
+        # W1: grouping drops every group of an EXCLUDE_WRS WR, so a row
+        # moved there is in no group; its old credit file must stay.
+        names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        rows, dest = self._moved('wr')
+        patcher = mock.patch.object(generate_weekly_pdfs, 'EXCLUDE_WRS',
+                                    [fx.OTHER_WR])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        with self.assertLogs(level='WARNING'):
+            groups, summary = self._run(fx.correction_doc(), rows=rows)
+        self.assertEqual(summary['blocked'], 1)
+        self.assertNotIn(dest, groups)
+        client = _client()
+        with self.assertLogs(level='WARNING') as logs:
+            self.assertEqual(_remove(
+                groups, _cache(names), client,
+                settled_group_keys=set(groups)), 0)
+        self.assertEqual(_deleted(client), [])
+        self.assertTrue(any('moved' in m for m in logs.output))
+        self.assertEqual(
+            _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+            {self._PAIR})
+
+    def test_unmoved_case_logs_no_moved_warning(self):
+        # I3: an unmoved retired case whose own pair is unuploaded is
+        # held by the per-pair gate -- not reported as a moved row.
+        names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        groups, summary = self._run(_retired_doc())
+        self.assertEqual(summary['retired'], 1)
+        own = next(k for k, g in groups.items()
+                   if 101 in [r.get('__row_id') for r in g])
+        self.assertEqual(
+            _orchestrate._corr_group_pair(own, groups[own]), self._PAIR)
+        client = _client()
+        with self.assertLogs(level='INFO') as logs:
+            self.assertEqual(_remove(
+                groups, _cache(names), client,
+                settled_group_keys=set(groups) - {own}), 0)
+        self.assertEqual(_deleted(client), [])
+        self.assertFalse(any('moved' in m for m in logs.output))
+
+    def test_moved_warning_names_the_held_pairs(self):
+        # I9: the warning lists the held WR / week pairs (ids only).
+        names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        groups, dest = self._blocked('wr')
+        with self.assertLogs(level='WARNING') as logs:
+            _remove(groups, _cache(names), _client(),
+                    settled_group_keys=set(groups) - {dest})
+        line = next(m for m in logs.output if 'moved' in m)
+        self.assertIn(f'{fx.WR}/030826', line)
+
+
 if __name__ == '__main__':
     unittest.main()

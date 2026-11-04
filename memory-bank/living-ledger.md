@@ -9948,3 +9948,30 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   pass + sheet-wide hold, unreadable-EXCLUDE_WRS fail-closed, handler order), fix round RED->GREEN
   `test_rejects_names_that_sanitize_to_a_sentinel`; full suite 2946 passed / 3 skipped / 921 subtests
   (uncommitted).
+
+## [2026-11-04 02:40] PR #447 -- moved credited row holds its old credit file (bug lane).
+
+- Verdict REAL (reproduced, fixture): a credited row later moved to another WR or week blocks its case
+  (`row_differences`: work request / week differs); `_register_credited` registers the published credit
+  identity under the CASE pair, and both cleanup passes only checked groups of that pair. With the row's
+  NEW group generated but not uploaded, `_remove_empty_displaced_attachments` deleted the old credit file,
+  and the sheet-wide pruning's variant-migration branch did too (`_corr_unsettled_pairs` saw no unsettled
+  group in any active pair; a live `_Helper_` in the case pair fires the gate) -- the only published
+  report of those units was removed.
+- Rule: a credited slot records the credited `(sheet, row)` ids (`_DISPLACED[...]['row_keys']`,
+  `_rc.displaced_row_keys()`). `orchestrate._corr_moved_row_pairs` finds each id's group TODAY (any
+  WR / week) and holds the case pair while any such group is unsettled; carried into BOTH the displaced
+  pass (counts-only warning) and `_corr_unsettled_pairs`. A row in no group today has no replacement
+  upload to wait for (unchanged semantics); `settled_group_keys=None` stays "no gate" in the displaced
+  pass; a failed lookup holds every stale pair (fail closed).
+- Note: parity with today's non-correction behaviour (a plain row moving WR with a failed destination
+  upload also leaves its units in no published file for one run) -- this hold covers the
+  correction-owned cleanup only.
+- Evidence: RED->GREEN `MovedCreditedRowTests` (displaced pass, sheet-wide hold, fail-closed lookup;
+  control `test_settled_destination_releases_cleanup` green before and after); corrections suite 97
+  passed; full suite 2950 passed / 3 skipped / 921 subtests (uncommitted).
+- Review follow-up: a row moved into an `EXCLUDE_WRS` WR (in no group) holds via its live WR
+  (`_rc.displaced_row_wrs()`, fail closed on an unreadable list); groups of the case's own pair are
+  skipped (per-pair gate owns them, no false "moved" warning); the warning lists held WR/week ids.
+  Incremental filter needs no change (a changed row's new pair is always affected; unconfirmed
+  pairs carry as regen debt). Corrections suite 100 passed; full suite 2953 passed / 3 skipped.
