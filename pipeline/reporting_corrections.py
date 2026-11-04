@@ -1308,14 +1308,20 @@ def register_displaced(
 
 
 def _add_displaced(gkey: str, grows: list, tokens: set,
-                   identity: tuple[str, str] | None = None) -> None:
+                   identity: tuple[str, str] | None = None,
+                   row_keys: Iterable[tuple[int, int]] = (),
+                   row_wrs: Mapping[tuple[int, int], str] | None = None,
+                   ) -> None:
     slot = _DISPLACED.setdefault(
-        gkey, {'tokens': set(), 'rows': [], 'identity': None})
+        gkey, {'tokens': set(), 'rows': [], 'identity': None,
+               'row_keys': set(), 'row_wrs': {}})
     slot['tokens'] |= tokens
     if not slot['rows']:
         slot['rows'] = list(grows)
     if identity is not None:
         slot['identity'] = identity
+    slot['row_keys'] |= set(row_keys)
+    slot['row_wrs'].update(row_wrs or {})
 
 
 _GroupFn = Callable[[list[dict[str, Any]]], Mapping[str, list]]
@@ -1406,7 +1412,7 @@ def _register_credited(rows: list[dict[str, Any]], cset: CorrectionSet,
             continue
         token = {_retired_token(eff)} if state == 'retired' else set()
         week_key = corr.week_ending.strftime('%m%d%y')
-        slots: dict[str, tuple[tuple[str, str], list]] = {}
+        slots: dict[str, tuple[tuple[str, str], list, set, dict]] = {}
         for entry in corr.rows:
             if entry.reconcile_only:
                 continue
@@ -1432,9 +1438,19 @@ def _register_credited(rows: list[dict[str, Any]], cset: CorrectionSet,
             copy['__variant'] = variant
             # bounded to this case's WR / week by construction
             gkey = f'{week_key}_{corr.wr}_{suffix}'
-            slots.setdefault(gkey, ((variant, ident), []))[1].append(copy)
-        for gkey, (identity, grows) in slots.items():
-            _add_displaced(gkey, grows, token, identity)
+            slot = slots.setdefault(
+                gkey, ((variant, ident), [], set(), {}))
+            slot[1].append(copy)
+            # the credited row's (sheet, row) id: wherever it lives
+            # today (another WR / week included), its CURRENT group must
+            # settle before this published file may go
+            slot[2].add(entry.key)
+            if src is not None:
+                # its LIVE WR, as grouping reads it: a row moved into
+                # an EXCLUDE_WRS WR is in no group, yet still owed
+                slot[3][entry.key] = _row_wr(src)
+        for gkey, (identity, grows, keys, wrs) in slots.items():
+            _add_displaced(gkey, grows, token, identity, keys, wrs)
 
 
 def _entry_row(corr: Correction, entry: CorrectionRow) -> dict[str, Any]:
@@ -1599,6 +1615,26 @@ def displaced_identities() -> dict[str, tuple[str, str]]:
     uncorrected pass derives its identity under the run's switches)."""
     return {k: v['identity'] for k, v in _DISPLACED.items()
             if v.get('identity') is not None}
+
+
+def displaced_row_keys() -> dict[str, frozenset[tuple[int, int]]]:
+    """Stale group key -> the (sheet, row) ids credited in that
+    published file (credited slots only). Orchestrate finds each id's
+    group TODAY -- which may sit in another WR / week once the row
+    moved -- and holds the file until that group settled."""
+    return {k: frozenset(v.get('row_keys') or ())
+            for k, v in _DISPLACED.items()
+            if v.get('identity') is not None}
+
+
+def displaced_row_wrs() -> dict[tuple[int, int], str]:
+    """Credited (sheet, row) id -> the live row's WR this run (rows
+    with a live source row only). Orchestrate uses it for an id found
+    in no group: grouping drops an ``EXCLUDE_WRS`` WR entirely."""
+    out: dict[tuple[int, int], str] = {}
+    for v in _DISPLACED.values():
+        out.update(v.get('row_wrs') or {})
+    return out
 
 
 def apply_credit_overrides(rows: list[dict[str, Any]],

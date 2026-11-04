@@ -2708,6 +2708,13 @@ def _corr_read_sheet_ids() -> set[Any]:
         return set()
 
 
+def _corr_exclude_wrs() -> set[str]:
+    """``EXCLUDE_WRS`` as grouping reads it -- from the facade, so a
+    test-time rebind is honoured. Raises when it cannot be read."""
+    import generate_weekly_pdfs as _gwp  # noqa: PLC0415
+    return {str(w).strip() for w in _gwp.EXCLUDE_WRS or ()}
+
+
 def _corr_excluded_pairs() -> set[tuple[str, str]]:
     """Active correction pairs whose WR is in ``EXCLUDE_WRS``.
 
@@ -2721,11 +2728,74 @@ def _corr_excluded_pairs() -> set[tuple[str, str]]:
     if not pairs:
         return set()
     try:
-        import generate_weekly_pdfs as _gwp  # noqa: PLC0415
-        excluded = {str(w).strip() for w in _gwp.EXCLUDE_WRS or ()}
+        excluded = _corr_exclude_wrs()
     except Exception:  # noqa: BLE001 - fail closed
         return set(pairs)
     return {p for p in pairs if p[0] in excluded}
+
+
+def _corr_moved_row_pairs(
+    groups: dict[Any, list[dict[str, Any]]],
+    settled_group_keys: set[Any] | None,
+) -> set[tuple[str, str]]:
+    """Correction pairs whose published credit file must stay because a
+    row it credits sits TODAY in a group that is not settled (generated
+    but not uploaded / unchanged). The row may have moved to another
+    WR / week, outside the pair the per-pair gate checks, and the old
+    file is then the only published report of its units. Groups of the
+    case's own pair are skipped (the per-pair gate holds those). A row
+    in no group today has no replacement upload to wait for -- unless
+    its live WR is in ``EXCLUDE_WRS`` (grouping dropped it; held, and
+    held when that list cannot be read). ``None`` = no
+    gate, as in the displaced pass (``_corr_unsettled_pairs`` holds
+    every pair itself then); every stale pair when the lookup fails
+    (fail closed). Never raises.
+    """
+    if settled_group_keys is None:
+        return set()
+    try:
+        displaced = _rc.displaced_groups()
+        keys_by_pair: dict[tuple[str, str], set] = {}
+        for gkey, keys in _rc.displaced_row_keys().items():
+            grows = displaced.get(gkey)
+            if keys and grows and '_' in gkey:
+                keys_by_pair.setdefault(
+                    _corr_group_pair(gkey, grows), set()).update(keys)
+        if not keys_by_pair:
+            return set()
+        wanted = set().union(*keys_by_pair.values())
+        found: set = set()
+        live: dict[Any, set] = {}  # id -> pairs of its unsettled groups
+        for gkey, grows in groups.items():
+            hits = {k for k in map(_rc.row_key, grows) if k in wanted}
+            found |= hits
+            if not hits or gkey in settled_group_keys:
+                continue
+            pair = _corr_group_pair(gkey, grows)
+            for k in hits:
+                live.setdefault(k, set()).add(pair)
+        held = {p for p, keys in keys_by_pair.items()
+                if any(live.get(k, set()) - {p} for k in keys)}
+        missing = wanted - found
+        if missing:
+            live_wrs = _rc.displaced_row_wrs()
+            try:
+                excluded: set[str] | None = _corr_exclude_wrs()
+            except Exception:  # noqa: BLE001 - fail closed
+                excluded = None
+            for p, keys in keys_by_pair.items():
+                if any(k in live_wrs and (
+                        excluded is None or live_wrs[k] in excluded)
+                       for k in keys & missing):
+                    held.add(p)
+        return held
+    except Exception:  # noqa: BLE001 - fail closed
+        try:
+            displaced = _rc.displaced_groups()
+            return {_corr_group_pair(k, g) for k, g in displaced.items()
+                    if g and '_' in k}
+        except Exception:  # noqa: BLE001
+            return set()
 
 
 def _corr_unsettled_pairs(
@@ -2761,6 +2831,9 @@ def _corr_unsettled_pairs(
             failed_ids, _corr_read_sheet_ids())) & pairs
         # an EXCLUDE_WRS pair has no group today to prove settlement
         held |= _corr_excluded_pairs()
+        # a credited row moved to another WR / week: its new group must
+        # settle before the old credit file may go
+        held |= _corr_moved_row_pairs(groups, settled_group_keys) & pairs
         if settled_group_keys is None:
             return held | pairs
         for gkey, grows in groups.items():
@@ -2891,7 +2964,21 @@ def _remove_empty_displaced_attachments(
             "WR excluded from generation (EXCLUDE_WRS); stale "
             "attachment(s) kept for now"
         )
-    held = set(held_wr_weeks or ()) | unplaced | read_failed | excluded
+    # A credited row's CURRENT group (another WR / week once the row
+    # moved) generated but not uploaded: the old credit file is still
+    # the only published report of its units -- hold it.
+    moved = _corr_moved_row_pairs(groups, settled_group_keys)
+    if moved:
+        shown = sorted(f'{w}/{wk}' for w, wk in moved)
+        more = f' (+{len(shown) - 10} more)' if len(shown) > 10 else ''
+        logging.warning(
+            f"⏭️ Reporting corrections: {len(moved)} pair(s) held "
+            f"[{', '.join(shown[:10])}{more}] -- a credited row moved "
+            "to another WR / week whose group is not uploaded yet (or "
+            "is EXCLUDE_WRS); stale attachment(s) kept for now"
+        )
+    held = (set(held_wr_weeks or ()) | unplaced | read_failed | excluded
+            | moved)
     present: dict[tuple, set[tuple]] = {}
 
     def _present(pair: tuple) -> set[tuple]:
