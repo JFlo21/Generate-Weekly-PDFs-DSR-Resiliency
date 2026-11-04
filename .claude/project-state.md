@@ -79,13 +79,12 @@ history goes to `memory-bank/living-ledger.md` (grep the dated header), never he
 - PR #450 (fail-closed notes-token hold): mark ready + merge on owner call; decide the RESET-purge interaction.
 - Branch/worktree hygiene inventory (2026-11-03): 22 gone-upstream + 9 merged tracked branches; worktrees
   `gwp-1115`, `gwp-mermaid`, `gwp-regen` idle — deletions only on owner approval.
-- `AGENTS.md` (367 lines, Codex-owned, auto-loaded): freeze by hand with the `FROZEN MIRROR` header from
-  `.claude/skills/align-instruction-files/SKILL.md` step 3.4 — ClaudeOS cannot write the file.
 - Phase 11 test 37 streak reading; Phase 13 PR; Codex threads on PRs #399/#400/#402; Dependabot triage.
 
 ## Next actions
 
-1. Owner: review/merge PR #448 → #449 (docs) and PR #450 (token hold); paste the `AGENTS.md` freeze header.
+1. Owner: merge in order PR #448 → #449 (docs), then #447 (corrections), then #450 (token hold; rebase if
+   `orchestrate.py` conflicts with #447). `AGENTS.md` frozen 2026-11-03 (owner-approved, `32c6e7ff`).
 2. Follow PR #450 bot reviews (Copilot/Greptile/Cursor; Codex comments are listed, never applied).
 3. Owner: PR #447 gates (workflow step + secret PR, VAC override, legacy-owner change, covering-helper).
 4. Phase 11 test 37 → re-verify → validate-phase 11.1/12/14 → v1.4 re-audit; Phase 13 PR when asked.
