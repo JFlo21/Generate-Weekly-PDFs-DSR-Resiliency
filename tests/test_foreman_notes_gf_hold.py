@@ -921,5 +921,274 @@ class CleanupToleranceTests(_Base):
         self.assertTrue(loops)
 
 
+# ---------------------------------------------------------------------------
+# Fail-closed 2026-11-03: hold a pilot group whose notes token raised
+# ---------------------------------------------------------------------------
+
+# Hashes pinned from master 13a1dcb1 (pre-fix) for the fixture groups
+# under ``golden.pinned_env``. Happy paths must stay byte-identical: any
+# drift would regenerate every group on the next production run.
+_PINNED = {
+    # (extended, wr, token raises): hash
+    (True, PILOT_WR, False): "af96c8e2057a46b7",
+    (True, OTHER_WR, False): "30ff59324721bf11",
+    (False, PILOT_WR, False): "d97f4e96575c1df7",
+    (False, OTHER_WR, False): "2e8b88983c3d4fae",
+    # Failure path: change_detection is untouched, so a raising token
+    # still hashes WITHOUT NOTES_FP exactly as before the fix.
+    (True, PILOT_WR, True): "d376950ecac3977e",
+    (True, OTHER_WR, True): "30ff59324721bf11",
+    (False, PILOT_WR, True): "542b63538e57949c",
+    (False, OTHER_WR, True): "2e8b88983c3d4fae",
+}
+_TOKEN_HELD = (PILOT_WR, "081025", "primary", "notes_token_failed")
+
+
+def _hash_mode(
+    rows: list[dict[str, Any]], extended: bool = True, boom: bool = False
+) -> str:
+    """Group hash in either mode; ``boom`` makes the notes token raise."""
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(golden.pinned_env())
+        stack.enter_context(mock.patch.object(
+            gwp, "EXTENDED_CHANGE_DETECTION", extended))
+        if boom:
+            stack.enter_context(mock.patch.object(
+                fn, "norm_note", side_effect=RuntimeError("token broke")))
+        return cd.calculate_data_hash(rows)
+
+
+class TokenFailureHoldTests(_Base):
+    """RED on master: the token failure dropped NOTES_FP silently and
+    nothing could tell the group apart, so it was never held."""
+
+    def test_failed_token_drops_notes_fp_and_is_held(self) -> None:
+        self.init_good()
+        rows = _group(PILOT_WR)
+        failed = _hash_mode(rows, boom=True)
+        self.assertNotEqual(failed, _hash_mode(rows))
+        with fn_env("off"):
+            fn.set_state(fn.FnState())
+            no_notes_fp = _hash_mode(rows)
+        self.assertEqual(failed, no_notes_fp)  # the silent drop
+        self.init_good()
+        _hash_mode(rows, boom=True)
+        self.assertTrue(fn.token_failure_recorded(rows))
+        self.assertTrue(fn.notes_token_failed(list(reversed(rows))))
+        self.assertEqual(fn.get_state().scope, "pilot")
+
+    def test_failure_registered_per_variant(self) -> None:
+        self.init_good()
+        rows = _group(PILOT_WR)
+        for row in rows:
+            row["__variant"] = "primary"
+        _hash_mode(rows, boom=True)
+        helper = copy.deepcopy(rows)
+        for row in helper:
+            row["__variant"] = "helper"
+        self.assertTrue(fn.notes_token_failed(rows))
+        self.assertFalse(fn.notes_token_failed(helper))
+
+    def test_happy_path_records_nothing(self) -> None:
+        self.init_good()
+        for extended in (True, False):
+            for wr in (PILOT_WR, OTHER_WR):
+                _hash_mode(_group(wr), extended)
+        self.assertEqual(fn._RUN_FAILURES["token_failed_groups"], set())
+        self.assertFalse(fn.notes_token_failed(_group(PILOT_WR)))
+
+    def test_hashes_byte_identical_to_master(self) -> None:
+        for (extended, wr, boom), expected in _PINNED.items():
+            with self.subTest(extended=extended, wr=wr, boom=boom):
+                self.init_good()
+                self.assertEqual(
+                    _hash_mode(_group(wr), extended, boom), expected)
+
+    def test_non_pilot_raising_helper_not_held(self) -> None:
+        self.init_good()
+        for extended in (True, False):
+            rows = _group(OTHER_WR)
+            self.assertEqual(
+                _hash_mode(rows, extended, boom=True),
+                _PINNED[(extended, OTHER_WR, False)],
+            )
+            self.assertFalse(fn.token_failure_recorded(rows))
+            self.assertFalse(fn.notes_token_failed(rows))
+        self.assertEqual(fn._RUN_FAILURES["digest"], {})
+
+    def test_never_holds_in_test_mode(self) -> None:
+        """D2: a dry run never uploads, so never holds; the failure is
+        still recorded and counted."""
+        self.init_good()
+        rows = _group(PILOT_WR)
+        with mock.patch.object(config, "TEST_MODE", True):
+            _hash_mode(rows, boom=True)
+            self.assertTrue(fn.token_failure_recorded(rows))
+            self.assertFalse(fn.notes_token_failed(rows))
+        self.assertEqual(
+            fn._RUN_FAILURES["digest"], {"group_notes_token": 1})
+
+    def test_scope_off_token_is_empty_and_never_held(self) -> None:
+        with fn_env("off"):
+            fn.initialize(_Client())
+            rows = _group(PILOT_WR)
+            with mock.patch.object(
+                    fn, "norm_note", side_effect=RuntimeError("x")):
+                self.assertEqual(
+                    fn.group_notes_token(rows, lambda r: ""), "")
+            self.assertFalse(fn.notes_token_failed(rows))
+
+    def test_registry_cleared_by_reset_state(self) -> None:
+        self.init_good()
+        rows = _group(PILOT_WR)
+        _hash_mode(rows, boom=True)
+        fn.reset_state()
+        self.assertFalse(fn.token_failure_recorded(rows))
+
+    def test_predicates_never_raise(self) -> None:
+        self.assertIsNone(fn._token_group_key(None))
+        self.assertFalse(fn.notes_token_failed(None))
+        self.assertFalse(fn.notes_token_failed([object()]))
+        with mock.patch.object(fn, "_RUN_FAILURES", {}):
+            self.assertFalse(fn.notes_token_failed(_group(PILOT_WR)))
+            fn._record_token_failure(_group(PILOT_WR))
+        self.assertEqual(fn.held_reason_label(None), "GF lookup failed")
+
+
+class TokenHoldReportTests(_Base):
+    def _report(self, held: list) -> SentryCapture:
+        self.init_good()
+        _hash_mode(_group(PILOT_WR), boom=True)
+        cap = SentryCapture(self)
+        with fn_env(), mock.patch.dict(os.environ, _GH_ENV):
+            self.report = fn.report_run_end(
+                held_groups=held, force_flags=_FORCE)
+        return cap
+
+    def test_report_counts_token_held_groups(self) -> None:
+        self._report([_TOKEN_HELD])
+        report = self.report
+        self.assertEqual(report["held_total"], 1)
+        self.assertEqual(report["held_by_reason"], {
+            "gf_lookup_failed": 0, "notes_token_failed": 1})
+        self.assertEqual(report["token_failed_total"], 1)
+        self.assertEqual(report["token_failures_recorded"], 1)
+        self.assertEqual(report["digest_failures"], 1)
+        # The report rides the shared session_summary context: counts
+        # only, no WR (DECISIONS 2026-10-30).
+        self.assertNotIn(PILOT_WR, json.dumps(report))
+
+    def test_digest_event_lists_token_held_groups(self) -> None:
+        cap = self._report([_TOKEN_HELD])
+        # No new channel: no gf-hold event; the digest event fires once.
+        self.assertEqual(cap.by_fingerprint("foreman-notes", "gf-hold"), [])
+        (event,) = cap.by_fingerprint(
+            "foreman-notes", "notes-digest-failed")
+        ctx = event["contexts"]["foreman_notes"]
+        self.assertEqual(ctx["held_reason"], "notes_token_failed")
+        self.assertEqual(ctx["token_failed_groups"], [
+            {"wr": PILOT_WR, "week_ending": "081025", "variant": "primary"},
+        ])
+        self.assertEqual(ctx["token_failed_total"], 1)
+        self.assertEqual(ctx["failures"], {"group_notes_token": 1})
+        self.assertNotIn(PILOT_WR, event.get("message") or "")
+        for text in cap.texts():
+            for secret in ("GF-1", "GF-2", NOTE_SENTINEL):
+                self.assertNotIn(secret, text)
+
+    def test_digest_event_unchanged_without_token_holds(self) -> None:
+        cap = self._report([])
+        (event,) = cap.by_fingerprint(
+            "foreman-notes", "notes-digest-failed")
+        ctx = event["contexts"]["foreman_notes"]
+        for key in ("held_reason", "token_failed_groups",
+                    "token_failed_total"):
+            self.assertNotIn(key, ctx)
+
+    def test_token_held_list_capped_at_200(self) -> None:
+        held = [(str(90000 + i), "081025", "primary", "notes_token_failed")
+                for i in range(205)]
+        cap = self._report(held)
+        (event,) = cap.by_fingerprint(
+            "foreman-notes", "notes-digest-failed")
+        ctx = event["contexts"]["foreman_notes"]
+        self.assertEqual(len(ctx["token_failed_groups"]), 200)
+        self.assertEqual(ctx["token_failed_total"], 205)
+        self.assertEqual(self.report["token_failed_total"], 205)
+
+    def test_gf_hold_event_counts_only_gf_holds(self) -> None:
+        self.init_failed()
+        cap = SentryCapture(self)
+        with fn_env():
+            report = fn.report_run_end(
+                held_groups=list(_HELD) + [_TOKEN_HELD], force_flags=_FORCE)
+        (event,) = cap.by_fingerprint("foreman-notes", "gf-hold")
+        ctx = event["contexts"]["foreman_notes"]
+        self.assertEqual(ctx["held_total"], 1)
+        self.assertEqual(len(ctx["held_groups"]), 1)
+        self.assertEqual(report["held_total"], 2)
+        self.assertEqual(report["held_by_reason"], {
+            "gf_lookup_failed": 1, "notes_token_failed": 1})
+
+    def test_gf_only_report_lists_no_token_groups(self) -> None:
+        self.init_failed()
+        with fn_env():
+            report = fn.report_run_end(
+                held_groups=list(_HELD), force_flags=_FORCE)
+        self.assertEqual(report["token_failed_total"], 0)
+        self.assertEqual(report["held_by_reason"], {
+            "gf_lookup_failed": 1, "notes_token_failed": 0})
+
+    def test_held_reason_label(self) -> None:
+        self.assertEqual(
+            fn.held_reason_label([_HELD[0]]), "GF lookup failed")
+        self.assertEqual(
+            fn.held_reason_label([_TOKEN_HELD]), "notes token failed")
+        self.assertEqual(
+            fn.held_reason_label([_HELD[0], _TOKEN_HELD]),
+            "GF lookup failed / notes token failed")
+
+
+class TokenHoldPlacementTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.main = _main()
+
+    def _token_if(self) -> ast.If:
+        ifs = [n for n in ast.walk(self.main) if isinstance(n, ast.If)
+               and _calls(n.test, "_fn.notes_token_failed")]
+        self.assertEqual(len(ifs), 1)
+        return ifs[0]
+
+    def test_checks_the_hashed_group_rows(self) -> None:
+        (call,) = _calls(self._token_if().test, "_fn.notes_token_failed")
+        self.assertEqual([a.id for a in call.args], ["group_rows"])
+
+    def test_after_gf_hold_before_freeze_and_excel(self) -> None:
+        hold = self._token_if()
+        gf = [n for n in ast.walk(self.main) if isinstance(n, ast.If)
+              and _calls(n.test, "_fn.gf_lookup_failed")
+              and _calls(n, "_fn.should_hold_group")]
+        self.assertEqual(len(gf), 1)
+        freeze = [n for n in ast.walk(self.main) if isinstance(n, ast.If)
+                  and "_has_uncached_freeze_candidates" in _names(n.test)]
+        self.assertGreater(hold.lineno, gf[0].lineno)
+        self.assertLess(hold.lineno, freeze[0].lineno)
+        for call in _calls(self.main, "generate_excel"):
+            self.assertLess(hold.lineno, call.lineno)
+
+    def test_holds_regardless_of_hash_and_continues(self) -> None:
+        hold = self._token_if()
+        self.assertIsInstance(hold.body[-1], ast.Continue)
+        names = _names(hold)
+        self.assertIn("_fn_held_groups", names)
+        for forbidden in ("_hash_unchanged", "_mem_confirmed_skip_keys",
+                          "generated_filenames", "data_hash"):
+            self.assertNotIn(forbidden, names)
+        attrs = {n.attr for n in ast.walk(hold)
+                 if isinstance(n, ast.Attribute)}
+        self.assertIn("HOLD_NOTES_TOKEN", attrs)
+        self.assertEqual(fn.HOLD_NOTES_TOKEN, "notes_token_failed")
+
+
 if __name__ == "__main__":
     unittest.main()

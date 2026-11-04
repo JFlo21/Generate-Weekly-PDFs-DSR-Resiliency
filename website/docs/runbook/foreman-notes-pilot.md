@@ -166,6 +166,35 @@ held groups regenerate from regeneration debt, and pilot files whose data did
 not change match their stored hash and are not re-sent. No `RESET_*` flag is
 needed (re-run one only if you had requested it while the lookup was failing).
 
+## If a pilot group's notes digest fails
+
+**Component owner:** Python billing pipeline (`group_notes_token` in
+`pipeline/foreman_notes.py`; the hold is in the group loop of
+`pipeline/orchestrate.py`, right after the GF-lookup hold).
+
+A pilot group's data hash includes a digest of its notes. If building that
+digest raises an error, the hash would silently lose the notes, so the run
+**holds that group** instead: no workbook, no upload, whether or not its data
+changed, and force or regen flags do not override it. The group keeps its
+current attachment and stored hash and is carried as regeneration debt, the
+same as a GF-lookup hold. Other groups, pilot or not, are not affected, and
+dry runs (`TEST_MODE=true`) never hold.
+
+- **Sentry:** the warning event `foreman-notes / notes-digest-failed` counts
+  the failures and, for a held group, adds `held_reason:
+  notes_token_failed` and the held `wr`, `week_ending` and `variant` list (at
+  most 200, with `token_failed_total`). No `gf-hold` event is sent. The cron
+  monitor checks the run in as **ERROR**.
+- **Run log:** the `⚡ Group processing phase` line ends with `, N held (notes
+  token failed)`, and one WARNING reads `Foreman notes: N group(s) held
+  because the notes token failed; carried as regeneration debt (...)`.
+  `session_summary` carries counts only under `foreman_notes`
+  (`held_by_reason`, `token_failed_total`).
+- **What to do:** usually nothing; the next run whose digest succeeds
+  regenerates the group. If the same group is held run after run, open an
+  issue with the Sentry event link (the event names the exception class).
+  The `RESET_*` attachment purge is not skipped for this hold.
+
 ## Dry run (do this first)
 
 On your own machine, with the token exported in your own shell and

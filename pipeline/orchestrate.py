@@ -3059,7 +3059,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
     # in every except handler below.
     _session_failed = False
     # Quick 261030-suf: groups held because the Foreman Notes GF lookup
-    # failed ({group_key: (wr, week_raw, variant)}), the run-end report
+    # failed ({group_key: (wr, week_raw, variant)}) or, fail-closed
+    # 2026-11-03, because a pilot group's notes token raised
+    # ({group_key: (wr, week_raw, variant, "notes_token_failed")}), the
+    # run-end report
     # and whether the RESET_* purge was skipped. Hoisted with
     # _session_failed because the finally-block cron check-in reads
     # _fn_held_groups (owner decision D1: a run that held groups checks
@@ -4635,6 +4638,19 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                         )
                         continue
 
+                # Fail-closed (2026-11-03): a pilot group whose Foreman
+                # Notes token raised was hashed WITHOUT NOTES_FP, so that
+                # hash must neither publish nor confirm a skip. Held like
+                # a GF-lookup hold (no regeneration, no upload, carried as
+                # regeneration debt) whatever the stored-hash comparison
+                # says; never in TEST_MODE (D2). Non-pilot groups never
+                # fail the token, so they are never held here.
+                if _fn.notes_token_failed(group_rows):
+                    _fn_held_groups[group_key] = (
+                        wr_num, week_raw, variant, _fn.HOLD_NOTES_TOKEN,
+                    )
+                    continue
+
                 # ── Billing audit snapshot: freeze personnel + emit run fingerprint ──
                 # Runs when the group hash has changed/is new, OR when some rows
                 # were not successfully frozen in a prior run (transient failure
@@ -5248,7 +5264,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                if _time_budget_exceeded else "")
             # Quick 261030-suf F8: the held count, only when non-zero, so
             # every other run's line is unchanged.
-            + (f", {len(_fn_held_groups)} held (GF lookup failed)"
+            # Fail-closed 2026-11-03: the label names each hold reason
+            # ("GF lookup failed" alone when only GF holds happened).
+            + (f", {len(_fn_held_groups)} held "
+               f"({_fn.held_reason_label(_fn_held_groups.values())})"
                if _fn_held_groups else "")
         )
         if _no_target_row_groups:

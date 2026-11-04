@@ -9793,3 +9793,27 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   only in the masked secret `FOREMAN_NOTES_PILOT_GFS`, never in a variable or tracked file.
 - Widening past the 3 pilot GFs (scope `all`) is a reviewed workflow PR, not a variable flip.
 - Evidence: PR #445; workflow-contract + Foreman Notes tests 824 passed / 2 skipped; diff name scan 0.
+
+## [2026-11-03 20:10] Foreman Notes: fail closed when a pilot group's notes token raises.
+
+- Root cause: `group_notes_token` caught every exception and returned `''`, the same value as a
+  non-pilot group, and `calculate_data_hash` appends `NOTES_FP=` only when the token is non-empty. A
+  failing pilot group was hashed without its notes digest, regenerated once in that state, and later
+  note edits stopped changing its hash (or it churned when the failure was intermittent). The
+  GF-lookup hold never engaged, because it is run-wide GF state only.
+- Rule: the `except` now records the group in `_RUN_FAILURES["token_failed_groups"]`, keyed by an
+  order-independent digest of its `(__source_sheet_id, __row_id, __variant)` triples (no note, no
+  name). `notes_token_failed(rows)` (never raises, False in TEST_MODE, D2) makes main() hold the
+  group right after the GF-lookup hold, regardless of the stored-hash comparison:
+  `_fn_held_groups[key] = (wr, week_raw, variant, "notes_token_failed")` and `continue`, so it is
+  regeneration debt like a GF hold (cleanup tolerance, shadow-parity unobservable, cron ERROR).
+  A 3-tuple still means a GF-lookup hold.
+- Hashes are byte-identical: `change_detection` is untouched; successful tokens and non-pilot
+  groups hash exactly as on master 13a1dcb1 (pinned in the tests, extended and legacy modes).
+- Reporting: the `gf-hold` event and its WARNING keep their shape and now count GF holds only. The
+  token-held `{wr, week_ending, variant}` list (capped at 200) and `held_reason` ride the existing
+  forked-scope `notes-digest-failed` event; the returned run report stays counts-only
+  (`held_by_reason`, `token_failed_total`, `token_failures_recorded`) because main() puts it on the
+  shared `session_summary` context, where WR numbers are not allowed (DECISIONS 2026-10-30).
+- Evidence: `tests/test_foreman_notes_gf_hold.py` (TokenFailureHoldTests, TokenHoldReportTests,
+  TokenHoldPlacementTests; 16 RED on master, the pinned-hash test GREEN on master and after).
