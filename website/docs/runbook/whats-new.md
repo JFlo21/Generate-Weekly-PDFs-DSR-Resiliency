@@ -27,12 +27,21 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/JFlo21 -->
-## JFlo21
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
+## Parser that will offload grid format information from work request completed packets
 
-> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
+> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-_Running steadily — no meaningful changes were detected in this period._ ✅
+### 📋 Changelog — November 4, 2026
+
+- 📄 Help guides updated: trim CLAUDE.md, move the Session Log to docs/history, fix stale docs
+- ✅ Problem fixed: only the owner can reset admin accounts; sign-up limited to ltspower.com
+- ✅ Problem fixed: Pillow 13 and requests 2.33+ (52 Dependabot alerts, all critical/high)
+- ✅ Problem fixed: React Router 7 and motion-studio esbuild (3 npm Dependabot alerts)
+- 📄 Help guides updated: record the review gate as live and the PR stack as closed
+- ✅ Problem fixed: resolve npm audit findings (21 -&gt; 4, no high)
+- 📄 Help guides updated: refresh project docs, add PRODUCT.md and eight guides
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
 <!-- /runbook-repo -->
 
@@ -45,21 +54,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
-## Parser that will offload grid format information from work request completed packets
+<!-- runbook-repo: JFlo21/JFlo21 -->
+## JFlo21
 
-> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
+> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
 
-### 📋 Changelog — November 3, 2026
-
-- ✅ Problem fixed: Pillow 13 and requests 2.33+ (52 Dependabot alerts, all critical/high)
-- 📄 Help guides updated: record the review gate as live and the PR stack as closed
-- ✅ Problem fixed: resolve npm audit findings (21 -&gt; 4, no high)
-- 📄 Help guides updated: refresh project docs, add PRODUCT.md and eight guides
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: raise failing text-contrast pairs to WCAG minimums
-- ✨ New capability: motion always on, in-flow alerts that glide, and accessibility fixes
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -68,7 +68,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — November 3, 2026
+### 📋 Changelog — November 4, 2026
 
 - ✨ New capability: Phase 40.4 — expressive motion across the web app
 - ✅ Problem fixed: motion audit fixes and follow-ups — exits, ambient gating and pause, GF labels on WAAPI, focus after Regenerate
@@ -86,7 +86,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 3, 2026
+### 📋 Changelog — November 4, 2026
 
 - • 📊 Audit: 2026-11-02T06:48:49Z
 
@@ -475,7 +475,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 3, 2026
+### 📋 Changelog — November 4, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -516,3 +516,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
