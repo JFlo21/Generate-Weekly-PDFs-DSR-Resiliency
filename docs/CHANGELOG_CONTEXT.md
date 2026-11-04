@@ -9,6 +9,18 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-11-03 — Foreman Notes: hold pilot groups whose notes token failed (PR #450)
+
+What: when `group_notes_token()` raises for a pilot group, the group is now recorded in a per-run registry and
+held in `main()` like a GF-lookup hold (no Excel, no upload, carried as regeneration debt; never in TEST_MODE).
+Why: the token returned `""` on error, so the hash lost its `NOTES_FP` token and the group fingerprinted as
+"no notes" — a stale workbook could publish or an unchanged-hash skip could be confirmed. Hashes are unchanged;
+only the hold is new. How it affects operators: the group-phase log line says `N held (notes token failed)`,
+the cron check-in reports ERROR like a GF hold, the `notes_digest_failed` Sentry event lists the held WR/week/
+variant entries, and the run report counts holds per reason. The `RESET_*` purge still runs before the hold —
+owner decision pending on whether to regenerate instead. Runbook: foreman-notes-pilot.md § "If a pilot group's
+notes digest fails". Ledger `[2026-11-03 20:10]`.
+
 ## 2026-10-31 — PR #445 Foreman Notes pilot switch
 
 The weekly workflow now passes `FOREMAN_NOTES_SCOPE: 'pilot'`, the `FOREMAN_NOTES_PILOT_GFS` secret and
