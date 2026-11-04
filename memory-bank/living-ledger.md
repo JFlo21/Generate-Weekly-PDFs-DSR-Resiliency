@@ -9853,3 +9853,21 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   64, mirror in sync, zero `MISSING:` pointers. Docs-only branch `docs/claudeos-doc-alignment` stacked on
   PR #448. Skipped on purpose: `/gsd:health` and `/gsd:docs-update` (Phase 15 pilot live; GSD STATE churn
   would collide with the docs PR — the skill's own "when not to use" case).
+
+## [2026-11-04 00:40] Instruction-file drift check round 2 (docs PR #449)
+
+- Step 0 after the 2026-11-03 alignment: CLAUDE.md 150, project-state 114, context-map 64, rules ≤ 60,
+  copilot mirror in sync, AGENTS.md frozen, 0 dangling pointers in CLAUDE.md / context map. Breaches:
+  `docs/ai/architecture.md` 147, `implementation-truth.md` 138, `safe-commands.md` 133 (cap 130).
+- Repairs (no claim changed, no Last-verified date bumped): the "Source-of-truth hierarchy" block the
+  three pages repeated → one pointer to `.claude/context-map.md` § Read order; time-budget raise history
+  and the retired local-JSON-cache row → this ledger (`[2026-04-22 17:10]`, INC-05); Last-verified
+  provenance compressed. `docs/AI_CONTEXT_RESUME.md` now says `.planning/debug/*` is session-local
+  (gitignored) and points at `[2026-06-26 14:30]`. `.agents/skills/run-billing-pipeline-locally` had
+  drifted from `.claude/skills` (WR_FILTER needs TEST_MODE) → resynced. `.gitignore` ignores
+  `**/.claude/session-delta.jsonl` (hook output in `website/.claude/`). `.serena/project.yml` +
+  `.serena/.gitignore` tracked (Serena ignores cache + local file itself; memories dir empty).
+- Rule: `docs/ai/*` pages carry no copy of the source-of-truth order — it lives in the context map.
+- Left to the owner: whether `.agents/` (untracked since 2026-08-12, documented as a cross-runtime
+  mirror) is tracked or ignored; `.planning/state.json` / `.continue-here.md` / `.gitkeep` are GSD
+  working files; `/gsd:health` and `/gsd:docs-update` skipped again (Phase 15 live).

@@ -7,6 +7,10 @@ history goes to `memory-bank/living-ledger.md` (grep the dated header), never he
 
 ## Where it stands
 
+- 2026-11-04 drift-check repairs (docs PR #449): `docs/ai/` pages back under 130 lines (hierarchy →
+  context-map pointer, history → ledger), `.agents/skills` mirror resynced, nested hook output ignored,
+  `.serena/project.yml` tracked. Open: track or ignore `.agents/`; `.planning/state.json` +
+  `.continue-here.md` are GSD-owned (commit via `/gsd:*`); `/gsd:health` skipped while Phase 15 is live.
 - **Production posture (milestone v1.4 "Supabase Run Memory")**: Phases 10, 11.1, 12, 14 closed;
   `pipeline_memory` write path ON (`RUN_MEMORY_WRITE_ENABLED='1'` on the `Generate reports` step only);
   `RUN_MEMORY_INCREMENTAL_ENABLED` OFF; change detection and attachment identity are `group_state`-backed;

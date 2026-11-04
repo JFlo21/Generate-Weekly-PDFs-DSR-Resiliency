@@ -284,7 +284,8 @@ Sequencing — **A → B → C → D → E**:
    attribution; fix the sub-helper filename/upload/change-key asymmetry; add a
    blank-foreman guard at freeze; one-time controlled re-attribution of the 5,183
    `Unknown Foreman` rows + the WR 14527770 weeks (manual Supabase + re-freeze
-   runbook). Full diagnosis: `.planning/debug/frozen-claim-history-gap.md`.
+   runbook). Full diagnosis: `.planning/debug/frozen-claim-history-gap.md`
+   (session-local, gitignored); durable summary: ledger `[2026-06-26 14:30]`.
 3. **Subproject E** (last claim-attribution rollout item, not started) — Supabase
    change-detection cutover + filename `_<hash>`/`_<timestamp>` strip. Lands
    cleaner *after* Phase 09 modularizes the upload/change-detection code.

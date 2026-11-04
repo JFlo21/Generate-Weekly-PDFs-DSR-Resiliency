@@ -134,6 +134,7 @@ CLAUDE.local.md
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/session-delta.jsonl
+**/.claude/session-delta.jsonl
 .claude/writeback-pending/*.md
 !.claude/writeback-pending/README.md
 

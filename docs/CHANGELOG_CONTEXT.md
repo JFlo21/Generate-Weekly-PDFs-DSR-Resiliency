@@ -1467,3 +1467,10 @@ the sheet/column IDs and fix steps; lookup-failed, style and digest failure even
 tags. WR numbers only in the scoped `foreman_notes` context (DECISIONS.md exception); GF names and note text never.
 Why: the last blocker before `FOREMAN_NOTES_UPLOAD` (owner decisions 2026-10-30). Evidence: pytest 2848 passed, 6
 gates pass, independent Opus review merge-safe, Greptile 5/5. Production unchanged while scope is off.
+
+## 2026-11-04 — Drift-check repairs after the alignment
+
+`docs/ai/architecture.md`, `implementation-truth.md`, `safe-commands.md` back under the 130-line cap
+(duplicated source-of-truth block → context-map pointer; history → ledger); resume doc points at the
+ledger for the gitignored debug record; `.agents/skills` mirror resynced; nested hook output ignored;
+Serena project config tracked. Ledger `[2026-11-04 00:40]`.
