@@ -1820,5 +1820,254 @@ class ReviewRoundTests(_Base):
         self.assertIn('blocked=1', text)
 
 
+class FailClosedLoadTests(_Base):
+    """REPORTING_CORRECTIONS_FILE set + file unloadable = the run stops
+    (owner decision 2026-11-04); unset stays feature-off."""
+
+    def _bad_file(self):
+        path = os.path.join(self._tmp.name, 'bad.json')
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write('{"schema": 1, "corrections": []}')
+        return path
+
+    def _assert_unavailable(self, reason=None):
+        with self.assertRaises(rc.CorrectionsUnavailable) as cm:
+            rc.require_loadable()
+        exc = cm.exception
+        self.assertIsInstance(exc, RuntimeError)
+        self.assertGreaterEqual(exc.problem_count, 1)
+        if reason is not None:
+            self.assertEqual(exc.reason, reason)
+        # class + count only: no chained cause, no path, no problem text
+        self.assertIsNone(exc.__cause__)
+        self.assertTrue(exc.__suppress_context__)
+        self.assertNotIn(self._tmp.name, str(exc))
+        self.assertNotIn('schema', str(exc))
+        return exc
+
+    def test_require_loadable_is_a_noop_when_unset(self):
+        for unset in (None, ''):
+            _config.REPORTING_CORRECTIONS_FILE = unset
+            self.assertIsNone(rc.require_loadable())
+            self.assertEqual(rc._ACTIVE_CACHE, {})
+            self.assertIsNone(rc.get_active_set())
+
+    def test_require_loadable_passes_and_warms_the_cache(self):
+        path = self._configure(fx.correction_doc())
+        self.assertIsNone(rc.require_loadable())
+        cset = rc._ACTIVE_CACHE[path]
+        self.assertIsNotNone(cset)
+        self.assertIs(rc.get_active_set(), cset)
+
+    def test_invalid_content_raises(self):
+        _config.REPORTING_CORRECTIONS_FILE = self._bad_file()
+        self._assert_unavailable('CorrectionError')
+
+    def test_unreadable_path_raises(self):
+        _config.REPORTING_CORRECTIONS_FILE = os.path.join(
+            self._tmp.name, 'missing.json')
+        self._assert_unavailable('CorrectionError')
+
+    def test_path_outside_allowed_roots_raises(self):
+        path = self._configure(fx.correction_doc())
+        elsewhere = os.path.join(self._tmp.name, 'elsewhere')
+        with mock.patch.object(rc, '_allowed_roots',
+                               return_value=(elsewhere,)):
+            self._assert_unavailable('CorrectionError')
+        self.assertNotIn(path, rc._ACTIVE_CACHE)
+
+    def test_unexpected_loader_exception_raises(self):
+        self._configure(fx.correction_doc())
+        with mock.patch.object(rc, 'load_corrections',
+                               side_effect=KeyError('row 101 Foreman A')):
+            exc = self._assert_unavailable('KeyError')
+        self.assertNotIn('Foreman', str(exc))
+
+    def test_raise_frame_keeps_no_path_local(self):
+        # Sentry captures frame locals: the raising frame must not hold
+        # the configured path (assertRaises clears frames, so catch
+        # by hand).
+        _config.REPORTING_CORRECTIONS_FILE = self._bad_file()
+        try:
+            rc.require_loadable()
+        except rc.CorrectionsUnavailable as exc:
+            tb = exc.__traceback__
+        else:
+            self.fail('CorrectionsUnavailable not raised')
+        frames = []
+        while tb is not None:
+            if tb.tb_frame.f_code.co_name == 'require_loadable':
+                frames.append(dict(tb.tb_frame.f_locals))
+            tb = tb.tb_next
+        self.assertEqual(len(frames), 1)
+        self.assertNotIn('path', frames[0])
+        self.assertNotIn(self._tmp.name, repr(frames[0]))
+
+    def test_get_active_set_keeps_feature_off_for_other_callers(self):
+        _config.REPORTING_CORRECTIONS_FILE = self._bad_file()
+        with self.assertRaises(rc.CorrectionsUnavailable):
+            rc.require_loadable()
+        with self.assertLogs(level='ERROR'):
+            self.assertIsNone(rc.get_active_set())
+
+    def test_off_run_after_apply_would_bill_rows_twice(self):
+        # Why the gate exists: the applied run published the correction
+        # file (Foreman_B); a feature-off run regenerates the old owner's
+        # file with the same rows and its cleanup deletes nothing, so
+        # both workbooks would sit on the sheet.
+        applied_names = _real_filenames(
+            self, fx.admitted_rows(), doc=fx.correction_doc())
+        applied, _ = self._run(fx.correction_doc())
+        corr_rows = {r['__row_id'] for r in applied[_FOREMAN_B]}
+        _config.REPORTING_CORRECTIONS_FILE = None
+        rc.reset_state()
+        off = generate_weekly_pdfs.group_source_rows(fx.admitted_rows())
+        old_key = '030826_90000001_USER_Foreman_A'
+        self.assertNotIn(_FOREMAN_B, off)
+        self.assertTrue(
+            corr_rows & {r['__row_id'] for r in off[old_key]})
+        client = _client()
+        self.assertEqual(_remove(off, _cache(applied_names), client), 0)
+        self.assertEqual(_deleted(client), [])
+
+
+class FailClosedMainGateTests(_Base):
+    """main() calls ``_rc.require_loadable`` before any Smartsheet call
+    or Supabase write and exits non-zero when it raises."""
+
+    @staticmethod
+    def _main_tree():
+        tree = ast.parse(inspect.getsource(_orchestrate))
+        return next(n for n in tree.body
+                    if isinstance(n, ast.FunctionDef) and n.name == 'main')
+
+    @staticmethod
+    def _dotted(call):
+        f = call.func
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+            return f'{f.value.id}.{f.attr}'
+        if isinstance(f, ast.Name):
+            return f.id
+        return ''
+
+    # Every call main() may make before the gate (today's prelude).
+    # Anything else there -- a Smartsheet client, discovery, a
+    # pipeline_memory / billing_audit write, an upload -- fails.
+    _PRE_GATE_ALLOWED = frozenset({
+        '_mem_writer.resolve_run_id',
+        '_sentry_cron_checkin_start',
+        '_set_sentry_session_tags',
+        'datetime.datetime.now',
+        'getattr',
+        'os.getenv',
+        'set',
+    })
+
+    def test_only_allowlisted_calls_precede_the_gate(self):
+        main = self._main_tree()
+        calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)]
+        gates = [c for c in calls
+                 if self._dotted(c) == '_rc.require_loadable']
+        self.assertEqual(len(gates), 1)
+        gate = gates[0].lineno
+        early = {ast.unparse(c.func) for c in calls if c.lineno < gate}
+        unexpected = sorted(
+            n for n in early
+            if n not in self._PRE_GATE_ALLOWED
+            and not n.startswith('logging.'))
+        self.assertEqual(unexpected, [])
+        # the guarded sites exist, after the gate
+        later = {ast.unparse(c.func) for c in calls if c.lineno > gate}
+        for name in ('smartsheet.Smartsheet', 'discover_source_sheets',
+                     '_fn.initialize', '_mem_writer.run_ledger_start'):
+            self.assertIn(name, later)
+
+    def test_gate_handler_stops_the_run(self):
+        main = self._main_tree()
+        tries = [n for n in ast.walk(main) if isinstance(n, ast.Try)
+                 and any(isinstance(c, ast.Call)
+                         and self._dotted(c) == '_rc.require_loadable'
+                         for b in n.body for c in ast.walk(b))]
+        # only main()'s outer try encloses the gate (no inner try whose
+        # handler could continue)
+        self.assertEqual(len(tries), 1)
+        names = [ast.unparse(h.type) if h.type else ''
+                 for h in tries[0].handlers]
+        self.assertIn('_rc.CorrectionsUnavailable', names)
+        idx = names.index('_rc.CorrectionsUnavailable')
+        self.assertLess(idx, names.index('Exception'))
+        handler = tries[0].handlers[idx]
+        self.assertIsInstance(handler.body[-1], ast.Raise)
+        self.assertIn('SystemExit', ast.unparse(handler.body[-1]))
+        self.assertTrue(any(
+            isinstance(n, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == '_session_failed'
+                for t in n.targets) for n in ast.walk(handler)))
+
+    def _run_main(self, dsn=None):
+        import pipeline.foreman_notes as fn_mod
+        _config.REPORTING_CORRECTIONS_FILE = os.path.join(
+            self._tmp.name, 'missing.json')
+        writer = mock.Mock()
+        writer.resolve_run_id.return_value = 'run-corr-1'
+        patches = [
+            mock.patch.object(_orchestrate, '_mem_writer', writer),
+            mock.patch.object(_orchestrate, 'RUN_MEMORY_WRITE_ENABLED', True),
+            mock.patch.object(_orchestrate, 'API_TOKEN', 'not-a-token'),
+            mock.patch.object(_orchestrate, 'smartsheet'),
+            mock.patch.object(_orchestrate, 'discover_source_sheets'),
+            mock.patch.object(_orchestrate, 'sentry_capture_with_context'),
+            mock.patch.object(_orchestrate, '_sentry_cron_checkin_start',
+                              return_value='checkin-1'),
+            mock.patch.object(_orchestrate, 'capture_checkin'),
+            mock.patch.object(_orchestrate, 'sentry_sdk'),
+            mock.patch.object(fn_mod, 'initialize'),
+            mock.patch.object(generate_weekly_pdfs, 'TEST_MODE', False),
+            mock.patch.object(generate_weekly_pdfs, 'SENTRY_DSN', dsn),
+            mock.patch.object(generate_weekly_pdfs, '_billing_audit_writer'),
+        ]
+        mocks = [p.start() for p in patches]
+        for p in patches:
+            self.addCleanup(p.stop)
+        with self.assertLogs(level='ERROR') as logs, \
+                self.assertRaises(SystemExit) as cm:
+            _orchestrate.main()
+        return cm.exception, logs.output, writer, dict(
+            smartsheet=mocks[3], discover=mocks[4], capture=mocks[5],
+            checkin=mocks[7], fn_init=mocks[9], audit=mocks[12])
+
+    def test_main_stops_before_any_read_upload_or_write(self):
+        exc, logs, writer, m = self._run_main()
+        self.assertNotEqual(exc.code, 0)
+        self.assertIsNotNone(exc.code)
+        m['smartsheet'].Smartsheet.assert_not_called()
+        m['discover'].assert_not_called()
+        m['fn_init'].assert_not_called()
+        self.assertEqual(m['audit'].mock_calls, [])
+        writer.upsert_group_state.assert_not_called()
+        writer.run_ledger_start.assert_not_called()
+        writer.upsert_rows_bulk_result.assert_not_called()
+        # the only Supabase touch is main()'s existing failure-path
+        # run_ledger_finish(status='failed'), mirrored from the
+        # missing-token stop
+        self.assertLessEqual(
+            {c[0] for c in writer.method_calls},
+            {'resolve_run_id', 'run_ledger_finish'})
+        self.assertTrue(any(
+            'file unavailable (CorrectionError) -- run stopped, nothing '
+            'generated or uploaded' in line for line in logs))
+        self.assertFalse(any(self._tmp.name in line for line in logs))
+        kwargs = m['capture'].call_args.kwargs
+        self.assertEqual(kwargs['tags']['subsystem'],
+                         'reporting_corrections')
+        self.assertNotIn(self._tmp.name, json.dumps(
+            kwargs.get('context_data', {}), default=str))
+
+    def test_main_checks_in_error(self):
+        _, _, _, m = self._run_main(dsn='https://example.invalid/1')
+        status = m['checkin'].call_args.kwargs['status']
+        self.assertEqual(status, _orchestrate.MonitorStatus.ERROR)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -446,12 +446,66 @@ def load_corrections(path: str) -> CorrectionSet:
 _ACTIVE_CACHE: dict[str, CorrectionSet | None] = {}
 
 
+class CorrectionsUnavailable(RuntimeError):
+    """``REPORTING_CORRECTIONS_FILE`` is set but the file cannot be loaded.
+
+    The message carries the failure class and the problem count only --
+    never a path, a name, a row or a problem text.
+    """
+
+    def __init__(self, reason: str, problem_count: int) -> None:
+        super().__init__(
+            f'reporting corrections file unavailable: {reason} '
+            f'({problem_count} problem(s))')
+        self.reason = reason
+        self.problem_count = problem_count
+
+
+def require_loadable() -> None:
+    """Fail closed when the corrections file is configured but unusable.
+
+    No-op when ``REPORTING_CORRECTIONS_FILE`` is unset (feature off,
+    byte-identical). When it is set, the file is loaded exactly as
+    :func:`get_active_set` loads it; any failure (a
+    :class:`CorrectionError` or an unexpected exception) raises
+    :class:`CorrectionsUnavailable`, without a chained cause and with
+    the path dropped from the frame's locals (Sentry captures locals).
+    A successful load warms the cache, so the run's later lookups reuse
+    it until something clears it (``drop_all_corrections`` ->
+    :func:`reset_state` does, and the next lookup re-reads the file).
+
+    ``main()`` calls this before any Smartsheet call or Supabase
+    billing/memory write; only the failure-path ``run_ledger`` row is
+    written (same as the missing-token stop). A feature-off run after
+    a correction was applied would re-upload the old owner's workbook
+    beside the correction workbook (owner decision 2026-11-04).
+    """
+    path = getattr(_cfg, 'REPORTING_CORRECTIONS_FILE', None)
+    if not path:
+        return
+    failure: tuple[str, int] | None = None
+    try:
+        cset = load_corrections(path)
+    except CorrectionError as exc:
+        failure = (type(exc).__name__, len(exc.problems))
+    except Exception as exc:  # noqa: BLE001 -- any bug = stop the run
+        failure = (type(exc).__name__, 1)
+    if failure is not None:
+        del path  # keep the path out of captured frame locals
+        raise CorrectionsUnavailable(*failure) from None
+    _ACTIVE_CACHE[path] = cset
+
+
 def get_active_set() -> CorrectionSet | None:
     """The configured correction set, or ``None`` (feature off).
 
     An invalid file is logged at ERROR (no names) and treated as "no
     corrections": the pipeline then behaves exactly as without the file,
     which is today's output -- never a partially applied correction.
+    That fallback serves callers outside ``main()`` (the preview /
+    validate CLI, tests); ``main()`` gates on :func:`require_loadable`
+    first, so a production run with an unloadable file stops before it
+    reaches here.
     """
     path = getattr(_cfg, 'REPORTING_CORRECTIONS_FILE', None)
     if not path:

@@ -9,6 +9,15 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-11-04 — Reporting corrections fail closed on an unloadable file
+
+Branch `fix/corrections-load-fail-closed` (stacked on `fix/wr-91006877-reporting-correction`, not
+committed). With `REPORTING_CORRECTIONS_FILE` set, a file that cannot be loaded now stops `main()` before any
+Smartsheet read, upload or Supabase billing write (ERROR check-in, non-zero exit) instead of running
+feature-off, which re-uploaded the old owner's workbook beside an applied correction and billed rows twice.
+Unset is unchanged. Runbook step 5 carries the paste-ready "Stage reporting corrections" YAML (owner-gated).
+Details: `memory-bank/living-ledger.md` `[2026-11-04 00:39]`.
+
 ## 2026-11-02 — Reporting corrections module + docs-update pass
 
 Branch `fix/wr-91006877-reporting-correction` (worktree, not pushed). Opt-in row-level re-credit path with

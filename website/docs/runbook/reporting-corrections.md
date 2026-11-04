@@ -95,8 +95,8 @@ To withdraw a case, set `retired: true` (see rolling back).
 1. **Build the private file** outside the repository from the approved
    allocation, in your system temp directory. The loader only opens a file
    that resolves under the working directory, the system temp directory
-   or `$RUNNER_TEMP`; any other location is logged at ERROR and the run
-   proceeds with no correction.
+   or `$RUNNER_TEMP`; any other location makes the file unloadable, and a
+   run with an unloadable file **stops** (see step 5).
 2. **Validate:**
    `python -m pipeline.reporting_corrections validate --file <private.json>`
 3. **Preview against a private row dump** (zero external writes; prints
@@ -127,16 +127,99 @@ To withdraw a case, set `retired: true` (see rolling back).
    removal never runs in `TEST_MODE`.
 5. **Activate on the runner** (workflow wiring pending owner approval --
    the weekly workflow does not read the secret until the "Stage reporting
-   corrections" step is added to `weekly-excel-generation.yml`): base64-encode
-   the file into the repository secret `REPORTING_CORRECTIONS_JSON_B64`; the
-   step decodes it to `$RUNNER_TEMP/reporting_corrections.json`, validates it,
-   and exports `REPORTING_CORRECTIONS_FILE`. Keep the secret for as long as
-   the correction must stay in effect -- it applies on every run, not once.
+   corrections" step below is added to `weekly-excel-generation.yml`):
+   base64-encode the file into the repository secret
+   `REPORTING_CORRECTIONS_JSON_B64`; the step decodes it to
+   `$RUNNER_TEMP/reporting_corrections.json`, validates it, and exports
+   `REPORTING_CORRECTIONS_FILE`. Keep the secret for as long as the
+   correction must stay in effect -- it applies on every run, not once.
+
+   **Fail-closed rule.** When `REPORTING_CORRECTIONS_FILE` is set but the
+   file cannot be loaded (missing, unreadable, outside the allowed
+   directories, invalid content, or any unexpected loader error), the run
+   **stops** before any Smartsheet read, upload or Supabase billing write:
+   the log shows `🚫 Reporting corrections: file unavailable (<class>) --
+   run stopped, nothing generated or uploaded`, the Python process exits
+   non-zero (the job fails) and the Sentry cron check-in reports ERROR. It
+   never runs "feature off" instead: after a correction has been applied, a
+   feature-off run would re-upload the old owner's workbook next to the
+   correction workbook and bill those rows twice. Fix or remove the
+   variable, then rerun. Only the existing failure-path `run_ledger` row
+   (`status='failed'`) is written. The check runs before the token and
+   synthetic-data branches, so `TEST_MODE`, `SKIP_UPLOAD` and synthetic
+   local runs with a broken file stop the same way. With the variable unset
+   the pipeline is unchanged.
+
+   Step to paste into `.github/workflows/weekly-excel-generation.yml`,
+   between "Parse advanced options" and "Generate reports" (owner approval
+   required; the secret and the repository variable are read through `env`
+   because `secrets` cannot be used in a step `if:`):
+
+   ```yaml
+         - name: Stage reporting corrections
+           env:
+             CORRECTIONS_B64: ${{ secrets.REPORTING_CORRECTIONS_JSON_B64 }}
+             CORRECTIONS_REQUIRED: ${{ vars.REPORTING_CORRECTIONS_REQUIRED }}
+           run: |
+             set -euo pipefail
+             if [ -z "${CORRECTIONS_B64}" ]; then
+               if [ "${CORRECTIONS_REQUIRED}" = "true" ]; then
+                 echo "::error::Reporting corrections: required but the"                    "secret is empty or not visible -- run stopped"
+                 exit 1
+               fi
+               echo "Reporting corrections: secret not set -- feature off"
+               exit 0
+             fi
+             umask 077
+             path="${RUNNER_TEMP}/reporting_corrections.json"
+             if ! printf '%s' "${CORRECTIONS_B64}" \
+                 | base64 -d > "${path}" 2>/dev/null; then
+               rm -f "${path}"
+               echo "::error::Reporting corrections: secret is not valid base64"
+               exit 1
+             fi
+             status=0
+             python -m pipeline.reporting_corrections validate \
+               --file "${path}" > /dev/null 2>&1 || status=$?
+             if [ "${status}" -ne 0 ]; then
+               rm -f "${path}"
+               echo "::error::Reporting corrections: validate failed" \
+                 "(exit ${status}); run validate locally on the private file"
+               exit 1
+             fi
+             echo "REPORTING_CORRECTIONS_FILE=${path}" >> "${GITHUB_ENV}"
+             echo "Reporting corrections: file validated and staged"
+   ```
+
+   `validate` exits `0` for a valid file and `2` for an invalid or
+   unreadable one, and `1` if it crashes with an uncaught error; the step
+   fails on any non-zero code. Its output is discarded so no correction
+   content reaches the job log. A failed step fails the job before
+   "Generate reports" runs (no Python cron check-in is sent for that run).
+
+   **Opt-in guard.** An empty secret normally means feature off. While a
+   correction is applied, set the repository variable
+   `REPORTING_CORRECTIONS_REQUIRED` to `true`
+   (`gh variable set REPORTING_CORRECTIONS_REQUIRED --body true`): the step
+   then fails the job when the secret is empty, deleted, renamed or not
+   visible to the run, so the run cannot silently go feature-off and bill
+   the corrected rows twice. Any other value, or unset, keeps "empty secret
+   = feature off". Flip it off (`gh variable delete
+   REPORTING_CORRECTIONS_REQUIRED`) only after the retire run's log shows
+   the `🗑️ Reporting corrections: N stale identity(ies) handled` line (see
+   below), and before deleting the secret.
 6. **Check the run log** for the APPLIED line, the expected re-credited /
    recovered counts, and the `reporting_corrections` block in the audit
    summary.
 
 ## Turning it off / rolling back
+
+Turning the feature off means **unsetting** `REPORTING_CORRECTIONS_FILE`
+(once the retire run below has finished: delete the
+`REPORTING_CORRECTIONS_REQUIRED` variable first, then the secret). Never leave
+the variable pointing at a missing or broken file to switch it off: that
+stops every run (step 5's fail-closed rule) instead of running without
+corrections.
 
 Retire the case first, then remove it. Set `"retired": true` on the case
 (keep its rows and any superseded revisions) and let a run complete: the
