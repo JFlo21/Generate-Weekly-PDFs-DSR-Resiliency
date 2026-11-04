@@ -79,6 +79,13 @@ history goes to `memory-bank/living-ledger.md` (grep the dated header), never he
 - PR #450 (fail-closed notes-token hold): mark ready + merge on owner call; decide the RESET-purge interaction.
 - Branch/worktree hygiene inventory (2026-11-03): 22 gone-upstream + 9 merged tracked branches; worktrees
   `gwp-1115`, `gwp-mermaid`, `gwp-regen` idle — deletions only on owner approval.
+- Owner statement 2026-11-03: `AGENTS.md` is Claude-owned, not Codex-owned. The global ClaudeOS rule
+  (`~/.claude/rules/production-guardrails.md` harness boundary) and `hooks/harness-boundary-guard.js` still
+  say Codex-owned; amending them is a global, owner-approved change, then a repo PR fixes the mirrored wording
+  (`.claude/skills/align-instruction-files/SKILL.md`, `.claude/context-map.md`, `docs/AI_CONTEXT_RESUME.md`).
+- Codex comments on PR #449 (listed, never applied — harness boundary): changelog rule scoping (same point as
+  Greptile, fixed); context-map Python-rule scope (fixed via Copilot); P1 asks to restore the `keep_historical`
+  cleanup gate line (`14-DECISIONS.md` 723-730) that this cut dropped — owner call to restore one line.
 - Phase 11 test 37 streak reading; Phase 13 PR; Codex threads on PRs #399/#400/#402; Dependabot triage.
 
 ## Next actions
