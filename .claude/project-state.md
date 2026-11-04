@@ -24,9 +24,13 @@ history goes to `memory-bank/living-ledger.md` (grep the dated header), never he
 - **Foreman Notes token fail-open (found 2026-11-03)**: a `group_notes_token` failure returns `""`, so
   the `NOTES_FP` meta token is dropped and the group fingerprints as "no notes" (hash + hold path only;
   run reporting already counts it as `digest_failures`). Fix in progress on branch
-  `fix/foreman-notes-token-fail-closed` (worktree `gwp-fntoken`, from `13a1dcb1`): per-run
-  token-failure registry, hold the pilot group like a GF-lookup hold, RED-first tests incl. byte-identical
-  fingerprints on the happy path, failure visible in run reporting. Not pushed; no PR yet.
+  `fix/foreman-notes-token-fail-closed` (worktree `gwp-fntoken`, from `13a1dcb1`) — **draft PR #450**
+  (`3ec49835` fix, `d70adf6b` tests-only round): per-run token-failure registry keyed by sorted (sheet,
+  row, variant) triples; main() holds the pilot group like a GF-lookup hold, never in TEST_MODE; hashes
+  byte-identical to master; WR list only on the `notes_digest_failed` event. pytest 2875 / 3 skipped, 6
+  gates, Opus production-risk review merge-safe. **Owner decision**: `RESET_*` purge runs before the hold,
+  so a reset covering a pilot WR whose token fails leaves the row without a workbook until the token
+  recovers (regenerate instead, or document "re-run RESET after recovery").
 - **WR 91006877 reporting correction — PR #447** (branch `fix/wr-91006877-reporting-correction`, worktree
   `gwp-corr`, starts at `c5536351`, head moves with review fixes; owned by its own session — one writer per
   branch): opt-in `pipeline/reporting_corrections.py` (exact `(sheet_id, row_id)` re-credit; `$0.00` rows
@@ -39,8 +43,8 @@ history goes to `memory-bank/living-ledger.md` (grep the dated header), never he
   (blocked today). **Owner gates**: workflow step + `REPORTING_CORRECTIONS_JSON_B64` secret (separate
   PR), covering-helper choice.
 - **Docs**: PR #448 (`docs/state-2026-11-03`) refreshes this file to the post-#444 state — ready to merge.
-  Branch `docs/claudeos-doc-alignment` (stacked on #448) runs `align-instruction-files`: this cut, path-scoped
-  rules, compaction guidance in `CLAUDE.md`, mirror regen.
+  Draft PR #449 (`docs/claudeos-doc-alignment`, stacked on #448) ran `align-instruction-files`: this cut,
+  `paths:`-scoped rules, compaction guidance in `CLAUDE.md`, mirror regen (ledger `[2026-11-03 20:30]`).
 - **QUAR-01 plan (2026-10-30)**: `.planning/todos/pending/2026-10-30-close-quar-01-incremental-collision-gap-and-enforce-flag-gat.md`
   — enforce the incremental gate in code without a schema change. Not implemented. PRs #439, #442, #443
   merged 2026-10-30.
@@ -72,7 +76,7 @@ history goes to `memory-bank/living-ledger.md` (grep the dated header), never he
 ## Open items / owner decisions
 
 - Merge PR #448 (docs/state) and PR #447 (corrections; owner gates above stay out of it).
-- Fail-closed notes-token fix: review, push, PR (this session).
+- PR #450 (fail-closed notes-token hold): mark ready + merge on owner call; decide the RESET-purge interaction.
 - Branch/worktree hygiene inventory (2026-11-03): 22 gone-upstream + 9 merged tracked branches; worktrees
   `gwp-1115`, `gwp-mermaid`, `gwp-regen` idle — deletions only on owner approval.
 - `AGENTS.md` (367 lines, Codex-owned, auto-loaded): freeze by hand with the `FROZEN MIRROR` header from
@@ -81,8 +85,8 @@ history goes to `memory-bank/living-ledger.md` (grep the dated header), never he
 
 ## Next actions
 
-1. Finish the fail-closed notes-token fix: independent review, full suite + 6 gates, Lattice `/review`, PR.
-2. Open the doc-alignment PR (stacked on #448); owner pastes the `AGENTS.md` freeze header.
+1. Owner: review/merge PR #448 → #449 (docs) and PR #450 (token hold); paste the `AGENTS.md` freeze header.
+2. Follow PR #450 bot reviews (Copilot/Greptile/Cursor; Codex comments are listed, never applied).
 3. Owner: PR #447 gates (workflow step + secret PR, VAC override, legacy-owner change, covering-helper).
 4. Phase 11 test 37 → re-verify → validate-phase 11.1/12/14 → v1.4 re-audit; Phase 13 PR when asked.
 
