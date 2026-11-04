@@ -2681,14 +2681,31 @@ def _register_corr_displaced(
     cannot, so the two passes' keys could differ.
     """
     if _grouping.get_last_attr_prefetch_status() == 'rpc_missing':
+        # No registry this run -> the sheet-wide pruning would see the
+        # old identities absent from valid_wr_weeks with nothing held:
+        # hold every correction pair out of both cleanup passes.
+        _rc.hold_cleanup('attribution prefetch rpc_missing')
         logging.warning(
             "⚠️ Reporting corrections: attribution prefetch is "
             "rpc_missing -- displaced / stale key registration skipped "
-            "this run (corrected groups still carry CORR=)"
+            "this run (corrected groups still carry CORR=; "
+            "stale-attachment cleanup held)"
         )
         return
     summary['displaced_groups'] = _rc.register_displaced(
         rows, lambda _cr: group_source_rows(_cr, side_effects=False))
+
+
+def _corr_read_sheet_ids() -> set[Any]:
+    """Sheet ids the most recent fetch confirmed reading (a version was
+    captured for them); empty when that is unknowable, so every listed
+    sheet counts as unread. A listed correction sheet outside this set
+    was never read this run (skipped at discovery), which
+    ``_rc.failed_sheet_pairs`` treats like a failed read -- fail closed."""
+    try:
+        return set(_fetch.get_last_sheet_versions())
+    except Exception:  # noqa: BLE001 - fail closed
+        return set()
 
 
 def _corr_unsettled_pairs(
@@ -2719,7 +2736,8 @@ def _corr_unsettled_pairs(
             failed_ids = _fetch.get_last_full_read_failed_sheet_ids()
         except Exception:  # noqa: BLE001 - fail closed
             failed_ids = None
-        held = set(_rc.cleanup_held_pairs(failed_ids)) & pairs
+        held = set(_rc.cleanup_held_pairs(
+            failed_ids, _corr_read_sheet_ids())) & pairs
         if settled_group_keys is None:
             return held | pairs
         for gkey, grows in groups.items():
@@ -2778,8 +2796,10 @@ def _remove_empty_displaced_attachments(
     quarantined WR or a Foreman-Notes-held pair is never touched. A pair
     is skipped unless every group of it today uploaded or was unchanged
     (*settled_group_keys*; ``None`` = no gate) and its applied rows
-    passed the placement check (``_rc.unplaced_pairs``) and no sheet
-    holding its rows failed to read (``_rc.failed_sheet_pairs``).
+    passed the placement check (``_rc.unplaced_pairs``) and every sheet
+    holding its rows (any retained revision) was read cleanly this run
+    (``_rc.failed_sheet_pairs``: not failed, not partial, and confirmed
+    read -- a sheet skipped at discovery holds the pair too).
     Nothing runs once the time budget stopped the loop or under a
     run-wide hold (``_rc.cleanup_hold``: an early corrections step
     failed, so no case's placement is verifiable). A credited
@@ -2830,12 +2850,12 @@ def _remove_empty_displaced_attachments(
         failed_ids = _fetch.get_last_full_read_failed_sheet_ids()
     except Exception:  # noqa: BLE001 - fail closed
         failed_ids = None
-    read_failed = _rc.failed_sheet_pairs(failed_ids)
+    read_failed = _rc.failed_sheet_pairs(failed_ids, _corr_read_sheet_ids())
     if read_failed:
         logging.warning(
             f"⏭️ Reporting corrections: {len(read_failed)} pair(s) held "
-            "-- a source sheet read failed or was partial; stale "
-            "attachment(s) kept for now"
+            "-- a source sheet read failed, was partial or was not read; "
+            "stale attachment(s) kept for now"
         )
     held = set(held_wr_weeks or ()) | unplaced | read_failed
     present: dict[tuple, set[tuple]] = {}

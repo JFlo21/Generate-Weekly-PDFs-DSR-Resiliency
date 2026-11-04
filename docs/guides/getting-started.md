@@ -30,7 +30,7 @@ Smartsheet and Supabase APIs (or generates synthetic data in `TEST_MODE`).
 
    ```bash
    git clone <repository-url>
-   cd Generate-Weekly-PDFs-DSR-Resiliency-1
+   cd Generate-Weekly-PDFs-DSR-Resiliency
    ```
 
    <!-- VERIFY: remote repository URL (replace <repository-url> with the team's actual remote) -->

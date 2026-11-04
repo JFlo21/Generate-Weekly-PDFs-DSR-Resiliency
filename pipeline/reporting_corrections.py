@@ -1187,9 +1187,13 @@ def register_displaced(
         _register_uncorrected(rows, cset, status, group_fn)
         _register_credited(rows, cset, status)
     except Exception as exc:  # never block the run on a diagnostic pass
+        # ... but never let a partial registry drive a delete either:
+        # hold every pair out of both cleanup passes this run.
+        hold_cleanup('displaced-group pass failed')
         logging.warning(
             '⚠️ Reporting corrections: displaced-group pass failed '
-            f'({type(exc).__name__}); corrected groups still carry CORR=')
+            f'({type(exc).__name__}); corrected groups still carry CORR=, '
+            'stale-attachment cleanup held for this run')
     finally:
         # the side passes must not inflate this run's override counts
         _RUN_COUNTS.clear()
@@ -1385,26 +1389,43 @@ def unplaced_pairs() -> set[tuple[str, str]]:
     return pairs
 
 
+def _case_sheet_ids(cset: CorrectionSet, corr: Correction) -> set[str]:
+    """Every sheet any retained revision of *corr* lists a row on --
+    superseded revisions included, since their credited files are the
+    ones a later revision retires."""
+    return {str(e.sheet_id) for c in cset.history
+            if c.correction_id == corr.correction_id for e in c.rows}
+
+
 def failed_sheet_pairs(
-        failed_sheet_ids: Iterable[Any] | None) -> set[tuple[str, str]]:
+        failed_sheet_ids: Iterable[Any] | None,
+        read_sheet_ids: Iterable[Any] | None = None,
+) -> set[tuple[str, str]]:
     """(wr, MMDDYY week) pairs whose stale-attachment cleanup must wait
-    because a sheet holding any of the correction's rows failed or was
-    only partly read this run (``fetch.get_last_full_read_failed_sheet_
-    ids``): the case blocks, its credited identities are rebuilt from
-    the approved entries, and no group proves a replacement exists.
-    ``None`` (failed set unknowable) holds every correction pair -- fail
-    closed. Records ``read_failed_held_pairs``. Empty when off."""
+    because a sheet holding any row of the case (any retained revision)
+    was not read cleanly this run: it failed or was only partly read
+    (``fetch.get_last_full_read_failed_sheet_ids``), or -- when
+    *read_sheet_ids*, the sheets the fetch confirmed reading, is given
+    -- it was not read at all (skipped at discovery, e.g. a renamed
+    column). The case then blocks on "missing" rows, its credited
+    identities are rebuilt from the approved entries, and no group
+    proves a replacement exists. ``None`` for the failed set holds every
+    correction pair -- fail closed. Records ``read_failed_held_pairs``.
+    Empty when off."""
     cset = get_active_set()
     if cset is None:
         return set()
     failed = (None if failed_sheet_ids is None
               else {str(s) for s in failed_sheet_ids})
-    pairs = {
-        (c.wr, c.week_ending.strftime('%m%d%y'))
-        for c in cset.corrections
-        if failed is None or any(str(e.sheet_id) in failed
-                                 for e in c.rows)
-    }
+    read = (None if read_sheet_ids is None
+            else {str(s) for s in read_sheet_ids})
+    pairs = set()
+    for c in cset.corrections:
+        sheets = _case_sheet_ids(cset, c)
+        if (failed is None or any(s in failed for s in sheets)
+                or (read is not None and any(s not in read
+                                             for s in sheets))):
+            pairs.add((c.wr, c.week_ending.strftime('%m%d%y')))
     _RUN_COUNTS['read_failed_held_pairs'] = len(pairs)
     return pairs
 
@@ -1429,24 +1450,31 @@ def active_pairs() -> set[tuple[str, str]]:
 
 
 def cleanup_held_pairs(
-        failed_sheet_ids: Iterable[Any] | None) -> set[tuple[str, str]]:
+        failed_sheet_ids: Iterable[Any] | None,
+        read_sheet_ids: Iterable[Any] | None = None,
+) -> set[tuple[str, str]]:
     """(wr, MMDDYY week) pairs no stale-attachment cleanup may touch this
     run: every active pair under a run-wide hold (``cleanup_hold``),
-    else the placement-held (``unplaced_pairs``) and read-failed
+    else the placement-held (``unplaced_pairs``) and not-cleanly-read
     (``failed_sheet_pairs``) pairs. Records ``cleanup_held_pairs``."""
     if cleanup_hold():
         pairs = active_pairs()
     else:
-        pairs = unplaced_pairs() | failed_sheet_pairs(failed_sheet_ids)
+        pairs = unplaced_pairs() | failed_sheet_pairs(
+            failed_sheet_ids, read_sheet_ids)
     _RUN_COUNTS['cleanup_held_pairs'] = len(pairs)
     return pairs
 
 
 def correction_sheet_ids() -> set[int]:
+    """Every sheet any retained revision lists a row on (superseded
+    revisions included): the fetch's recovery scope and incremental
+    mode's forced re-read, so a row a revision moved to another sheet
+    still has its old sheet read and its old file rebuilt / retired."""
     cset = get_active_set()
     if cset is None:
         return set()
-    return {sid for sid, _ in cset.by_row}
+    return {e.sheet_id for c in cset.history for e in c.rows}
 
 
 def displaced_groups() -> dict[str, list[dict[str, Any]]]:

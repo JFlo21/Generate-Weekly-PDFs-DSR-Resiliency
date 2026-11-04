@@ -176,6 +176,12 @@ class _Base(unittest.TestCase):
                         'EXTENDED_CHANGE_DETECTION', saved_ext)
         rc.reset_state()
         self.addCleanup(rc.reset_state)
+        # the fetch confirmed reading the fixture sheet (a sheet outside
+        # this set holds its pair's cleanup; see the unread-sheet test)
+        patcher = mock.patch.object(_fetch, 'get_last_sheet_versions',
+                                    return_value={fx.SHEET: 1})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         # the identity pass reuses the last grouping's prefetch: start
         # and end every test without one
         _grouping._LAST_ATTR_PREFETCH = None
@@ -1133,6 +1139,9 @@ class ShadowAndSideEffectTests(_Base):
             sum('rpc_missing' in line for line in logs.output), 1)
         self.assertIsNone(summary['displaced_groups'])
         self.assertEqual(rc.displaced_groups(), {})
+        # no registry -> nothing may be pruned this run (Copilot)
+        self.assertEqual(rc.cleanup_hold(),
+                         'attribution prefetch rpc_missing')
 
 
 class HardeningTests(_Base):
@@ -1525,6 +1534,81 @@ class ReviewRoundTests(_Base):
         _config.REPORTING_CORRECTIONS_FILE = None
         self.assertEqual(
             _orchestrate._corr_unsettled_pairs(groups, None), set())
+
+    def test_unread_listed_sheet_holds_cleanup(self):
+        # the correction's sheet was skipped at discovery (never read,
+        # not in the failed set): the case blocks on "missing" rows and
+        # its published identities register as stale -- cleanup must
+        # hold (Greptile at 7c8c6db9). A confirmed read releases it.
+        names = _real_filenames(self, fx.admitted_rows())
+        with self.assertLogs(level='WARNING'):
+            groups, summary = self._run(fx.correction_doc(), rows=[])
+        self.assertEqual(summary['blocked'], 1)
+        versions = 'get_last_sheet_versions'
+        for read in ({}, {1: 7}):
+            client = _client()
+            with mock.patch.object(_fetch, versions, return_value=read), \
+                    self.assertLogs(level='WARNING') as cm:
+                self.assertEqual(_remove(groups, _cache(names), client), 0)
+            self.assertEqual(_deleted(client), [])
+            self.assertTrue(any('was not read' in m for m in cm.output))
+            with mock.patch.object(_fetch, versions, return_value=read):
+                self.assertEqual(
+                    _orchestrate._corr_unsettled_pairs(groups, set(groups)),
+                    {(fx.WR, '030826')})
+        # unknowable read set -> held as well
+        client = _client()
+        with mock.patch.object(_fetch, versions,
+                               side_effect=RuntimeError('down')), \
+                self.assertLogs(level='WARNING'):
+            self.assertEqual(_remove(groups, _cache(names), client), 0)
+        self.assertEqual(_deleted(client), [])
+        # confirmed read (setUp default) -> the stale file goes
+        client = _client()
+        self.assertGreater(_remove(groups, _cache(names), client), 0)
+        self.assertTrue(_deleted(client))
+
+    def test_superseded_revision_sheets_stay_in_scope(self):
+        # revision 2 moves every row to another sheet: the old sheet is
+        # still a correction sheet (fetch recovery scope, incremental
+        # re-read) and its failed / unread read still holds the pair
+        # (Copilot at 7c8c6db9).
+        doc = fx.correction_doc()
+        rev2 = copy.deepcopy(doc['corrections'][0])
+        rev2['revision'] = 2
+        for row in rev2['rows']:
+            row['sheet_id'] = 7002
+        doc['corrections'].append(rev2)
+        self._configure(doc)
+        self.assertEqual(rc.correction_sheet_ids(), {fx.SHEET, 7002})
+        pair = {(fx.WR, '030826')}
+        self.assertEqual(rc.failed_sheet_pairs({fx.SHEET}), pair)
+        self.assertEqual(rc.failed_sheet_pairs({7002}), pair)
+        self.assertEqual(rc.failed_sheet_pairs({1}), set())
+        self.assertEqual(rc.failed_sheet_pairs(set(), {7002}), pair)
+        self.assertEqual(rc.failed_sheet_pairs(set(), {fx.SHEET, 7002}),
+                         set())
+
+    def test_register_failure_raises_the_run_wide_hold(self):
+        # a failing identity pass leaves a partial / empty registry:
+        # nothing may be pruned on it (Copilot at 7c8c6db9).
+        self._configure(fx.correction_doc())
+        rows = fx.admitted_rows()
+        rec = fx.recovered_row()
+        rec.update(rc.recovery_for_row(rec, fx.SHEET, 108))
+        rows.append(rec)
+        summary = rc.prepare_run(rows, group_fn=None)
+        self.assertEqual(summary['applied'], 1)
+
+        def _boom(_rows):
+            raise RuntimeError('grouping down')
+
+        with self.assertLogs(level='WARNING') as cm:
+            self.assertEqual(rc.register_displaced(rows, _boom), 0)
+        self.assertEqual(rc.cleanup_hold(), 'displaced-group pass failed')
+        self.assertTrue(any('cleanup held' in m for m in cm.output))
+        self.assertEqual(rc.cleanup_held_pairs(set()),
+                         {(fx.WR, '030826')})
 
     def test_moved_row_keeps_the_stale_identity_on_the_case_wr(self):
         # row 101 moved to another WR: the case blocks and Foreman B's

@@ -148,9 +148,12 @@ attachment(s) deleted` for it (or you have checked the target row's
 attachments by eye). The removal is deferred, not skipped silently, when the
 run's time budget ran out, a group of that WR/week did not settle (upload
 error, Foreman Notes hold, quarantine), an applied row was not placed in
-exactly one group, a source sheet holding the case's rows failed or was only
-partly read (`⏭️ ... pair(s) held -- a source sheet read failed or was
-partial`), the early recovered-row check failed (`🚫 Reporting corrections
+exactly one group, a source sheet holding the case's rows (any revision)
+failed, was only partly read or was not read at all -- e.g. skipped at
+discovery after a column rename (`⏭️ ... pair(s) held -- a source sheet
+read failed, was partial or was not read`), the attribution prefetch was
+`rpc_missing` or the displaced-group pass failed (both hold every pair), the
+early recovered-row check failed (`🚫 Reporting corrections
 early check failed ... cleanup held for this run`), the target row's live
 attachment listing could not be read, `MAX_GROUPS` truncated the run, or
 the run was `TEST_MODE` / `SKIP_UPLOAD` -- let the next full run finish it.
