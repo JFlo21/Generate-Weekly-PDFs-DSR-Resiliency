@@ -1190,5 +1190,143 @@ class TokenHoldPlacementTests(unittest.TestCase):
         self.assertEqual(fn.HOLD_NOTES_TOKEN, "notes_token_failed")
 
 
+class RunReportContractTests(_Base):
+    """The dict main() puts on ``session_summary.foreman_notes``: its key
+    set is a deliberate contract (counts only, no WR)."""
+
+    _KEYS = [
+        "digest_failures", "digest_failures_by_function", "gf_lookup",
+        "held_by_reason", "held_total", "reset_purge_skipped", "scope",
+        "style_attach_failures", "style_failed_chunks",
+        "style_rows_affected", "style_rows_missing", "token_failed_total",
+        "token_failures_recorded",
+    ]
+
+    def test_pilot_run_without_holds_key_set(self) -> None:
+        self.init_good()
+        with fn_env():
+            report = fn.report_run_end(held_groups=[], force_flags=_FORCE)
+        self.assertEqual(sorted(report), self._KEYS)
+        self.assertEqual(report["held_by_reason"], {
+            "gf_lookup_failed": 0, "notes_token_failed": 0})
+        self.assertEqual(report["token_failed_total"], 0)
+        self.assertEqual(report["token_failures_recorded"], 0)
+
+
+_BOOM_NOTE = "zz-token-boom-zz"
+
+
+class TokenHoldMainLoopTests(_Base):
+    """Behavioural: drive the real ``orchestrate.main()`` group loop over
+    one pilot and one non-pilot group, recording which groups reach the
+    billing-audit freeze, ``generate_excel``, the upload worker and the
+    deferred ``group_state`` flush. Offline: fake Smartsheet client,
+    mocked billing-audit and memory writers, ``SKIP_UPLOAD`` so nothing
+    is published, and a forked Sentry isolation scope."""
+
+    def _drive(self, boom: bool) -> dict[str, list[str]]:
+        import concurrent.futures
+        from pipeline import orchestrate as orch
+
+        seen: dict[str, list[str]] = {
+            "freeze": [], "excel": [], "upload": [], "group_state": []}
+        rows = _group(PILOT_WR) + _group(OTHER_WR)
+        for n, row in enumerate(rows):
+            row["__row_id"] = 5000 + n
+        if boom:
+            rows[0][fn.NOTES_KEY] = _BOOM_NOTE
+        real_norm, real_init = fn.norm_note, fn.initialize
+
+        def norm(value: Any) -> str:
+            if value == _BOOM_NOTE:
+                raise RuntimeError("token broke")
+            return real_norm(value)
+
+        def init(client: Any) -> fn.FnState:
+            with fn_env():
+                return real_init(_Client())
+
+        def excel(group_key: str, group_rows: list, *a: Any,
+                  **k: Any) -> tuple:
+            seen["excel"].append(str(group_rows[0]["Work Request #"]))
+            return ("x.xlsx", "x.xlsx", [], "", [])
+
+        def tasks(**k: Any) -> list[dict[str, Any]]:
+            return [{
+                "group_key": k["group_key"], "target_row": NS(id=1),
+                "target_sheet_id": 1, "wr_num": k["wr_num"],
+                "week_raw": k["week_raw"], "data_hash": k["data_hash"],
+                "variant": k["variant"], "identifier": "",
+                "file_identifier": "", "filename": "x.xlsx",
+                "excel_path": "x.xlsx",
+            }]
+
+        def delete(client: Any, sid: Any, row: Any, wr: Any,
+                   *a: Any, **k: Any) -> tuple:
+            seen["upload"].append(str(wr))
+            return 0, False
+
+        def flush(deferred: list, *a: Any, **k: Any) -> tuple:
+            seen["group_state"].extend(str(d["wr_num"]) for d in deferred)
+            return [], 0
+
+        def freeze(row: dict, **k: Any) -> bool:
+            seen["freeze"].append(str(row.get("Work Request #")))
+            return False
+
+        executor = concurrent.futures.ThreadPoolExecutor(2)
+        self.addCleanup(executor.shutdown)
+        writer = mock.MagicMock()
+        writer.any_flag_enabled.return_value = True
+        writer.freeze_row.side_effect = freeze
+        writer.get_freeze_row_executor.return_value = executor
+        values = (
+            (orch, "API_TOKEN", "fake-token"), (gwp, "TEST_MODE", False),
+            (gwp, "SENTRY_DSN", None), (gwp, "BILLING_AUDIT_AVAILABLE", True),
+            (gwp, "_billing_audit_writer", writer),
+            (orch, "RUN_MEMORY_WRITE_ENABLED", True),
+            (orch, "SKIP_UPLOAD", True),
+            (orch, "_mem_writer", mock.MagicMock()),
+            (fn, "EFFECTIVE_SCOPE", "pilot"),
+        )
+        fakes = (
+            (orch, "_sentry_cron_checkin_start", {"return_value": None}),
+            (orch.smartsheet, "Smartsheet", {}),
+            (orch, "discover_source_sheets", {"return_value": [
+                {"id": SOURCE_SHEET, "name": "S", "column_mapping": {}}]}),
+            (orch, "get_all_source_rows", {"return_value": rows}),
+            (orch, "generate_excel", {"side_effect": excel}),
+            (orch, "_build_upload_tasks_for_group", {"side_effect": tasks}),
+            (orch, "delete_old_excel_attachments", {"side_effect": delete}),
+            (orch, "_build_group_state_flush", {"side_effect": flush}),
+            (fn, "initialize", {"side_effect": init}),
+            (fn, "norm_note", {"side_effect": norm}),
+        )
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory())
+            stack.enter_context(golden.pinned_env(output_folder=tmp))
+            for module, name, value in values:
+                stack.enter_context(mock.patch.object(module, name, value))
+            for module, name, kw in fakes:
+                stack.enter_context(mock.patch.object(module, name, **kw))
+            stack.enter_context(sentry_sdk.isolation_scope())
+            orch.main()
+        return seen
+
+    def test_token_held_group_reaches_nothing_downstream(self) -> None:
+        seen = self._drive(boom=True)
+        for stage, wrs in seen.items():
+            with self.subTest(stage=stage):
+                self.assertNotIn(PILOT_WR, wrs)
+                self.assertIn(OTHER_WR, wrs)
+
+    def test_same_group_without_token_failure_is_generated(self) -> None:
+        seen = self._drive(boom=False)
+        for stage, wrs in seen.items():
+            with self.subTest(stage=stage):
+                self.assertIn(PILOT_WR, wrs)
+                self.assertIn(OTHER_WR, wrs)
+
+
 if __name__ == "__main__":
     unittest.main()
