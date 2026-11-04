@@ -2708,6 +2708,26 @@ def _corr_read_sheet_ids() -> set[Any]:
         return set()
 
 
+def _corr_excluded_pairs() -> set[tuple[str, str]]:
+    """Active correction pairs whose WR is in ``EXCLUDE_WRS``.
+
+    ``group_source_rows`` drops every group of an excluded WR, so "no
+    group today carries this identity" proves nothing about such a
+    pair: both cleanup passes must hold it. Read from the facade, like
+    grouping does, so a test-time rebind is honoured; every active pair
+    when it cannot be read (fail closed). Empty when the feature is off.
+    """
+    pairs = _rc.active_pairs()
+    if not pairs:
+        return set()
+    try:
+        import generate_weekly_pdfs as _gwp  # noqa: PLC0415
+        excluded = {str(w).strip() for w in _gwp.EXCLUDE_WRS or ()}
+    except Exception:  # noqa: BLE001 - fail closed
+        return set(pairs)
+    return {p for p in pairs if p[0] in excluded}
+
+
 def _corr_unsettled_pairs(
     groups: dict[Any, list[dict[str, Any]]],
     settled_group_keys: set[Any] | None,
@@ -2721,7 +2741,8 @@ def _corr_unsettled_pairs(
     / unchanged (``valid_wr_weeks`` lists generated files regardless of
     upload success, and the variant-migration branch would then delete
     the old primary file on the strength of a helper file that is not
-    live), when its placement or source read is held, or -- fail closed
+    live), when its placement or source read is held, when its WR is in
+    ``EXCLUDE_WRS`` (no group to prove settlement), or -- fail closed
     -- for every active pair when *hold_all* (TEST_MODE, MAX_GROUPS
     truncation, time budget, a failed displaced pass) or a run-wide
     hold applies. Empty when the feature is off. Never raises.
@@ -2738,6 +2759,8 @@ def _corr_unsettled_pairs(
             failed_ids = None
         held = set(_rc.cleanup_held_pairs(
             failed_ids, _corr_read_sheet_ids())) & pairs
+        # an EXCLUDE_WRS pair has no group today to prove settlement
+        held |= _corr_excluded_pairs()
         if settled_group_keys is None:
             return held | pairs
         for gkey, grows in groups.items():
@@ -2799,7 +2822,9 @@ def _remove_empty_displaced_attachments(
     passed the placement check (``_rc.unplaced_pairs``) and every sheet
     holding its rows (any retained revision) was read cleanly this run
     (``_rc.failed_sheet_pairs``: not failed, not partial, and confirmed
-    read -- a sheet skipped at discovery holds the pair too).
+    read -- a sheet skipped at discovery holds the pair too) and its
+    WR is not in ``EXCLUDE_WRS`` (``_corr_excluded_pairs``: no group
+    exists to prove a replacement).
     Nothing runs once the time budget stopped the loop or under a
     run-wide hold (``_rc.cleanup_hold``: an early corrections step
     failed, so no case's placement is verifiable). A credited
@@ -2857,7 +2882,16 @@ def _remove_empty_displaced_attachments(
             "-- a source sheet read failed, was partial or was not read; "
             "stale attachment(s) kept for now"
         )
-    held = set(held_wr_weeks or ()) | unplaced | read_failed
+    # An EXCLUDE_WRS pair has no group today (grouping drops them all),
+    # so an absent identity is not evidence it is stale: hold it.
+    excluded = _corr_excluded_pairs()
+    if excluded:
+        logging.warning(
+            f"⏭️ Reporting corrections: {len(excluded)} pair(s) held -- "
+            "WR excluded from generation (EXCLUDE_WRS); stale "
+            "attachment(s) kept for now"
+        )
+    held = set(held_wr_weeks or ()) | unplaced | read_failed | excluded
     present: dict[tuple, set[tuple]] = {}
 
     def _present(pair: tuple) -> set[tuple]:
@@ -3793,6 +3827,14 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _rc.hold_recovered_rows(all_rows) if all_rows else []
             )
         except Exception as _corr_hold_exc:
+            # Fail closed, FIRST (before the log or the drop, so no
+            # failure in between leaves rows dropped with no hold): the
+            # dropped rows make their case block on "missing" rows and
+            # its published identities register as stale, with no
+            # placement / failed-sheet hold to stop their removal --
+            # hold every correction pair out of both cleanup passes;
+            # the next run validates placement normally.
+            _rc.hold_cleanup('early recovered-row check failed')
             logging.error(
                 "🚫 Reporting corrections early check failed "
                 f"({type(_corr_hold_exc).__name__}); recovered rows "
@@ -3802,12 +3844,6 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _r for _r in all_rows if not _r.get('__corr_recovered')
             ]
             _corr_held_rows = []
-            # Fail closed: the dropped rows make their case block on
-            # "missing" rows and its published identities register as
-            # stale, with no placement / failed-sheet hold to stop their
-            # removal -- hold every correction pair out of both cleanup
-            # passes; the next run validates placement normally.
-            _rc.hold_cleanup('early recovered-row check failed')
 
         # Phase 10 (MEM-02/MEM-03): per-sheet row-state shadow write.
         # Full mode ONLY (Phase 11 Plan 04) -- in incremental mode this

@@ -80,6 +80,33 @@ STAMP_KEYS = (
     '__corr_id', '__corr_revision', '__corr_credit', '__corr_workday',
     '__corr_week_ending', '__corr_recovered',
 )
+# Placeholder claimer names the attribution layer never treats as a
+# person (``billing_audit.writer._SENTINEL_CLAIMERS`` |
+# ``_HELPER2_SENTINEL_CLAIMERS``). A twin, not an import: this module
+# (and its validate / preview CLI) must never load ``billing_audit``.
+# ``tests/test_reporting_corrections.py`` pins it to the writer's sets
+# and ``is_sentinel_claimer`` so the two cannot drift apart.
+_SENTINEL_CREDIT_NAMES: frozenset[str] = frozenset({
+    'unknown foreman',
+    'unknown',
+    'unknown helper',
+    'unknown vac crew',
+    'no match',
+    'unknown helper 2',
+})
+
+
+def _is_sentinel_credit_name(value: Any) -> bool:
+    """True when *value* is blank, a Smartsheet ``#`` error token or a
+    placeholder claimer -- ``billing_audit.writer.is_sentinel_claimer``'s
+    rule (strip, ``_`` -> space, whitespace-collapse, casefold)."""
+    if value is None:
+        return True
+    text = str(value).strip()
+    if not text or text.startswith('#'):
+        return True
+    normalized = ' '.join(text.replace('_', ' ').split()).casefold()
+    return normalized in _SENTINEL_CREDIT_NAMES
 
 
 class CorrectionError(ValueError):
@@ -201,6 +228,15 @@ def _parse_row(raw: Any, where: str, week_ending: datetime.date,
     job = _text(credit.get('job'))
     if not name:
         problems.append(f'{where}: credit.name is required')
+    elif _is_sentinel_credit_name(name) or (
+            variant in VARIANTS and _is_sentinel_credit_name(
+                _credit_token(name, str(variant)))):
+        # never a person: it would publish a placeholder workbook --
+        # judged on the raw name AND on the sanitized workbook token
+        # ('Unknown/Foreman' -> USER_Unknown_Foreman)
+        problems.append(
+            f'{where}: credit.name is a placeholder claimer (Unknown / '
+            '#error family), not a person')
     if variant not in VARIANTS:
         problems.append(
             f'{where}: credit.variant must be one of {list(VARIANTS)}')
@@ -331,11 +367,24 @@ def _parse_correction(raw: Any, idx: int,
         problems.append(f'{where}: rows must be a non-empty list')
         rows_raw = []
     rows = []
+    # workbook identity (group-key suffix) -> (row index, credit name)
+    owners: dict[str, tuple[int, str]] = {}
     for j, row in enumerate(rows_raw):
         parsed_row = _parse_row(
             row, f'{where}.rows[{j}]', week_ending, scope_days, problems)
         if parsed_row is not None:
             rows.append(parsed_row)
+            # The group key / filename sanitizes the name: two distinct
+            # names with one token ('Ana Lee' / 'Ana/Lee') would merge
+            # into ONE workbook. Indices only -- problems are logged.
+            suffix = _credit_identity(parsed_row)[0]
+            first = owners.setdefault(suffix, (j, parsed_row.name))
+            if first[1] != parsed_row.name:
+                problems.append(
+                    f'{where}.rows[{j}]: credit.name differs from '
+                    f'rows[{first[0]}] but they collide on one '
+                    f'{parsed_row.variant} workbook identity (the names '
+                    'sanitize to the same filename token)')
     if len(problems) != before:
         return None
     return Correction(
@@ -1263,12 +1312,20 @@ def _credit_identity(entry: CorrectionRow) -> tuple[str, str, str]:
     fact, not a function of the switches a later (retire / rollback)
     run happens to use. Mirrors ``group_source_rows`` /
     ``derive_group_identity`` for the three credit variants."""
+    ident = _credit_token(entry.name, entry.variant)
     if entry.variant == 'primary':
-        ident = _cfg._RE_SANITIZE_IDENTIFIER.sub('_', entry.name)[:50]
         return f'USER_{ident}', 'primary', ident
-    ident = _cfg._RE_SANITIZE_HELPER_NAME.sub('_', entry.name)[:50]
     tag = 'HELPER' if entry.variant == 'helper' else 'HELPER2'
     return f'{tag}_{ident}', entry.variant, ident
+
+
+def _credit_token(name: str, variant: str) -> str:
+    """The sanitized file identifier a *variant* credit for *name* gets:
+    grouping's owner sanitizer (primary keeps ``.@-``) or helper-name
+    sanitizer (keeps ``-``), cut to 50 characters."""
+    pattern = (_cfg._RE_SANITIZE_IDENTIFIER if variant == 'primary'
+               else _cfg._RE_SANITIZE_HELPER_NAME)
+    return pattern.sub('_', name)[:50]
 
 
 def _register_credited(rows: list[dict[str, Any]], cset: CorrectionSet,
