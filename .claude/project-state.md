@@ -1,6 +1,6 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-10-30 (GF-lookup hold + Foreman Notes Sentry upgrade, draft PR #444 stacked on #437) · **overwrite-in-place each session** — this is
+_Last updated: 2026-11-03 (Foreman Notes pilot LIVE since 2026-10-31; WR 91006877 corrections branch open as PR #447) · **overwrite-in-place each session** — this is
 the canonical "where the project stands" landing spot for the global Stop write-back reminder. Cap ≤ 120
 lines (`align-instruction-files` skill); history goes to `memory-bank/living-ledger.md`, never here._
 
@@ -13,11 +13,32 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   `timeout-minutes: 180`.
 - **QUAR-01 plan (2026-10-30)**: `.planning/todos/pending/2026-10-30-close-quar-01-incremental-collision-gap-and-enforce-flag-gat.md`
   — enforce the incremental gate in code and close the blind spot without a schema change. Not implemented.
-  PRs #439 (`e63dc3f`), #442 (`59c4e27`) and #443 (`a201fbe`) merged 2026-10-30. #437 is open: Sentry and
-  notes-hash fixes (`c06bdef`) passed independent review, and the four Greptile findings of 2026-10-30 are
-  fixed (colour cache cleared per run, runbook variant wording, docstrings, test type hints). Review round 2 (`3e7c733`, 2026-10-30): dry-run warning names AUDIT_MEMORY_ENABLED, secret-not-variable comment, test scope pinning, docs fixes; 16 threads replied (Sentry P1 already fixed in `7c16611`; first-day header merge skip is pre-existing on master, kept). #440 merged, so the D-15-13 gate is met. Only open thread: GF-lookup churn, tracked in `.planning/todos/pending/2026-10-30-foreman-notes-gf-lookup-failure-churns-pilot-groups.md` (owner picks hold-for-run vs reuse-last-known-set). Parity reading 2026-10-30T18:32:34Z: streak 5, recorded in
-  `11-VERIFICATION.md`; D-15-13 condition met, FN-13 closes at merge. `FOREMAN_NOTES_UPLOAD` stays off until
-  draft PR #444 (GF-lookup hold + Sentry upgrade, quick `261030-suf`) merges and the owner approves the workflow change.
+  PRs #439 (`e63dc3f`), #442 (`59c4e27`) and #443 (`a201fbe`) merged 2026-10-30.
+- **Phase 15 Foreman Notes pilot — LIVE (2026-10-31)**: #437 (`85fac23a`, GF pilot), #444 (`cf4fc14e`, hold
+  pilot groups on GF-lookup failure + Sentry upgrade) and #445 (`d589eded`, workflow switch: scope `pilot`,
+  secret allowlist) merged 2026-10-31; repo variable `FOREMAN_NOTES_UPLOAD=1` (read back 2026-11-03). Parity
+  streak 5 (2026-10-30T18:32:34Z) in `11-VERIFICATION.md`; D-15-13 met; FN-13 closed at merge. Run
+  41681444921 (2026-11-03 17:09Z) logged `Foreman notes: allowlist=3 gf_rows=920 pilot_wrs=289`; the 8 runs
+  from 2026-11-02 19:08Z through 2026-11-03 19:07Z all succeeded (run list read 2026-11-03 21:00Z). Sentry (checked 2026-11-03): zero error
+  events mentioning foreman notes / notes upload / GF lookup in 7 days; the only new issue,
+  `GENERATE-WEEKLY-EXCEL-AK` ("154 groups across 137 WR values have no row on target sheet"), is the
+  pre-existing data-entry alert `GENERATE-WEEKLY-EXCEL-A3` (since 2026-08-27, 234 events) under a new
+  fingerprint after the #444 Sentry upgrade — not a pilot regression. GF-lookup churn todo
+  `.planning/todos/pending/2026-10-30-foreman-notes-gf-lookup-failure-churns-pilot-groups.md` stays open
+  (hold-for-run shipped in #444; reuse-last-known-set still an owner option).
+- **WR 91006877 reporting correction (branch `fix/wr-91006877-reporting-correction`, worktree `gwp-corr`)**:
+  branch starts at `c5536351`; the head moves with review fixes (count and SHA: PR #447): opt-in `pipeline/reporting_corrections.py` (exact
+  `(sheet_id, row_id)` re-credit to an approved owner/workday; `$0.00` rows reconcile-only; recovered-only
+  identity rollback gap closed), seams in fetch/grouping/orchestrate/change_detection (`CORR=` hash token),
+  1155-line test module, runbook page `website/docs/runbook/reporting-corrections.md`. No workflow file
+  touched. Opened 2026-11-03 as PR #447 (ready for review, approved). Review rounds 1-3 landed the same
+  day (`157f3506` path guard, `4e3e2290`, `8bceceaa`): cleanup held on failed/partial sheet reads and gated
+  on `RES_GROUPING_MODE=both` + claim attribution on; helper/VAC/legacy-owner cases BLOCK rather than
+  mis-credit; preview runs the same checks; logs carry field names only. Validation at `8bceceaa`: pytest
+  2928 passed / 3 skipped; 6 gates passed; CodeQL clean. **Owner decisions from review**: may a correction
+  ever override the VAC duplicate-unit rule (now blocked); primary owner change under legacy grouping (now
+  blocked). **Owner gates still open**: workflow step and the
+  `REPORTING_CORRECTIONS_JSON_B64` secret (separate PR after approval), covering-helper choice.
 - **Phase 12 (Ownership)**: **COMPLETE 2026-09-10** — 10/10 plans (incl. 4 gap-closure plans). `/gsd-verify-work 12`
   passed: `12-UAT.md` 34/34, `12-VERIFICATION.md` 77/77 must-haves; 5 open advisory gaps for owner follow-up, the 6th — runbook WR-09 — fixed in the PR; docs PR #404
   MERGED 2026-09-11 03:39Z → `9ba7eb7`. Live attribution backfill applied 2026-09-05 (1,758 rows); 12-06 Task 4 approved 2026-09-10 ~23:45Z
@@ -187,9 +208,9 @@ lines (`align-instruction-files` skill); history goes to `memory-bank/living-led
   WR 89746993 pass, 47:51 < 165 min) — Juan replied `Approved` / `Adopt 89746993` (D-12-E) / backups dropped
   2026-09-10 ~23:45Z; 12-06 COMPLETE. First run after `6e6e1e8` (`34530899488`) clean, no Helper #2 shadow groups.
 - **HELPER2_ENABLED**: ENABLED (variable `1` since 2026-09-09 02:49:58Z); repo default stays `'0'`.
-- **FOREMAN_NOTES_UPLOAD** (Phase 15 pilot, 3 GFs): PR #445 wires scope `pilot` + secret allowlist +
-  variable switch (default `'0'` = off). After merge the owner confirms the secret holds 3 names, then
-  `gh variable set FOREMAN_NOTES_UPLOAD --body 1`; first run should log `allowlist=3`, `pilot_wrs` > 0.
+- **FOREMAN_NOTES_UPLOAD**: ENABLED (variable `1` since 2026-10-31, read back 2026-11-03); PR #445 wires scope
+  `pilot` + secret allowlist; repo default stays `'0'`. Rollback: `gh variable set FOREMAN_NOTES_UPLOAD --body 0`.
+  Runs log `allowlist=3 … pilot_wrs=289` (2026-11-03 17:09Z).
 
 ## Next actions
 
