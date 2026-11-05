@@ -9,7 +9,7 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
-## 2026-11-05 — Reporting corrections: workflow step stages the private file from a secret
+## 2026-11-05 — Reporting corrections: workflow step stages the private file from a secret (PR #453)
 
 What: `weekly-excel-generation.yml` has a "Stage reporting corrections" step before "Generate reports". It
 decodes the secret `REPORTING_CORRECTIONS_JSON_B64` (gzip then base64; plain base64 accepted) into

@@ -1,12 +1,12 @@
 ---
 slug: reporting-corrections-workflow-step
-title: "Reporting corrections: the weekly workflow now stages the private file from a secret"
+title: "Reporting corrections: the weekly workflow now stages the private file from a secret (PR #453)"
 authors: [operators]
 tags: [python, project]
 date: 2026-11-05T16:30:00+00:00
 ---
 
-**Component:** GitHub Actions cron (`.github/workflows/weekly-excel-generation.yml`), Python billing pipeline (`pipeline/reporting_corrections.py`). Operator procedure: [Reporting corrections, step 5](/docs/runbook/reporting-corrections).
+**Component:** GitHub Actions cron (`.github/workflows/weekly-excel-generation.yml`), Python billing pipeline (`pipeline/reporting_corrections.py`).  **PR:** #453. Operator procedure: [Reporting corrections, step 5](/docs/runbook/reporting-corrections).
 
 <!-- truncate -->
 
@@ -26,3 +26,5 @@ The corrections module merged switched off, with no way for the runner to receiv
 - **New failure mode, on purpose:** the step fails the job, before any report is generated, when the secret is not valid base64, when the file fails `validate`, or when the variable is `true` and the secret is empty or not visible. The job log shows one `::error::Reporting corrections: ...` line and no file content. No Python cron check-in is sent for that run. Fix the secret and re-run.
 - **To turn it off:** retire the case first and let one run finish, then delete the variable, then the secret (runbook, "Turning it off / rolling back"). Deleting the secret first while the variable is `true` stops every run.
 - **Unchanged:** every run with the secret empty, the schedule, the timeouts, and all other workflow steps.
+
+PR: #453

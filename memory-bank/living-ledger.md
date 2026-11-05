@@ -10069,7 +10069,7 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   WR is held (the no-held subset call is unchanged); global and subset resets keep such names
   alike. 1 new test RED then GREEN.
 
-## [2026-11-05 10:30] Reporting corrections: the weekly workflow stages the private file from a secret.
+## [2026-11-05 10:30] Reporting corrections: the weekly workflow stages the private file from a secret (PR #453).
 
 - What: `weekly-excel-generation.yml` gains the step "Stage reporting corrections" between "Parse
   advanced options" and "Generate reports" (`if: steps.exec.outputs.should_run == 'true'`). It
