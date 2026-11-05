@@ -27,7 +27,7 @@ jobs:
       # release versions, so we sanitize `owner/repo` to `owner-repo`.
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Compute Sentry release
         run: echo "SENTRY_RELEASE=${GITHUB_REPOSITORY//\//-}@${GITHUB_SHA}" >> "$GITHUB_ENV"
