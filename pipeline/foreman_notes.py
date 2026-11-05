@@ -731,6 +731,52 @@ def notes_token_failed(rows: Any) -> bool:
         return False
 
 
+def predict_token_failures(groups: Any, token_fn: Any) -> list:
+    """Keys of ``groups`` whose pilot group ``notes_token_failed`` will
+    hold this run, found before the RESET_* purge (2026-11-04).
+
+    ``token_fn(rows)`` must build the token through the hash's own path
+    (``change_detection.notes_token_for_group``). The answer is read
+    from the shared failure registry, exactly as the in-loop hold reads
+    it. Every per-run digest counter and the registry are then restored,
+    so the group's hash call still counts and records the failure once,
+    as it does today. ``[]`` in TEST_MODE or when the scope is off.
+    A group whose ``token_fn`` raises is treated as held (fail closed for
+    that group only). Other unexpected errors propagate: the caller fails
+    closed.
+    """
+    if config.TEST_MODE or _STATE.scope == "off":
+        return []
+    fails = _RUN_FAILURES
+    digest = dict(fails["digest"])
+    digest_exc = set(fails["digest_exc"])
+    registry = set(fails["token_failed_groups"])
+    try:
+        failed = []
+        for key, rows in dict(groups or {}).items():
+            if not is_pilot_group(rows):
+                continue
+            try:
+                token_fn(rows)
+            except Exception as exc:  # noqa: BLE001
+                logging.warning(
+                    "Foreman notes: notes-token preflight failed for a "
+                    "group (%s); treated as held", type(exc).__name__,
+                )
+                failed.append(key)
+                continue
+            if notes_token_failed(rows):
+                failed.append(key)
+        return failed
+    finally:
+        fails["digest"].clear()
+        fails["digest"].update(digest)
+        fails["digest_exc"].clear()
+        fails["digest_exc"].update(digest_exc)
+        fails["token_failed_groups"].clear()
+        fails["token_failed_groups"].update(registry)
+
+
 def _hold_reason(entry: Any) -> str:
     """Reason of one held-group tuple; a 3-tuple is a GF-lookup hold."""
     try:

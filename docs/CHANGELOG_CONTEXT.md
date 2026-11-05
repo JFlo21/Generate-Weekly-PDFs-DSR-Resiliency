@@ -9,6 +9,20 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-11-04 — Foreman Notes: the RESET_* purge spares a token-held pilot WR (PR #450)
+
+What: before the `RESET_HASH_HISTORY` / `RESET_WR_LIST` purge, the run now checks the notes digest of every
+pilot group in the reset scope (through the hash's own token path) and leaves out each WR whose group the
+notes-token hold will hold. A WR subset left empty skips the purge call; a global purge passes the new additive
+`exclude_wrs` to `purge_existing_hashed_outputs`; a failing check skips the whole purge. Why: the purge ran
+before the hold was known, so a reset deleted the held group's attachment and the hold never rebuilt it. How it
+affects operators: a held group keeps its attachment on reset runs too; one WARNING counts the WRs left out;
+re-run the reset for that WR after the digest recovers if its stale files must be cleaned. Hashes, run counts
+and `run_summary.json` are unchanged. Runbook: foreman-notes-pilot.md § "If a pilot group's notes digest
+fails". Ledger `[2026-11-04 20:50]`.
+Review round 1 (2026-11-05): one group's failing check holds that group only (other WRs still purge);
+unreadable `WR_*.xlsx` names are kept while WRs are excluded; the subset log shows the WRs actually purged.
+
 ## 2026-11-02 — Reporting corrections module + docs-update pass
 
 Branch `fix/wr-91006877-reporting-correction` (worktree, not pushed). Opt-in row-level re-credit path with

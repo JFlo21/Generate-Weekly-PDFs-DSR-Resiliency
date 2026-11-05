@@ -554,6 +554,32 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     return hasher.hexdigest()[:16]
 
 
+def notes_token_for_group(group_rows: list[dict]) -> str:
+    """The Foreman Notes token exactly as ``calculate_data_hash`` builds it.
+
+    Same mode switch, same ``canonical_sorted_rows`` order and the same
+    row-identity callable per mode, so a token failure seen here is the
+    one the group's hash call will see (2026-11-04: the RESET_* purge
+    preflight; pinned by ``tests/test_foreman_notes_gf_hold.py``). Feeds
+    no hash. Exceptions from the sort propagate to the caller.
+    """
+    import generate_weekly_pdfs as _gwp  # noqa: PLC0415
+    if not group_rows:
+        return ''
+    if not _gwp.EXTENDED_CHANGE_DETECTION:
+        sorted_rows = canonical_sorted_rows(group_rows, extended=False)
+        return _fn.group_notes_token(sorted_rows, _legacy_row_identity)
+    sorted_rows = canonical_sorted_rows(group_rows, extended=True)
+    group_variant = (
+        sorted_rows[0].get('__variant', 'primary')
+        if sorted_rows else 'primary'
+    )
+    return _fn.group_notes_token(
+        sorted_rows,
+        lambda r: repr(_extended_row_fields(r, group_variant)),
+    )
+
+
 def _compute_aggregated_content_hash(rows: list[dict]) -> str:
     """Deterministic content hash for a cross-variant row bucket.
 

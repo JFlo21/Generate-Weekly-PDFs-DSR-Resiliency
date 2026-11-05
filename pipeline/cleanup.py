@@ -823,10 +823,18 @@ def _has_existing_week_attachment(client, target_sheet_id, target_row, wr_num: s
     
     return False
 
-def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set | None, test_mode: bool, dry_run: bool = False):
+def purge_existing_hashed_outputs(
+    client, target_sheet_id: int, wr_subset: set | None, test_mode: bool,
+    dry_run: bool = False, exclude_wrs: set | None = None,
+):
     """Delete existing hashed Excel attachments and local files so hashes recompute fresh.
 
     wr_subset: if provided, only purge attachments for these WR numbers; otherwise purge all WR_*.xlsx attachments.
+    exclude_wrs: WR numbers (filename identity token) never purged, local
+    or remote (2026-11-04: Foreman Notes token-held pilot WRs keep their
+    attachments). While it is set, a ``WR_*.xlsx`` name with no parsable
+    identity is kept too (it could be a held WR's). ``None`` / empty
+    leaves the purge unchanged.
     """
     # Phase 09 W5 (behaviour-preserving relocation): bind the
     # test-mutable / facade-resident constant from the
@@ -842,6 +850,8 @@ def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set |
         for f in local_files:
             wr_ident = build_group_identity(f)
             if wr_subset and wr_ident and wr_ident[0] not in wr_subset:
+                continue
+            if exclude_wrs and (not wr_ident or wr_ident[0] in exclude_wrs):
                 continue
             try:
                 os.remove(os.path.join(OUTPUT_FOLDER, f))
@@ -876,6 +886,8 @@ def purge_existing_hashed_outputs(client, target_sheet_id: int, wr_subset: set |
                 continue
             ident = build_group_identity(name)
             if wr_subset and ident and ident[0] not in wr_subset:
+                continue
+            if exclude_wrs and (not ident or ident[0] in exclude_wrs):
                 continue
             scanned += 1
             try:

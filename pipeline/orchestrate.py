@@ -226,6 +226,7 @@ from pipeline.change_detection import (  # noqa: E402
     canonical_first_row,
     extract_data_hash_from_filename,
     list_generated_excel_files,
+    notes_token_for_group,
 )
 from pipeline.discovery import (  # noqa: E402
     _normalize_column_title_for_vac_crew,
@@ -3282,15 +3283,41 @@ def _log_column_mapping_drift(
     return changed
 
 
+def _notes_token_held_wrs(groups: Any) -> set[str]:
+    """WRs the RESET_* purge must spare: their pilot group's Foreman
+    Notes token fails this run, so the in-loop hold will not rebuild
+    them (2026-11-04).
+
+    Scope follows the purge branch: the groups whose WR is in
+    ``RESET_WR_LIST`` when it is set, otherwise every group. Each WR is
+    the loop's ``wr_num`` (``derive_group_wr``), the same token the
+    filename identity carries and ``RESET_WR_LIST`` is normalised to.
+    """
+    if _fn.get_state().scope == "off":
+        return set()
+    scoped = {
+        key: rows for key, rows in (groups or {}).items()
+        if not RESET_WR_LIST or derive_group_wr(rows) in RESET_WR_LIST
+    }
+    failed = _fn.predict_token_failures(scoped, notes_token_for_group)
+    return {derive_group_wr(scoped[key]) for key in failed}
+
+
 def _run_reset_purge(
-    client: Any, hold_active: bool, *, test_mode: bool
+    client: Any, hold_active: bool, *, test_mode: bool,
+    groups: Any = None,
 ) -> bool:
     """Run the RESET_HASH_HISTORY / RESET_WR_LIST purge unless held.
 
     Quick 261030-suf F1: while the Foreman Notes GF lookup has failed
     (``hold_active``), the purge is skipped entirely with one counts-only
     WARNING -- the hold would never rebuild the attachments it deletes.
-    Otherwise byte-identical to the former inline block in ``main()``.
+    2026-11-04: outside TEST_MODE, WRs whose pilot group the notes-token
+    hold will hold (``_notes_token_held_wrs`` over ``groups``) are left
+    out of the purge; if that leaves a WR subset empty the purge is not
+    called (an empty subset would purge every WR), and if the preflight
+    raises the whole purge is skipped (fail closed). Otherwise
+    byte-identical to the former inline block in ``main()``.
     Returns True when a requested purge was skipped.
     """
     if not (RESET_HASH_HISTORY or RESET_WR_LIST):
@@ -3301,18 +3328,45 @@ def _run_reset_purge(
             "lookup failed; held groups keep their attachments"
         )
         return True
+    held_wrs: set[str] = set()
+    if groups and not test_mode:
+        try:
+            held_wrs = _notes_token_held_wrs(groups)
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(
+                "⚠️ Foreman notes: RESET_* purge skipped because the "
+                "notes-token preflight failed (%s); no attachment was "
+                "deleted", type(exc).__name__,
+            )
+            return True
+    purge_subset = RESET_WR_LIST
+    if held_wrs and RESET_WR_LIST:
+        purge_subset = RESET_WR_LIST - held_wrs
+        if not purge_subset:
+            logging.warning(
+                "⚠️ Foreman notes: RESET_* purge skipped because all "
+                "%d requested WR(s) have a group held by the notes "
+                "token; they keep their attachments", len(held_wrs),
+            )
+            return True
+    if held_wrs:
+        logging.warning(
+            "⚠️ Foreman notes: %d WR(s) left out of the RESET_* purge "
+            "because a group is held by the notes token; they keep "
+            "their attachments", len(held_wrs),
+        )
     with sentry_sdk.start_span(
         op="smartsheet.purge", name="Purge existing hashed outputs"
     ) as span:
         if RESET_WR_LIST:
             logging.info(
                 "🧨 Hash reset requested for specific WRs: "
-                f"{sorted(list(RESET_WR_LIST))}"
+                f"{sorted(list(purge_subset))}"
             )
             span.set_data("purge_type", "wr_subset")
-            span.set_data("wr_count", len(RESET_WR_LIST))
+            span.set_data("wr_count", len(purge_subset))
             purge_existing_hashed_outputs(
-                client, TARGET_SHEET_ID, RESET_WR_LIST, test_mode,
+                client, TARGET_SHEET_ID, purge_subset, test_mode,
                 dry_run=SKIP_UPLOAD,
             )
         else:
@@ -3320,10 +3374,16 @@ def _run_reset_purge(
                 "🧨 Global hash reset requested (RESET_HASH_HISTORY=1)"
             )
             span.set_data("purge_type", "global")
-            purge_existing_hashed_outputs(
-                client, TARGET_SHEET_ID, None, test_mode,
-                dry_run=SKIP_UPLOAD,
-            )
+            if held_wrs:
+                purge_existing_hashed_outputs(
+                    client, TARGET_SHEET_ID, None, test_mode,
+                    dry_run=SKIP_UPLOAD, exclude_wrs=held_wrs,
+                )
+            else:
+                purge_existing_hashed_outputs(
+                    client, TARGET_SHEET_ID, None, test_mode,
+                    dry_run=SKIP_UPLOAD,
+                )
     # After purge, any regenerated files get new timestamp+hash filenames
     # and re-upload.
     return False
@@ -4345,8 +4405,10 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         # if requested. Quick 261030-suf F1: skipped while the Foreman
         # Notes GF lookup has failed, because the hold would never rebuild
         # the purged attachments (the hold wins, owner-approved).
+        # 2026-11-04: WRs the notes-token hold will hold are spared too.
         _fn_purge_skipped = _run_reset_purge(
             client, _fn.gf_lookup_failed(), test_mode=TEST_MODE,
+            groups=groups,
         )
 
         if not groups and not _incremental_empty_affected_run:

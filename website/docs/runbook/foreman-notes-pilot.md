@@ -177,8 +177,10 @@ digest raises an error, the hash would silently lose the notes, so the run
 **holds that group** instead: no workbook, no upload, whether or not its data
 changed, and force or regen flags do not override it. The group keeps its
 current attachment and stored hash and is carried as regeneration debt, the
-same as a GF-lookup hold. Other groups, pilot or not, are not affected, and
-dry runs (`TEST_MODE=true`) never hold.
+same as a GF-lookup hold. This is true on reset runs too: with
+`RESET_HASH_HISTORY` or `RESET_WR_LIST` set, the reset purge leaves a held
+group's WR alone. Other groups, pilot or not, are not affected, and dry runs
+(`TEST_MODE=true`) never hold.
 
 - **Sentry:** the warning event `foreman-notes / notes-digest-failed` counts
   the failures and, for a held group, adds `held_reason:
@@ -190,10 +192,23 @@ dry runs (`TEST_MODE=true`) never hold.
   because the notes token failed; carried as regeneration debt (...)`.
   `session_summary` carries counts only under `foreman_notes`
   (`held_by_reason`, `token_failed_total`).
-- **What to do:** usually nothing; the next run whose digest succeeds
-  regenerates the group. If the same group is held run after run, open an
-  issue with the Sentry event link (the event names the exception class).
-  The `RESET_*` attachment purge is not skipped for this hold.
+- **Reset runs:** the `RESET_*` attachment purge runs before the group loop,
+  so the run checks the notes digest of every pilot group in the reset scope
+  first and leaves out every WR that has a held group. One WARNING reads
+  `Foreman notes: N WR(s) left out of the RESET_* purge because a group is
+  held by the notes token; they keep their attachments`. If every WR in
+  `RESET_WR_LIST` is held, the purge does not run at all. If the check
+  fails for one group, that group counts as held and its WR is left out
+  too. If the check fails as a whole, the whole purge is skipped
+  (`RESET_* purge skipped because the notes-token preflight failed`) and
+  no attachment is deleted. While WRs are left out, a `WR_*.xlsx` file
+  whose name cannot be read is kept as well.
+- **What to do:** usually nothing; the next run whose digest succeeds checks
+  the group again and regenerates it only if needed (an unchanged group is
+  skipped, which is normal). If the same group is held run after run, open
+  an issue with the Sentry event link (the event names the exception class).
+  If you ran a reset while the group was held and that WR's stale files must
+  be cleaned, re-run the reset for that WR after the digest recovers.
 
 ## Dry run (do this first)
 

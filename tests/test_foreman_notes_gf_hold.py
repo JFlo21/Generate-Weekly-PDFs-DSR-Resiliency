@@ -1224,7 +1224,9 @@ class TokenHoldMainLoopTests(_Base):
     mocked billing-audit and memory writers, ``SKIP_UPLOAD`` so nothing
     is published, and a forked Sentry isolation scope."""
 
-    def _drive(self, boom: bool) -> dict[str, list[str]]:
+    def _drive(
+        self, boom: bool, extra: tuple = ()
+    ) -> dict[str, list[str]]:
         import concurrent.futures
         from pipeline import orchestrate as orch
 
@@ -1288,7 +1290,7 @@ class TokenHoldMainLoopTests(_Base):
             (orch, "SKIP_UPLOAD", True),
             (orch, "_mem_writer", mock.MagicMock()),
             (fn, "EFFECTIVE_SCOPE", "pilot"),
-        )
+        ) + tuple(extra)
         fakes = (
             (orch, "_sentry_cron_checkin_start", {"return_value": None}),
             (orch.smartsheet, "Smartsheet", {}),
@@ -1326,6 +1328,351 @@ class TokenHoldMainLoopTests(_Base):
             with self.subTest(stage=stage):
                 self.assertIn(PILOT_WR, wrs)
                 self.assertIn(OTHER_WR, wrs)
+
+    def test_reset_run_spares_token_held_wr_and_still_holds(self) -> None:
+        """2026-11-04: on a RESET_WR_LIST run the purge leaves the
+        token-held pilot WR alone and the in-loop hold still fires."""
+        from pipeline import orchestrate as orch
+
+        purge = mock.MagicMock()
+        seen = self._drive(boom=True, extra=(
+            (orch, "RESET_WR_LIST", {PILOT_WR, OTHER_WR}),
+            (orch, "purge_existing_hashed_outputs", purge),
+        ))
+        purge.assert_called_once()
+        self.assertEqual(purge.call_args[0][2], {OTHER_WR})
+        for stage, wrs in seen.items():
+            with self.subTest(stage=stage):
+                self.assertNotIn(PILOT_WR, wrs)
+                self.assertIn(OTHER_WR, wrs)
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-04: the RESET_* purge spares a notes-token-held pilot WR
+# ---------------------------------------------------------------------------
+
+def _boom() -> Any:
+    """Make every pilot notes token raise (the golden rows carry notes)."""
+    return mock.patch.object(
+        fn, "norm_note", side_effect=RuntimeError("token broke"))
+
+
+def _reset_groups() -> dict[str, list[dict[str, Any]]]:
+    return {
+        f"081025_{PILOT_WR}": _group(PILOT_WR),
+        f"081025_{OTHER_WR}": _group(OTHER_WR),
+    }
+
+
+def _fname(wr: str) -> str:
+    """A modern primary filename, shaped like excel.py builds it."""
+    return f"WR_{wr}_WeekEnding_081025_101500_{'a' * 16}.xlsx"
+
+
+class _PurgeClient:
+    """One target row carrying every given attachment; records deletes."""
+
+    def __init__(self, names: list[str]) -> None:
+        self.names = names
+        self.deleted: list[str] = []
+        atts = [NS(id=i, name=n) for i, n in enumerate(names)]
+        self.Sheets = NS(get_sheet=lambda sid: NS(rows=[NS(id=1)]))
+        self.Attachments = NS(
+            list_row_attachments=lambda sid, rid: NS(data=list(atts)),
+            delete_attachment=lambda sid, aid: self.deleted.append(
+                self.names[aid]),
+        )
+
+
+class ResetPurgeTokenHoldTests(_Base):
+    """RED on cd31ed9e: the RESET_* purge ran before the notes-token hold
+    was known, so it deleted a held pilot WR's attachment and the hold
+    never rebuilt it."""
+
+    def _run(
+        self, wr_list: set[str], reset_all: bool, *, boom: bool = True,
+        test_mode: bool = False, hold_active: bool = False,
+    ) -> tuple[bool, mock.MagicMock]:
+        orch = _orch()
+        self.init_good()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(golden.pinned_env())
+            for name, value in (("RESET_WR_LIST", wr_list),
+                                ("RESET_HASH_HISTORY", reset_all)):
+                stack.enter_context(mock.patch.object(orch, name, value))
+            stack.enter_context(
+                mock.patch.object(config, "TEST_MODE", test_mode))
+            purge = stack.enter_context(
+                mock.patch.object(orch, "purge_existing_hashed_outputs"))
+            if boom:
+                stack.enter_context(_boom())
+            skipped = orch._run_reset_purge(
+                object(), hold_active, test_mode=test_mode,
+                groups=_reset_groups())
+        return skipped, purge
+
+    def _purge_warnings(self, cm: Any) -> list[str]:
+        return [r.getMessage() for r in cm.records
+                if "purge" in r.getMessage()]
+
+    def test_subset_purges_only_unheld_wrs(self) -> None:
+        orch = _orch()
+        with self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run({PILOT_WR, OTHER_WR}, False)
+        self.assertFalse(skipped)
+        purge.assert_called_once()
+        args, kwargs = purge.call_args
+        self.assertEqual(args[2], {OTHER_WR})
+        self.assertEqual(kwargs, {"dry_run": orch.SKIP_UPLOAD})
+        (msg,) = self._purge_warnings(cm)
+        self.assertIn("1 WR", msg)
+        for record in cm.records:
+            self.assertNotIn(PILOT_WR, record.getMessage())
+
+    def test_subset_all_held_skips_the_purge_call(self) -> None:
+        """Never an empty ``wr_subset``: cleanup reads it for truthiness,
+        so ``set()`` would purge every WR."""
+        with self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run({PILOT_WR}, False)
+        purge.assert_not_called()
+        self.assertTrue(skipped)
+        (msg,) = self._purge_warnings(cm)
+        self.assertNotIn(PILOT_WR, msg)
+
+    def test_global_reset_excludes_held_wr(self) -> None:
+        orch = _orch()
+        with self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run(set(), True)
+        self.assertFalse(skipped)
+        args, kwargs = purge.call_args
+        self.assertIsNone(args[2])
+        self.assertEqual(kwargs, {
+            "dry_run": orch.SKIP_UPLOAD, "exclude_wrs": {PILOT_WR}})
+        self.assertEqual(len(self._purge_warnings(cm)), 1)
+
+    def test_no_token_failure_purges_as_before(self) -> None:
+        orch = _orch()
+        skipped, purge = self._run({PILOT_WR, OTHER_WR}, False, boom=False)
+        self.assertFalse(skipped)
+        self.assertEqual(purge.call_args[0][2], {PILOT_WR, OTHER_WR})
+        self.assertEqual(purge.call_args[1], {"dry_run": orch.SKIP_UPLOAD})
+        skipped, purge = self._run(set(), True, boom=False)
+        self.assertIsNone(purge.call_args[0][2])
+        self.assertEqual(purge.call_args[1], {"dry_run": orch.SKIP_UPLOAD})
+
+    def test_no_reset_flag_never_runs_the_preflight(self) -> None:
+        orch = _orch()
+        with mock.patch.object(orch, "_notes_token_held_wrs") as pre:
+            skipped, purge = self._run(set(), False)
+            purge.assert_not_called()
+            self.assertFalse(skipped)
+            # The GF-lookup hold branch is unchanged and runs first.
+            skipped, purge = self._run({PILOT_WR}, False, hold_active=True)
+            purge.assert_not_called()
+            self.assertTrue(skipped)
+        pre.assert_not_called()
+
+    def test_test_mode_never_excludes(self) -> None:
+        orch = _orch()
+        with mock.patch.object(
+                orch, "_notes_token_held_wrs",
+                wraps=orch._notes_token_held_wrs) as pre:
+            skipped, purge = self._run(
+                {PILOT_WR, OTHER_WR}, False, test_mode=True)
+        pre.assert_not_called()
+        self.assertFalse(skipped)
+        self.assertEqual(purge.call_args[0][2], {PILOT_WR, OTHER_WR})
+        self.assertEqual(fn._RUN_FAILURES["digest"], {})
+
+    def test_raising_group_token_is_held_others_purged(self) -> None:
+        """Review round 1: one group's token raising holds that group
+        only; the global purge still runs for every other WR."""
+        orch = _orch()
+        with mock.patch.object(
+                orch, "notes_token_for_group",
+                side_effect=RuntimeError("token path broke")), \
+                self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run(set(), True, boom=False)
+        self.assertFalse(skipped)
+        args, kwargs = purge.call_args
+        self.assertIsNone(args[2])
+        self.assertEqual(kwargs["exclude_wrs"], {PILOT_WR})
+        for record in cm.records:
+            self.assertNotIn("token path broke", record.getMessage())
+            self.assertNotIn(PILOT_WR, record.getMessage())
+
+    def test_preflight_error_fails_closed(self) -> None:
+        with mock.patch.object(
+                fn, "predict_token_failures",
+                side_effect=RuntimeError("preflight broke")), \
+                self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run(set(), True)
+        purge.assert_not_called()
+        self.assertTrue(skipped)
+        (msg,) = self._purge_warnings(cm)
+        self.assertIn("RuntimeError", msg)
+        self.assertNotIn("preflight broke", msg)
+
+    def test_subset_info_log_names_the_purged_subset(self) -> None:
+        with self.assertLogs(level="INFO") as cm:
+            self._run({PILOT_WR, OTHER_WR}, False)
+        (msg,) = [r.getMessage() for r in cm.records
+                  if "Hash reset requested" in r.getMessage()]
+        self.assertIn(OTHER_WR, msg)
+        self.assertNotIn(PILOT_WR, msg)
+
+    def test_predict_holds_raising_group_and_restores(self) -> None:
+        self.init_good()
+        group_a = _group(PILOT_WR)
+        group_b = _group(PILOT_WR)
+        for row in group_b:
+            row["__variant"] = "helper"
+        fails = fn._RUN_FAILURES
+        fails["digest"].update({"row_notes_component": 2})
+        fails["digest_exc"].add("KeyError")
+        fails["token_failed_groups"].add("0123456789abcdef")
+        before = (dict(fails["digest"]), set(fails["digest_exc"]),
+                  set(fails["token_failed_groups"]))
+
+        def token_fn(rows: Any) -> str:
+            if rows is group_b:
+                raise RuntimeError("group b broke")
+            return cd.notes_token_for_group(rows)
+
+        with golden.pinned_env(), _boom():
+            held = fn.predict_token_failures(
+                {"a": group_a, "b": group_b}, token_fn)
+        self.assertEqual(held, ["a", "b"])
+        self.assertEqual(
+            (fails["digest"], fails["digest_exc"],
+             fails["token_failed_groups"]), before)
+
+    def test_counts_not_inflated_and_loop_still_holds(self) -> None:
+        self._run({PILOT_WR, OTHER_WR}, False)
+        fails = fn._RUN_FAILURES
+        self.assertEqual(fails["digest"], {})
+        self.assertEqual(fails["digest_exc"], set())
+        self.assertEqual(fails["token_failed_groups"], set())
+        # The in-loop hash counts and records exactly as it does today.
+        rows = _group(PILOT_WR)
+        _hash_mode(rows, boom=True)
+        self.assertEqual(fails["digest"], {"group_notes_token": 1})
+        self.assertTrue(fn.notes_token_failed(rows))
+
+    def test_preflight_token_uses_the_hash_path(self) -> None:
+        self.init_good()
+        real = fn.group_notes_token
+        seen: list = []
+
+        def rec(sorted_rows: Any, identity: Any) -> str:
+            token = real(sorted_rows, identity)
+            seen.append((
+                [r["__row_id"] for r in sorted_rows],
+                [identity(r) for r in sorted_rows],
+                token,
+            ))
+            return token
+
+        for extended in (True, False):
+            for variant in ("primary", "helper"):
+                with self.subTest(extended=extended, variant=variant):
+                    seen.clear()
+                    rows = list(reversed(_group(PILOT_WR)))
+                    for row in rows:
+                        row["__variant"] = variant
+                    with golden.pinned_env(), mock.patch.object(
+                            gwp, "EXTENDED_CHANGE_DETECTION", extended), \
+                            mock.patch.object(
+                                fn, "group_notes_token", side_effect=rec):
+                        cd.calculate_data_hash(rows)
+                        token = cd.notes_token_for_group(rows)
+                    self.assertEqual(len(seen), 2)
+                    self.assertEqual(seen[0], seen[1])
+                    self.assertEqual(token, seen[0][2])
+                    self.assertTrue(token)
+
+    def test_held_wr_normalised_like_the_purge(self) -> None:
+        """The held WR is the loop's ``wr_num``: the token the filename
+        carries and ``RESET_WR_LIST`` normalises to."""
+        orch = _orch()
+        for raw, typed in (("90003", "WR_90003"), ("90003.0", "90003"),
+                           ("12/34", "WR12/34")):
+            with self.subTest(raw=raw):
+                wr = orch.derive_group_wr([{"Work Request #": raw}])
+                self.assertEqual(cd.build_group_identity(_fname(wr))[0], wr)
+                self.assertEqual(config._normalize_reset_wr(typed), wr)
+
+    def test_main_passes_groups_to_the_purge(self) -> None:
+        (call,) = _calls(_main(), "_run_reset_purge")
+        kws = {k.arg: k.value for k in call.keywords}
+        self.assertEqual(getattr(kws.get("groups"), "id", None), "groups")
+
+
+class PurgeExcludeWrsTests(unittest.TestCase):
+    """``purge_existing_hashed_outputs(exclude_wrs=...)``: additive."""
+
+    def _purge(
+        self, *args: Any, extra: tuple = (), **kwargs: Any
+    ) -> tuple[list, list]:
+        from pipeline import cleanup
+
+        names = [_fname(PILOT_WR), _fname(OTHER_WR), *extra]
+        client = _PurgeClient(names)
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in names:
+                Path(tmp, name).write_bytes(b"")
+            with mock.patch.object(gwp, "OUTPUT_FOLDER", tmp):
+                cleanup.purge_existing_hashed_outputs(
+                    client, 1, *args, **kwargs)
+            left = sorted(os.listdir(tmp))
+        return left, sorted(client.deleted)
+
+    def test_excluded_wr_keeps_file_and_attachment(self) -> None:
+        left, deleted = self._purge(None, False, exclude_wrs={PILOT_WR})
+        self.assertEqual(left, [_fname(PILOT_WR)])
+        self.assertEqual(deleted, [_fname(OTHER_WR)])
+
+    def test_exclude_none_identical_to_default(self) -> None:
+        everything = sorted([_fname(PILOT_WR), _fname(OTHER_WR)])
+        for kwargs in ({}, {"exclude_wrs": None}, {"exclude_wrs": set()}):
+            with self.subTest(**kwargs):
+                left, deleted = self._purge(None, False, **kwargs)
+                self.assertEqual(left, [])
+                self.assertEqual(deleted, everything)
+        left, deleted = self._purge({OTHER_WR}, False, exclude_wrs=None)
+        self.assertEqual(left, [_fname(PILOT_WR)])
+        self.assertEqual(deleted, [_fname(OTHER_WR)])
+
+    _ODD = "WR_unparsable.xlsx"
+
+    def test_unparsable_local_file_kept_while_excluding(self) -> None:
+        """Review round 1: an identity-less ``WR_*.xlsx`` could belong to
+        a held WR, so the local file is kept when ``exclude_wrs`` is
+        set."""
+        self.assertIsNone(cd.build_group_identity(self._ODD))
+        left, _ = self._purge(
+            None, False, extra=(self._ODD,), exclude_wrs={PILOT_WR})
+        self.assertEqual(left, sorted([_fname(PILOT_WR), self._ODD]))
+
+    def test_unparsable_attachment_kept_while_excluding(self) -> None:
+        _, deleted = self._purge(
+            None, False, extra=(self._ODD,), exclude_wrs={PILOT_WR})
+        self.assertEqual(deleted, [_fname(OTHER_WR)])
+
+    def test_unparsable_name_purged_without_exclusion(self) -> None:
+        for kwargs in ({}, {"exclude_wrs": None}, {"exclude_wrs": set()}):
+            with self.subTest(**kwargs):
+                left, deleted = self._purge(
+                    None, False, extra=(self._ODD,), **kwargs)
+                self.assertEqual(left, [])
+                self.assertIn(self._ODD, deleted)
+                self.assertEqual(len(deleted), 3)
+
+    def test_empty_subset_purges_everything(self) -> None:
+        """Pins why main() never passes an empty ``wr_subset``."""
+        left, deleted = self._purge(set(), False)
+        self.assertEqual(left, [])
+        self.assertEqual(len(deleted), 2)
 
 
 if __name__ == "__main__":
