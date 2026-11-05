@@ -22,6 +22,7 @@ and `run_summary.json` are unchanged. Runbook: foreman-notes-pilot.md § "If a p
 fails". Ledger `[2026-11-04 20:50]`.
 Review round 1 (2026-11-05): one group's failing check holds that group only (other WRs still purge);
 unreadable `WR_*.xlsx` names are kept while WRs are excluded; the subset log shows the WRs actually purged.
+
 ## 2026-11-04 — Reporting corrections fail closed on an unloadable file
 
 Branch `fix/corrections-load-fail-closed` (stacked on `fix/wr-91006877-reporting-correction`, not
