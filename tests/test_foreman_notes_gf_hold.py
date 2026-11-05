@@ -921,5 +921,787 @@ class CleanupToleranceTests(_Base):
         self.assertTrue(loops)
 
 
+# ---------------------------------------------------------------------------
+# Fail-closed 2026-11-03: hold a pilot group whose notes token raised
+# ---------------------------------------------------------------------------
+
+# Hashes pinned from master 13a1dcb1 (pre-fix) for the fixture groups
+# under ``golden.pinned_env``. Happy paths must stay byte-identical: any
+# drift would regenerate every group on the next production run.
+_PINNED = {
+    # (extended, wr, token raises): hash
+    (True, PILOT_WR, False): "af96c8e2057a46b7",
+    (True, OTHER_WR, False): "30ff59324721bf11",
+    (False, PILOT_WR, False): "d97f4e96575c1df7",
+    (False, OTHER_WR, False): "2e8b88983c3d4fae",
+    # Failure path: change_detection is untouched, so a raising token
+    # still hashes WITHOUT NOTES_FP exactly as before the fix.
+    (True, PILOT_WR, True): "d376950ecac3977e",
+    (True, OTHER_WR, True): "30ff59324721bf11",
+    (False, PILOT_WR, True): "542b63538e57949c",
+    (False, OTHER_WR, True): "2e8b88983c3d4fae",
+}
+_TOKEN_HELD = (PILOT_WR, "081025", "primary", "notes_token_failed")
+
+
+def _hash_mode(
+    rows: list[dict[str, Any]], extended: bool = True, boom: bool = False
+) -> str:
+    """Group hash in either mode; ``boom`` makes the notes token raise."""
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(golden.pinned_env())
+        stack.enter_context(mock.patch.object(
+            gwp, "EXTENDED_CHANGE_DETECTION", extended))
+        if boom:
+            stack.enter_context(mock.patch.object(
+                fn, "norm_note", side_effect=RuntimeError("token broke")))
+        return cd.calculate_data_hash(rows)
+
+
+class TokenFailureHoldTests(_Base):
+    """RED on master: the token failure dropped NOTES_FP silently and
+    nothing could tell the group apart, so it was never held."""
+
+    def test_failed_token_drops_notes_fp_and_is_held(self) -> None:
+        self.init_good()
+        rows = _group(PILOT_WR)
+        failed = _hash_mode(rows, boom=True)
+        self.assertNotEqual(failed, _hash_mode(rows))
+        with fn_env("off"):
+            fn.set_state(fn.FnState())
+            no_notes_fp = _hash_mode(rows)
+        self.assertEqual(failed, no_notes_fp)  # the silent drop
+        self.init_good()
+        _hash_mode(rows, boom=True)
+        self.assertTrue(fn.token_failure_recorded(rows))
+        self.assertTrue(fn.notes_token_failed(list(reversed(rows))))
+        self.assertEqual(fn.get_state().scope, "pilot")
+
+    def test_failure_registered_per_variant(self) -> None:
+        self.init_good()
+        rows = _group(PILOT_WR)
+        for row in rows:
+            row["__variant"] = "primary"
+        _hash_mode(rows, boom=True)
+        helper = copy.deepcopy(rows)
+        for row in helper:
+            row["__variant"] = "helper"
+        self.assertTrue(fn.notes_token_failed(rows))
+        self.assertFalse(fn.notes_token_failed(helper))
+
+    def test_happy_path_records_nothing(self) -> None:
+        self.init_good()
+        for extended in (True, False):
+            for wr in (PILOT_WR, OTHER_WR):
+                _hash_mode(_group(wr), extended)
+        self.assertEqual(fn._RUN_FAILURES["token_failed_groups"], set())
+        self.assertFalse(fn.notes_token_failed(_group(PILOT_WR)))
+
+    def test_hashes_byte_identical_to_master(self) -> None:
+        for (extended, wr, boom), expected in _PINNED.items():
+            with self.subTest(extended=extended, wr=wr, boom=boom):
+                self.init_good()
+                self.assertEqual(
+                    _hash_mode(_group(wr), extended, boom), expected)
+
+    def test_non_pilot_raising_helper_not_held(self) -> None:
+        self.init_good()
+        for extended in (True, False):
+            rows = _group(OTHER_WR)
+            self.assertEqual(
+                _hash_mode(rows, extended, boom=True),
+                _PINNED[(extended, OTHER_WR, False)],
+            )
+            self.assertFalse(fn.token_failure_recorded(rows))
+            self.assertFalse(fn.notes_token_failed(rows))
+        self.assertEqual(fn._RUN_FAILURES["digest"], {})
+
+    def test_never_holds_in_test_mode(self) -> None:
+        """D2: a dry run never uploads, so never holds; the failure is
+        still recorded and counted."""
+        self.init_good()
+        rows = _group(PILOT_WR)
+        with mock.patch.object(config, "TEST_MODE", True):
+            _hash_mode(rows, boom=True)
+            self.assertTrue(fn.token_failure_recorded(rows))
+            self.assertFalse(fn.notes_token_failed(rows))
+        self.assertEqual(
+            fn._RUN_FAILURES["digest"], {"group_notes_token": 1})
+
+    def test_scope_off_token_is_empty_and_never_held(self) -> None:
+        with fn_env("off"):
+            fn.initialize(_Client())
+            rows = _group(PILOT_WR)
+            with mock.patch.object(
+                    fn, "norm_note", side_effect=RuntimeError("x")):
+                self.assertEqual(
+                    fn.group_notes_token(rows, lambda r: ""), "")
+            self.assertFalse(fn.notes_token_failed(rows))
+
+    def test_registry_cleared_by_reset_state(self) -> None:
+        self.init_good()
+        rows = _group(PILOT_WR)
+        _hash_mode(rows, boom=True)
+        fn.reset_state()
+        self.assertFalse(fn.token_failure_recorded(rows))
+
+    def test_predicates_never_raise(self) -> None:
+        self.assertIsNone(fn._token_group_key(None))
+        self.assertFalse(fn.notes_token_failed(None))
+        self.assertFalse(fn.notes_token_failed([object()]))
+        with mock.patch.object(fn, "_RUN_FAILURES", {}):
+            self.assertFalse(fn.notes_token_failed(_group(PILOT_WR)))
+            fn._record_token_failure(_group(PILOT_WR))
+        self.assertEqual(fn.held_reason_label(None), "GF lookup failed")
+
+
+class TokenHoldReportTests(_Base):
+    def _report(self, held: list) -> SentryCapture:
+        self.init_good()
+        _hash_mode(_group(PILOT_WR), boom=True)
+        cap = SentryCapture(self)
+        with fn_env(), mock.patch.dict(os.environ, _GH_ENV):
+            self.report = fn.report_run_end(
+                held_groups=held, force_flags=_FORCE)
+        return cap
+
+    def test_report_counts_token_held_groups(self) -> None:
+        self._report([_TOKEN_HELD])
+        report = self.report
+        self.assertEqual(report["held_total"], 1)
+        self.assertEqual(report["held_by_reason"], {
+            "gf_lookup_failed": 0, "notes_token_failed": 1})
+        self.assertEqual(report["token_failed_total"], 1)
+        self.assertEqual(report["token_failures_recorded"], 1)
+        self.assertEqual(report["digest_failures"], 1)
+        # The report rides the shared session_summary context: counts
+        # only, no WR (DECISIONS 2026-10-30).
+        self.assertNotIn(PILOT_WR, json.dumps(report))
+
+    def test_digest_event_lists_token_held_groups(self) -> None:
+        cap = self._report([_TOKEN_HELD])
+        # No new channel: no gf-hold event; the digest event fires once.
+        self.assertEqual(cap.by_fingerprint("foreman-notes", "gf-hold"), [])
+        (event,) = cap.by_fingerprint(
+            "foreman-notes", "notes-digest-failed")
+        ctx = event["contexts"]["foreman_notes"]
+        self.assertEqual(ctx["held_reason"], "notes_token_failed")
+        self.assertEqual(ctx["token_failed_groups"], [
+            {"wr": PILOT_WR, "week_ending": "081025", "variant": "primary"},
+        ])
+        self.assertEqual(ctx["token_failed_total"], 1)
+        self.assertEqual(ctx["failures"], {"group_notes_token": 1})
+        self.assertNotIn(PILOT_WR, event.get("message") or "")
+        for text in cap.texts():
+            for secret in ("GF-1", "GF-2", NOTE_SENTINEL):
+                self.assertNotIn(secret, text)
+
+    def test_digest_event_unchanged_without_token_holds(self) -> None:
+        cap = self._report([])
+        (event,) = cap.by_fingerprint(
+            "foreman-notes", "notes-digest-failed")
+        ctx = event["contexts"]["foreman_notes"]
+        for key in ("held_reason", "token_failed_groups",
+                    "token_failed_total"):
+            self.assertNotIn(key, ctx)
+
+    def test_token_held_list_capped_at_200(self) -> None:
+        held = [(str(90000 + i), "081025", "primary", "notes_token_failed")
+                for i in range(205)]
+        cap = self._report(held)
+        (event,) = cap.by_fingerprint(
+            "foreman-notes", "notes-digest-failed")
+        ctx = event["contexts"]["foreman_notes"]
+        self.assertEqual(len(ctx["token_failed_groups"]), 200)
+        self.assertEqual(ctx["token_failed_total"], 205)
+        self.assertEqual(self.report["token_failed_total"], 205)
+
+    def test_gf_hold_event_counts_only_gf_holds(self) -> None:
+        self.init_failed()
+        cap = SentryCapture(self)
+        with fn_env():
+            report = fn.report_run_end(
+                held_groups=list(_HELD) + [_TOKEN_HELD], force_flags=_FORCE)
+        (event,) = cap.by_fingerprint("foreman-notes", "gf-hold")
+        ctx = event["contexts"]["foreman_notes"]
+        self.assertEqual(ctx["held_total"], 1)
+        self.assertEqual(len(ctx["held_groups"]), 1)
+        self.assertEqual(report["held_total"], 2)
+        self.assertEqual(report["held_by_reason"], {
+            "gf_lookup_failed": 1, "notes_token_failed": 1})
+
+    def test_gf_only_report_lists_no_token_groups(self) -> None:
+        self.init_failed()
+        with fn_env():
+            report = fn.report_run_end(
+                held_groups=list(_HELD), force_flags=_FORCE)
+        self.assertEqual(report["token_failed_total"], 0)
+        self.assertEqual(report["held_by_reason"], {
+            "gf_lookup_failed": 1, "notes_token_failed": 0})
+
+    def test_held_reason_label(self) -> None:
+        self.assertEqual(
+            fn.held_reason_label([_HELD[0]]), "GF lookup failed")
+        self.assertEqual(
+            fn.held_reason_label([_TOKEN_HELD]), "notes token failed")
+        self.assertEqual(
+            fn.held_reason_label([_HELD[0], _TOKEN_HELD]),
+            "GF lookup failed / notes token failed")
+
+
+class TokenHoldPlacementTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.main = _main()
+
+    def _token_if(self) -> ast.If:
+        ifs = [n for n in ast.walk(self.main) if isinstance(n, ast.If)
+               and _calls(n.test, "_fn.notes_token_failed")]
+        self.assertEqual(len(ifs), 1)
+        return ifs[0]
+
+    def test_checks_the_hashed_group_rows(self) -> None:
+        (call,) = _calls(self._token_if().test, "_fn.notes_token_failed")
+        self.assertEqual([a.id for a in call.args], ["group_rows"])
+
+    def test_after_gf_hold_before_freeze_and_excel(self) -> None:
+        hold = self._token_if()
+        gf = [n for n in ast.walk(self.main) if isinstance(n, ast.If)
+              and _calls(n.test, "_fn.gf_lookup_failed")
+              and _calls(n, "_fn.should_hold_group")]
+        self.assertEqual(len(gf), 1)
+        freeze = [n for n in ast.walk(self.main) if isinstance(n, ast.If)
+                  and "_has_uncached_freeze_candidates" in _names(n.test)]
+        self.assertGreater(hold.lineno, gf[0].lineno)
+        self.assertLess(hold.lineno, freeze[0].lineno)
+        for call in _calls(self.main, "generate_excel"):
+            self.assertLess(hold.lineno, call.lineno)
+
+    def test_holds_regardless_of_hash_and_continues(self) -> None:
+        hold = self._token_if()
+        self.assertIsInstance(hold.body[-1], ast.Continue)
+        names = _names(hold)
+        self.assertIn("_fn_held_groups", names)
+        for forbidden in ("_hash_unchanged", "_mem_confirmed_skip_keys",
+                          "generated_filenames", "data_hash"):
+            self.assertNotIn(forbidden, names)
+        attrs = {n.attr for n in ast.walk(hold)
+                 if isinstance(n, ast.Attribute)}
+        self.assertIn("HOLD_NOTES_TOKEN", attrs)
+        self.assertEqual(fn.HOLD_NOTES_TOKEN, "notes_token_failed")
+
+
+class RunReportContractTests(_Base):
+    """The dict main() puts on ``session_summary.foreman_notes``: its key
+    set is a deliberate contract (counts only, no WR)."""
+
+    _KEYS = [
+        "digest_failures", "digest_failures_by_function", "gf_lookup",
+        "held_by_reason", "held_total", "reset_purge_skipped", "scope",
+        "style_attach_failures", "style_failed_chunks",
+        "style_rows_affected", "style_rows_missing", "token_failed_total",
+        "token_failures_recorded",
+    ]
+
+    def test_pilot_run_without_holds_key_set(self) -> None:
+        self.init_good()
+        with fn_env():
+            report = fn.report_run_end(held_groups=[], force_flags=_FORCE)
+        self.assertEqual(sorted(report), self._KEYS)
+        self.assertEqual(report["held_by_reason"], {
+            "gf_lookup_failed": 0, "notes_token_failed": 0})
+        self.assertEqual(report["token_failed_total"], 0)
+        self.assertEqual(report["token_failures_recorded"], 0)
+
+
+_BOOM_NOTE = "zz-token-boom-zz"
+
+
+class TokenHoldMainLoopTests(_Base):
+    """Behavioural: drive the real ``orchestrate.main()`` group loop over
+    one pilot and one non-pilot group, recording which groups reach the
+    billing-audit freeze, ``generate_excel``, the upload worker and the
+    deferred ``group_state`` flush. Offline: fake Smartsheet client,
+    mocked billing-audit and memory writers, ``SKIP_UPLOAD`` so nothing
+    is published, and a forked Sentry isolation scope."""
+
+    def _drive(
+        self, boom: bool, extra: tuple = ()
+    ) -> dict[str, list[str]]:
+        import concurrent.futures
+        from pipeline import orchestrate as orch
+
+        seen: dict[str, list[str]] = {
+            "freeze": [], "excel": [], "upload": [], "group_state": []}
+        rows = _group(PILOT_WR) + _group(OTHER_WR)
+        for n, row in enumerate(rows):
+            row["__row_id"] = 5000 + n
+        if boom:
+            rows[0][fn.NOTES_KEY] = _BOOM_NOTE
+        real_norm, real_init = fn.norm_note, fn.initialize
+
+        def norm(value: Any) -> str:
+            if value == _BOOM_NOTE:
+                raise RuntimeError("token broke")
+            return real_norm(value)
+
+        def init(client: Any) -> fn.FnState:
+            with fn_env():
+                return real_init(_Client())
+
+        def excel(group_key: str, group_rows: list, *a: Any,
+                  **k: Any) -> tuple:
+            seen["excel"].append(str(group_rows[0]["Work Request #"]))
+            return ("x.xlsx", "x.xlsx", [], "", [])
+
+        def tasks(**k: Any) -> list[dict[str, Any]]:
+            return [{
+                "group_key": k["group_key"], "target_row": NS(id=1),
+                "target_sheet_id": 1, "wr_num": k["wr_num"],
+                "week_raw": k["week_raw"], "data_hash": k["data_hash"],
+                "variant": k["variant"], "identifier": "",
+                "file_identifier": "", "filename": "x.xlsx",
+                "excel_path": "x.xlsx",
+            }]
+
+        def delete(client: Any, sid: Any, row: Any, wr: Any,
+                   *a: Any, **k: Any) -> tuple:
+            seen["upload"].append(str(wr))
+            return 0, False
+
+        def flush(deferred: list, *a: Any, **k: Any) -> tuple:
+            seen["group_state"].extend(str(d["wr_num"]) for d in deferred)
+            return [], 0
+
+        def freeze(row: dict, **k: Any) -> bool:
+            seen["freeze"].append(str(row.get("Work Request #")))
+            return False
+
+        executor = concurrent.futures.ThreadPoolExecutor(2)
+        self.addCleanup(executor.shutdown)
+        writer = mock.MagicMock()
+        writer.any_flag_enabled.return_value = True
+        writer.freeze_row.side_effect = freeze
+        writer.get_freeze_row_executor.return_value = executor
+        values = (
+            (orch, "API_TOKEN", "fake-token"), (gwp, "TEST_MODE", False),
+            (gwp, "SENTRY_DSN", None), (gwp, "BILLING_AUDIT_AVAILABLE", True),
+            (gwp, "_billing_audit_writer", writer),
+            (orch, "RUN_MEMORY_WRITE_ENABLED", True),
+            (orch, "SKIP_UPLOAD", True),
+            (orch, "_mem_writer", mock.MagicMock()),
+            (fn, "EFFECTIVE_SCOPE", "pilot"),
+        ) + tuple(extra)
+        fakes = (
+            (orch, "_sentry_cron_checkin_start", {"return_value": None}),
+            (orch.smartsheet, "Smartsheet", {}),
+            (orch, "discover_source_sheets", {"return_value": [
+                {"id": SOURCE_SHEET, "name": "S", "column_mapping": {}}]}),
+            (orch, "get_all_source_rows", {"return_value": rows}),
+            (orch, "generate_excel", {"side_effect": excel}),
+            (orch, "_build_upload_tasks_for_group", {"side_effect": tasks}),
+            (orch, "delete_old_excel_attachments", {"side_effect": delete}),
+            (orch, "_build_group_state_flush", {"side_effect": flush}),
+            (fn, "initialize", {"side_effect": init}),
+            (fn, "norm_note", {"side_effect": norm}),
+        )
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory())
+            stack.enter_context(golden.pinned_env(output_folder=tmp))
+            for module, name, value in values:
+                stack.enter_context(mock.patch.object(module, name, value))
+            for module, name, kw in fakes:
+                stack.enter_context(mock.patch.object(module, name, **kw))
+            stack.enter_context(sentry_sdk.isolation_scope())
+            orch.main()
+        return seen
+
+    def test_token_held_group_reaches_nothing_downstream(self) -> None:
+        seen = self._drive(boom=True)
+        for stage, wrs in seen.items():
+            with self.subTest(stage=stage):
+                self.assertNotIn(PILOT_WR, wrs)
+                self.assertIn(OTHER_WR, wrs)
+
+    def test_same_group_without_token_failure_is_generated(self) -> None:
+        seen = self._drive(boom=False)
+        for stage, wrs in seen.items():
+            with self.subTest(stage=stage):
+                self.assertIn(PILOT_WR, wrs)
+                self.assertIn(OTHER_WR, wrs)
+
+    def test_reset_run_spares_token_held_wr_and_still_holds(self) -> None:
+        """2026-11-04: on a RESET_WR_LIST run the purge leaves the
+        token-held pilot WR alone and the in-loop hold still fires."""
+        from pipeline import orchestrate as orch
+
+        purge = mock.MagicMock()
+        seen = self._drive(boom=True, extra=(
+            (orch, "RESET_WR_LIST", {PILOT_WR, OTHER_WR}),
+            (orch, "purge_existing_hashed_outputs", purge),
+        ))
+        purge.assert_called_once()
+        self.assertEqual(purge.call_args[0][2], {OTHER_WR})
+        for stage, wrs in seen.items():
+            with self.subTest(stage=stage):
+                self.assertNotIn(PILOT_WR, wrs)
+                self.assertIn(OTHER_WR, wrs)
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-04: the RESET_* purge spares a notes-token-held pilot WR
+# ---------------------------------------------------------------------------
+
+def _boom() -> Any:
+    """Make every pilot notes token raise (the golden rows carry notes)."""
+    return mock.patch.object(
+        fn, "norm_note", side_effect=RuntimeError("token broke"))
+
+
+def _reset_groups() -> dict[str, list[dict[str, Any]]]:
+    return {
+        f"081025_{PILOT_WR}": _group(PILOT_WR),
+        f"081025_{OTHER_WR}": _group(OTHER_WR),
+    }
+
+
+def _fname(wr: str) -> str:
+    """A modern primary filename, shaped like excel.py builds it."""
+    return f"WR_{wr}_WeekEnding_081025_101500_{'a' * 16}.xlsx"
+
+
+class _PurgeClient:
+    """One target row carrying every given attachment; records deletes."""
+
+    def __init__(self, names: list[str]) -> None:
+        self.names = names
+        self.deleted: list[str] = []
+        atts = [NS(id=i, name=n) for i, n in enumerate(names)]
+        self.Sheets = NS(get_sheet=lambda sid: NS(rows=[NS(id=1)]))
+        self.Attachments = NS(
+            list_row_attachments=lambda sid, rid: NS(data=list(atts)),
+            delete_attachment=lambda sid, aid: self.deleted.append(
+                self.names[aid]),
+        )
+
+
+class ResetPurgeTokenHoldTests(_Base):
+    """RED on cd31ed9e: the RESET_* purge ran before the notes-token hold
+    was known, so it deleted a held pilot WR's attachment and the hold
+    never rebuilt it."""
+
+    def _run(
+        self, wr_list: set[str], reset_all: bool, *, boom: bool = True,
+        test_mode: bool = False, hold_active: bool = False,
+    ) -> tuple[bool, mock.MagicMock]:
+        orch = _orch()
+        self.init_good()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(golden.pinned_env())
+            for name, value in (("RESET_WR_LIST", wr_list),
+                                ("RESET_HASH_HISTORY", reset_all)):
+                stack.enter_context(mock.patch.object(orch, name, value))
+            stack.enter_context(
+                mock.patch.object(config, "TEST_MODE", test_mode))
+            purge = stack.enter_context(
+                mock.patch.object(orch, "purge_existing_hashed_outputs"))
+            if boom:
+                stack.enter_context(_boom())
+            skipped = orch._run_reset_purge(
+                object(), hold_active, test_mode=test_mode,
+                groups=_reset_groups())
+        return skipped, purge
+
+    def _purge_warnings(self, cm: Any) -> list[str]:
+        return [r.getMessage() for r in cm.records
+                if "purge" in r.getMessage()]
+
+    def test_subset_purges_only_unheld_wrs(self) -> None:
+        orch = _orch()
+        with self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run({PILOT_WR, OTHER_WR}, False)
+        self.assertFalse(skipped)
+        purge.assert_called_once()
+        args, kwargs = purge.call_args
+        self.assertEqual(args[2], {OTHER_WR})
+        self.assertEqual(kwargs, {
+            "dry_run": orch.SKIP_UPLOAD, "exclude_wrs": {PILOT_WR}})
+        (msg,) = self._purge_warnings(cm)
+        self.assertIn("1 WR", msg)
+        for record in cm.records:
+            self.assertNotIn(PILOT_WR, record.getMessage())
+
+    def test_subset_all_held_skips_the_purge_call(self) -> None:
+        """Never an empty ``wr_subset``: cleanup reads it for truthiness,
+        so ``set()`` would purge every WR."""
+        with self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run({PILOT_WR}, False)
+        purge.assert_not_called()
+        self.assertTrue(skipped)
+        (msg,) = self._purge_warnings(cm)
+        self.assertNotIn(PILOT_WR, msg)
+
+    def test_global_reset_excludes_held_wr(self) -> None:
+        orch = _orch()
+        with self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run(set(), True)
+        self.assertFalse(skipped)
+        args, kwargs = purge.call_args
+        self.assertIsNone(args[2])
+        self.assertEqual(kwargs, {
+            "dry_run": orch.SKIP_UPLOAD, "exclude_wrs": {PILOT_WR}})
+        self.assertEqual(len(self._purge_warnings(cm)), 1)
+
+    def test_no_token_failure_purges_as_before(self) -> None:
+        orch = _orch()
+        skipped, purge = self._run({PILOT_WR, OTHER_WR}, False, boom=False)
+        self.assertFalse(skipped)
+        self.assertEqual(purge.call_args[0][2], {PILOT_WR, OTHER_WR})
+        self.assertEqual(purge.call_args[1], {"dry_run": orch.SKIP_UPLOAD})
+        skipped, purge = self._run(set(), True, boom=False)
+        self.assertIsNone(purge.call_args[0][2])
+        self.assertEqual(purge.call_args[1], {"dry_run": orch.SKIP_UPLOAD})
+
+    def test_no_reset_flag_never_runs_the_preflight(self) -> None:
+        orch = _orch()
+        with mock.patch.object(orch, "_notes_token_held_wrs") as pre:
+            skipped, purge = self._run(set(), False)
+            purge.assert_not_called()
+            self.assertFalse(skipped)
+            # The GF-lookup hold branch is unchanged and runs first.
+            skipped, purge = self._run({PILOT_WR}, False, hold_active=True)
+            purge.assert_not_called()
+            self.assertTrue(skipped)
+        pre.assert_not_called()
+
+    def test_test_mode_never_excludes(self) -> None:
+        orch = _orch()
+        with mock.patch.object(
+                orch, "_notes_token_held_wrs",
+                wraps=orch._notes_token_held_wrs) as pre:
+            skipped, purge = self._run(
+                {PILOT_WR, OTHER_WR}, False, test_mode=True)
+        pre.assert_not_called()
+        self.assertFalse(skipped)
+        self.assertEqual(purge.call_args[0][2], {PILOT_WR, OTHER_WR})
+        self.assertEqual(fn._RUN_FAILURES["digest"], {})
+
+    def test_raising_group_token_is_held_others_purged(self) -> None:
+        """Review round 1: one group's token raising holds that group
+        only; the global purge still runs for every other WR."""
+        orch = _orch()
+        with mock.patch.object(
+                orch, "notes_token_for_group",
+                side_effect=RuntimeError("token path broke")), \
+                self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run(set(), True, boom=False)
+        self.assertFalse(skipped)
+        args, kwargs = purge.call_args
+        self.assertIsNone(args[2])
+        self.assertEqual(kwargs["exclude_wrs"], {PILOT_WR})
+        for record in cm.records:
+            self.assertNotIn("token path broke", record.getMessage())
+            self.assertNotIn(PILOT_WR, record.getMessage())
+
+    def test_preflight_error_fails_closed(self) -> None:
+        with mock.patch.object(
+                fn, "predict_token_failures",
+                side_effect=RuntimeError("preflight broke")), \
+                self.assertLogs(level="WARNING") as cm:
+            skipped, purge = self._run(set(), True)
+        purge.assert_not_called()
+        self.assertTrue(skipped)
+        (msg,) = self._purge_warnings(cm)
+        self.assertIn("RuntimeError", msg)
+        self.assertNotIn("preflight broke", msg)
+
+    def test_subset_info_log_names_the_purged_subset(self) -> None:
+        with self.assertLogs(level="INFO") as cm:
+            self._run({PILOT_WR, OTHER_WR}, False)
+        (msg,) = [r.getMessage() for r in cm.records
+                  if "Hash reset requested" in r.getMessage()]
+        self.assertIn(OTHER_WR, msg)
+        self.assertNotIn(PILOT_WR, msg)
+
+    def test_predict_holds_raising_group_and_restores(self) -> None:
+        self.init_good()
+        group_a = _group(PILOT_WR)
+        group_b = _group(PILOT_WR)
+        for row in group_b:
+            row["__variant"] = "helper"
+        fails = fn._RUN_FAILURES
+        fails["digest"].update({"row_notes_component": 2})
+        fails["digest_exc"].add("KeyError")
+        fails["token_failed_groups"].add("0123456789abcdef")
+        before = (dict(fails["digest"]), set(fails["digest_exc"]),
+                  set(fails["token_failed_groups"]))
+
+        def token_fn(rows: Any) -> str:
+            if rows is group_b:
+                raise RuntimeError("group b broke")
+            return cd.notes_token_for_group(rows)
+
+        with golden.pinned_env(), _boom():
+            held = fn.predict_token_failures(
+                {"a": group_a, "b": group_b}, token_fn)
+        self.assertEqual(held, ["a", "b"])
+        self.assertEqual(
+            (fails["digest"], fails["digest_exc"],
+             fails["token_failed_groups"]), before)
+
+    def test_counts_not_inflated_and_loop_still_holds(self) -> None:
+        self._run({PILOT_WR, OTHER_WR}, False)
+        fails = fn._RUN_FAILURES
+        self.assertEqual(fails["digest"], {})
+        self.assertEqual(fails["digest_exc"], set())
+        self.assertEqual(fails["token_failed_groups"], set())
+        # The in-loop hash counts and records exactly as it does today.
+        rows = _group(PILOT_WR)
+        _hash_mode(rows, boom=True)
+        self.assertEqual(fails["digest"], {"group_notes_token": 1})
+        self.assertTrue(fn.notes_token_failed(rows))
+
+    def test_preflight_token_uses_the_hash_path(self) -> None:
+        self.init_good()
+        real = fn.group_notes_token
+        seen: list = []
+
+        def rec(sorted_rows: Any, identity: Any) -> str:
+            token = real(sorted_rows, identity)
+            seen.append((
+                [r["__row_id"] for r in sorted_rows],
+                [identity(r) for r in sorted_rows],
+                token,
+            ))
+            return token
+
+        for extended in (True, False):
+            for variant in ("primary", "helper"):
+                with self.subTest(extended=extended, variant=variant):
+                    seen.clear()
+                    rows = list(reversed(_group(PILOT_WR)))
+                    for row in rows:
+                        row["__variant"] = variant
+                    with golden.pinned_env(), mock.patch.object(
+                            gwp, "EXTENDED_CHANGE_DETECTION", extended), \
+                            mock.patch.object(
+                                fn, "group_notes_token", side_effect=rec):
+                        cd.calculate_data_hash(rows)
+                        token = cd.notes_token_for_group(rows)
+                    self.assertEqual(len(seen), 2)
+                    self.assertEqual(seen[0], seen[1])
+                    self.assertEqual(token, seen[0][2])
+                    self.assertTrue(token)
+
+    def test_held_wr_normalised_like_the_purge(self) -> None:
+        """The held WR is the loop's ``wr_num``: the token the filename
+        carries and ``RESET_WR_LIST`` normalises to."""
+        orch = _orch()
+        for raw, typed in (("90003", "WR_90003"), ("90003.0", "90003"),
+                           ("12/34", "WR12/34")):
+            with self.subTest(raw=raw):
+                wr = orch.derive_group_wr([{"Work Request #": raw}])
+                self.assertEqual(cd.build_group_identity(_fname(wr))[0], wr)
+                self.assertEqual(config._normalize_reset_wr(typed), wr)
+
+    def test_subset_reset_keeps_unparsable_names(self) -> None:
+        """Greptile P1 (PR #450): an identity-less ``WR_*.xlsx`` passes
+        the ``wr_subset`` filter, so a subset reset with a held WR must
+        also pass ``exclude_wrs`` -- as the global reset does."""
+        orch = _orch()
+        self.init_good()
+        odd = "WR_unparsable.xlsx"
+        names = [_fname(PILOT_WR), _fname(OTHER_WR), odd]
+        client = _PurgeClient(names)
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory())
+            for name in names:
+                Path(tmp, name).write_bytes(b"")
+            stack.enter_context(golden.pinned_env(output_folder=tmp))
+            for name, value in (
+                    ("RESET_WR_LIST", {PILOT_WR, OTHER_WR}),
+                    ("RESET_HASH_HISTORY", False),
+                    ("SKIP_UPLOAD", False)):
+                stack.enter_context(mock.patch.object(orch, name, value))
+            stack.enter_context(_boom())
+            skipped = orch._run_reset_purge(
+                client, False, test_mode=False, groups=_reset_groups())
+            left = sorted(os.listdir(tmp))
+        self.assertFalse(skipped)
+        self.assertEqual(left, sorted([_fname(PILOT_WR), odd]))
+        self.assertEqual(client.deleted, [_fname(OTHER_WR)])
+
+    def test_main_passes_groups_to_the_purge(self) -> None:
+        (call,) = _calls(_main(), "_run_reset_purge")
+        kws = {k.arg: k.value for k in call.keywords}
+        self.assertEqual(getattr(kws.get("groups"), "id", None), "groups")
+
+
+class PurgeExcludeWrsTests(unittest.TestCase):
+    """``purge_existing_hashed_outputs(exclude_wrs=...)``: additive."""
+
+    def _purge(
+        self, *args: Any, extra: tuple = (), **kwargs: Any
+    ) -> tuple[list, list]:
+        from pipeline import cleanup
+
+        names = [_fname(PILOT_WR), _fname(OTHER_WR), *extra]
+        client = _PurgeClient(names)
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in names:
+                Path(tmp, name).write_bytes(b"")
+            with mock.patch.object(gwp, "OUTPUT_FOLDER", tmp):
+                cleanup.purge_existing_hashed_outputs(
+                    client, 1, *args, **kwargs)
+            left = sorted(os.listdir(tmp))
+        return left, sorted(client.deleted)
+
+    def test_excluded_wr_keeps_file_and_attachment(self) -> None:
+        left, deleted = self._purge(None, False, exclude_wrs={PILOT_WR})
+        self.assertEqual(left, [_fname(PILOT_WR)])
+        self.assertEqual(deleted, [_fname(OTHER_WR)])
+
+    def test_exclude_none_identical_to_default(self) -> None:
+        everything = sorted([_fname(PILOT_WR), _fname(OTHER_WR)])
+        for kwargs in ({}, {"exclude_wrs": None}, {"exclude_wrs": set()}):
+            with self.subTest(**kwargs):
+                left, deleted = self._purge(None, False, **kwargs)
+                self.assertEqual(left, [])
+                self.assertEqual(deleted, everything)
+        left, deleted = self._purge({OTHER_WR}, False, exclude_wrs=None)
+        self.assertEqual(left, [_fname(PILOT_WR)])
+        self.assertEqual(deleted, [_fname(OTHER_WR)])
+
+    _ODD = "WR_unparsable.xlsx"
+
+    def test_unparsable_local_file_kept_while_excluding(self) -> None:
+        """Review round 1: an identity-less ``WR_*.xlsx`` could belong to
+        a held WR, so the local file is kept when ``exclude_wrs`` is
+        set."""
+        self.assertIsNone(cd.build_group_identity(self._ODD))
+        left, _ = self._purge(
+            None, False, extra=(self._ODD,), exclude_wrs={PILOT_WR})
+        self.assertEqual(left, sorted([_fname(PILOT_WR), self._ODD]))
+
+    def test_unparsable_attachment_kept_while_excluding(self) -> None:
+        _, deleted = self._purge(
+            None, False, extra=(self._ODD,), exclude_wrs={PILOT_WR})
+        self.assertEqual(deleted, [_fname(OTHER_WR)])
+
+    def test_unparsable_name_purged_without_exclusion(self) -> None:
+        for kwargs in ({}, {"exclude_wrs": None}, {"exclude_wrs": set()}):
+            with self.subTest(**kwargs):
+                left, deleted = self._purge(
+                    None, False, extra=(self._ODD,), **kwargs)
+                self.assertEqual(left, [])
+                self.assertIn(self._ODD, deleted)
+                self.assertEqual(len(deleted), 3)
+
+    def test_empty_subset_purges_everything(self) -> None:
+        """Pins why main() never passes an empty ``wr_subset``."""
+        left, deleted = self._purge(set(), False)
+        self.assertEqual(left, [])
+        self.assertEqual(len(deleted), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

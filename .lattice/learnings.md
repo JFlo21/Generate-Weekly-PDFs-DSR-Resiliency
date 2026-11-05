@@ -57,6 +57,11 @@ or remove entries that stop being true. Repo-local; no secrets, no status.
   pair narrows scope on an unproven outcome (PR #439). Filter what a step ADDS to regen debt; a pair leaves the
   debt only on proof. "Scope only widens" is the test, even when a bot asks for the narrower reading.
 
+- A fail-open sentinel return (`''` on exception) that feeds a fingerprint cannot be fixed inside the
+  hash without changing every stored hash. Keep the hash byte-identical and add a side-channel registry:
+  written at the failure site, keyed by order-independent row identity (sheet, row, variant), read at the
+  decision site from the same row object, never in TEST_MODE. The hold is the only new behaviour
+  (Foreman Notes token hold, 2026-11-03).
 - "Feature off" stops being fail-safe once the feature has published state: a configured-but-unloadable
   input (REPORTING_CORRECTIONS_FILE set, file bad) must stop the run, not degrade to feature-off, because
   the degraded run re-publishes what the feature retired (double billing until the next good run). Gate at

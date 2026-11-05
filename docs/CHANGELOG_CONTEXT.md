@@ -9,6 +9,22 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-11-04 — Foreman Notes: the RESET_* purge spares a token-held pilot WR (PR #450)
+
+What: before the `RESET_HASH_HISTORY` / `RESET_WR_LIST` purge, the run now checks the notes digest of every
+pilot group in the reset scope (through the hash's own token path) and leaves out each WR whose group the
+notes-token hold will hold. A WR subset left empty skips the purge call; a global purge passes the new additive
+`exclude_wrs` to `purge_existing_hashed_outputs`; a failing check skips the whole purge. Why: the purge ran
+before the hold was known, so a reset deleted the held group's attachment and the hold never rebuilt it. How it
+affects operators: a held group keeps its attachment on reset runs too; one WARNING counts the WRs left out;
+re-run the reset for that WR after the digest recovers if its stale files must be cleaned. Hashes, run counts
+and `run_summary.json` are unchanged. Runbook: foreman-notes-pilot.md § "If a pilot group's notes digest
+fails". Ledger `[2026-11-04 20:50]`.
+Review round 1 (2026-11-05): one group's failing check holds that group only (other WRs still purge);
+unreadable `WR_*.xlsx` names are kept while WRs are excluded; the subset log shows the WRs actually purged.
+Review round 2 (2026-11-05): a subset purge with held WRs passes `exclude_wrs` too, so unreadable names are
+kept on subset resets as on global ones.
+
 ## 2026-11-04 — Reporting corrections fail closed on an unloadable file
 
 Branch `fix/corrections-load-fail-closed` (stacked on `fix/wr-91006877-reporting-correction`, not
@@ -25,6 +41,17 @@ retire/rollback semantics, two independent reviews and a re-verification; full s
 OFF byte-identical. Docs: 48 docs verified, Azure docs corrected, four new guides and two reference pages.
 Details and rules: `memory-bank/living-ledger.md` `[2026-11-02 18:30]`. Owner gates: workflow step + secret,
 PR, helper-vs-primary choice.
+## 2026-11-03 — Foreman Notes: hold pilot groups whose notes token failed (PR #450)
+
+What: when `group_notes_token()` raises for a pilot group, the group is now recorded in a per-run registry and
+held in `main()` like a GF-lookup hold (no Excel, no upload, carried as regeneration debt; never in TEST_MODE).
+Why: the token returned `""` on error, so the hash lost its `NOTES_FP` token and the group fingerprinted as
+"no notes" — a stale workbook could publish or an unchanged-hash skip could be confirmed. Hashes are unchanged;
+only the hold is new. How it affects operators: the group-phase log line says `N held (notes token failed)`,
+the cron check-in reports ERROR like a GF hold, the `notes_digest_failed` Sentry event lists the held WR/week/
+variant entries, and the run report counts holds per reason. The `RESET_*` purge still runs before the hold —
+owner decision pending on whether to regenerate instead. Runbook: foreman-notes-pilot.md § "If a pilot group's
+notes digest fails". Ledger `[2026-11-03 20:10]`.
 ## 2026-11-03 — Instruction files re-aligned for context cost
 
 What: `.claude/project-state.md` cut to its 120-line cap (history already in the ledger); `CLAUDE.md`'s

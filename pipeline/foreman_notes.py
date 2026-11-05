@@ -286,6 +286,8 @@ def _reset_failures() -> None:
         style_exc=set(),
         digest={},
         digest_exc=set(),
+        # Group keys (``_token_group_key``) whose notes token raised.
+        token_failed_groups=set(),
     )
 
 
@@ -323,6 +325,36 @@ def _count_digest(func: str, exc: BaseException) -> None:
         digest = _RUN_FAILURES["digest"]
         digest[func] = digest.get(func, 0) + 1
         _RUN_FAILURES["digest_exc"].add(type(exc).__name__)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _token_group_key(rows: Any) -> str | None:
+    """Order-independent key of a group's rows for the token-failure
+    registry: a 16-hex digest of the sorted ``(source sheet, row id,
+    variant)`` triples. Holds no note or name. ``None`` if it cannot be
+    built. Never raises."""
+    try:
+        triples = sorted(
+            [
+                str(r.get("__source_sheet_id", "")),
+                str(r.get("__row_id", "")),
+                str(r.get("__variant", "")),
+            ] if isinstance(r, dict) else ["", "", ""]
+            for r in rows
+        )
+        payload = json.dumps(triples, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _record_token_failure(rows: Any) -> None:
+    """Register a group whose notes token raised. Never raises."""
+    try:
+        key = _token_group_key(rows)
+        if key is not None:
+            _RUN_FAILURES["token_failed_groups"].add(key)
     except Exception:  # noqa: BLE001
         pass
 
@@ -632,6 +664,15 @@ def _status_code(exc: BaseException | None) -> int | None:
 
 _HELD_GROUPS_CAP = 200
 
+# Hold reasons: the optional 4th element of a held-group tuple
+# ``(wr, week_raw, variant[, reason])``; a 3-tuple is a GF-lookup hold.
+HOLD_GF_LOOKUP = "gf_lookup_failed"
+HOLD_NOTES_TOKEN = "notes_token_failed"
+_HOLD_LABELS = {
+    HOLD_GF_LOOKUP: "GF lookup failed",
+    HOLD_NOTES_TOKEN: "notes token failed",
+}
+
 
 def gf_lookup_failed() -> bool:
     """True when this run's GF lookup failed in an effective pilot scope
@@ -659,6 +700,116 @@ def should_hold_group(hash_matches_stored: bool) -> bool:
         return gf_lookup_failed() and not hash_matches_stored
     except Exception:  # noqa: BLE001
         return False
+
+
+def token_failure_recorded(rows: Any) -> bool:
+    """True when ``group_notes_token`` raised this run for these rows
+    (any order). Pure registry check, TEST_MODE included. Never raises.
+    """
+    try:
+        key = _token_group_key(rows)
+        return (
+            key is not None
+            and key in _RUN_FAILURES["token_failed_groups"]
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def notes_token_failed(rows: Any) -> bool:
+    """Hold this group: its notes token raised this run, so its hash has
+    no ``NOTES_FP`` and must not be published or confirmed.
+
+    Held regardless of the stored-hash comparison. Always False in
+    TEST_MODE (owner decision D2, same rule as ``gf_lookup_failed``).
+    Non-pilot groups never raise in the token, so they are never held.
+    Never raises.
+    """
+    try:
+        return not config.TEST_MODE and token_failure_recorded(rows)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def predict_token_failures(groups: Any, token_fn: Any) -> list:
+    """Keys of ``groups`` whose pilot group ``notes_token_failed`` will
+    hold this run, found before the RESET_* purge (2026-11-04).
+
+    ``token_fn(rows)`` must build the token through the hash's own path
+    (``change_detection.notes_token_for_group``). The answer is read
+    from the shared failure registry, exactly as the in-loop hold reads
+    it. Every per-run digest counter and the registry are then restored,
+    so the group's hash call still counts and records the failure once,
+    as it does today. ``[]`` in TEST_MODE or when the scope is off.
+    A group whose ``token_fn`` raises is treated as held (fail closed for
+    that group only). Other unexpected errors propagate: the caller fails
+    closed.
+    """
+    if config.TEST_MODE or _STATE.scope == "off":
+        return []
+    fails = _RUN_FAILURES
+    digest = dict(fails["digest"])
+    digest_exc = set(fails["digest_exc"])
+    registry = set(fails["token_failed_groups"])
+    try:
+        failed = []
+        for key, rows in dict(groups or {}).items():
+            if not is_pilot_group(rows):
+                continue
+            try:
+                token_fn(rows)
+            except Exception as exc:  # noqa: BLE001
+                logging.warning(
+                    "Foreman notes: notes-token preflight failed for a "
+                    "group (%s); treated as held", type(exc).__name__,
+                )
+                failed.append(key)
+                continue
+            if notes_token_failed(rows):
+                failed.append(key)
+        return failed
+    finally:
+        fails["digest"].clear()
+        fails["digest"].update(digest)
+        fails["digest_exc"].clear()
+        fails["digest_exc"].update(digest_exc)
+        fails["token_failed_groups"].clear()
+        fails["token_failed_groups"].update(registry)
+
+
+def _hold_reason(entry: Any) -> str:
+    """Reason of one held-group tuple; a 3-tuple is a GF-lookup hold."""
+    try:
+        if len(entry) > 3 and entry[3]:
+            return str(entry[3])
+    except Exception:  # noqa: BLE001
+        pass
+    return HOLD_GF_LOOKUP
+
+
+def held_reason_label(held: Any) -> str:
+    """Log label for the held groups, e.g. ``GF lookup failed``.
+
+    Reasons are listed in a fixed order, joined by `` / ``. Never raises.
+    """
+    try:
+        reasons = {_hold_reason(g) for g in held}
+        labels = [
+            label for reason, label in _HOLD_LABELS.items()
+            if reason in reasons
+        ]
+        labels += sorted(r for r in reasons if r not in _HOLD_LABELS)
+        return " / ".join(labels) or _HOLD_LABELS[HOLD_GF_LOOKUP]
+    except Exception:  # noqa: BLE001
+        return _HOLD_LABELS[HOLD_GF_LOOKUP]
+
+
+def _held_entries(held: list) -> list:
+    """``{wr, week_ending, variant}`` dicts, capped at 200."""
+    return [
+        {"wr": str(g[0]), "week_ending": str(g[1]), "variant": str(g[2])}
+        for g in held[:_HELD_GROUPS_CAP]
+    ]
 
 
 def stored_hash_matches(
@@ -740,9 +891,14 @@ def _lookup_context(state: FnState) -> dict:
     return ctx
 
 
-def _report_style_and_digest(fails: dict, digest: dict) -> None:
+def _report_style_and_digest(
+    fails: dict, digest: dict, token_held: Any = None,
+) -> None:
     """One run-end warning event each for style and digest failures (C3 /
-    C4). Counts and exception class names only. Never raises."""
+    C4). Counts and exception class names only, plus, when groups were
+    held because their notes token failed, ``held_reason`` and the held
+    ``{wr, week_ending, variant}`` list (capped at 200) in the digest
+    event's ``foreman_notes`` context. Never raises."""
     try:
         from pipeline import observability as _obs
 
@@ -766,17 +922,24 @@ def _report_style_and_digest(fails: dict, digest: dict) -> None:
                     **extra,
                 },
             )
-        if digest:
+        token_held = list(token_held or [])
+        if digest or token_held:
+            ctx = {
+                "reason": "notes_digest_failed",
+                "failures": digest,
+                "total": sum(digest.values()),
+                "exception_classes": sorted(fails["digest_exc"]),
+                **extra,
+            }
+            if token_held:
+                # WR numbers only here, on the forked event scope
+                # (DECISIONS 2026-10-30), never in the run report.
+                ctx["held_reason"] = HOLD_NOTES_TOKEN
+                ctx["token_failed_groups"] = _held_entries(token_held)
+                ctx["token_failed_total"] = len(token_held)
             _capture(
                 "notes_digest_failed", "notes_digest_failed",
-                ["foreman-notes", "notes-digest-failed"],
-                {
-                    "reason": "notes_digest_failed",
-                    "failures": digest,
-                    "total": sum(digest.values()),
-                    "exception_classes": sorted(fails["digest_exc"]),
-                    **extra,
-                },
+                ["foreman-notes", "notes-digest-failed"], ctx,
             )
     except Exception:  # noqa: BLE001
         pass
@@ -789,14 +952,21 @@ def report_run_end(
 ) -> dict:
     """Run-end Foreman Notes report. Counts-only dict; ``{}`` when off.
 
-    When groups were held, logs one counts-only WARNING and sends one
-    ``foreman-notes / gf-hold`` event (level ``error`` on a publishing run,
-    owner decision D1) whose ``foreman_notes`` context lists the held
-    ``{wr, week_ending, variant}`` entries (capped at 200, with
-    ``held_total``) and whether the RESET_* purge was skipped.
-    ``variant`` is the group variant enum only. Style and notes-digest
-    failures counted during the run each send one warning event (C3 /
-    C4), and every count is in the returned dict. Never raises.
+    When groups were held because the GF lookup failed, logs one
+    counts-only WARNING and sends one ``foreman-notes / gf-hold`` event
+    (level ``error`` on a publishing run, owner decision D1) whose
+    ``foreman_notes`` context lists the held ``{wr, week_ending,
+    variant}`` entries (capped at 200, with ``held_total``) and whether
+    the RESET_* purge was skipped. ``variant`` is the group variant enum
+    only. Groups held because their notes token failed (4-tuple reason
+    ``notes_token_failed``) log one counts-only WARNING and are listed
+    (``token_failed_groups``, capped at 200, with ``held_reason``) in the
+    ``notes_digest_failed`` event context; the returned dict, which main()
+    puts on the shared ``session_summary`` context, keeps counts only
+    (``held_by_reason``, ``token_failed_total``). Style and
+    notes-digest failures counted during the run each send one warning
+    event (C3 / C4), and every count is in the returned dict. Never
+    raises.
     """
     try:
         if EFFECTIVE_SCOPE == "off":
@@ -808,10 +978,20 @@ def report_run_end(
         )
         fails = _RUN_FAILURES
         digest = dict(fails["digest"])
+        gf_held = [g for g in held if _hold_reason(g) == HOLD_GF_LOOKUP]
+        token_held = [
+            g for g in held if _hold_reason(g) == HOLD_NOTES_TOKEN
+        ]
         report: dict = {
             "scope": EFFECTIVE_SCOPE,
             "gf_lookup": _gf_lookup_status(state),
             "held_total": len(held),
+            "held_by_reason": {
+                HOLD_GF_LOOKUP: len(gf_held),
+                HOLD_NOTES_TOKEN: len(token_held),
+            },
+            "token_failed_total": len(token_held),
+            "token_failures_recorded": len(fails["token_failed_groups"]),
             "style_failed_chunks": fails["style_failed_chunks"],
             "style_rows_affected": fails["style_rows_affected"],
             "style_attach_failures": fails["style_attach_failures"],
@@ -820,27 +1000,30 @@ def report_run_end(
             "digest_failures_by_function": digest,
             "reset_purge_skipped": bool(reset_purge_skipped),
         }
-        _report_style_and_digest(fails, digest)
+        _report_style_and_digest(fails, digest, token_held)
         try:
             from pipeline import observability as _obs
 
             _obs.set_foreman_notes_held_tag(len(held))
         except Exception:  # noqa: BLE001
             pass
-        if held:
+        if token_held:
+            logging.warning(
+                "Foreman notes: %d group(s) held because the notes token "
+                "failed; carried as regeneration debt (force/regen flags "
+                "active: %s; they do not override the hold)",
+                len(token_held), "yes" if forced else "no",
+            )
+        if gf_held:
             logging.warning(
                 "Foreman notes: %d group(s) held because the GF lookup "
                 "failed; carried as regeneration debt (force/regen flags "
                 "active: %s; they do not override the hold)",
-                len(held), "yes" if forced else "no",
+                len(gf_held), "yes" if forced else "no",
             )
             ctx = _lookup_context(state)
-            ctx["held_groups"] = [
-                {"wr": str(g[0]), "week_ending": str(g[1]),
-                 "variant": str(g[2])}
-                for g in held[:_HELD_GROUPS_CAP]
-            ]
-            ctx["held_total"] = len(held)
+            ctx["held_groups"] = _held_entries(gf_held)
+            ctx["held_total"] = len(gf_held)
             ctx["force_flags_active"] = forced
             ctx["reset_purge_skipped"] = bool(reset_purge_skipped)
             _capture(
@@ -1179,6 +1362,9 @@ def group_notes_token(sorted_rows: Any, row_identity: Any) -> str:
             "Foreman notes: group token failed (%s)", type(exc).__name__
         )
         _count_digest("group_notes_token", exc)
+        # Fail closed: '' here drops NOTES_FP from the hash, so record the
+        # group; main() holds it via notes_token_failed().
+        _record_token_failure(sorted_rows)
         return ""
 
 

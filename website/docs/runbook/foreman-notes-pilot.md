@@ -166,6 +166,50 @@ held groups regenerate from regeneration debt, and pilot files whose data did
 not change match their stored hash and are not re-sent. No `RESET_*` flag is
 needed (re-run one only if you had requested it while the lookup was failing).
 
+## If a pilot group's notes digest fails
+
+**Component owner:** Python billing pipeline (`group_notes_token` in
+`pipeline/foreman_notes.py`; the hold is in the group loop of
+`pipeline/orchestrate.py`, right after the GF-lookup hold).
+
+A pilot group's data hash includes a digest of its notes. If building that
+digest raises an error, the hash would silently lose the notes, so the run
+**holds that group** instead: no workbook, no upload, whether or not its data
+changed, and force or regen flags do not override it. The group keeps its
+current attachment and stored hash and is carried as regeneration debt, the
+same as a GF-lookup hold. This is true on reset runs too: with
+`RESET_HASH_HISTORY` or `RESET_WR_LIST` set, the reset purge leaves a held
+group's WR alone. Other groups, pilot or not, are not affected, and dry runs
+(`TEST_MODE=true`) never hold.
+
+- **Sentry:** the warning event `foreman-notes / notes-digest-failed` counts
+  the failures and, for a held group, adds `held_reason:
+  notes_token_failed` and the held `wr`, `week_ending` and `variant` list (at
+  most 200, with `token_failed_total`). No `gf-hold` event is sent. The cron
+  monitor checks the run in as **ERROR**.
+- **Run log:** the `⚡ Group processing phase` line ends with `, N held (notes
+  token failed)`, and one WARNING reads `Foreman notes: N group(s) held
+  because the notes token failed; carried as regeneration debt (...)`.
+  `session_summary` carries counts only under `foreman_notes`
+  (`held_by_reason`, `token_failed_total`).
+- **Reset runs:** the `RESET_*` attachment purge runs before the group loop,
+  so the run checks the notes digest of every pilot group in the reset scope
+  first and leaves out every WR that has a held group. One WARNING reads
+  `Foreman notes: N WR(s) left out of the RESET_* purge because a group is
+  held by the notes token; they keep their attachments`. If every WR in
+  `RESET_WR_LIST` is held, the purge does not run at all. If the check
+  fails for one group, that group counts as held and its WR is left out
+  too. If the check fails as a whole, the whole purge is skipped
+  (`RESET_* purge skipped because the notes-token preflight failed`) and
+  no attachment is deleted. While WRs are left out, a `WR_*.xlsx` file
+  whose name cannot be read is kept as well.
+- **What to do:** usually nothing; the next run whose digest succeeds checks
+  the group again and regenerates it only if needed (an unchanged group is
+  skipped, which is normal). If the same group is held run after run, open
+  an issue with the Sentry event link (the event names the exception class).
+  If you ran a reset while the group was held and that WR's stale files must
+  be cleaned, re-run the reset for that WR after the digest recovers.
+
 ## Dry run (do this first)
 
 On your own machine, with the token exported in your own shell and

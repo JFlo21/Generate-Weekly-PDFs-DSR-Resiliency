@@ -289,7 +289,9 @@ class SeamOrderTests(unittest.TestCase):
         self.assertEqual(
             users,
             {"main", "_run_memory_write_phase", "_note_pending_regen_pairs",
-             "_reconcile_deep_run_deletions", "_run_audit_memory_phase"})
+             "_reconcile_deep_run_deletions", "_run_audit_memory_phase",
+             # 2026-11-04: RESET_* purge preflight (notes-token hold).
+             "_notes_token_held_wrs"})
         for forbidden in ("_run_synthetic_test_mode", "_upload_one"):
             node = top.get(forbidden)
             if node is not None:

@@ -21,6 +21,12 @@
 - **Key findings**: contrast for a chip-backed link must be measured on the chip, not the bar: the first active colour read 4.98:1 on the bar and 3.98:1 on the chip
 - **Strengths**: scoping the overrides to `.navbar` left the desktop doc sidebar unchanged
 
+## 2026-11-03 — Foreman Notes fail-closed token hold (fix/foreman-notes-token-fail-closed)
+- **Scope**: 2 pipeline files, 1 test file, 1 runbook page; orchestrate + foreman_notes layers
+- **Atoms**: clean-code, test-quality (secure-coding read: no WR numbers in the shared session_summary, list only on the forked digest event)
+- **Result**: 0 critical, 0 warning, 2 suggestion
+- **Key findings**: `token_failed_total` duplicates `held_by_reason["notes_token_failed"]` in the run report (one count, two keys); `test_predicates_never_raise` asserts five behaviours in one test
+- **Strengths**: the hold key is computed at the failure site and checked at the decision site from the same `group_rows` object, order-independent, carrying no notes or names; GF-hold event and log shapes are pinned unchanged when no token hold happened
 ## 2026-11-04 — Corrections file fail-closed gate (stacked on PR #447)
 - **Scope**: 2 pipeline files + 1 test file (orchestration + reporting-corrections module), runbook/config docs
 - **Atoms**: clean-code, secure-coding, test-quality

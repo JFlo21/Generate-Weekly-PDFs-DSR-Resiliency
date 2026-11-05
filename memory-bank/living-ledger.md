@@ -9863,6 +9863,29 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   identity could never be found on retirement.
 - Evidence: `f429f892`, `9aad5b91`, `759ccbd4`, `abc93bae` on PR #447; full suite 2933 passed / 3 skipped /
   856 subtests, 6 gates passed at `abc93bae`; preview on the private file still APPLIED 260 / 90 / blocked 0.
+## [2026-11-03 20:10] Foreman Notes: fail closed when a pilot group's notes token raises.
+
+- Root cause: `group_notes_token` caught every exception and returned `''`, the same value as a
+  non-pilot group, and `calculate_data_hash` appends `NOTES_FP=` only when the token is non-empty. A
+  failing pilot group was hashed without its notes digest, regenerated once in that state, and later
+  note edits stopped changing its hash (or it churned when the failure was intermittent). The
+  GF-lookup hold never engaged, because it is run-wide GF state only.
+- Rule: the `except` now records the group in `_RUN_FAILURES["token_failed_groups"]`, keyed by an
+  order-independent digest of its `(__source_sheet_id, __row_id, __variant)` triples (no note, no
+  name). `notes_token_failed(rows)` (never raises, False in TEST_MODE, D2) makes main() hold the
+  group right after the GF-lookup hold, regardless of the stored-hash comparison:
+  `_fn_held_groups[key] = (wr, week_raw, variant, "notes_token_failed")` and `continue`, so it is
+  regeneration debt like a GF hold (cleanup tolerance, shadow-parity unobservable, cron ERROR).
+  A 3-tuple still means a GF-lookup hold.
+- Hashes are byte-identical: `change_detection` is untouched; successful tokens and non-pilot
+  groups hash exactly as on master 13a1dcb1 (pinned in the tests, extended and legacy modes).
+- Reporting: the `gf-hold` event and its WARNING keep their shape and now count GF holds only. The
+  token-held `{wr, week_ending, variant}` list (capped at 200) and `held_reason` ride the existing
+  forked-scope `notes-digest-failed` event; the returned run report stays counts-only
+  (`held_by_reason`, `token_failed_total`, `token_failures_recorded`) because main() puts it on the
+  shared `session_summary` context, where WR numbers are not allowed (DECISIONS 2026-10-30).
+- Evidence: `tests/test_foreman_notes_gf_hold.py` (TokenFailureHoldTests, TokenHoldReportTests,
+  TokenHoldPlacementTests; 16 RED on master, the pinned-hash test GREEN on master and after).
 ## [2026-11-03 20:30] Instruction files re-aligned for context cost (Claude Code docs pass).
 
 - What moved: `CLAUDE.md` § Pipeline flow (one screen) → pointer to `docs/ai/architecture.md` § Diagram-in-words
@@ -10010,3 +10033,38 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   skipped (per-pair gate owns them, no false "moved" warning); the warning lists held WR/week ids.
   Incremental filter needs no change (a changed row's new pair is always affected; unconfirmed
   pairs carry as regen debt). Corrections suite 100 passed; full suite 2953 passed / 3 skipped.
+## [2026-11-04 20:50] Foreman Notes: the RESET_* purge spares a notes-token-held pilot WR (PR #450).
+
+- Root cause: `main()` runs `_run_reset_purge` BEFORE the group loop, but the notes-token hold
+  (`_fn.notes_token_failed(group_rows)`) is only known inside the loop, after `calculate_data_hash`
+  called `group_notes_token`. On a `RESET_HASH_HISTORY` / `RESET_WR_LIST` run the purge deleted the
+  held pilot group's attachment and the hold then never rebuilt it. The GF-lookup hold was safe
+  because its failure is known before the purge (purge skipped entirely).
+- Rule: outside TEST_MODE, `_run_reset_purge(..., groups=groups)` first runs
+  `_notes_token_held_wrs`: for pilot groups in the reset scope (every group for a global reset;
+  groups whose WR is in `RESET_WR_LIST` otherwise) it builds the token through
+  `change_detection.notes_token_for_group` (same mode switch, sort and identity callable as the
+  hash) and reads the shared registry like the in-loop hold. Held WRs are left out: subset purge
+  gets `RESET_WR_LIST - held`; if that is empty the purge is NOT called (an empty `wr_subset` is
+  falsy in cleanup and would purge every WR); a global purge gets the additive
+  `purge_existing_hashed_outputs(exclude_wrs=...)` (local files and remote attachments; `None` is
+  byte-identical). A preflight exception skips the whole purge (fail closed, returns True).
+- WR comparison: the held WR is `derive_group_wr(rows)` (the loop's `wr_num`:
+  `str(raw).split('.')[0]` + `_RE_SANITIZE_HELPER_NAME` + `[:50]`), the token `excel.py` writes
+  into the filename and `build_group_identity(name)[0]` returns, and what
+  `config._normalize_reset_wr` reduces `RESET_WR_LIST` entries to.
+- Counts: `_fn.predict_token_failures` snapshots and restores `digest`, `digest_exc` and
+  `token_failed_groups`, so the in-loop hash call still counts and records the failure once, as
+  before. No `run_summary.json` or run-report key changed; hashes and `calculate_data_hash` untouched.
+  One counts-only WARNING per outcome; the preflight adds one duplicate `group token failed`
+  log line per failing group (class name only).
+- Evidence: `tests/test_foreman_notes_gf_hold.py` (ResetPurgeTokenHoldTests, PurgeExcludeWrsTests,
+  a reset run through `main()`): 13 test functions RED on cd31ed9e, GREEN after.
+- Review round 1 (2026-11-05): a pilot group whose preflight `token_fn` raises is held (its WR
+  spared) instead of aborting the preflight, counters still restored; while `exclude_wrs` is set
+  an identity-less `WR_*.xlsx` is kept (local and remote); the subset INFO log prints the subset
+  actually purged. 5 new tests RED then GREEN.
+- Review round 2 (Greptile P1, 2026-11-05): an identity-less `WR_*.xlsx` passes the `wr_subset`
+  filter in both cleanup loops, so the subset purge now also passes `exclude_wrs=held` whenever a
+  WR is held (the no-held subset call is unchanged); global and subset resets keep such names
+  alike. 1 new test RED then GREEN.
