@@ -9936,6 +9936,41 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
 - Left to the owner: whether `.agents/` (untracked since 2026-08-12, documented as a cross-runtime
   mirror) is tracked or ignored; `.planning/state.json` / `.continue-here.md` / `.gitkeep` are GSD
   working files; `/gsd:health` and `/gsd:docs-update` skipped again (Phase 15 live).
+
+## [2026-11-04 00:39] Reporting corrections fail closed when the configured file cannot be loaded.
+
+- Root cause: `get_active_set()` turned ANY load failure of a set `REPORTING_CORRECTIONS_FILE` into
+  "feature off for this run". After a correction had been applied, that off run regenerated the old
+  owner's workbook (`ATTACHMENT_REQUIRED_FOR_SKIP` forces it) while the correction workbook survived
+  pruning (the off run's displaced cleanup lists and deletes nothing), so the same rows billed twice until
+  the next readable run; unstamped rows also became first-write-wins freeze candidates.
+- Rule (owner decision): variable SET + file unloadable (CorrectionError from OSError / ValueError /
+  validation / allowed-roots, AND any unexpected exception) = `main()` stops before any Smartsheet read,
+  upload or Supabase billing write: `_rc.require_loadable()` right after `_set_sentry_session_tags` and
+  the start log, a dedicated `except _rc.CorrectionsUnavailable` clause (ahead of `FileNotFoundError` /
+  `Exception`) logs `🚫 Reporting corrections: file unavailable (<cls>) -- run stopped, nothing generated
+  or uploaded`, captures to Sentry (`subsystem=reporting_corrections`, class + count only, no chained
+  cause), sets `_session_failed` (cron check-in ERROR) and raises `SystemExit(1)` after the finally.
+  The only Supabase touch is the existing failure-path `run_ledger_finish(status='failed')`. Variable
+  unset stays byte-identical feature-off; `get_active_set()` keeps its None fallback for the CLI/tests.
+- Note: the existing missing-token stop still exits 0 (only the cron check-in is ERROR); this gate is
+  the first main() stop that fails the job. The gate precedes the token / synthetic branches, so
+  TEST_MODE, SKIP_UPLOAD and synthetic runs with a broken file stop too. `require_loadable` drops the
+  path from its frame locals before raising (Sentry `include_local_variables=True`).
+- Rule (workflow, owner-gated): the paste-ready "Stage reporting corrections" step reads repo variable
+  `REPORTING_CORRECTIONS_REQUIRED`; `true` + empty secret fails the job, so a deleted / renamed /
+  invisible secret cannot run feature-off after a correction was applied. Set it `true` while a
+  correction is applied; delete it only after the retire run logs the stale-identity cleanup line, then
+  delete the secret. Unset / any other value keeps "empty secret = feature off".
+- Files: `pipeline/reporting_corrections.py` (`CorrectionsUnavailable`, `require_loadable`),
+  `pipeline/orchestrate.py` (gate + handler), `tests/test_reporting_corrections.py`
+  (`FailClosedLoadTests`, `FailClosedMainGateTests`), runbook step 5 (+ paste-ready "Stage reporting
+  corrections" YAML, still owner-gated) and "Turning it off", `docs/guides/configuration.md`.
+- Evidence: RED 11 failed before the fix (loader + AST placement + behavioural main()); GREEN
+  `tests/test_reporting_corrections.py` + `tests/test_foreman_notes_gf_hold.py` 134 passed; after the
+  review fix round (allowlist placement test, frame-locals test) `tests/test_reporting_corrections.py`
+  96 passed, full suite 2949 passed / 3 skipped / 856 subtests. FIXTURE PASS only -- not a dry run, not production observed.
+
 ## [2026-11-04 01:45] PR #447 review round 8 (corrections module) -- verdicts and rules.
 
 - Rule (A, valid): a correction `credit.name` in the attribution sentinel family (`Unknown Foreman`,

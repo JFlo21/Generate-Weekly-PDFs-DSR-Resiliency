@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: November 4, 2026 (updated automatically)_
+_Last updated: November 5, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 4, 2026
+### 📋 Changelog — November 5, 2026
 
+- ✅ Problem fixed: stop the run when the corrections file cannot load ( follow-up)
+- ✨ New capability: opt-in WR 91006877 reporting correction
 - 📄 Help guides updated: align instruction files for context cost
 - 📄 Help guides updated: pilot live, Sentry check, PR ledger
 - ✨ New capability: foreman notes GF pilot (replaces )
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✅ Problem fixed: hold pilot groups on GF lookup failure
 - ✅ Problem fixed: render Mermaid diagrams
-- ✅ Problem fixed: make mobile navbar menu readable
-- ✅ Problem fixed: carry every unconfirmed group as regen debt
 
 <!-- /runbook-repo -->
 

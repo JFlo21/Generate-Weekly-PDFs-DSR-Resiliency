@@ -137,7 +137,7 @@ Smartsheet cell. Logic lives in `pipeline/reporting_corrections.py`; the operato
 | Type | Filesystem path to a JSON file (parsed in `pipeline/config.py`; leading and trailing whitespace stripped). |
 | Default | Unset or blank: feature off. Every hook is an identity no-op and output is byte-identical to a run without the module. |
 | Valid file | Each correction case `(WR, week ending)` is validated row by row against the admitted rows; a mismatch blocks that case only. |
-| Invalid file | Logged at ERROR with no names; nothing is applied (the run behaves as if the variable were unset). |
+| Set but unloadable file | `main()` stops the run before any read or write (ERROR check-in, exit 1; fail-closed rule below). Only the `validate` / `preview` CLI treats an invalid file as "nothing applied". |
 | Failure inside the run | A failure while preparing corrections is non-fatal: the stamps are cleared and no correction is applied that run. |
 | Side effects | The affected workbooks regenerate once (a `CORR=` token joins the change-detection hash). |
 | Rollback | Retire first: set `"retired": true` on the case and let a run finish, which regenerates the files the rows return to and removes any correction-only workbook. Only then remove the case or the variable. Removing the variable outright leaves correction-only workbooks on the sheet (they bill those rows twice). See [Turning it off / rolling back](../../website/docs/runbook/reporting-corrections.md#turning-it-off--rolling-back). |
@@ -161,7 +161,14 @@ TEST_MODE=true SKIP_UPLOAD=true WR_FILTER=<wr> REPORTING_CORRECTIONS_FILE=<priva
 
 For scheduled runs the runbook describes supplying the file through a repository secret that the
 weekly workflow decodes to a temporary path on the runner and exports as `REPORTING_CORRECTIONS_FILE`.
-<!-- VERIFY: REPORTING_CORRECTIONS_FILE and its decode step are not referenced in .github/workflows/weekly-excel-generation.yml in this worktree; confirm whether the workflow wiring and the repository secret exist on the default branch before relying on the scheduled-run path -->
+That "Stage reporting corrections" step is not in `weekly-excel-generation.yml` yet (owner approval
+pending); the exact YAML is in the runbook, `website/docs/runbook/reporting-corrections.md` step 5.
+
+Fail-closed rule: when `REPORTING_CORRECTIONS_FILE` is set but the file cannot be loaded (missing,
+unreadable, outside the allowed directories, invalid, or any unexpected loader error), `main()` stops
+the run before any Smartsheet read, upload or Supabase billing write: it logs `🚫 Reporting corrections:
+file unavailable (<class>) -- run stopped, nothing generated or uploaded`, exits non-zero and checks in
+ERROR. It never falls back to running without corrections. Unset means feature off, unchanged.
 
 ## Required vs optional
 
@@ -170,7 +177,8 @@ weekly workflow decodes to a temporary path on the runner and exports as `REPORT
   with a warning (`TARGET_SHEET_ID`, `RES_GROUPING_MODE`) or are coerced by `int(... or default)`, so
   an empty string behaves like unset.
 - Fail-closed settings: `FOREMAN_NOTES_PILOT_GFS` empty means no pilot groups; a column-title mismatch
-  on the General Foreman lookup means no pilot groups; an invalid corrections file means no corrections.
+  on the General Foreman lookup means no pilot groups; a set-but-unloadable corrections file stops the
+  run (see above).
 
 ## Per-environment configuration
 

@@ -3593,7 +3593,17 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
         _set_sentry_session_tags(session_start)
 
         logging.info("🚀 Starting Weekly PDF Generator with Complete Fixes")
-        
+
+        # Reporting corrections fail closed (owner 2026-11-04): with
+        # REPORTING_CORRECTIONS_FILE set, an unloadable file stops the
+        # run here -- before any Smartsheet call or Supabase
+        # billing/memory write; only the failure-path run_ledger row is
+        # written (same as the missing-token stop) -- instead of running
+        # feature-off and re-uploading the old owner's workbook beside an
+        # applied correction. No-op when unset. Handled by the
+        # _rc.CorrectionsUnavailable clause below.
+        _rc.require_loadable()
+
         # Initialize Smartsheet client or fall back to synthetic data in TEST_MODE
         if not API_TOKEN:
             if not TEST_MODE:
@@ -7182,6 +7192,35 @@ def main():  # pyright: ignore[reportGeneralTypeIssues]
                 _txn.set_status("ok")
                 _txn.__exit__(None, None, None)
                 _txn = None
+
+    except _rc.CorrectionsUnavailable as e:
+        # Fail-closed stop (see the require_loadable call above): nothing
+        # was read, generated or uploaded. Class + count only -- no path,
+        # no names. _session_failed makes the finally block check in
+        # ERROR; SystemExit (raised after the finally runs) fails the job.
+        _session_failed = True
+        logging.error(
+            f"🚫 Reporting corrections: file unavailable ({e.reason}) "
+            "-- run stopped, nothing generated or uploaded"
+        )
+        sentry_capture_with_context(
+            exception=e,
+            context_name="reporting_corrections",
+            context_data={
+                "error_type": e.reason,
+                "problem_count": e.problem_count,
+            },
+            tags={
+                "subsystem": "reporting_corrections",
+                "error_location": "main",
+            },
+            fingerprint=["reporting-corrections-unavailable", e.reason],
+        )
+        if _txn:
+            _txn.set_status("internal_error")
+            _txn.__exit__(type(e), e, e.__traceback__)
+            _txn = None
+        raise SystemExit(1) from None
 
     except FileNotFoundError as e:
         _session_failed = True
