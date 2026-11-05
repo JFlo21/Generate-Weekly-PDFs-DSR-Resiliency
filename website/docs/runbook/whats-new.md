@@ -16,6 +16,7 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 ### 📋 Changelog — November 5, 2026
 
+- ✅ Problem fixed: hold pilot groups whose notes token failed
 - ✅ Problem fixed: stop the run when the corrections file cannot load ( follow-up)
 - ✨ New capability: opt-in WR 91006877 reporting correction
 - 📄 Help guides updated: align instruction files for context cost
@@ -23,7 +24,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - ✨ New capability: foreman notes GF pilot (replaces )
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✅ Problem fixed: hold pilot groups on GF lookup failure
-- ✅ Problem fixed: render Mermaid diagrams
 
 <!-- /runbook-repo -->
 
@@ -516,4 +516,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
