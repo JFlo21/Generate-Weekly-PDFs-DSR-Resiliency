@@ -40,6 +40,7 @@ import os
 from typing import Any
 
 from pipeline import foreman_notes as _fn
+from pipeline import reporting_corrections as _rc
 from pipeline.pricing import parse_price
 from pipeline.utils import is_checked
 
@@ -406,6 +407,12 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
         )
         if _legacy_notes:
             hasher.update(f"\nNOTES_FP={_legacy_notes}".encode('utf-8'))
+        # Reporting corrections: groups holding (or displaced from) a
+        # corrected row carry CORR=; '' for every other group keeps its
+        # legacy hash byte-identical.
+        _legacy_corr = _rc.group_correction_token(sorted_rows)
+        if _legacy_corr:
+            hasher.update(f"\nCORR={_legacy_corr}".encode('utf-8'))
         return hasher.hexdigest()[:16]
 
     # Extended mode: Use incremental hashing
@@ -533,6 +540,12 @@ def calculate_data_hash(group_rows: list[dict]) -> str:
     )
     if _notes_token:
         meta_parts.append(f"NOTES_FP={_notes_token}")
+
+    # Reporting corrections (same contract as the legacy path above):
+    # '' -> no token -> byte-identical meta for uncorrected groups.
+    _corr_token = _rc.group_correction_token(sorted_rows)
+    if _corr_token:
+        meta_parts.append(f"CORR={_corr_token}")
 
     # Update hash with metadata
     if meta_parts:

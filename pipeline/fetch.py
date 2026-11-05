@@ -40,6 +40,7 @@ from pipeline.config import (
     PER_CELL_DEBUG_ENABLED,
 )
 from pipeline import foreman_notes as _fn
+from pipeline import reporting_corrections as _rc
 from pipeline.types import normalize_helper_value
 from pipeline.retry import smartsheet_call_with_retry
 from pipeline.pricing import (
@@ -503,6 +504,15 @@ def get_all_source_rows(client, source_sheets):
     foreman_raw_counts = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(foreman values as-seen)
     wr_exclusion_reasons = collections.defaultdict(lambda: collections.Counter())  # wr -> Counter(reason)
 
+    # Reporting corrections: load the (cached) correction file ONCE, on
+    # this thread, before the fetch workers start (empty when off; an
+    # unexpected error means feature off, never a failed fetch).
+    try:
+        _corr_sheet_ids = _rc.correction_sheet_ids()
+    except Exception:  # noqa: BLE001
+        logging.error("🚫 Reporting corrections unavailable; feature off")
+        _corr_sheet_ids = set()
+
     def _fetch_and_process_sheet(source):
         """Fetch and process a single source sheet. Returns (rows, sheet_exclusion_counts, sheet_foreman_counts, sheet_wr_exclusion_reasons, row_count)."""
         sheet_rows = []
@@ -670,6 +680,10 @@ def get_all_source_rows(client, source_sheets):
 
                 # Note: Unmapped column logging skipped - we now only fetch mapped columns for performance
                 # This reduces API payload size by ~64% and prevents Error 4000 for large sheets
+
+                # Reporting corrections: recovery is only possible on a
+                # sheet the active correction file lists (False when off).
+                _corr_active = source['id'] in _corr_sheet_ids
 
                 # Process all rows
                 for row in sheet.rows:
@@ -898,6 +912,29 @@ def get_all_source_rows(client, source_sheets):
                                         f"CU={row_data.get('CU')}, "
                                         f"rescued=${_rescued:.2f}"
                                     )
+
+                        # Reporting corrections (opt-in, owner-approved):
+                        # an explicitly listed row whose two date cells
+                        # are blank is admitted with reporting-only
+                        # __corr_* fields. Raw cells, __mem_* images and
+                        # the rate-recalc inputs above are untouched;
+                        # every other blank-date row keeps today's gate.
+                        if not weekly_date and _corr_active:
+                            try:
+                                _corr_rec = _rc.recovery_for_row(
+                                    row_data, source['id'], row.id,
+                                )
+                            except Exception:  # noqa: BLE001
+                                _corr_rec = None  # never recover on a bug
+                            if _corr_rec:
+                                row_data.update(_corr_rec)
+                                weekly_date = _corr_rec['__corr_week_ending']
+                                logging.warning(
+                                    "✏️ Reporting correction recovery: "
+                                    f"row {row.id} for WR "
+                                    f"{str(work_request).split('.')[0]} "
+                                    "admitted with blank source dates"
+                                )
 
                         price_raw = row_data.get('Units Total Price')
                         has_price = (price_raw not in (None, "", "$0", "$0.00", "0", "0.0")) and price_val > 0

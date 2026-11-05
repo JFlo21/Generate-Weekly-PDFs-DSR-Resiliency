@@ -9,6 +9,13 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-11-02 — Reporting corrections module + docs-update pass
+
+Branch `fix/wr-91006877-reporting-correction` (worktree, not pushed). Opt-in row-level re-credit path with
+retire/rollback semantics, two independent reviews and a re-verification; full suite and 6 gates green; feature
+OFF byte-identical. Docs: 48 docs verified, Azure docs corrected, four new guides and two reference pages.
+Details and rules: `memory-bank/living-ledger.md` `[2026-11-02 18:30]`. Owner gates: workflow step + secret,
+PR, helper-vs-primary choice.
 ## 2026-11-03 — Foreman Notes: hold pilot groups whose notes token failed (PR #450)
 
 What: when `group_notes_token()` raises for a pilot group, the group is now recorded in a per-run registry and
@@ -598,7 +605,7 @@ exception, `PARALLEL_WORKERS_DISCOVERY = 8`, and the retry wrapper are unchanged
 fix on the first post-merge scheduled **skip-MISS** run: `⚡ Phase 1 complete` should be low
 single-digit minutes and the Python `• Duration:` line under ~75 min (never the Actions job
 clock). See `memory-bank/living-ledger.md` `[2026-09-02 14:35]` and
-`.planning/debug/11.1-discovery-full-validation-cost.md`.
+`.planning/debug/11.1-discovery-full-validation-cost.md` (note 2026-11-02: that file is not in the repository or its history; the cost figures survive in the `[2026-09-02 17:45]` living-ledger entry).
 
 **Outcome (2026-09-02, 17:45 CDT).** #384 merged as `13e8e76`; the first scheduled run on a
 build containing it (33683979474, a genuine skip-MISS: 0/121 registry skips, 121 fully

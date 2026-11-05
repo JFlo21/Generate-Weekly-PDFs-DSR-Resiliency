@@ -1,5 +1,8 @@
 # Sub-project C — VAC Crew Claim Attribution (Design)
 
+> **Layout note (2026-11-02):** written against the pre-Phase-14 monolith. The symbols named below now live in `pipeline/*` (`generate_weekly_pdfs.py` is a thin facade that re-exports them), the local `hash_history.json` cache and its helpers were retired in Phase 11 Plan 08 in favour of `pipeline_memory.group_state`, and Living Ledger entries go in `memory-bank/living-ledger.md`, never `CLAUDE.md`.
+
+
 - **Status:** approved (design), pending implementation plan
 - **Date:** 2026-05-21
 - **Depends on:** Foundation A (`billing_audit.writer.resolve_claimer` +

@@ -9794,6 +9794,28 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
 - Widening past the 3 pilot GFs (scope `all`) is a reviewed workflow PR, not a variable flip.
 - Evidence: PR #445; workflow-contract + Foreman Notes tests 824 passed / 2 skipped; diff name scan 0.
 
+## [2026-11-02 18:30] Reporting corrections module (owner-approved re-credit path) + docs-update pass
+
+- What: `pipeline/reporting_corrections.py` (opt-in via `REPORTING_CORRECTIONS_FILE`; template
+  `docs/templates/reporting_corrections.template.json`; runbook `website/docs/runbook/reporting-corrections.md`).
+  Seams: fetch-time recovery of listed blank-date rows, exclusive credit override after the claimer maps,
+  `reporting_workday` day placement, `CORR=` token in both hash modes, stale-identity removal for retired /
+  blocked / superseded cases bounded to the WR/week, side-effect-free identity pass (`group_source_rows(...,
+  side_effects=False)`), recovered rows held out of memory/audit/drift phases until validated.
+- Why: a mis-assigned week (one foreman out, another covering, an email with two days reversed) needed a
+  row-level re-credit without editing Python or raw cells; future corrections must be data, not code.
+- Rules learned: (1) a correction case must pin `week_ending` to every row's weekly date or rows fall out of the
+  day blocks silently; (2) rollback = append a `retired: true` revision, run, wait for the
+  `🗑️ Reporting corrections … deleted` line, then remove — never edit a revision in place and never delete the
+  secret first, or a correction-only workbook stays on the sheet and bills twice; (3) $0.00 rows are
+  reconcile-only (never rendered), so approved row counts and rendered counts differ by design;
+  (4) `SKIP_UPLOAD` does not stop Supabase writes — only `TEST_MODE`/blank env does.
+- Evidence: commits `c5536351`..`462796d9` on `fix/wr-91006877-reporting-correction` (worktree, not pushed);
+  pytest 2909 passed / 3 skipped; `run_6_gates.sh` exit 0; feature-off golden hashes pinned to `ead47993`;
+  staged-diff name scan 0; reviewer + production-risk-reviewer + re-verification (GO-with-fixes → closed).
+- Docs pass (`63787962`): 48 docs verified by `gsd-doc-verifier`; Azure mirror docs now describe the PAT
+  pipeline; `AGENTS.md` is Codex-owned and never read.
+- Open for owner: workflow step + secret (protected), PR, helper-vs-primary file for the covering helper.
 ## [2026-11-03 14:05] Foreman Notes pilot verified live; corrections branch opened as PR #447.
 
 - Pilot: `FOREMAN_NOTES_UPLOAD=1` read back; run 41681444921 (2026-11-03 17:09Z) logged
@@ -9822,6 +9844,25 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   lands in the wrong workbook. Preview applies the same checks.
 - Evidence: `8bceceaa` full suite 2928 passed / 3 skipped, 6 gates passed; CodeQL clean from `3eed17a0`.
 
+## [2026-11-03 19:30] PR #447 review rounds 4-6 (published-identity cleanup) -- supersedes the 15:00 switch rule.
+
+- Rule (replaces "cleanup runs only under RES_GROUPING_MODE=both + claim attribution on"): a stale credit
+  identity is the one the correction PUBLISHED, fixed by the approved entry (`_credit_identity`: owner /
+  helper name + variant, one slot per workbook), never re-derived by re-grouping stand-ins under the retire
+  run's switches -- re-grouping merged owners into the legacy file or dropped helper workbooks, so the old
+  file was never matched and kept billing. Today's groups are still judged under the run's switches.
+- Rule: a stale credit row is pinned to the CASE WR and week (cleanup reads both from the row); a row moved
+  to another WR must never point cleanup at the new WR's target row.
+- Rule: cleanup fails closed on an early corrections failure -- `hold_recovered_rows` raising, or the
+  `prepare_run` fallback `drop_all_corrections` -- via a run-wide hold that survives `prepare_run` and
+  clears only per run; unsettled correction pairs (generated-but-not-uploaded group, placement / read hold,
+  TEST_MODE, MAX_GROUPS, time budget, failed pass) also join the Foreman Notes holds handed to the
+  sheet-wide `cleanup_untracked_sheet_attachments`, whose variant-migration branch trusts generated files.
+- Rule: under the legacy primary identity (attribution off or `RES_GROUPING_MODE=primary`) EVERY primary
+  credit blocks, not only an owner change -- the bare file carries no `_User_` suffix, so the published
+  identity could never be found on retirement.
+- Evidence: `f429f892`, `9aad5b91`, `759ccbd4`, `abc93bae` on PR #447; full suite 2933 passed / 3 skipped /
+  856 subtests, 6 gates passed at `abc93bae`; preview on the private file still APPLIED 260 / 90 / blocked 0.
 ## [2026-11-03 20:10] Foreman Notes: fail closed when a pilot group's notes token raises.
 
 - Root cause: `group_notes_token` caught every exception and returned `''`, the same value as a
@@ -9895,3 +9936,65 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
 - Left to the owner: whether `.agents/` (untracked since 2026-08-12, documented as a cross-runtime
   mirror) is tracked or ignored; `.planning/state.json` / `.continue-here.md` / `.gitkeep` are GSD
   working files; `/gsd:health` and `/gsd:docs-update` skipped again (Phase 15 live).
+## [2026-11-04 01:45] PR #447 review round 8 (corrections module) -- verdicts and rules.
+
+- Rule (A, valid): a correction `credit.name` in the attribution sentinel family (`Unknown Foreman`,
+  `Unknown`, `Unknown Helper`, `Unknown Helper 2`, `Unknown VAC Crew`, `#`-tokens, `_NO_MATCH`; any case,
+  `_`/space spelling) fails file validation. `pipeline/reporting_corrections.py` carries a TWIN of
+  `billing_audit.writer.is_sentinel_claimer` (`_SENTINEL_CREDIT_NAMES`), not an import: the validate /
+  preview CLI must never load `billing_audit` (`test_cli_never_imports_writer_packages`). A test pins the
+  twin to the writer's sets and predicate -- extend BOTH when the sentinel family grows.
+- Rule (W1, fix round): the sentinel check runs on the raw name AND on the sanitized workbook token
+  (`_credit_token`, the `_credit_identity` sanitizer): `Unknown/Foreman` / `Unknown,Foreman` (primary) and
+  `Unknown.Helper` (helper drops `.`) publish the real placeholder identity (`USER_Unknown_Foreman`). The
+  parity test also walks every writer frozenset named `*SENTINEL*`, so a later third set reaches the twin.
+- Rule (C, valid): two distinct credit names that sanitize to one workbook token in one correction
+  (`_credit_identity` suffix: primary keeps `.@-`, helpers keep `-`; 50-char cut) fail validation --
+  they would merge into one `_User_` / `_Helper_` file. Problem texts carry row indices only (they are
+  logged at ERROR), never a name.
+- Rule (B, valid): an `EXCLUDE_WRS` WR has no group today, so "no group carries this identity" proves
+  nothing -- its correction pairs are held out of the displaced pass AND carried into
+  `_corr_unsettled_pairs` (`_corr_excluded_pairs`, read from the facade like grouping; counts-only log).
+  Without it a retired / superseded case's published file was deleted with no replacement.
+- E (valid, defense in depth): the `hold_recovered_rows` except handler raises `_rc.hold_cleanup` FIRST,
+  before the log and the recovered-row drop (AST-pinned).
+- D (unreachable in one process): the version map is cumulative, but every fetch scope of one `main()`
+  (2a probe / 2a full / 2b narrowed, which always adds `correction_sheet_ids()`, or the full fallback)
+  re-reads every correction sheet present in `source_sheets`, and a read failure lands in the failed set;
+  production runs one `main()` per process. No change.
+- F / G / H (no defect): the `side_effects=False` pass runs only after the main side-effecting grouping and
+  reads `_attr_map` without mutating it; `apply_credit_overrides` pops from the three per-call claimer
+  dicts (typed `dict`, intentionally not `Mapping`); `_allowed_roots` rejects the root path itself (a
+  directory, never a file).
+- Evidence: RED->GREEN `test_rejects_sentinel_credit_names`, `test_sentinel_rule_matches_the_attribution_
+  layer`, `test_rejects_credits_colliding_on_one_workbook_identity`, `Round8Tests` (excluded-WR displaced
+  pass + sheet-wide hold, unreadable-EXCLUDE_WRS fail-closed, handler order), fix round RED->GREEN
+  `test_rejects_names_that_sanitize_to_a_sentinel`; full suite 2946 passed / 3 skipped / 921 subtests
+  (uncommitted).
+
+## [2026-11-04 02:40] PR #447 -- moved credited row holds its old credit file (bug lane).
+
+- Verdict REAL (reproduced, fixture): a credited row later moved to another WR or week blocks its case
+  (`row_differences`: work request / week differs); `_register_credited` registers the published credit
+  identity under the CASE pair, and both cleanup passes only checked groups of that pair. With the row's
+  NEW group generated but not uploaded, `_remove_empty_displaced_attachments` deleted the old credit file,
+  and the sheet-wide pruning's variant-migration branch did too (`_corr_unsettled_pairs` saw no unsettled
+  group in any active pair; a live `_Helper_` in the case pair fires the gate) -- the only published
+  report of those units was removed.
+- Rule: a credited slot records the credited `(sheet, row)` ids (`_DISPLACED[...]['row_keys']`,
+  `_rc.displaced_row_keys()`). `orchestrate._corr_moved_row_pairs` finds each id's group TODAY (any
+  WR / week) and holds the case pair while any such group is unsettled; carried into BOTH the displaced
+  pass (counts-only warning) and `_corr_unsettled_pairs`. A row in no group today has no replacement
+  upload to wait for (unchanged semantics); `settled_group_keys=None` stays "no gate" in the displaced
+  pass; a failed lookup holds every stale pair (fail closed).
+- Note: parity with today's non-correction behaviour (a plain row moving WR with a failed destination
+  upload also leaves its units in no published file for one run) -- this hold covers the
+  correction-owned cleanup only.
+- Evidence: RED->GREEN `MovedCreditedRowTests` (displaced pass, sheet-wide hold, fail-closed lookup;
+  control `test_settled_destination_releases_cleanup` green before and after); corrections suite 97
+  passed; full suite 2950 passed / 3 skipped / 921 subtests (uncommitted).
+- Review follow-up: a row moved into an `EXCLUDE_WRS` WR (in no group) holds via its live WR
+  (`_rc.displaced_row_wrs()`, fail closed on an unreadable list); groups of the case's own pair are
+  skipped (per-pair gate owns them, no false "moved" warning); the warning lists held WR/week ids.
+  Incremental filter needs no change (a changed row's new pair is always affected; unconfirmed
+  pairs carry as regen debt). Corrections suite 100 passed; full suite 2953 passed / 3 skipped.

@@ -74,6 +74,13 @@ FOREMAN_NOTES_UPLOAD = os.getenv(
 # Skip Smartsheet uploads for local testing (files still saved to OUTPUT_FOLDER)
 SKIP_UPLOAD = os.getenv('SKIP_UPLOAD', 'false').lower() == 'true'
 
+# Owner-approved reporting corrections (pipeline/reporting_corrections.py).
+# Path to a private JSON file; unset/blank = feature off (byte-identical
+# behaviour). Runbook: website/docs/runbook/reporting-corrections.md.
+REPORTING_CORRECTIONS_FILE = (
+    os.getenv('REPORTING_CORRECTIONS_FILE', '').strip() or None
+)
+
 # --- CORE CONFIGURATION ---
 API_TOKEN = os.getenv("SMARTSHEET_API_TOKEN")
 # TARGET / AUDIT SHEET CONFIGURATION

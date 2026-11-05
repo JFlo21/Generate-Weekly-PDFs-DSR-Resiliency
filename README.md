@@ -176,6 +176,35 @@ Full reference: `.github/prompts/configuration-environment.md` and
 | Change detection | `.github/prompts/change-detection-troubleshooting.md` |
 | Azure pipeline | `README_AZURE.md` and companion docs |
 
+## 🧩 Optional Modules
+
+### Reporting corrections (opt-in)
+
+`pipeline/reporting_corrections.py` re-credits specific, already-billed
+source rows (matched by exact Smartsheet `(sheet_id, row_id)`) to an
+owner-approved person and reporting workday, without changing any raw
+Smartsheet cell value. It is **off by default**: when
+`REPORTING_CORRECTIONS_FILE` is unset, every hook is an identity no-op and
+a run is identical to one without the module.
+
+- Template for the (private, never committed) correction file:
+  `docs/templates/reporting_corrections.template.json`
+- Validate or preview a file with zero external writes:
+
+  ```bash
+  python -m pipeline.reporting_corrections validate --file F
+  python -m pipeline.reporting_corrections preview --file F --rows-json ROWS
+  ```
+
+- Operator runbook: `website/docs/runbook/reporting-corrections.md`
+- Tests: `tests/test_reporting_corrections.py`
+
+## 📄 License
+
+No `LICENSE` file is present in this repository. This is internal,
+production software of LineTec Services (a Centuri company).
+<!-- VERIFY: license and redistribution terms are not stated in the repository -->
+
 ---
 
 <div align="center">
