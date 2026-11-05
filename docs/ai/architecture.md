@@ -14,6 +14,7 @@ Source-of-truth order: `.claude/context-map.md` § Source-of-truth order.
 | `pipeline/` package | Discovery, fetch, grouping, pricing, change detection, Excel gen, upload, cleanup, attribution, retry, snapshot-drift, orchestration | Supabase schema DDL; frontend | Smartsheet API (SDK); `pipeline_memory.*` (reader/client); `billing_audit.*` (writer, lazy import) |
 | `pipeline/memory_candidate.py` | Pure inputs to the D-04 incremental candidate set (row group-hash fingerprint `row_group_hash_fingerprint`, `GROUP_DERIVATION_KEYS`; extended by 11-12/11-13) | Any Smartsheet / Supabase call; generation, grouping or pricing | `pipeline/orchestrate.py::_run_memory_write_phase` stamps `__mem_group_fp`; `pipeline_memory/writer.py` folds it into `row_state.content_hash` (hash-only, no DDL) |
 | `pipeline/foreman_notes.py` | Phase 15 pilot logic: effective scope (production stays `off`), dry-run no-persist guard (`memory_write_blocked`), General Foreman pilot set, note normaliser, Smartsheet colour descriptor resolution, lazy pilot-only `include=format` enrichment, `NOTES_FP` and fingerprint components | Smartsheet writes (read-only `get_sheet`); Supabase schema; env reads outside `pipeline/config.py` | Seams: `discovery.py` (mapping synonym + `+fn1` marker), `change_detection.py` (`NOTES_FP`), `memory_candidate.py` (row fingerprint + globals), `excel.py` (pilot branches), `orchestrate.py` (`initialize`, `attach_group_styles`, write guards) |
+| `pipeline/reporting_corrections.py` | Opt-in, owner-approved reporting corrections: re-credits specific source rows (matched by exact `(sheet_id, row_id)`) to an approved owner and reporting workday without touching any raw Smartsheet cell; schema/validation of the corrections JSON, mismatch blocking, credit overrides, displaced-group tracking, `CORR=` hash token, and a zero-write `validate` / `preview` CLI (`python -m pipeline.reporting_corrections`) | Smartsheet or Supabase calls (never imports a `pipeline_memory` / `billing_audit` writer; only I/O is reading the configured JSON); env reads outside `pipeline/config.py` | Activated by `REPORTING_CORRECTIONS_FILE` (`pipeline/config.py`; unset = every hook is an identity no-op, byte-identical run). Seams: `fetch.py` (`recovery_for_row`), `orchestrate.py` (`prepare_run`), `grouping.py` (`apply_credit_overrides`), `excel.py` (`reporting_workday`), `change_detection.py` (`group_correction_token`) |
 | `audit_billing_changes.py` | Price anomaly / risk-level (LOW/MEDIUM/HIGH) audit | Excel generation, upload | Imported by facade; optional (import-error fallback stub) |
 | `pipeline_memory/` (Supabase) | Shadow run-memory: `sheet_registry`, `row_state`, `row_event`, `group_state`, `run_ledger` + `upsert_rows_bulk` RPC | `billing_audit` schema/data | Own Supabase client (`pipeline_memory/client.py`), independent kill switch |
 | `billing_audit/` (Supabase) | Per-row attribution freeze, run fingerprinting (`pipeline_run`), hash store (`group_content_hash`), snapshot-drift audit | `pipeline_memory` schema/data | Own Supabase client (`billing_audit/client.py`); lazy-imported by `generate_weekly_pdfs.py` |
@@ -88,7 +89,7 @@ into the Smartsheet pipeline.
   `Foreman Helping?` is non-blank and `Helping Foreman Completed Unit?` is checked; `vac_crew` when
   `VAC Crew Helping?` is non-blank and `Vac Crew Completed Unit?` + `Units Completed?` are checked,
   gated by `sheet_has_vac_crew_columns` (`pipeline/fetch.py` ~631). VAC-crew rows live in the same
-  sheets as primary/helper rows; `VAC_CREW_FOLDER_IDS` (`pipeline/config.py:325`) is a discovery
+  sheets as primary/helper rows; `VAC_CREW_FOLDER_IDS` (`pipeline/config.py:359`) is a discovery
   folder list, not a row tag.
 - **Helper #2 family (Phase 14, `HELPER2_ENABLED`, default off):** three additional variants, all
   gated behind the flag — `helper2` (plain, mirrors `helper`), `aep_billable_helper2` and
@@ -106,7 +107,7 @@ into the Smartsheet pipeline.
   `__vac_crew_email` (populated, no Excel consumer). Each variant's Excel header reads its own fields
   (`pipeline/excel.py` `elif variant == 'vac_crew'`) — no fallthrough to the primary foreman or `Job #`
   (the April-2026 Arrowhead job-number leak; ledger `[2026-09-02 21:20]`).
-- **Group keys** (`pipeline/grouping.py` `group_source_rows`: docstring ~147-182; the `HELPER2` key is built in code ~903): `MMDDYY_WR`, `MMDDYY_WR_HELPER_<sanitized>`,
+- **Group keys** (`pipeline/grouping.py` `group_source_rows`: docstring ~155-211; the `HELPER2` key is built in code ~941): `MMDDYY_WR`, `MMDDYY_WR_HELPER_<sanitized>`,
   `MMDDYY_WR_HELPER2_<sanitized>`, `MMDDYY_WR_VACCREW[_<sanitized claimer>]`; filenames
   `WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{|_User_<x>|_Helper_<x>|_Helper2_<x>|_VacCrew}_{hash}.xlsx`,
   plus the two Helper #2 subcontractor shadow shapes `_AEPBillable_Helper2_<x>` and
@@ -117,6 +118,28 @@ into the Smartsheet pipeline.
   `New Contract Rates copy regenerated again.csv`, committed), `OLD_RATES_CSV` (default
   `CU List - Corpus North & South.csv`, not committed), `SUBCONTRACTOR_RATES_CSV` (default
   `data/subcontractor_rates.csv`); sheets under `SUBCONTRACTOR_FOLDER_IDS` price at subcontractor rates.
+
+## Reporting corrections seams (opt-in)
+
+`pipeline/reporting_corrections.py` is inert unless `REPORTING_CORRECTIONS_FILE` points at a private JSON
+file (template: `docs/templates/reporting_corrections.template.json`; operator procedure:
+`website/docs/runbook/reporting-corrections.md`). With the variable unset, each hook below returns its input
+unchanged and group hashes stay byte-identical to a run without the module. Each seam is a small additive
+call from the owning module, in run order:
+
+| Stage | Module / hook | What the correction does there |
+|---|---|---|
+| Candidate set | `pipeline/orchestrate.py` (incremental narrowing, `correction_pairs()` / `correction_sheet_ids()`) | Every active correction's `(WR, week)` pair is always a candidate and its listed sheets are always re-fetched, so incremental mode cannot skip a corrected case |
+| Fetch admission | `pipeline/fetch.py` -> `recovery_for_row` | Admits explicitly listed rows whose two date cells are blank (recovered rows carry a reporting-only week in `__corr_week_ending`) |
+| Validation | `pipeline/orchestrate.py` -> `prepare_run` | Validates every correction against the admitted rows, blocks mismatched cases, stamps applied rows, registers displaced group keys, adds counts to the audit summary. Failure is non-fatal: stamps are stripped and the run proceeds uncorrected |
+| Grouping | `pipeline/grouping.py` -> `apply_credit_overrides` | Gives stamped rows exclusive credit AFTER the frozen-claimer maps are built, so a frozen claimer never outranks the approved credit. Supported variants: `primary`, `helper`, `helper2` |
+| Day placement | `pipeline/excel.py` -> `reporting_workday` | Approved reporting workday (`__corr_workday`) wins over `Snapshot Date` |
+| Change detection | `pipeline/change_detection.py` -> `group_correction_token` | Groups holding (or displaced from) a corrected row add a `CORR=` token to the hash (legacy and extended paths); all other groups hash as before |
+| Cleanup | `pipeline/orchestrate.py` (displaced-group sweep over `displaced_groups()`) | A displaced group that is now empty has its stale attachment removed via the identity-scoped `delete_old_excel_attachments` (planned delete only under `SKIP_UPLOAD`); quarantined WRs and Foreman-Notes-held pairs are never touched |
+
+Logging rule for the module: log lines carry correction ids, WR numbers, row ids and counts only, never a
+person's name (Sentry breadcrumbs inherit log text). Seams and hook names read from the module docstring and
+the call sites in `pipeline/` on 2026-11-02.
 
 ## Last verified
 

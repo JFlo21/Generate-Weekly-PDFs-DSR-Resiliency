@@ -516,6 +516,11 @@ _FINGERPRINT_EXCLUSIONS = {
         "written by grouping on per-group copies from covered inputs",
     "__week_ending_date":
         "written by grouping on per-group copies from the week column",
+    "__corr_week_ending":
+        "reporting-correction stamp from the private corrections file, "
+        "not source content; its (wr, week) pair is always an incremental "
+        "candidate (reporting_corrections.correction_pairs) and the "
+        "CORR= hash token covers the group",
     "User":
         "identity-only last-position sort tiebreaker in "
         "canonical_sorted_rows; hash-neutral by construction (it can only "

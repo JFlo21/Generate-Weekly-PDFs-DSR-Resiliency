@@ -104,14 +104,14 @@ edits it without explicit approval.
      known, mechanically-explained limitation of comparing two
      non-frozen-clock runs, not a defect in the write path.
 
-5. **The exact workflow change.** `RUN_MEMORY_WRITE_ENABLED` is
-   currently **absent** from
-   `.github/workflows/weekly-excel-generation.yml` — the code default is
+5. **The exact workflow change.** `RUN_MEMORY_WRITE_ENABLED` was
+   **absent** from
+   `.github/workflows/weekly-excel-generation.yml` when this checklist was written (it is now set to `'1'` at ~line 239 — the flip has shipped) — the code default is
    `'0'` (`pipeline/config.py`), so this is an **add**, not a flip of an
    existing value. Add one line to the **single** `Generate reports`
    step's `env:` block (the `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`
-   pair at ~line 252) — that is the only step that runs
-   `generate_weekly_pdfs.py`. The second `SUPABASE_URL` pair (~line 606)
+   pair at ~line 227) — that is the only step that runs
+   `generate_weekly_pdfs.py`. The second `SUPABASE_URL` pair (~line 619)
    belongs to `Publish artifacts to Supabase`, which runs
    `scripts/publish_artifacts_to_supabase.py` and never reads this flag,
    so it must NOT be added there. Match the existing style:
@@ -226,7 +226,7 @@ not fabricated ahead of a real run.
 - CONTEXT.md D-10 (`.planning/phases/11-incremental-read-affected-group-regeneration/11-CONTEXT.md`)
 - `.planning/phases/10-run-memory-foundation-shadow-writes/10-06-SUMMARY.md`
   (the four real control/shadow runs and the comparator canonicalization fix)
-- `.planning/todos/pending/2026-08-25-run-memory-review-followups.md`
+- `.planning/todos/done/2026-08-25-run-memory-review-followups.md`
   (WR-01..WR-04, IN-01 source)
 - `pipeline_memory/writer.py` (`upsert_group_state`, `run_ledger_finish`)
 - `scripts/compare_control_run.py`

@@ -73,7 +73,7 @@ Supporting modules:
 Smartsheet API
    ↓  folder-based discovery (SUBCONTRACTOR_FOLDER_IDS,
    ↓  ORIGINAL_CONTRACT_FOLDER_IDS, VAC_CREW_FOLDER_IDS),
-   ↓  cached in generated_docs/discovery_cache.json
+   ↓  skip-validation index from pipeline_memory.sheet_registry (local discovery cache retired, Phase 11 Plan 08)
 Auto-discover source sheets → validate column mappings
    (synonyms for "Weekly Reference Logged Date", helper_dept,
     helper_foreman, Job # variations)
@@ -83,11 +83,11 @@ Parallel row fetch (ThreadPoolExecutor, PARALLEL_WORKERS ≤ 8;
    ↓
 Filter + group by (WR, week_ending, variant, foreman, dept, job)
    ↓
-Pre-fetch target-row attachments into an in-memory cache
+Resolve attachment identity from pipeline_memory.group_state (per-row on-demand fallback; the bulk pre-fetch step was retired)
    (sub-budgeted; per-future timeout; falls back to per-row lookup)
    ↓
 SHA256 change detection per group key → skip unchanged
-   (generated_docs/hash_history.json, capped at 1000 entries)
+   (pipeline_memory.group_state / billing_audit.group_content_hash in Supabase; the local hash_history.json cache was retired in Phase 11 Plan 08)
    ↓
 Excel generation (openpyxl): LineTec logo, headers, styling, totals
    → WR_{wr}_WeekEnding_{MMDDYY}_{timestamp}{variant}_{hash}.xlsx
@@ -132,9 +132,9 @@ defaults). Required: **`SMARTSHEET_API_TOKEN`**.
 | Core integration | `TARGET_SHEET_ID` (default `5723337641643908`), `AUDIT_SHEET_ID`, `SENTRY_DSN` |
 | Run modes | `TEST_MODE`, `SKIP_UPLOAD`, `FORCE_GENERATION`, `WR_FILTER`, `MAX_GROUPS`, `RES_GROUPING_MODE` (`primary`/`helper`/`both`) |
 | Change detection | `RESET_HASH_HISTORY`, `EXTENDED_CHANGE_DETECTION`, `REGEN_WEEKS`, `RESET_WR_LIST`, `KEEP_HISTORICAL_WEEKS` |
-| Performance | `USE_DISCOVERY_CACHE`, `DISCOVERY_CACHE_TTL_MIN` (default 10080 = 7 days), `SKIP_CELL_HISTORY`, `PARALLEL_WORKERS` (≤ 8) |
-| Time budgets (CI) | `TIME_BUDGET_MINUTES` (workflow sets 165), `ATTACHMENT_PREFETCH_MAX_MINUTES` (10), `ATTACHMENT_PREFETCH_FUTURE_TIMEOUT_SEC` (45) |
-| Debugging | `DEBUG_MODE`, `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`, `FOREMAN_DIAGNOSTICS`, `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS` |
+| Performance | `SKIP_CELL_HISTORY`, `PARALLEL_WORKERS` (≤ 8) — `USE_DISCOVERY_CACHE` / `DISCOVERY_CACHE_TTL_MIN` are retired no-ops |
+| Time budgets (CI) | `TIME_BUDGET_MINUTES` (workflow sets 165) — the `ATTACHMENT_PREFETCH_*` pair is retired and has no effect |
+| Debugging | `QUIET_LOGGING`, `PER_CELL_DEBUG_ENABLED`, `FILTER_DIAGNOSTICS`, `FOREMAN_DIAGNOSTICS`, `LOG_UNKNOWN_COLUMNS`, `DEBUG_SAMPLE_ROWS` |
 | Privacy | `SENTRY_ENABLE_LOGS` (default `false` — keep off; logs can embed row PII) |
 
 Full details: `.github/prompts/configuration-environment.md`.
@@ -231,7 +231,7 @@ Every merge to `master` appends a changelog entry via
 **Q: A sheet isn't being discovered.**
 Check that it has the required *Weekly Reference Logged Date* column
 (synonyms supported). Sheets missing it are skipped with a ⚠️ log.
-Also try `USE_DISCOVERY_CACHE=false` to bypass a stale cache.
+(The old `USE_DISCOVERY_CACHE=false` advice no longer applies: discovery skips full validation only on a `pipeline_memory.sheet_registry` version match, so a stale local cache cannot occur.)
 
 **Q: A WR group didn't regenerate after data changed.**
 Hash-based change detection may consider it unchanged. Use
@@ -249,7 +249,7 @@ The SDK retries automatically; never raise `PARALLEL_WORKERS` above 8.
 Enable `SKIP_CELL_HISTORY=true` to reduce call volume.
 
 **Q: Where do generated files go?**
-`generated_docs/` — gitignored and safe to clear. In CI, artifacts are
+`generated_docs/` — workbooks (`*.xlsx`) and most run outputs there are gitignored (only specific files are ignored, not the whole folder — check `git status` before clearing). In CI, artifacts are
 organized and preserved per
 `.github/instructions/artifact-preservation-guide.instructions.md`.
 

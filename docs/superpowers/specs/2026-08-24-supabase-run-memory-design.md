@@ -1,5 +1,8 @@
 # Supabase Run Memory — incremental billing pipeline design (v1.4)
 
+> **Note (2026-11-02):** the debug note `.planning/debug/unknown-foreman-helper-shadow-2026-08-24.md` cited below was never committed (it exists only as an untracked local file); its conclusions are summarised in this spec.
+
+
 **Status:** DRAFT for Juan's review (2026-08-24). No production code, schema, or workflow
 changed. Written from the 2026-08-24 diagnosis
 (`.planning/debug/unknown-foreman-helper-shadow-2026-08-24.md`).

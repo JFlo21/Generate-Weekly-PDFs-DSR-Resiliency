@@ -1,5 +1,8 @@
 # Refactor Assessment — `generate_weekly_pdfs.py`
 
+> **Status (2026-11-02):** dated assessment, superseded by the Phase 14 `pipeline/` decomposition. The proposed `pipeline/identity.py` and `pipeline/testmode.py` modules were never created (`build_group_identity` lives in `pipeline/change_detection.py`; the synthetic test-mode helpers in `pipeline/orchestrate.py`), and `load_hash_history` / `save_hash_history` were retired with the local hash cache (Phase 11 Plan 08).
+
+
 _Read-only assessment · 2026-06-25 · 6-agent workflow, adversarially verified · **no code changed.**_
 
 ## Verdict: **SPLIT — yes, incremental & behavior-preserving**

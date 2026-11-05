@@ -5,7 +5,7 @@ Adjust filtering logic so that rows are included in the Excel file even when "Jo
 
 ## Analysis Summary
 
-### Current Required Filtering Criteria (Line 1051-1052):
+### Current Required Filtering Criteria (`pipeline/grouping.py`, lines 622-623):
 - `Work Request #` - REQUIRED
 - `Weekly Reference Logged Date` - REQUIRED  
 - `Units Completed?` = true/checked - REQUIRED
@@ -13,27 +13,27 @@ Adjust filtering logic so that rows are included in the Excel file even when "Jo
 
 ### Job # Usage:
 - **NOT** part of main row acceptance criteria
-- Only used for DISPLAY in the Excel report (lines 1471-1485)
-- Only logs a warning if missing (line 1483-1485)
+- Only used for DISPLAY in the Excel report (`pipeline/excel.py`, ~lines 250-258)
+- Only logs a warning if missing (`pipeline/excel.py`, lines 256-258)
 
-### Helper Row Validation (Line 1272-1273) - **CHANGED**:
+### Helper Row Validation (`pipeline/grouping.py`, line 771) - **CHANGED**:
 - **BEFORE**: Required BOTH `helper_dept` AND `helper_job` for valid helper row
 - **AFTER**: Only requires `helper_dept`; `helper_job` is now OPTIONAL
 
 ## Changes Made
 
-### `generate_weekly_pdfs.py`
+### `pipeline/grouping.py` and `pipeline/change_detection.py` (originally `generate_weekly_pdfs.py`)
 
-1. **Line 1272-1273** - Helper row validation:
+1. **`pipeline/grouping.py` line 771** - Helper row validation:
    - Changed: `if helper_dept and helper_job:` → `if helper_dept:`
    - `helper_job` is now optional for helper row validation
    - Added clarifying comment about Job # being optional
 
-2. **Line 1303-1305** - Warning message:
+2. **`pipeline/grouping.py` ~line 924** - Warning message:
    - Updated to clarify that only `helper_dept` is required
    - Message now indicates Job # is optional
 
-3. **Line 351-362** - `calculate_data_hash()`:
+3. **`pipeline/change_detection.py` line 274** - `calculate_data_hash()`:
    - Updated to make `helper_job` optional
    - Split warning into two: one for required fields, one info for missing Job #
    - Hash still includes `helper_job` field (empty string if missing) for consistency
@@ -59,16 +59,16 @@ When users download Excel files from Smartsheet and open them, Excel shows error
 
 ### Fixes Applied
 
-1. **Improved `safe_merge_cells()` function** (line ~1381)
+1. **Improved `safe_merge_cells()` function** (`pipeline/excel.py` line 51)
    - Now uses `range_boundaries()` to properly detect overlapping ranges
    - Prevents XML corruption from overlapping merged cells
    - More robust overlap detection algorithm
 
-2. **Removed problematic footer code** (line ~1797)
+2. **Removed problematic footer code** (`pipeline/excel.py` lines 893-895)
    - Footer attributes (`oddFooter.right.text`, etc.) removed
    - These were creating malformed XML that Excel couldn't parse
    - Footers are not critical for the report functionality
 
-3. **Added empty day block validation** (line ~1668)
+3. **Added empty day block validation** (`pipeline/excel.py` line 712)
    - `write_day_block()` now returns early if `day_rows` is empty
    - Prevents incorrect row calculations and potential corruption

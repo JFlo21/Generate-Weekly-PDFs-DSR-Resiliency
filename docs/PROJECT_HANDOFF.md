@@ -18,7 +18,7 @@ A Python billing-automation pipeline plus two web surfaces:
   group by Work Request + week → generate Excel (`openpyxl`) → upload
   attachments back to Smartsheet. Runs on a GitHub Actions cron (~every 2h on
   weekdays). Sibling: `audit_billing_changes.py`.
-- **`portal/`** — legacy Express (Node 20+, CommonJS) artifact-viewing API.
+- **`portal/`** — legacy Express artifact-viewing API, **removed in 03153c3 (2026-06-02)**; `portal-v2/` talks to Supabase directly.
 - **`portal-v2/`** — React 18 + TypeScript + Vite + Tailwind + Supabase frontend.
 - **`website/`** — Docusaurus runbook. **`scripts/`** — Notion sync + utilities.
 - **`billing_audit/`** — Supabase read/write layer for claim attribution.
@@ -30,7 +30,7 @@ Full architecture + guardrails: [`/CLAUDE.md`](../CLAUDE.md).
 | Tool | Version | For |
 |---|---|---|
 | Python | 3.10+ (CI uses 3.11 and 3.12) | the billing engine + tests |
-| Node.js | 20+ | `portal/`, `portal-v2/`, `website/` |
+| Node.js | 20+ | `portal-v2/`, `website/` |
 | Git | any recent | version control |
 | GitHub CLI (`gh`) | optional | PRs, issue ops |
 | Claude Code | latest | the AI workflow (see §7) |
@@ -63,8 +63,7 @@ this handoff intentionally does not hard-code machine-specific paths.)
 # Python engine
 pip install -r requirements.txt
 
-# Portal (Express backend)
-cd portal && npm install && cd ..
+# (legacy Express portal/ removed in 03153c3 — nothing to install)
 
 # Portal-v2 (React frontend)
 cd portal-v2 && npm install && cd ..
@@ -91,7 +90,7 @@ cp portal-v2/.env.example portal-v2/.env.local   # VITE_SUPABASE_URL, VITE_SUPAB
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | `portal-v2/.env.local` | Frontend Supabase (anon key only — never the service-role key). |
 | `SUPABASE_SERVICE_ROLE_KEY` | GitHub Actions secret only | Used by `billing_audit/`; **never** put in a committed file or the frontend. |
 
-The full 30+ env-var reference is in `CLAUDE.md` and
+The full 30+ env-var reference is in
 `.github/prompts/configuration-environment.md`. For production, secrets live in
 **GitHub repository secrets** (Settings → Secrets and variables → Actions), not
 in any file.
@@ -108,9 +107,8 @@ pytest tests/ -v
 # Syntax-only check
 python -m py_compile generate_weekly_pdfs.py
 
-# Portal-v2 dev (needs the Express backend running for /api proxy)
-cd portal && npm start         # terminal 1 (:3000)
-cd portal-v2 && npm run dev    # terminal 2 (:5173)
+# Portal-v2 dev (Supabase-backed; no local backend needed)
+cd portal-v2 && npm run dev    # (:5173)
 ```
 
 ## 7. AI tooling — reproduce the Claude Code workflow
@@ -141,7 +139,7 @@ machine-specific and/or sensitive.
 
 ### Project-specific AI context that IS in the repo (auto-loaded / referenced)
 
-- [`/CLAUDE.md`](../CLAUDE.md) — authoritative project rules + Living Ledger
+- [`/CLAUDE.md`](../CLAUDE.md) — authoritative project rules; the Living Ledger is `memory-bank/living-ledger.md`
   (Claude Code loads this automatically from the repo root).
 - [`/AGENTS.md`](../AGENTS.md) — Codex-targeted mirror of the same context.
 - `.claude/rules/` — `smartsheet-python-optimization.md`,
@@ -167,7 +165,7 @@ After opening Claude Code from the repo root, confirm:
 ## 9. Update this handoff before stopping work
 
 - Update `docs/AI_CONTEXT_RESUME.md` (status, open tasks, decisions).
-- Append decisions to the `CLAUDE.md` Living Ledger with a `[YYYY-MM-DD HH:MM]`
+- Append decisions to `memory-bank/living-ledger.md` with a `[YYYY-MM-DD HH:MM]`
   timestamp.
 - Commit + push so the other machine pulls the latest context.
 - Never commit secrets — re-check `git diff --staged` before committing.
