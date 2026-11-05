@@ -10095,3 +10095,12 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   exported variable and the cleanup of the decoded file all as expected; the patched workflow
   parses as YAML (20 steps, order checked); the workflow tests read the file as text and do not
   index steps.
+- Fence (Greptile P2 on PR #453): `tests/test_corrections_workflow_step.py` reads the step's `run:`
+  block out of the workflow and runs it under bash on fake data -- empty secret with the variable
+  off / on in three letter cases; a valid file plain, gzipped and CRLF-wrapped; bad base64, an
+  invalid file plain and gzipped, truncated base64 and truncated gzip, each with the variable off
+  and on -- asserting the exit code, export only on success, no decoded file left on failure and
+  no file content in the log. It also pins the step's position, its `if:`, the `env` wiring and
+  that the runbook block equals the step. Skips only where no POSIX bash exists (on Windows it
+  uses Git's bash, never the WSL launcher). Three weakened steps (guard removed, validate failure
+  ignored, decoded file left behind) each fail it.
