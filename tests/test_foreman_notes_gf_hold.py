@@ -1423,7 +1423,8 @@ class ResetPurgeTokenHoldTests(_Base):
         purge.assert_called_once()
         args, kwargs = purge.call_args
         self.assertEqual(args[2], {OTHER_WR})
-        self.assertEqual(kwargs, {"dry_run": orch.SKIP_UPLOAD})
+        self.assertEqual(kwargs, {
+            "dry_run": orch.SKIP_UPLOAD, "exclude_wrs": {PILOT_WR}})
         (msg,) = self._purge_warnings(cm)
         self.assertIn("1 WR", msg)
         for record in cm.records:
@@ -1601,6 +1602,33 @@ class ResetPurgeTokenHoldTests(_Base):
                 wr = orch.derive_group_wr([{"Work Request #": raw}])
                 self.assertEqual(cd.build_group_identity(_fname(wr))[0], wr)
                 self.assertEqual(config._normalize_reset_wr(typed), wr)
+
+    def test_subset_reset_keeps_unparsable_names(self) -> None:
+        """Greptile P1 (PR #450): an identity-less ``WR_*.xlsx`` passes
+        the ``wr_subset`` filter, so a subset reset with a held WR must
+        also pass ``exclude_wrs`` -- as the global reset does."""
+        orch = _orch()
+        self.init_good()
+        odd = "WR_unparsable.xlsx"
+        names = [_fname(PILOT_WR), _fname(OTHER_WR), odd]
+        client = _PurgeClient(names)
+        with contextlib.ExitStack() as stack:
+            tmp = stack.enter_context(tempfile.TemporaryDirectory())
+            for name in names:
+                Path(tmp, name).write_bytes(b"")
+            stack.enter_context(golden.pinned_env(output_folder=tmp))
+            for name, value in (
+                    ("RESET_WR_LIST", {PILOT_WR, OTHER_WR}),
+                    ("RESET_HASH_HISTORY", False),
+                    ("SKIP_UPLOAD", False)):
+                stack.enter_context(mock.patch.object(orch, name, value))
+            stack.enter_context(_boom())
+            skipped = orch._run_reset_purge(
+                client, False, test_mode=False, groups=_reset_groups())
+            left = sorted(os.listdir(tmp))
+        self.assertFalse(skipped)
+        self.assertEqual(left, sorted([_fname(PILOT_WR), odd]))
+        self.assertEqual(client.deleted, [_fname(OTHER_WR)])
 
     def test_main_passes_groups_to_the_purge(self) -> None:
         (call,) = _calls(_main(), "_run_reset_purge")

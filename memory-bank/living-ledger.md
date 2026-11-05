@@ -10064,3 +10064,7 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   spared) instead of aborting the preflight, counters still restored; while `exclude_wrs` is set
   an identity-less `WR_*.xlsx` is kept (local and remote); the subset INFO log prints the subset
   actually purged. 5 new tests RED then GREEN.
+- Review round 2 (Greptile P1, 2026-11-05): an identity-less `WR_*.xlsx` passes the `wr_subset`
+  filter in both cleanup loops, so the subset purge now also passes `exclude_wrs=held` whenever a
+  WR is held (the no-held subset call is unchanged); global and subset resets keep such names
+  alike. 1 new test RED then GREEN.

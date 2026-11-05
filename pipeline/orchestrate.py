@@ -3365,10 +3365,18 @@ def _run_reset_purge(
             )
             span.set_data("purge_type", "wr_subset")
             span.set_data("wr_count", len(purge_subset))
-            purge_existing_hashed_outputs(
-                client, TARGET_SHEET_ID, purge_subset, test_mode,
-                dry_run=SKIP_UPLOAD,
-            )
+            if held_wrs:
+                # An identity-less WR_*.xlsx passes the subset filter;
+                # exclude_wrs keeps it, as on a global reset.
+                purge_existing_hashed_outputs(
+                    client, TARGET_SHEET_ID, purge_subset, test_mode,
+                    dry_run=SKIP_UPLOAD, exclude_wrs=held_wrs,
+                )
+            else:
+                purge_existing_hashed_outputs(
+                    client, TARGET_SHEET_ID, purge_subset, test_mode,
+                    dry_run=SKIP_UPLOAD,
+                )
         else:
             logging.info(
                 "🧨 Global hash reset requested (RESET_HASH_HISTORY=1)"
