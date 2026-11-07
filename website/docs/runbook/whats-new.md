@@ -5,25 +5,41 @@ title: What's New
 
 # What's New
 
-_Last updated: November 6, 2026 (updated automatically)_
+_Last updated: November 7, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/claudeos -->
+## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+### 📋 Changelog — November 7, 2026
+
+- ✨ New capability: re-index automatically after agent and orchestrator coding turns
+- • Merge pull request from JFlo21/feat/gitnexus-auto-refresh-2026-10-28
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: periodically refresh directory-level status fallback
+- ✅ Problem fixed: periodic re-index above the stat cap instead of trusting a path-names-only fingerprint
+- ✅ Problem fixed: close PR Greptile + Copilot review findings (hook v1.2.0)
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
 ## linetec-inspector-manifest-generator
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — November 6, 2026
+### 📋 Changelog — November 7, 2026
 
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: Phase 40.4 — expressive motion across the web app
 - ✅ Problem fixed: motion audit fixes and follow-ups — exits, ambient gating and pause, GF labels on WAAPI, focus after Regenerate
-- 📄 Help guides updated: close out the arming record (ARM-35.2-07, plans 19-21 summaries)
-- ✅ Problem fixed: guide cursor lands on the control, with tip halo, arrival press and beacon entrance
-- 📄 Help guides updated: post-merge — Guide Blue hex DFC in the 40.3 spec; ledgers record the PR merge
-- 📄 Help guides updated: add testing and development guides, fix stale facts in README and docs/ai
-- ✨ New capability: Phase 40.4 — expressive motion across the web app ()
-- ✅ Problem fixed: motion audit fixes and follow-ups — exits, ambient gating and pause, GF labels on WAAPI, focus after Regenerate ()
+- • Merge pull request from JFlo21/claude/project-thread-03vhdj
+- ✅ Problem fixed: make the GSD Path skip close idempotent after recovery &#91;skip render&#93;
+- ✅ Problem fixed: GSD Path patch follow-ups from PR review &#91;skip render&#93;
 
 <!-- /runbook-repo -->
 
@@ -36,12 +52,30 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
+
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
+
+### 📋 Changelog — November 7, 2026
+
+- ✅ Problem fixed: hold pilot groups whose notes token failed
+- ✅ Problem fixed: stop the run when the corrections file cannot load ( follow-up)
+- ✨ New capability: opt-in WR 91006877 reporting correction
+- 📄 Help guides updated: align instruction files for context cost
+- 📄 Help guides updated: pilot live, Sentry check, PR ledger
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 📄 Help guides updated: automated plain-language update from Notion Worker
+- 📄 Help guides updated: log e385504 &#91;skip ci&#93;
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
 ## Parser that will offload grid format information from work request completed packets
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — November 6, 2026
+### 📋 Changelog — November 7, 2026
 
 - 📄 Help guides updated: record PR merge and Phase 11 decisions in the ledgers
 - 📄 Help guides updated: record the review gate as live and the PR stack as closed
@@ -54,46 +88,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/claudeos -->
-## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-### 📋 Changelog — November 6, 2026
-
-- ✨ New capability: re-index automatically after agent and orchestrator coding turns
-- • Merge pull request from JFlo21/feat/gitnexus-auto-refresh-2026-10-28
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: periodically refresh directory-level status fallback
-- ✅ Problem fixed: periodic re-index above the stat cap instead of trusting a path-names-only fingerprint
-- ✅ Problem fixed: close PR Greptile + Copilot review findings (hook v1.2.0)
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — November 6, 2026
-
-- ✅ Problem fixed: hold pilot groups whose notes token failed
-- ✅ Problem fixed: stop the run when the corrections file cannot load ( follow-up)
-- ✨ New capability: opt-in WR 91006877 reporting correction
-- 📄 Help guides updated: align instruction files for context cost
-- 📄 Help guides updated: pilot live, Sentry check, PR ledger
-- ✨ New capability: foreman notes GF pilot (replaces )
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: hold pilot groups on GF lookup failure
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 6, 2026
+### 📋 Changelog — November 7, 2026
 
 - • 📊 Audit: 2026-11-02T06:48:49Z
 
@@ -482,7 +482,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 6, 2026
+### 📋 Changelog — November 7, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
