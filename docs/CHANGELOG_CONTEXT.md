@@ -9,6 +9,17 @@
 > (`require_context_update_on_stop.js`) recognizes **both** this file and the Living
 > Ledger, so updating either satisfies it.
 
+## 2026-11-05 — Reporting corrections: workflow step stages the private file from a secret (PR #453)
+
+What: `weekly-excel-generation.yml` has a "Stage reporting corrections" step before "Generate reports". It
+decodes the secret `REPORTING_CORRECTIONS_JSON_B64` (gzip then base64; plain base64 accepted) into
+`$RUNNER_TEMP`, validates it with the output discarded, and exports `REPORTING_CORRECTIONS_FILE`. Why: the
+module merged off with no way for the private file to reach the runner, and the file cannot be committed or
+uploaded as an artifact. How it affects operators: nothing changes while the secret is empty; once it is set,
+a bad secret or a failed validation fails the job before any report is generated, and
+`REPORTING_CORRECTIONS_REQUIRED=true` makes an empty secret fail too. GitHub's 48 KB secret limit is why the
+file is gzipped. Runbook: reporting-corrections.md step 5. Ledger `[2026-11-05 10:30]`.
+
 ## 2026-11-04 — Foreman Notes: the RESET_* purge spares a token-held pilot WR (PR #450)
 
 What: before the `RESET_HASH_HISTORY` / `RESET_WR_LIST` purge, the run now checks the notes digest of every

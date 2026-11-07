@@ -10068,3 +10068,39 @@ Run 41013512543 (manual, after #435 merged) uploaded 8 / generated 8 groups, aga
   filter in both cleanup loops, so the subset purge now also passes `exclude_wrs=held` whenever a
   WR is held (the no-held subset call is unchanged); global and subset resets keep such names
   alike. 1 new test RED then GREEN.
+
+## [2026-11-05 10:30] Reporting corrections: the weekly workflow stages the private file from a secret (PR #453).
+
+- What: `weekly-excel-generation.yml` gains the step "Stage reporting corrections" between "Parse
+  advanced options" and "Generate reports" (`if: steps.exec.outputs.should_run == 'true'`). It
+  decodes the repository secret `REPORTING_CORRECTIONS_JSON_B64` into
+  `$RUNNER_TEMP/reporting_corrections.json`, runs
+  `python -m pipeline.reporting_corrections validate` with the output discarded, and exports
+  `REPORTING_CORRECTIONS_FILE`. Empty secret = feature off (run unchanged) unless the repository
+  variable `REPORTING_CORRECTIONS_REQUIRED` is `true`, which fails the job. No Python changed.
+- Why: the module merged switched off (PR #447, #451) with no path for the private file to reach
+  the runner; it holds names and billed rows, so it cannot be a repository file or a run artifact.
+- Rule (secret size): a GitHub Actions secret is capped at 48 KB. The plain base64 of a real
+  corrections file passes that at a few dozen rows, so the secret is the file **gzipped, then
+  base64-encoded**; the step detects gzip (`gzip -t`) and still accepts plain base64. It strips
+  whitespace before decoding, so a wrapped or CRLF-terminated value decodes.
+- Rule (one text): the YAML block in `website/docs/runbook/reporting-corrections.md` step 5 is the
+  workflow step verbatim. Change both in the same commit.
+- Rule (order): activate = step-4 read-only run prints `APPLIED` for the same file, then set the
+  secret, then `REPORTING_CORRECTIONS_REQUIRED=true`. Deactivate = retire the case, one finished
+  run, delete the variable, then the secret. A published correction is not "done" until the
+  replaced attachments are read back.
+- Evidence: the step script run locally on 8 cases (empty; empty + required; not base64; invalid
+  file plain and gzipped; valid plain, gzipped, and CRLF-wrapped gzipped) -- exit codes, the
+  exported variable and the cleanup of the decoded file all as expected; the patched workflow
+  parses as YAML (20 steps, order checked); the workflow tests read the file as text and do not
+  index steps.
+- Fence (Greptile P2 on PR #453): `tests/test_corrections_workflow_step.py` reads the step's `run:`
+  block out of the workflow and runs it under bash on fake data -- empty secret with the variable
+  off / on in three letter cases; a valid file plain, gzipped and CRLF-wrapped; bad base64, an
+  invalid file plain and gzipped, truncated base64 and truncated gzip, each with the variable off
+  and on -- asserting the exit code, export only on success, no decoded file left on failure and
+  no file content in the log. It also pins the step's position, its `if:`, the `env` wiring and
+  that the runbook block equals the step. Skips only where no POSIX bash exists (on Windows it
+  uses Git's bash, never the WSL launcher). Three weakened steps (guard removed, validate failure
+  ignored, decoded file left behind) each fail it.

@@ -208,6 +208,64 @@ jobs:
               price_variance_in_risk) echo "PRICE_VARIANCE_IN_RISK=${value}" >> "$GITHUB_ENV" ;;
             esac
           done
+      - name: Stage reporting corrections
+        # Opt-in (runbook: Reporting corrections, step 5). Decodes the
+        # private corrections file from the repository secret into
+        # RUNNER_TEMP (never the workspace or an artifact), validates it
+        # with the output discarded, and exports REPORTING_CORRECTIONS_FILE
+        # for "Generate reports". The secret is the base64 of the file, or
+        # of the gzipped file. Empty secret = feature off, unless the
+        # repository variable REPORTING_CORRECTIONS_REQUIRED is 'true'
+        # (then the job fails). A decode or validate failure fails the job
+        # before any report is generated. `secrets` cannot be used in a
+        # step `if:`, so both values are read through `env`.
+        if: steps.exec.outputs.should_run == 'true'
+        env:
+          CORRECTIONS_B64: ${{ secrets.REPORTING_CORRECTIONS_JSON_B64 }}
+          CORRECTIONS_REQUIRED: ${{ vars.REPORTING_CORRECTIONS_REQUIRED }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CORRECTIONS_B64}" ]; then
+            if [ "${CORRECTIONS_REQUIRED,,}" = "true" ]; then
+              echo "::error::Reporting corrections: required but the" \
+                "secret is empty or not visible -- run stopped"
+              exit 1
+            fi
+            echo "Reporting corrections: secret not set -- feature off"
+            exit 0
+          fi
+          umask 077
+          path="${RUNNER_TEMP}/reporting_corrections.json"
+          raw="${path}.decoded"
+          if ! printf '%s' "${CORRECTIONS_B64}" | tr -d '[:space:]' \
+              | base64 -d > "${raw}" 2>/dev/null; then
+            rm -f "${raw}"
+            echo "::error::Reporting corrections: secret is not valid base64"
+            exit 1
+          fi
+          # GitHub caps a secret at 48 KB, so a larger file is stored
+          # gzipped (gzip, then base64); a plain base64 file still works.
+          if gzip -t "${raw}" 2>/dev/null; then
+            if ! gzip -dc "${raw}" > "${path}" 2>/dev/null; then
+              rm -f "${raw}" "${path}"
+              echo "::error::Reporting corrections: gunzip failed"
+              exit 1
+            fi
+            rm -f "${raw}"
+          else
+            mv "${raw}" "${path}"
+          fi
+          status=0
+          python -m pipeline.reporting_corrections validate \
+            --file "${path}" > /dev/null 2>&1 || status=$?
+          if [ "${status}" -ne 0 ]; then
+            rm -f "${path}"
+            echo "::error::Reporting corrections: validate failed" \
+              "(exit ${status}); run validate locally on the private file"
+            exit 1
+          fi
+          echo "REPORTING_CORRECTIONS_FILE=${path}" >> "${GITHUB_ENV}"
+          echo "Reporting corrections: file validated and staged"
       - name: Generate reports
         if: steps.exec.outputs.should_run == 'true'
         env:
