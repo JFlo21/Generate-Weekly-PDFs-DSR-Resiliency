@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: November 8, 2026 (updated automatically)_
+_Last updated: November 9, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — November 8, 2026
+### 📋 Changelog — November 9, 2026
 
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - • Pin GitNexus 1.6.12 as a repo MCP server with background auto-index
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - ✨ New capability: Phase 40.4 — expressive motion across the web app
-- ✅ Problem fixed: motion audit fixes and follow-ups — exits, ambient gating and pause, GF labels on WAAPI, focus after Regenerate
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
 - • Pin GitNexus 1.6.12 as a repo MCP server with background auto-index ()
-- • Merge pull request from JFlo21/claude/project-thread-03vhdj
 
 <!-- /runbook-repo -->
 
@@ -41,14 +41,16 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — November 8, 2026
+### 📋 Changelog — November 9, 2026
 
+- ✅ Problem fixed: GSD dispatcher honours a project's gsd-core opt-out
 - ✨ New capability: re-index automatically after agent and orchestrator coding turns
-- • Merge pull request from JFlo21/feat/gitnexus-auto-refresh-2026-10-28
+- • Merge pull request from JFlo21/claude/project-thread-ax20n4
+- ✅ Problem fixed: GSD opt-out walk starts from the real path of the project dir
+- ✅ Problem fixed: keep the ~/.claude boundary lookup beside CLAUDE&#95;CONFIG&#95;DIR for the portability check
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- ✅ Problem fixed: periodically refresh directory-level status fallback
-- ✅ Problem fixed: periodic re-index above the stat cap instead of trusting a path-names-only fingerprint
-- ✅ Problem fixed: close PR Greptile + Copilot review findings (hook v1.2.0)
+- ✅ Problem fixed: GSD opt-out walk skips the default ~/.claude too and fails open on bad local settings
+- ✅ Problem fixed: GSD opt-out walk never reads the user config dir's settings
 
 <!-- /runbook-repo -->
 
@@ -57,11 +59,11 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 8, 2026
+### 📋 Changelog — November 9, 2026
 
+- ✨ New capability: opt-in WR 91006877 reporting correction
 - ✅ Problem fixed: hold pilot groups whose notes token failed
 - ✅ Problem fixed: stop the run when the corrections file cannot load ( follow-up)
-- ✨ New capability: opt-in WR 91006877 reporting correction
 - 📄 Help guides updated: align instruction files for context cost
 - 📄 Help guides updated: pilot live, Sentry check, PR ledger
 - 📄 Help guides updated: automated plain-language update from Notion Worker
@@ -75,7 +77,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — November 8, 2026
+### 📋 Changelog — November 9, 2026
 
 - 📄 Help guides updated: record PR merge and Phase 11 decisions in the ledgers
 - 📄 Help guides updated: record the review gate as live and the PR stack as closed
@@ -83,8 +85,8 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 - ✅ Problem fixed: only the owner can reset admin accounts; sign-up limited to ltspower.com
 - ✅ Problem fixed: Pillow 13 and requests 2.33+ (52 Dependabot alerts, all critical/high)
 - ✅ Problem fixed: React Router 7 and motion-studio esbuild (3 npm Dependabot alerts)
-- ✅ Problem fixed: resolve npm audit findings (21 -&gt; 4, no high)
-- 📄 Help guides updated: refresh project docs, add PRODUCT.md and eight guides
+- 📄 Help guides updated: record PR merge and Phase 11 decisions in the ledgers ()
+- 📄 Help guides updated: trim CLAUDE.md, move the Session Log to docs/history, fix stale docs ()
 
 <!-- /runbook-repo -->
 
@@ -93,7 +95,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 8, 2026
+### 📋 Changelog — November 9, 2026
 
 - • 📊 Audit: 2026-11-02T06:48:49Z
 
@@ -482,7 +484,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 8, 2026
+### 📋 Changelog — November 9, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
