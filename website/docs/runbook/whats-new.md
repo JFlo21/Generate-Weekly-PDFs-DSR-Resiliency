@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: November 10, 2026 (updated automatically)_
+_Last updated: November 11, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — November 10, 2026
+### 📋 Changelog — November 11, 2026
 
+- ✅ Problem fixed: a waiting web refresh waits, then closes as satisfied once the scheduled sync has delivered &#91;skip render&#93;
+- ✅ Problem fixed: status tiles and My Activity polish (BUG-217..221)
+- • Phase 44 — enterprise web-interface pass + preview-environment groundwork (DRAFT, visual approval pending)
 - ✅ Problem fixed: Inspector(s) and WR state fall back to the Requests sheet (read-only)
 - • &#91;skip render&#93; infra(preview): Phase 44 preview environments — Blueprint, fixture adapter, seed, tests (no UI)
 - • Run the Emil useReducedMotion example inside a component &#91;skip render&#93;
 - 📄 Help guides updated: production error log for the inspector pages and decision display &#91;skip render&#93;
 - 📄 Help guides updated: Windows hook-cutover check done — PR dispatcher installed and verified &#91;skip render&#93;
-- ✅ Problem fixed: runtime restore and bundle build work on Windows (CRLF-free patch, apply and archive) &#91;skip render&#93;
-- 🔧 Behind-the-scenes maintenance to keep things running smoothly
-- • Pin GitNexus 1.6.12 as a repo MCP server with background auto-index
 
 <!-- /runbook-repo -->
 
@@ -32,8 +32,9 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — November 10, 2026
+### 📋 Changelog — November 11, 2026
 
+- • Harness guard v11.3-v11.4: compound commands, launchers, heredocs, and the open items from
 - ✨ New capability: protected-edit hook, pre-edit gate overlays, eval harness + results
 - ✅ Problem fixed: GSD dispatcher honours a project's gsd-core opt-out
 - ✨ New capability: re-index automatically after agent and orchestrator coding turns
@@ -41,7 +42,6 @@ This page explains what each of our tools does and its recent updates, in everyd
 - • eval runner: harness paths with a directory part resolve from cwd; motion skill plan wording
 - • eval runner: async Windows leftover sweep, count saved rows in progress
 - ✅ Problem fixed: end Windows leftovers after the CLI exits; progress shows total rows
-- ✅ Problem fixed: expand globs before writer option values; mode changes do not rewrite contents
 
 <!-- /runbook-repo -->
 
@@ -54,32 +54,32 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/smartsheet-auditor -->
-## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
-
-> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
-
-### 📋 Changelog — November 10, 2026
-
-- • 📊 Audit: 2026-11-09T06:49:40Z
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 10, 2026
+### 📋 Changelog — November 11, 2026
 
 - ✨ New capability: opt-in WR 91006877 reporting correction
 - ✅ Problem fixed: hold pilot groups whose notes token failed
 - ✅ Problem fixed: stop the run when the corrections file cannot load ( follow-up)
 - 📄 Help guides updated: align instruction files for context cost
-- 📄 Help guides updated: pilot live, Sentry check, PR ledger
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 - 📄 Help guides updated: log e385504 &#91;skip ci&#93;
 - ✅ Problem fixed: hold pilot groups whose notes token failed ()
+- 📄 Help guides updated: log 95a3fa7 &#91;skip ci&#93;
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/smartsheet-auditor -->
+## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
+
+> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
+
+### 📋 Changelog — November 11, 2026
+
+- • 📊 Audit: 2026-11-09T06:49:40Z
 
 <!-- /runbook-repo -->
 
@@ -88,16 +88,10 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — November 10, 2026
+### 📋 Changelog — November 11, 2026
 
 - 📄 Help guides updated: record PR merge and Phase 11 decisions in the ledgers
-- 📄 Help guides updated: trim CLAUDE.md, move the Session Log to docs/history, fix stale docs
-- ✅ Problem fixed: only the owner can reset admin accounts; sign-up limited to ltspower.com
-- ✅ Problem fixed: React Router 7 and motion-studio esbuild (3 npm Dependabot alerts)
 - 📄 Help guides updated: record PR merge and Phase 11 decisions in the ledgers ()
-- 📄 Help guides updated: trim CLAUDE.md, move the Session Log to docs/history, fix stale docs ()
-- • Merge pull request from JFlo21/fix/auth-reset-token-owner-and-signup-domain
-- ✅ Problem fixed: only the owner can reset admin accounts; sign-up limited to ltspower.com
 
 <!-- /runbook-repo -->
 
@@ -484,7 +478,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 10, 2026
+### 📋 Changelog — November 11, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
