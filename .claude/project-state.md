@@ -1,16 +1,16 @@
 # Project State — Generate-Weekly-PDFs-DSR-Resiliency
 
-_Last updated: 2026-11-04 (Foreman Notes pilot LIVE; PRs #447/#449/#450/#451 open; corrections
-fail-closed gate and doc alignment in review) · **overwrite-in-place each session** — the canonical "where the project
+_Last updated: 2026-11-05 (Foreman Notes pilot LIVE; #447/#448/#449/#450/#451 merged; corrections
+workflow step on `ci/reporting-corrections-activation`, feature still off) · **overwrite-in-place each session** — the canonical "where the project
 stands" landing spot for the global Stop write-back reminder. Cap ≤ 120 lines (`align-instruction-files`);
 history goes to `memory-bank/living-ledger.md` (grep the dated header), never here._
 
 ## Where it stands
 
-- PR #451 `fix/corrections-load-fail-closed` (stacked on #447; retarget to master after it merges): a set but
-  unloadable `REPORTING_CORRECTIONS_FILE` stops the run (ERROR check-in, exit 1) instead of running feature-off
-  and double-billing an applied correction. Owner hand steps: paste the runbook "Stage reporting corrections"
-  step (hook-blocked in-session), create the secret, set `REPORTING_CORRECTIONS_REQUIRED=true` while applied.
+- Reporting corrections (#447, #451 on master): branch `ci/reporting-corrections-activation` adds the "Stage
+  reporting corrections" workflow step (secret `REPORTING_CORRECTIONS_JSON_B64` = gzip + base64, GitHub caps a
+  secret at 48 KB; `REPORTING_CORRECTIONS_REQUIRED` guard). Off until the owner sets the secret; then one
+  finished run and a read-back of the replaced attachments before any correction counts as published.
 - 2026-11-04 drift-check repairs (PR #449): `docs/ai/` under 130 lines, `.agents/skills` resynced, nested hook
   output ignored, `.serena/project.yml` tracked. Open: track or ignore `.agents/`; `/gsd:health` skipped (Phase 15).
 - **Production posture (milestone v1.4 "Supabase Run Memory")**: Phases 10, 11.1, 12, 14 closed;
