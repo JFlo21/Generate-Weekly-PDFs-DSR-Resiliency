@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: November 13, 2026 (updated automatically)_
+_Last updated: November 14, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,25 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — November 13, 2026
+### 📋 Changelog — November 14, 2026
 
+- • integrate: M002 — merge gsd-path/M002 into master
+- ✅ Problem fixed: address PR review findings (path fence, record test, runtime patch, rename wording)
 - • integrate: M001 — merge gsd-path/M001 into master
 - ✅ Problem fixed: PR Greptile review fixes (merge after )
 - • PREVIEW ONLY, DO NOT MERGE: M001 Phase 44 closure pages for owner visual sign-off
 - ✅ Problem fixed: phone WR picker follows the iPhone keyboard and pins the page behind it (BUG-216)
 - ✅ Problem fixed: a claim loss seen by the pull-pulse thread stops the run ( follow-up)
 - ✅ Problem fixed: a replaced run stops writing; lease writes check the claim; a refresh pulses during the pull (BUG-222, BUG-223, BUG-224)
-- ✅ Problem fixed: a waiting web refresh waits, then closes as satisfied once the scheduled sync has delivered &#91;skip render&#93;
-- ✅ Problem fixed: status tiles and My Activity polish (BUG-217..221)
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/JFlo21 -->
-## JFlo21
-
-> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -41,7 +32,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — November 13, 2026
+### 📋 Changelog — November 14, 2026
 
 - • integrate: M001 — merge gsd-path/M001 into master
 - ✅ Problem fixed: keep the best confirm result when confirms overlap
@@ -54,12 +45,21 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
+<!-- runbook-repo: JFlo21/JFlo21 -->
+## JFlo21
+
+> ℹ️ **What this system does:** &gt; 💡 The snake animation above is generated automatically by a GitHub Action — it eats your contribution tiles&#33;
+
+_Running steadily — no meaningful changes were detected in this period._ ✅
+
+<!-- /runbook-repo -->
+
 <!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
 ## Weekly Billing Reports (DSR Resiliency)
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 13, 2026
+### 📋 Changelog — November 14, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
@@ -70,7 +70,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — November 13, 2026
+### 📋 Changelog — November 14, 2026
 
 - • GSD Path migration, Phase B: Path-first routing and the boundary guard (v10)
 - • Harness guard v11.3-v11.4: compound commands, launchers, heredocs, and the open items from
@@ -88,7 +88,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 13, 2026
+### 📋 Changelog — November 14, 2026
 
 - • 📊 Audit: 2026-11-09T06:49:40Z
 
@@ -477,7 +477,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 13, 2026
+### 📋 Changelog — November 14, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
