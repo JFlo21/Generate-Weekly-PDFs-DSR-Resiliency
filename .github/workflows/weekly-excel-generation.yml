@@ -143,7 +143,7 @@ jobs:
       NOTION_CONFIGURED: ${{ secrets.NOTION_TOKEN != '' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Compute Sentry release
         # Sentry release versions disallow slashes, so sanitize the
         # `owner/repo` form into `owner-repo` before composing the
