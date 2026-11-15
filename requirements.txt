@@ -20,7 +20,7 @@ pandera==0.32.1
 psutil==6.0.0
 
 # Testing and Coverage
-pytest==9.0.3
+pytest==9.1.1
 pytest-cov==6.0.0
 
 # Notion Dashboard Integration (used by scripts/notion_sync.py)
