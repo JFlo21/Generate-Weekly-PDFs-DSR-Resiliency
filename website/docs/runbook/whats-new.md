@@ -196,9 +196,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 <!-- runbook-repo: JFlo21/sync-master-schedule -->
 ## Master Schedule Sync
 
-> ℹ️ **What this system does:** Automatically synchronize attachments between two Smartsheet sheets based on matching column criteria. Runs daily at 5:00 AM UTC via GitHub Actions.
+> ℹ️ **What this system does:** Copies file attachments from Project List rows to the matching, already-existing rows of two target sheets, matched by Work Request #: all files to the Master Schedule, and PDF files only to Project List - Blank Copy. Runs daily at 5:00 AM UTC via GitHub Actions.
 
-_Running steadily — no meaningful changes were detected in this period._ ✅
+### 📋 Changelog — November 16, 2026
+
+- • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy
+- • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy ()
 
 <!-- /runbook-repo -->
 
@@ -518,4 +521,3 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
-
