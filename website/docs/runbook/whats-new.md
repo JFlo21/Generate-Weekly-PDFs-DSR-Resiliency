@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: November 16, 2026 (updated automatically)_
+_Last updated: November 17, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,34 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — November 16, 2026
+### 📋 Changelog — November 17, 2026
 
+- 📄 Help guides updated: add the docs/ai implementation-truth layer, decisions log and project brief
+- ✨ New capability: access foundation (1 of 5, no visible change)
 - ✅ Problem fixed: review fixes for PR (merge after )
 - • integrate: M002 — merge gsd-path/M002 into master
 - • integrate: M001 — merge gsd-path/M001 into master
 - ✅ Problem fixed: keep the best confirm result when confirms overlap
 - 📄 Help guides updated: record the and merges and the upload-log production check
 - ✅ Problem fixed: review fixes for PR (merge after )
-- 📄 Help guides updated: record the GSD Core switch-off and the move to GSD Path in the ledgers
-- 📄 Help guides updated: DESIGN.md, first Claude Design sync inputs, code-navigation routing
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — November 17, 2026
+
+- • integrate: M003 — merge gsd-path/M003 into master
+- ✅ Problem fixed: PR 444 review findings (ingest refusal, leave guard, cap 0)
+- • integrate: M002 — merge gsd-path/M002 into master
+- ✅ Problem fixed: address PR review findings (path fence, record test, runtime patch, rename wording)
+- • integrate: M001 — merge gsd-path/M001 into master
+- ✅ Problem fixed: PR Greptile review fixes (merge after )
+- • PREVIEW ONLY, DO NOT MERGE: M001 Phase 44 closure pages for owner visual sign-off
+- ✅ Problem fixed: phone WR picker follows the iPhone keyboard and pins the page behind it (BUG-216)
 
 <!-- /runbook-repo -->
 
@@ -41,45 +59,21 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 16, 2026
+### 📋 Changelog — November 17, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
+<!-- runbook-repo: JFlo21/sync-master-schedule -->
+## Master Schedule Sync
 
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+> ℹ️ **What this system does:** Copies file attachments from Project List rows to the matching, already-existing rows of two target sheets, matched by Work Request #: all files to the Master Schedule, and PDF files only to Project List - Blank Copy. Runs daily at 5:00 AM UTC via GitHub Actions.
 
-### 📋 Changelog — November 16, 2026
+### 📋 Changelog — November 17, 2026
 
-- • integrate: M002 — merge gsd-path/M002 into master
-- ✅ Problem fixed: address PR review findings (path fence, record test, runtime patch, rename wording)
-- • integrate: M001 — merge gsd-path/M001 into master
-- ✅ Problem fixed: PR Greptile review fixes (merge after )
-- • PREVIEW ONLY, DO NOT MERGE: M001 Phase 44 closure pages for owner visual sign-off
-- ✅ Problem fixed: phone WR picker follows the iPhone keyboard and pins the page behind it (BUG-216)
-- ✅ Problem fixed: a claim loss seen by the pull-pulse thread stops the run ( follow-up)
-- ✅ Problem fixed: a replaced run stops writing; lease writes check the claim; a refresh pulses during the pull (BUG-222, BUG-223, BUG-224)
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/claudeos -->
-## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
-
-### 📋 Changelog — November 16, 2026
-
-- • GSD Path migration, Phase B: Path-first routing and the boundary guard (v10)
-- • Harness guard v11.3-v11.4: compound commands, launchers, heredocs, and the open items from
-- ✨ New capability: protected-edit hook, pre-edit gate overlays, eval harness + results
-- • Merge pull request from JFlo21/feat/gsd-path-migration-2026-11-09
-- • Hook: guard v11.5 closes the round-8 findings on PR
-- • Hook: Path installer identified by package metadata; one handoff version (Copilot)
-- • Hook: guard v11.4 drops git and where from the no-create list (review round 7)
-- • Hook: guard v11.4 folder-name installer hint applies to relative scripts only
+- • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy
+- • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy ()
 
 <!-- /runbook-repo -->
 
@@ -88,9 +82,27 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 16, 2026
+### 📋 Changelog — November 17, 2026
 
-- • 📊 Audit: 2026-11-09T06:49:40Z
+- • 📊 Audit: 2026-11-16T06:58:53Z
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/claudeos -->
+## ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+> ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
+
+### 📋 Changelog — November 17, 2026
+
+- • GSD Path migration, Phase B: Path-first routing and the boundary guard (v10)
+- • Harness guard v11.3-v11.4: compound commands, launchers, heredocs, and the open items from
+- • Merge pull request from JFlo21/feat/gsd-path-migration-2026-11-09
+- • Hook: guard v11.5 closes the round-8 findings on PR
+- • Hook: Path installer identified by package metadata; one handoff version (Copilot)
+- • Hook: guard v11.4 drops git and where from the no-create list (review round 7)
+- • Hook: guard v11.4 folder-name installer hint applies to relative scripts only
+- • Hook: guard v11.4 closes six older bypass classes (review round 6)
 
 <!-- /runbook-repo -->
 
@@ -190,18 +202,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/sync-master-schedule -->
-## Master Schedule Sync
-
-> ℹ️ **What this system does:** Copies file attachments from Project List rows to the matching, already-existing rows of two target sheets, matched by Work Request #: all files to the Master Schedule, and PDF files only to Project List - Blank Copy. Runs daily at 5:00 AM UTC via GitHub Actions.
-
-### 📋 Changelog — November 16, 2026
-
-- • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy
-- • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy ()
 
 <!-- /runbook-repo -->
 
@@ -480,7 +480,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 16, 2026
+### 📋 Changelog — November 17, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
@@ -521,3 +521,4 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
+
