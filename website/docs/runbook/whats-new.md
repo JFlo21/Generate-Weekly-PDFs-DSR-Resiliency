@@ -5,43 +5,74 @@ title: What's New
 
 # What's New
 
-_Last updated: November 18, 2026 (updated automatically)_
+_Last updated: November 19, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
-
-<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
-## linetec-inspector-manifest-generator
-
-> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
-
-### 📋 Changelog — November 18, 2026
-
-- ✅ Problem fixed: focused controls clear the sticky header on the data pages (BUG-228)
-- ✅ Problem fixed: focused controls clear the sticky header on reading pages (BUG-228)
-- ✨ New capability: in-app changelog with Update 1 (Navigation refresh)
-- • integrate: M003 — merge gsd-path/M003 into master
-- ✅ Problem fixed: PR 444 review findings (ingest refusal, leave guard, cap 0)
-- • integrate: M002 — merge gsd-path/M002 into master
-- ✅ Problem fixed: address PR review findings (path fence, record test, runtime patch, rename wording)
-- • integrate: M001 — merge gsd-path/M001 into master
-
-<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
 ## Parser that will offload grid format information from work request completed packets
 
 > ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — November 18, 2026
+### 📋 Changelog — November 19, 2026
 
+- ✨ New capability: backend page gates (access pull request 3a)
+- ✅ Problem fixed: Linetec saved stores the rows saved, not the last page of 100
+- ✅ Problem fixed: a nav that does not fit takes its own header row
+- ✅ Problem fixed: sign-in and sign-out drop session-check replies that started earlier
 - ✨ New capability: frontend access layer (access pull request 2 of 5)
 - 📄 Help guides updated: add the docs/ai implementation-truth layer, decisions log and project brief
 - ✨ New capability: access foundation (1 of 5, no visible change)
 - ✅ Problem fixed: review fixes for PR (merge after )
-- • integrate: M002 — merge gsd-path/M002 into master
-- • integrate: M001 — merge gsd-path/M001 into master
-- ✅ Problem fixed: keep the best confirm result when confirms overlap
-- 📄 Help guides updated: record the and merges and the upload-log production check
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/linetec-inspector-manifest-generator -->
+## linetec-inspector-manifest-generator
+
+> ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
+
+### 📋 Changelog — November 19, 2026
+
+- ✅ Problem fixed: Coverage Exception to Sentry once, quiet a duplicate ERROR line, retry a transient Requests read (BUG-231)
+- ✨ New capability: light and dark theme for the web app (DESIGN.md v3)
+- ✅ Problem fixed: wrong attached workbook is a file error, not the stale screen (BUG-229)
+- ✅ Problem fixed: focused controls clear the sticky header on the data pages (BUG-228)
+- ✅ Problem fixed: focused controls clear the sticky header on reading pages (BUG-228)
+- ✨ New capability: in-app changelog with Update 1 (Navigation refresh)
+- • integrate: M003 — merge gsd-path/M003 into master
+- ✅ Problem fixed: PR 444 review findings (ingest refusal, leave guard, cap 0)
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
+## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
+
+> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
+
+### 📋 Changelog — November 19, 2026
+
+- 📄 Help guides updated: Claude Code context layer + verified implementation truth
+- • Merge pull request from JFlo21/chore/claude-context-bootstrap-2026-11-18
+- 📄 Help guides updated: add Lattice operational learnings from PR fixes
+- 📄 Help guides updated: split safe-commands by shell; fix round-2 PR findings
+- 📄 Help guides updated: fix PR review findings (Greptile + Copilot)
+- 📄 Help guides updated: record GSD Core to Path migration prep and M001 scope
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 📄 Help guides updated: add Claude Code context layer and verified implementation truth
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/linetec-uploader-api -->
+## linetec-uploader-api
+
+> ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
+
+### 📋 Changelog — November 19, 2026
+
+- ✅ Problem fixed: report every inserted row, not the last page of 100
+- • Merge pull request from JFlo21/fix/upload-count-all-pages
+- ✅ Problem fixed: report every inserted row, not the last page of 100
 
 <!-- /runbook-repo -->
 
@@ -59,7 +90,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 18, 2026
+### 📋 Changelog — November 19, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
 
@@ -70,7 +101,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Copies file attachments from Project List rows to the matching, already-existing rows of two target sheets, matched by Work Request #: all files to the Master Schedule, and PDF files only to Project List - Blank Copy. Runs daily at 5:00 AM UTC via GitHub Actions.
 
-### 📋 Changelog — November 18, 2026
+### 📋 Changelog — November 19, 2026
 
 - • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy
 - • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy ()
@@ -82,7 +113,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 18, 2026
+### 📋 Changelog — November 19, 2026
 
 - • 📊 Audit: 2026-11-16T06:58:53Z
 
@@ -93,11 +124,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** ClaudeOS portable global config (skills, agents, hooks, launchers, bootstrap)
 
-### 📋 Changelog — November 18, 2026
-
-- • GSD Path migration, Phase B: Path-first routing and the boundary guard (v10)
-- • Merge pull request from JFlo21/feat/gsd-path-migration-2026-11-09
-- • Hook: guard v11.5 closes the round-8 findings on PR
+_Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
@@ -150,15 +177,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 ## smartsheet-bot
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
-## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
-
-> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
 
 _Running steadily — no meaningful changes were detected in this period._ ✅
 
@@ -301,15 +319,6 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- runbook-repo: JFlo21/cognos-parser -->
 ## cognos-parser
-
-> ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
-
-_Running steadily — no meaningful changes were detected in this period._ ✅
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/linetec-uploader-api -->
-## linetec-uploader-api
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
@@ -475,7 +484,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 18, 2026
+### 📋 Changelog — November 19, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
