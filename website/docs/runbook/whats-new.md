@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: November 20, 2026 (updated automatically)_
+_Last updated: November 21, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,63 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — November 20, 2026
+### 📋 Changelog — November 21, 2026
 
+- ✨ New capability: an admin can correct a GF return on a finished GF review (BUG-235)
+- ✅ Problem fixed: a failed GF Return on My Activity links to the Return page's GF lane (BUG-236)
+- ✅ Problem fixed: Billers/DIF and AEP main-grid header reads "As Designed Description" (BUG-232 follow-up)
+- ✅ Problem fixed: an expired inspector-assignment wait tells its requester once (BUG-230 follow-up)
 - 📄 Help guides updated: align instruction files with the code (prompt audit 2026-11-19)
 - ✅ Problem fixed: a GF Duplicate? = Yes always means quantity 0 (BUG-233)
 - ✅ Problem fixed: added units never get an as-designed match; leftovers pair only for changed rows (BUG-232)
 - ✅ Problem fixed: a waiting GF Return no longer reads as failed (BUG-230)
-- ✅ Problem fixed: already-Ready row is a no-op before the confirmation bind (BUG-231 fix 3)
-- ✅ Problem fixed: Coverage Exception to Sentry once, quiet a duplicate ERROR line, retry a transient Requests read (BUG-231)
-- ✨ New capability: light and dark theme for the web app (DESIGN.md v3)
-- ✅ Problem fixed: wrong attached workbook is a file error, not the stale screen (BUG-229)
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
-## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
-
-> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
-
-### 📋 Changelog — November 20, 2026
-
-- ✨ New capability: price planned + actual totals from the Corpus CU List (proposed, not deployed)
-- 📄 Help guides updated: Claude Code context layer + verified implementation truth
-- • Merge pull request from JFlo21/fix/corpus-cu-rate-rule
-- ✅ Problem fixed: extension check skips the price comparison for unpriced sub rows
-- 📄 Help guides updated: record the PR review-fix apply to Supabase
-- ✅ Problem fixed: PR review findings (blank AEP date, partial-edition extension, paging snapshot, CU completeness)
-- 📄 Help guides updated: record the Corpus rule deploy, dry-run results and the API timeout
-- ✨ New capability: withheld-share guard in both rollup RPCs; record decisions 1-5 as approved
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
-## Parser that will offload grid format information from work request completed packets
-
-> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
-
-### 📋 Changelog — November 20, 2026
-
-- ✨ New capability: only the owner reopens an account the owner closed (owner&#95;closed)
-- ✨ New capability: account administration API and store writes (access pull request 3b)
-- ✨ New capability: backend page gates (access pull request 3a)
-- ✅ Problem fixed: Linetec saved stores the rows saved, not the last page of 100
-- ✅ Problem fixed: a nav that does not fit takes its own header row
-- ✅ Problem fixed: sign-in and sign-out drop session-check replies that started earlier
-- ✨ New capability: frontend access layer (access pull request 2 of 5)
-- 📄 Help guides updated: add the docs/ai implementation-truth layer, decisions log and project brief
-
-<!-- /runbook-repo -->
-
-<!-- runbook-repo: JFlo21/vercel-ai-chatbot-with-supabase -->
-## vercel-ai-chatbot-with-supabase
-
-> ℹ️ **What this system does:** - Next.js App Router - React Server Components (RSCs), Suspense, and Server Actions - Vercel AI SDK for streaming chat UI - Support for OpenAI (default), Anthropic, Hugging Face, or custom AI chat models and/or LangChain - Edge runtime-ready - shadcn/ui - Styling with Tailwind CSS - Radix UI for headless component primitives - Icons from Phosphor Icons - Chat History with Supabase Postgres DB - Supabase Auth for authentication
-
-### 📋 Changelog — November 20, 2026
-
-- • Initial commit
 
 <!-- /runbook-repo -->
 
@@ -88,9 +41,56 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 20, 2026
+### 📋 Changelog — November 21, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Preplanned-Pricing-Sync -->
+## "Daily sync: Supabase v&#95;wr&#95;pricing&#95;rollup → Smartsheet 'Master storms data' (1444139672489860)"
+
+> ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
+
+### 📋 Changelog — November 21, 2026
+
+- ✨ New capability: price planned + actual totals from the Corpus CU List (proposed, not deployed)
+- 📄 Help guides updated: Claude Code context layer + verified implementation truth
+- • Merge pull request from JFlo21/fix/corpus-cu-rate-rule
+- ✅ Problem fixed: extension check skips the price comparison for unpriced sub rows
+- 📄 Help guides updated: record the PR review-fix apply to Supabase
+- ✅ Problem fixed: PR review findings (blank AEP date, partial-edition extension, paging snapshot, CU completeness)
+- 📄 Help guides updated: record the Corpus rule deploy, dry-run results and the API timeout
+- ✨ New capability: withheld-share guard in both rollup RPCs; record decisions 1-5 as approved
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
+## Parser that will offload grid format information from work request completed packets
+
+> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
+
+### 📋 Changelog — November 21, 2026
+
+- ✨ New capability: only the owner reopens an account the owner closed (owner&#95;closed)
+- ✨ New capability: account administration API and store writes (access pull request 3b)
+- ✨ New capability: backend page gates (access pull request 3a)
+- ✅ Problem fixed: Linetec saved stores the rows saved, not the last page of 100
+- ✅ Problem fixed: a nav that does not fit takes its own header row
+- ✅ Problem fixed: sign-in and sign-out drop session-check replies that started earlier
+- ✨ New capability: frontend access layer (access pull request 2 of 5)
+- 📄 Help guides updated: add the docs/ai implementation-truth layer, decisions log and project brief
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/vercel-ai-chatbot-with-supabase -->
+## vercel-ai-chatbot-with-supabase
+
+> ℹ️ **What this system does:** - Next.js App Router - React Server Components (RSCs), Suspense, and Server Actions - Vercel AI SDK for streaming chat UI - Support for OpenAI (default), Anthropic, Hugging Face, or custom AI chat models and/or LangChain - Edge runtime-ready - shadcn/ui - Styling with Tailwind CSS - Radix UI for headless component primitives - Icons from Phosphor Icons - Chat History with Supabase Postgres DB - Supabase Auth for authentication
+
+### 📋 Changelog — November 21, 2026
+
+- • Initial commit
 
 <!-- /runbook-repo -->
 
@@ -99,7 +99,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — November 20, 2026
+### 📋 Changelog — November 21, 2026
 
 - ✅ Problem fixed: report every inserted row, not the last page of 100
 - • Merge pull request from JFlo21/fix/upload-count-all-pages
@@ -112,7 +112,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Copies file attachments from Project List rows to the matching, already-existing rows of two target sheets, matched by Work Request #: all files to the Master Schedule, and PDF files only to Project List - Blank Copy. Runs daily at 5:00 AM UTC via GitHub Actions.
 
-### 📋 Changelog — November 20, 2026
+### 📋 Changelog — November 21, 2026
 
 - • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy
 - • Attachment sync: keep the Master Schedule sync and add a PDF-only sync to Project List - Blank Copy ()
@@ -124,7 +124,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 20, 2026
+### 📋 Changelog — November 21, 2026
 
 - • 📊 Audit: 2026-11-16T06:58:53Z
 
@@ -495,7 +495,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 20, 2026
+### 📋 Changelog — November 21, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
