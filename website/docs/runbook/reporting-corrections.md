@@ -133,14 +133,29 @@ To withdraw a case, set `retired: true` (see rolling back).
    the `APPLIED` line. Read the workbooks back before anything is published.
    The log must show `✏️ Reporting correction ... APPLIED`. Stale-attachment
    removal never runs in `TEST_MODE`.
-5. **Activate on the runner** (workflow wiring pending owner approval --
-   the weekly workflow does not read the secret until the "Stage reporting
-   corrections" step below is added to `weekly-excel-generation.yml`):
-   base64-encode the file into the repository secret
-   `REPORTING_CORRECTIONS_JSON_B64`; the step decodes it to
+5. **Activate on the runner.** The weekly workflow
+   (`weekly-excel-generation.yml`) runs a "Stage reporting corrections"
+   step between "Parse advanced options" and "Generate reports". It reads
+   the repository secret `REPORTING_CORRECTIONS_JSON_B64`, decodes it to
    `$RUNNER_TEMP/reporting_corrections.json`, validates it, and exports
-   `REPORTING_CORRECTIONS_FILE`. Keep the secret for as long as the
-   correction must stay in effect -- it applies on every run, not once.
+   `REPORTING_CORRECTIONS_FILE` for that run. With the secret empty the
+   step prints `Reporting corrections: secret not set -- feature off` and
+   the run is unchanged. Keep the secret for as long as the correction
+   must stay in effect -- it applies on every run, not once.
+
+   Set the secret from the private file, gzipped and then base64-encoded.
+   GitHub rejects a secret larger than 48 KB, and the plain base64 of a
+   file passes that at a few dozen corrected rows, so always gzip:
+
+   ```bash
+   python -c "import base64,gzip,sys; sys.stdout.write(base64.b64encode(gzip.compress(open(sys.argv[1],'rb').read())).decode())" /private/path/corrections.json | gh secret set REPORTING_CORRECTIONS_JSON_B64
+   ```
+
+   The step also accepts the base64 of the un-gzipped file. Set the
+   secret only after step 4's read-only run printed the `APPLIED` line for
+   the same file. Create it as a **repository** secret (and the variable
+   below as a repository variable): the job has no `environment:`, so an
+   environment-level one is invisible to it and reads as empty.
 
    **Fail-closed rule.** When `REPORTING_CORRECTIONS_FILE` is set but the
    file cannot be loaded (missing, unreadable, outside the allowed
@@ -159,21 +174,33 @@ To withdraw a case, set `retired: true` (see rolling back).
    local runs with a broken file stop the same way. With the variable unset
    the pipeline is unchanged.
 
-   Step to paste into `.github/workflows/weekly-excel-generation.yml`,
-   between "Parse advanced options" and "Generate reports" (owner approval
-   required; the secret and the repository variable are read through `env`
-   because `secrets` cannot be used in a step `if:`):
+   The step as it is in `.github/workflows/weekly-excel-generation.yml`
+   (changing it needs owner approval; the secret and the repository
+   variable are read through `env` because `secrets` cannot be used in a
+   step `if:`):
 
    ```yaml
          - name: Stage reporting corrections
+           # Opt-in (runbook: Reporting corrections, step 5). Decodes the
+           # private corrections file from the repository secret into
+           # RUNNER_TEMP (never the workspace or an artifact), validates it
+           # with the output discarded, and exports REPORTING_CORRECTIONS_FILE
+           # for "Generate reports". The secret is the base64 of the file, or
+           # of the gzipped file. Empty secret = feature off, unless the
+           # repository variable REPORTING_CORRECTIONS_REQUIRED is 'true'
+           # (then the job fails). A decode or validate failure fails the job
+           # before any report is generated. `secrets` cannot be used in a
+           # step `if:`, so both values are read through `env`.
+           if: steps.exec.outputs.should_run == 'true'
            env:
              CORRECTIONS_B64: ${{ secrets.REPORTING_CORRECTIONS_JSON_B64 }}
              CORRECTIONS_REQUIRED: ${{ vars.REPORTING_CORRECTIONS_REQUIRED }}
            run: |
              set -euo pipefail
              if [ -z "${CORRECTIONS_B64}" ]; then
-               if [ "${CORRECTIONS_REQUIRED}" = "true" ]; then
-                 echo "::error::Reporting corrections: required but the"                    "secret is empty or not visible -- run stopped"
+               if [ "${CORRECTIONS_REQUIRED,,}" = "true" ]; then
+                 echo "::error::Reporting corrections: required but the" \
+                   "secret is empty or not visible -- run stopped"
                  exit 1
                fi
                echo "Reporting corrections: secret not set -- feature off"
@@ -181,11 +208,24 @@ To withdraw a case, set `retired: true` (see rolling back).
              fi
              umask 077
              path="${RUNNER_TEMP}/reporting_corrections.json"
-             if ! printf '%s' "${CORRECTIONS_B64}" \
-                 | base64 -d > "${path}" 2>/dev/null; then
-               rm -f "${path}"
+             raw="${path}.decoded"
+             if ! printf '%s' "${CORRECTIONS_B64}" | tr -d '[:space:]' \
+                 | base64 -d > "${raw}" 2>/dev/null; then
+               rm -f "${raw}"
                echo "::error::Reporting corrections: secret is not valid base64"
                exit 1
+             fi
+             # GitHub caps a secret at 48 KB, so a larger file is stored
+             # gzipped (gzip, then base64); a plain base64 file still works.
+             if gzip -t "${raw}" 2>/dev/null; then
+               if ! gzip -dc "${raw}" > "${path}" 2>/dev/null; then
+                 rm -f "${raw}" "${path}"
+                 echo "::error::Reporting corrections: gunzip failed"
+                 exit 1
+               fi
+               rm -f "${raw}"
+             else
+               mv "${raw}" "${path}"
              fi
              status=0
              python -m pipeline.reporting_corrections validate \
@@ -205,6 +245,8 @@ To withdraw a case, set `retired: true` (see rolling back).
    fails on any non-zero code. Its output is discarded so no correction
    content reaches the job log. A failed step fails the job before
    "Generate reports" runs (no Python cron check-in is sent for that run).
+   The step is skipped whenever the run itself is skipped (`should_run`
+   is not `true`).
 
    **Opt-in guard.** An empty secret normally means feature off. While a
    correction is applied, set the repository variable
@@ -213,10 +255,16 @@ To withdraw a case, set `retired: true` (see rolling back).
    then fails the job when the secret is empty, deleted, renamed or not
    visible to the run, so the run cannot silently go feature-off and bill
    the corrected rows twice. Any other value, or unset, keeps "empty secret
-   = feature off". Flip it off (`gh variable delete
+   = feature off" (`true` is matched in any letter case). Flip it off (`gh variable delete
    REPORTING_CORRECTIONS_REQUIRED`) only after the retire run's log shows
    the `🗑️ Reporting corrections: N stale identity(ies) handled` line (see
    below), and before deleting the secret.
+
+   **Manual runs from master only.** While a correction is applied, start
+   every manual run (`workflow_dispatch`) from `master`. A manual run uses
+   the workflow file of the branch you pick; a branch cut before this step
+   existed has no staging step and no guard, so it would run feature-off
+   and re-upload the old owner's workbooks next to the corrected ones.
 6. **Check the run log** for the APPLIED line, the expected re-credited /
    recovered counts, and the `reporting_corrections` block in the audit
    summary.
@@ -229,6 +277,10 @@ Turning the feature off means **unsetting** `REPORTING_CORRECTIONS_FILE`
 the variable pointing at a missing or broken file to switch it off: that
 stops every run (step 5's fail-closed rule) instead of running without
 corrections.
+
+After the secret is finally deleted, the groups of the retired case
+regenerate one more time (their `CORR=` token goes away): each replaces its
+own attachment with the same content, so nothing is billed twice.
 
 Retire the case first, then remove it. Set `"retired": true` on the case
 (keep its rows and any superseded revisions) and let a run complete: the
