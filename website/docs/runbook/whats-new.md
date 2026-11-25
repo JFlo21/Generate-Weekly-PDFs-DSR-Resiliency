@@ -5,7 +5,7 @@ title: What's New
 
 # What's New
 
-_Last updated: November 24, 2026 (updated automatically)_
+_Last updated: November 25, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
 
@@ -14,16 +14,16 @@ This page explains what each of our tools does and its recent updates, in everyd
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — November 24, 2026
+### 📋 Changelog — November 25, 2026
 
+- ✅ Problem fixed: show the current priced version on the Generate and Download page (BUG-242)
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- 🔧 Behind-the-scenes maintenance to keep things running smoothly
+- ✅ Problem fixed: version-claim Coverage Exception carries a reason code
+- ✅ Problem fixed: belief-write-failed Coverage Exception carries a reason code, not the raw cause
 - ✅ Problem fixed: BUG-237 classify job refusals by exception type
 - ✅ Problem fixed: BUG-238 re-check the requester's access when a job is claimed
 - ✅ Problem fixed: BUG-237 keep raw exception text out of manifest&#95;jobs.error
-- ✨ New capability: add the default-off switch MANIFEST&#95;WEB&#95;PRICED&#95;PUBLISH&#95;LIVE&#95;WRITE (BUG-234)
-- ✅ Problem fixed: refuse a retry after the completion date changed, and a SCOPE&#95;NA id beside a real scope (BUG-234)
-- ✅ Problem fixed: correction form keeps its answer during a slow upload; drop prompt wording (BUG-235)
-- ✅ Problem fixed: a web priced build is the WR's next priced version (BUG-234)
-- ✨ New capability: an admin can correct a GF return on a finished GF review (BUG-235)
 
 <!-- /runbook-repo -->
 
@@ -36,14 +36,21 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/smartsheet-auditor -->
-## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
+## Parser that will offload grid format information from work request completed packets
 
-> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
+> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
 
-### 📋 Changelog — November 24, 2026
+### 📋 Changelog — November 25, 2026
 
-- • 📊 Audit: 2026-11-23T06:54:38Z
+- ✨ New capability: four guards before a regular user can hold the page
+- ✨ New capability: only the owner reopens an account the owner closed (owner&#95;closed)
+- ✨ New capability: account administration API and store writes (access pull request 3b)
+- ✨ New capability: backend page gates (access pull request 3a)
+- ✅ Problem fixed: Linetec saved stores the rows saved, not the last page of 100
+- ✅ Problem fixed: a nav that does not fit takes its own header row
+- ✅ Problem fixed: sign-in and sign-out drop session-check replies that started earlier
+- ✨ New capability: four guards before a regular user can hold the page ()
 
 <!-- /runbook-repo -->
 
@@ -52,9 +59,20 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 24, 2026
+### 📋 Changelog — November 25, 2026
 
 - 📄 Help guides updated: automated plain-language update from Notion Worker
+
+<!-- /runbook-repo -->
+
+<!-- runbook-repo: JFlo21/smartsheet-auditor -->
+## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
+
+> ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
+
+### 📋 Changelog — November 25, 2026
+
+- • 📊 Audit: 2026-11-23T06:54:38Z
 
 <!-- /runbook-repo -->
 
@@ -63,7 +81,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Daily sync from Supabase pricing.vwrpricingrollup → Smartsheet sheet 1444139672489860 ("Master storms data").
 
-### 📋 Changelog — November 24, 2026
+### 📋 Changelog — November 25, 2026
 
 - ✨ New capability: price planned + actual totals from the Corpus CU List (proposed, not deployed)
 - 📄 Help guides updated: Claude Code context layer + verified implementation truth
@@ -76,30 +94,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
-## Parser that will offload grid format information from work request completed packets
-
-> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
-
-### 📋 Changelog — November 24, 2026
-
-- ✨ New capability: only the owner reopens an account the owner closed (owner&#95;closed)
-- ✨ New capability: account administration API and store writes (access pull request 3b)
-- ✨ New capability: backend page gates (access pull request 3a)
-- ✅ Problem fixed: Linetec saved stores the rows saved, not the last page of 100
-- ✅ Problem fixed: a nav that does not fit takes its own header row
-- ✅ Problem fixed: sign-in and sign-out drop session-check replies that started earlier
-- ✨ New capability: frontend access layer (access pull request 2 of 5)
-- • Merge pull request from JFlo21/feat/access-owner-closed
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/vercel-ai-chatbot-with-supabase -->
 ## vercel-ai-chatbot-with-supabase
 
 > ℹ️ **What this system does:** - Next.js App Router - React Server Components (RSCs), Suspense, and Server Actions - Vercel AI SDK for streaming chat UI - Support for OpenAI (default), Anthropic, Hugging Face, or custom AI chat models and/or LangChain - Edge runtime-ready - shadcn/ui - Styling with Tailwind CSS - Radix UI for headless component primitives - Icons from Phosphor Icons - Chat History with Supabase Postgres DB - Supabase Auth for authentication
 
-### 📋 Changelog — November 24, 2026
+### 📋 Changelog — November 25, 2026
 
 - • Initial commit
 
@@ -110,7 +110,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** This system does not have a published overview yet. Use the repository link for source documentation.
 
-### 📋 Changelog — November 24, 2026
+### 📋 Changelog — November 25, 2026
 
 - ✅ Problem fixed: report every inserted row, not the last page of 100
 - • Merge pull request from JFlo21/fix/upload-count-all-pages
@@ -492,7 +492,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 24, 2026
+### 📋 Changelog — November 25, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
