@@ -40,43 +40,50 @@ backstop is confirmed. Address the Medium items as follow-ups.
 
 ## 2. Top Findings
 
-### [Medium] SECURITY DEFINER trigger functions are callable by `anon`/`authenticated` over REST
+### [Low] `anon`/`authenticated` hold a needless EXECUTE grant on SECURITY DEFINER trigger functions
 - **Where:** Supabase project `poeyztlmsawfoqlanucc` (the portal's DB) — `public.handle_new_user()`,
   `public.prevent_last_admin_demotion()` (Supabase security advisor `0028`/`0029`).
-- **Problem:** Both are trigger functions but are exposed as PostgREST RPC endpoints
-  (`/rest/v1/rpc/handle_new_user`, `/rest/v1/rpc/prevent_last_admin_demotion`) executable by the
-  `anon` and `authenticated` roles.
-- **Why it matters:** These should only ever run inside their triggers. Direct RPC invocation is
-  an unintended surface. Real-world risk is low today (both read `NEW`, which is `NULL` outside a
-  trigger, so a direct call errors out), but it is attack surface with no legitimate caller.
-- **Fix:** Revoke REST execute on both:
+- **Problem:** Both are trigger functions (they return `trigger`), and Supabase's advisor flags that
+  `anon`/`authenticated` have an EXECUTE grant on them. **Correction (per PR review):** PostgREST does
+  **not** expose `trigger`-returning functions as RPC, so — contrary to the advisor's `/rest/v1/rpc/…`
+  wording — they are almost certainly **not** reachable as REST endpoints. The actionable item is the
+  stray EXECUTE grant itself, not a live RPC surface. *Needs verification:* confirm PostgREST returns
+  404 for `POST /rest/v1/rpc/handle_new_user` on this project.
+- **Why it matters:** Low. There is no legitimate caller for these grants, so removing them is clean
+  least-privilege hardening; the practical exposure today is negligible.
+- **Fix:** Revoke the unused EXECUTE grant on both:
   ```sql
   REVOKE EXECUTE ON FUNCTION public.handle_new_user()            FROM anon, authenticated;
   REVOKE EXECUTE ON FUNCTION public.prevent_last_admin_demotion() FROM anon, authenticated;
   ```
   (`public.current_user_role()` being callable is fine — it only returns the caller's own role.)
 
-### [Medium] Password policy enforced only client-side (`minLength={6}`)
+### [Medium] Weak password policy — only the 6-char Supabase default, set no higher
 - **Where:** `portal-v2/src/components/auth/LoginPage.tsx:137`,
-  `ResetPasswordPage.tsx:118,148` (client attribute only; no server policy observed).
-- **Problem:** The 6-char minimum is a browser `minLength` attribute. A direct Supabase Auth call
-  (or a modified client) can set a 1-char password.
-- **Why it matters:** Password strength for a billing/admin portal should be enforced where it
-  can't be bypassed.
-- **Fix:** Set the minimum password length (and leaked-password protection) in the Supabase Auth
-  dashboard → *Authentication → Policies*; raise the client `minLength` to match (≥8). This is a
+  `ResetPasswordPage.tsx:118,148` (client `minLength={6}`).
+- **Problem:** The client `minLength={6}` is cosmetic, **but** — correction per PR review — Supabase
+  Auth does enforce a server-side minimum, so a sub-6-char password is rejected regardless of the
+  client. The real gap is that the policy sits at Supabase's **default floor of 6** with no stronger
+  requirement (no raised minimum, no leaked-password protection observed).
+- **Why it matters:** A 6-char minimum is weak for a billing/admin portal; it should be raised and
+  backed by leaked-password protection, enforced server-side where it can't be bypassed.
+- **Fix:** In the Supabase Auth dashboard → *Authentication → Policies*, raise the minimum password
+  length (≥8) and enable leaked-password protection; raise the client `minLength` to match. This is a
   config change, not a code change.
 
 ### [Medium] Stale security-relevant Dependabot PRs
 - **Where:** open PRs `#427` (pillow 12.3.0 → 13.0.0), `#324` (pandas 2 → 3, major),
   `#424`/`#425` (react/react-dom 18 → 19 on `/website`, major), `#323` (pytest-cov 6 → 7),
   `#456`/`#452`/`#414` (portal/scripts npm bumps).
-- **Problem:** Image/data libraries used in the billing pipeline are a patch release behind,
-  including a Pillow major bump that typically carries CVE fixes.
+- **Problem:** Security-relevant dependencies are behind, including **three major-version bumps** —
+  `pillow 12 → 13` (typically carries CVE fixes), `pandas 2 → 3`, and `react 18 → 19` — plus the
+  `pytest-cov 6 → 7` and npm patch bumps.
 - **Why it matters:** `pillow` and `pandas` run inside the production Excel pipeline; unreviewed
-  major bumps (`pandas 3`) can also silently break it.
-- **Fix:** Triage this week — merge the low-risk patch bumps (pillow, pytest-cov) after CI;
-  schedule the `pandas 3` / `react 19` majors behind a focused test pass, don't auto-merge.
+  **major** bumps can silently break it. (Correction per PR review: `pillow 12 → 13` is a *major*
+  bump, not a patch — it belongs in the gated group below, not the auto-merge group.)
+- **Fix:** Triage this week — merge only the genuine low-risk patch bump (`pytest-cov`) and npm
+  patches after CI; gate **all three majors** (`pillow 13`, `pandas 3`, `react 19`) behind a focused
+  compatibility/test pass, don't auto-merge.
 
 ### [Low] `website/vercel.json` sets no security headers
 - **Where:** `website/vercel.json` (Docusaurus docs site).
@@ -170,12 +177,13 @@ backstop is confirmed. Address the Medium items as follow-ups.
 
 ## 6. Suggested Next Actions
 
-1. **Revoke REST `EXECUTE`** on `handle_new_user()` and `prevent_last_admin_demotion()` (§2) — one
-   migration, highest security value for the effort.
-2. **Enforce password policy + optional admin MFA** in the Supabase Auth dashboard; raise client
-   `minLength` to ≥8 to match.
-3. **Triage the Dependabot backlog:** merge pillow/pytest-cov patch bumps after CI; gate
-   `pandas 3` / `react 19` majors behind a focused test pass.
+1. **Raise the password policy + optional admin MFA** in the Supabase Auth dashboard (min ≥8 +
+   leaked-password protection; the current floor is Supabase's default 6); raise client `minLength`
+   to match. Highest security value for the effort.
+2. **Revoke the unused `EXECUTE`** grant on `handle_new_user()` / `prevent_last_admin_demotion()`
+   (§2) — least-privilege cleanup; low urgency (likely not RPC-reachable, verify).
+3. **Triage the Dependabot backlog:** merge only the `pytest-cov`/npm patch bumps after CI; gate the
+   three majors (`pillow 13`, `pandas 3`, `react 19`) behind a focused compatibility/test pass.
 4. **Clear the review-PR backlog:** nine `docs(review)` PRs (#422–#446) are open and unmerged —
    merge or close them so the daily routine isn't piling up stale branches.
 5. **Add the RLS negative test** for `profiles.role` self-escalation (§5) so the server-side
@@ -193,5 +201,5 @@ backstop is confirmed. Address the Medium items as follow-ups.
 before it (#444/#447/#450/#451) are production-safe, fail-closed, and PII-conscious. The portal's
 server-side authorization boundary was verified live this run and is correct — a non-admin cannot
 self-escalate. Every open item is Medium/Low hardening or operational backlog, none of which blocks
-the billing cron or weakens auth as deployed. Address the two Medium DB/auth items (§2) as the next
-follow-ups.
+the billing cron or weakens auth as deployed. Address the Medium password-policy item (§2) and the
+Dependabot major-bump triage as the next follow-ups.
