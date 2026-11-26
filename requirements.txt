@@ -1,5 +1,5 @@
 # Enhanced Monitoring and Error Handling (2.54.0+ required for sentry_sdk.logger structured logs)
-sentry-sdk>=2.54.0
+sentry-sdk>=2.66.1
 
 # Core Dependencies
 # Exact pin (not a range): extends the 260608-gwm "upper-bound transport-critical
