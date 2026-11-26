@@ -10,9 +10,14 @@
 **No application code shipped in the daily window.** The last substantive code commit is
 `e385504` (`fix(foreman-notes): hold pilot groups whose notes token failed`, #450) from
 **2026-11-05**. Every commit in the 21 days since is an automated `docs(runbook)` update from
-the Notion Worker. Today's review therefore covers (a) the four Python changes that landed
-since the previous review's window — `#444`, `#447`, `#450`, `#451` — and (b) a state-of-repo
-security verification weighted to the portal auth flow the task flags.
+the Notion Worker. Today's review therefore covers (a) the Python changes that landed since the
+previous (2026-10-20) review — `#444`, `#447`, `#450`, `#451`, which are the focus here — and
+(b) a state-of-repo security verification weighted to the portal auth flow the task flags.
+**Scope caveat (per PR review):** the foreman-notes GF-pilot *feature* itself landed as `#437`
+(`85fac23`, 2026-10-30), also after the last review; this run examined its follow-up hardening
+(`#444`, `#450`) and the reporting-corrections feature (`#447`/`#451`) in depth, but did **not**
+re-review the full `#437` feature diff — so the "safe" read below applies to what was reviewed,
+not a blanket clearance of every post-10-20 production change.
 
 **Overall health: good.** `py_compile` is clean on `generate_weekly_pdfs.py`,
 `pipeline/reporting_corrections.py`, `pipeline/orchestrate.py`, and `pipeline/foreman_notes.py`.
@@ -29,12 +34,14 @@ only two policies: admin-only writes and self-read. A non-admin **cannot** escal
 `role` through the browser client. The client-side `RoleGuard`/`canDemote` checks are confirmed
 to be UX, properly backstopped server-side. This closes the single biggest open auth question.
 
-Remaining items are all **Medium/Low hardening**, plus an **operational backlog** worth a glance:
-nine unmerged `docs(review)` daily-review PRs and several stale security-relevant Dependabot PRs
-are accumulating.
+One **confirmed Medium** did surface in the portal, though: a sole admin can delete their own
+`profiles` row and lock everyone out (no `BEFORE DELETE` guard — verified live, §2). Everything else
+is Medium/Low hardening plus an **operational backlog** worth a glance: nine unmerged `docs(review)`
+daily-review PRs and several stale security-relevant Dependabot PRs are accumulating.
 
-**Verdict: Safe to merge** (see §7) — nothing in the review window is broken, and the auth
-backstop is confirmed. Address the Medium items as follow-ups.
+**Verdict: Safe to merge (billing pipeline)** — nothing in the review window is broken and the core
+auth backstop is confirmed — but fix the confirmed last-admin-DELETE portal gap and the other Medium
+items (see the Daily Verdict) as follow-ups.
 
 ---
 
@@ -51,10 +58,12 @@ backstop is confirmed. Address the Medium items as follow-ups.
   404 for `POST /rest/v1/rpc/handle_new_user` on this project.
 - **Why it matters:** Low. There is no legitimate caller for these grants, so removing them is clean
   least-privilege hardening; the practical exposure today is negligible.
-- **Fix:** Revoke the unused EXECUTE grant on both:
+- **Fix:** Revoke the unused EXECUTE grant. **Must include `PUBLIC`** — Postgres grants `EXECUTE`
+  on new functions to `PUBLIC` by default, so `anon`/`authenticated` keep inherited access if only
+  their direct grants are revoked (this is what Supabase's own advisor remediation does):
   ```sql
-  REVOKE EXECUTE ON FUNCTION public.handle_new_user()            FROM anon, authenticated;
-  REVOKE EXECUTE ON FUNCTION public.prevent_last_admin_demotion() FROM anon, authenticated;
+  REVOKE EXECUTE ON FUNCTION public.handle_new_user()            FROM PUBLIC, anon, authenticated;
+  REVOKE EXECUTE ON FUNCTION public.prevent_last_admin_demotion() FROM PUBLIC, anon, authenticated;
   ```
   (`public.current_user_role()` being callable is fine — it only returns the caller's own role.)
 
@@ -75,15 +84,16 @@ backstop is confirmed. Address the Medium items as follow-ups.
 - **Where:** open PRs `#427` (pillow 12.3.0 → 13.0.0), `#324` (pandas 2 → 3, major),
   `#424`/`#425` (react/react-dom 18 → 19 on `/website`, major), `#323` (pytest-cov 6 → 7),
   `#456`/`#452`/`#414` (portal/scripts npm bumps).
-- **Problem:** Security-relevant dependencies are behind, including **three major-version bumps** —
-  `pillow 12 → 13` (typically carries CVE fixes), `pandas 2 → 3`, and `react 18 → 19` — plus the
-  `pytest-cov 6 → 7` and npm patch bumps.
+- **Problem:** Security-relevant dependencies are behind, and **four are major-version bumps** —
+  `pillow 12 → 13` (typically carries CVE fixes), `pandas 2 → 3`, `react 18 → 19`, and
+  `pytest-cov 6 → 7` — plus the npm patch bumps. (Correction per PR review: `pillow 12 → 13` **and**
+  `pytest-cov 6 → 7` are *major* bumps, not patches.)
 - **Why it matters:** `pillow` and `pandas` run inside the production Excel pipeline; unreviewed
-  **major** bumps can silently break it. (Correction per PR review: `pillow 12 → 13` is a *major*
-  bump, not a patch — it belongs in the gated group below, not the auto-merge group.)
-- **Fix:** Triage this week — merge only the genuine low-risk patch bump (`pytest-cov`) and npm
-  patches after CI; gate **all three majors** (`pillow 13`, `pandas 3`, `react 19`) behind a focused
-  compatibility/test pass, don't auto-merge.
+  **major** bumps can silently break it. `pytest-cov` is dev-only (lower blast radius) but is still a
+  major and shouldn't be treated as a routine patch.
+- **Fix:** Triage this week — merge only the npm patch bumps after CI; gate every major
+  (`pillow 13`, `pandas 3`, `react 19`, `pytest-cov 7`) behind a focused compatibility/test pass,
+  don't auto-merge.
 
 ### [Low] `website/vercel.json` sets no security headers
 - **Where:** `website/vercel.json` (Docusaurus docs site).
@@ -94,17 +104,25 @@ backstop is confirmed. Address the Medium items as follow-ups.
 - **Fix:** Mirror the non-CSP headers (`Strict-Transport-Security`, `X-Content-Type-Options`,
   `Referrer-Policy`, `X-Frame-Options: DENY`) into `website/vercel.json`.
 
-### [Low · carry-over — needs verification] Portal auth bugs from the 2026-10-20 review still stand
+### [Medium · CONFIRMED this run] A sole admin can delete their own `profiles` row → portal lockout
+- **Where:** `public.profiles` (live DB) + `portal-v2/src/components/admin/UsersPage.tsx`.
+- **Problem:** Verified against the live DB this run — the only trigger on `profiles` is
+  `check_last_admin`, defined **`BEFORE UPDATE` only** (`EXECUTE FUNCTION prevent_last_admin_demotion()`);
+  there is **no `BEFORE DELETE` trigger and no DELETE-denying policy**. The `profiles_admin_all` policy
+  grants cmd `ALL` to admins, so an admin is authorized to **DELETE their own profile row**. When they
+  are the last admin, that leaves the portal with no administrator able to promote anyone — a lockout.
+  (Upgraded from the prior "needs-verification Low": the demotion guard genuinely does not cover DELETE.)
+- **Why it matters:** Irreversible loss of all admin access (recoverable only via `service_role`/SQL).
+- **Fix:** Add a `BEFORE DELETE` trigger mirroring `prevent_last_admin_demotion`, or a DELETE-denying
+  RLS policy for the last-admin case (concurrency-safe count).
+
+### [Low · carry-over — needs verification] Other portal auth bugs from the 2026-10-20 review
 - **Where:** `portal-v2/src/hooks/useAuth.ts`, `UsersPage.tsx` — **unchanged since that review**
   (no `portal-v2/src` commits in between).
-- **Problem:** The prior review flagged a "Remember me"-off same-tab-refresh logout, a swallowed
-  `signOut()` error, and a **last-admin self-DELETE** gap (the DB trigger
-  `prevent_last_admin_demotion` guards role *demotion* via UPDATE, but a last-admin **row DELETE**
-  is a separate path and should be confirmed blocked).
-- **Why it matters:** Availability/UX and a potential lock-everyone-out edge on the admin role.
+- **Problem:** The prior review flagged a "Remember me"-off same-tab-refresh logout and a swallowed
+  `signOut()` error. Code is unchanged, so they likely still stand.
+- **Why it matters:** Availability/UX on the auth flow.
 - **Fix:** Confirm whether these were addressed; if not, carry them into the portal-v2 backlog.
-  For the DELETE gap, verify with an RLS/trigger test or add a `BEFORE DELETE` guard mirroring the
-  demotion trigger.
 
 ---
 
@@ -138,8 +156,15 @@ backstop is confirmed. Address the Medium items as follow-ups.
 - **CONFIRMED CLEAN (from the source scan):** no XSS sinks (`dangerouslySetInnerHTML`/`innerHTML`/
   `eval` absent across `portal-v2/**` + `website/**`); no `service_role` key or hardcoded secret in
   any frontend/committed env file; only `VITE_SUPABASE_ANON_KEY` is used client-side; portal CSP is
-  clean (no `unsafe-inline`/`unsafe-eval`) and includes `hcaptcha` in `connect-src`. Forgot-password
+  clean (no `unsafe-inline`/`unsafe-eval`). Forgot-password
   avoids user enumeration (`ForgotPasswordPage.tsx:25-28`).
+- **[Low · needs verification — correction per PR review] hCaptcha missing from CSP `connect-src`.**
+  Verified against `portal-v2/vercel.json`: `connect-src` is `'self'` + the Supabase hosts + Sentry
+  only — hCaptcha appears in `script-src`/`style-src`/`frame-src` but **not** `connect-src`. hCaptcha's
+  own guidance asks for `https://hcaptcha.com` + `https://*.hcaptcha.com` in `connect-src`. In config­
+  urations where the challenge makes a page-governed XHR, this could block token generation and the
+  token-gated login/signup/reset submits. (This reopens the prior review's hCaptcha-login concern.)
+  *Verify* against a live preview before deciding; if it reproduces, add the two hosts to `connect-src`.
 - **Token storage:** Supabase JWT lives in `localStorage` (default; JS-readable). Standard for a
   Supabase SPA and mitigated by the clean CSP + zero XSS sinks — accept as-is unless a cookie-based
   session is ever adopted.
@@ -152,9 +177,11 @@ backstop is confirmed. Address the Medium items as follow-ups.
   routing. The views bypass RLS and run as their creator; they should be recreated
   `SECURITY INVOKER` (PG15+ `WITH (security_invoker=on)`).
 - **Housekeeping — `rls_enabled_no_policy` (advisor `0008`, 24 tables):** RLS-on-no-policy is
-  fail-safe (default-deny; only `service_role` reaches them), so not a vulnerability. But several
-  are stale `backup.*` snapshots (`scorecard_*_20261117`, `dedup_backup_20260525`) — drop them to
-  cut clutter and the advisor noise.
+  fail-safe (default-deny; only `service_role` reaches them), so not a vulnerability. Some look like
+  snapshot tables (`backup.scorecard_*_20261117`, `linetec_uploader.dedup_backup_20260525`) that may
+  be droppable to cut advisor noise — **but do not DROP on this evidence alone.** This is a shared
+  live project, `scorecard_*_20261117` is only ~9 days old, and this review establishes no ownership,
+  retention, or dependency facts. Route candidates to their owner and verify retention/backups first.
 
 ## 5. Testing Gaps
 
@@ -173,33 +200,39 @@ backstop is confirmed. Address the Medium items as follow-ups.
   must be rejected. Today that guarantee is verified only manually (as in this review). Add a
   Supabase RLS integration test (or a `pgTAP`/SQL assertion) so a future policy edit can't silently
   open it.
-- **Last-admin DELETE** (see §2 carry-over) has no test; add one alongside the DELETE guard.
+- **Last-admin DELETE** (§2, confirmed) has no test; add one alongside the DELETE guard.
 
 ## 6. Suggested Next Actions
 
-1. **Raise the password policy + optional admin MFA** in the Supabase Auth dashboard (min ≥8 +
+1. **Guard last-admin DELETE on `profiles`** (§2, confirmed) — add a `BEFORE DELETE` trigger or a
+   DELETE-denying RLS policy so a sole admin can't lock everyone out. Highest security value.
+2. **Raise the password policy + optional admin MFA** in the Supabase Auth dashboard (min ≥8 +
    leaked-password protection; the current floor is Supabase's default 6); raise client `minLength`
-   to match. Highest security value for the effort.
-2. **Revoke the unused `EXECUTE`** grant on `handle_new_user()` / `prevent_last_admin_demotion()`
-   (§2) — least-privilege cleanup; low urgency (likely not RPC-reachable, verify).
-3. **Triage the Dependabot backlog:** merge only the `pytest-cov`/npm patch bumps after CI; gate the
-   three majors (`pillow 13`, `pandas 3`, `react 19`) behind a focused compatibility/test pass.
-4. **Clear the review-PR backlog:** nine `docs(review)` PRs (#422–#446) are open and unmerged —
+   to match.
+3. **Revoke the unused `EXECUTE`** grant (incl. `PUBLIC`) on `handle_new_user()` /
+   `prevent_last_admin_demotion()` (§2) — least-privilege cleanup; low urgency (likely not
+   RPC-reachable, verify).
+4. **Triage the Dependabot backlog:** merge only the npm patch bumps after CI; gate every major
+   (`pillow 13`, `pandas 3`, `react 19`, `pytest-cov 7`) behind a focused compatibility/test pass.
+5. **Clear the review-PR backlog:** nine `docs(review)` PRs (#422–#446) are open and unmerged —
    merge or close them so the daily routine isn't piling up stale branches.
-5. **Add the RLS negative test** for `profiles.role` self-escalation (§5) so the server-side
+6. **Add the RLS negative test** for `profiles.role` self-escalation (§5) so the server-side
    boundary is CI-guarded.
-6. **Route the `promax_engine` SECURITY DEFINER view ERROR** to the `supabase-smartsheet-promax-offload`
-   repo owners (§4) — it's not this repo's code.
-7. **Drop stale `backup.*` snapshot tables** and set explicit `search_path` on the flagged
-   functions (§3) to quiet the security advisor to signal-only.
+7. **Route the `promax_engine` SECURITY DEFINER view ERROR** to the `supabase-smartsheet-promax-offload`
+   repo owners (§4) — it's not this repo's code. Set explicit `search_path` on the flagged functions
+   (§3). Do **not** drop the RLS-no-policy `backup.*` tables without owner/retention verification (§4).
 
 ---
 
 ## Daily Verdict
 
-**Safe to merge.** No code shipped in the review window, and the four changes that landed just
-before it (#444/#447/#450/#451) are production-safe, fail-closed, and PII-conscious. The portal's
-server-side authorization boundary was verified live this run and is correct — a non-admin cannot
-self-escalate. Every open item is Medium/Low hardening or operational backlog, none of which blocks
-the billing cron or weakens auth as deployed. Address the Medium password-policy item (§2) and the
-Dependabot major-bump triage as the next follow-ups.
+**Safe to merge (billing pipeline) — but the portal has a confirmed Medium to fix.** No code shipped
+in the review window, and the reviewed changes (#444/#447/#450/#451) are production-safe, fail-closed,
+and PII-conscious; the billing cron is unaffected. The portal's core authorization boundary is correct
+— a non-admin cannot self-escalate (verified live). **However, this run confirmed a portal availability
+risk: a sole admin can delete their own `profiles` row and lock everyone out (no `BEFORE DELETE`
+guard).** That is a real Medium that should be fixed before relying on the portal's admin model, though
+it does not touch the billing pipeline. Everything else is Medium/Low hardening or operational backlog.
+Next follow-ups: the last-admin DELETE guard (§2), the password policy (§2), and the Dependabot
+major-bump triage (§2). (Scope caveat in §1: the `#437` foreman-notes feature diff was not fully
+re-reviewed this run.)
