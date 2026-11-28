@@ -5,9 +5,27 @@ title: What's New
 
 # What's New
 
-_Last updated: November 27, 2026 (updated automatically)_
+_Last updated: November 28, 2026 (updated automatically)_
 
 This page explains what each of our tools does and its recent updates, in everyday language.
+
+<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
+## Parser that will offload grid format information from work request completed packets
+
+> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
+
+### 📋 Changelog — November 28, 2026
+
+- ✅ Problem fixed: entrance animations end, so cards stop trapping their dropdowns
+- ✨ New capability: Jobs and Uploads tabs refresh by themselves, with a pause switch
+- ✅ Problem fixed: Secure cookies by default; opt-in client IP behind the proxy
+- ✨ New capability: four guards before a regular user can hold the page
+- • Merge pull request from JFlo21/feat/reports-auto-refresh
+- ✅ Problem fixed: read focus and visibility again when the refresh wait runs out
+- • Merge master (, , ) into feat/reports-auto-refresh
+- • Merge pull request from JFlo21/fix/proxy-ip-secure-cookies
+
+<!-- /runbook-repo -->
 
 <!-- runbook-repo: JFlo21/JFlo21 -->
 ## JFlo21
@@ -18,21 +36,14 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Cognos-pdf-parser -->
-## Parser that will offload grid format information from work request completed packets
+<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
+## Weekly Billing Reports (DSR Resiliency)
 
-> ℹ️ **What this system does:** Professional PDF/Excel Material Extractor for Linetec Services with web-based interface and desktop GUI.
+> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
 
-### 📋 Changelog — November 27, 2026
+### 📋 Changelog — November 28, 2026
 
-- ✨ New capability: Jobs and Uploads tabs refresh by themselves, with a pause switch
-- ✅ Problem fixed: Secure cookies by default; opt-in client IP behind the proxy
-- ✅ Problem fixed: entrance animations end, so cards stop trapping their dropdowns
-- ✨ New capability: four guards before a regular user can hold the page
-- • Merge pull request from JFlo21/feat/reports-auto-refresh
-- ✅ Problem fixed: read focus and visibility again when the refresh wait runs out
-- • Merge master (, , ) into feat/reports-auto-refresh
-- • Merge pull request from JFlo21/fix/proxy-ip-secure-cookies
+- 📄 Help guides updated: automated plain-language update from Notion Worker
 
 <!-- /runbook-repo -->
 
@@ -41,7 +52,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Generates inspector-facing manifest Excel workbooks of ProMax claimed units for the AEP Texas Resiliency / LineTec program — one Work Request (WR) at a time — plus the review-loop variants (GF Review, priced GF, billers/DIF) that grew out of it.
 
-### 📋 Changelog — November 27, 2026
+### 📋 Changelog — November 28, 2026
 
 - ✅ Problem fixed: the inspector workbook download is Cache-Control: no-store (BUG-252)
 - ✅ Problem fixed: Versions table fits 375px with a "File unavailable" row; a missing priced file says so (BUG-250 follow-ups)
@@ -54,23 +65,12 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 <!-- /runbook-repo -->
 
-<!-- runbook-repo: JFlo21/Generate-Weekly-PDFs-DSR-Resiliency -->
-## Weekly Billing Reports (DSR Resiliency)
-
-> ℹ️ **What this system does:** Production billing engine that turns Smartsheet field data into polished, audit-ready weekly Excel reports — automatically.
-
-### 📋 Changelog — November 27, 2026
-
-- 📄 Help guides updated: automated plain-language update from Notion Worker
-
-<!-- /runbook-repo -->
-
 <!-- runbook-repo: JFlo21/smartsheet-auditor -->
 ## AI powered repository that will look back and check on my smartsheet to analyze for duplications of work requests line items
 
 > ℹ️ **What this system does:** Automated read-only auditor for Smartsheet data that detects duplicate rows, learns patterns over time using machine learning, and publishes a professional audit dashboard to GitHub Pages every week.
 
-### 📋 Changelog — November 27, 2026
+### 📋 Changelog — November 28, 2026
 
 - • 📊 Audit: 2026-11-23T06:54:38Z
 
@@ -477,7 +477,7 @@ _Running steadily — no meaningful changes were detected in this period._ ✅
 
 > ℹ️ **What this system does:** Internal Docusaurus 3.x runbook + changelog for the Linetec Resiliency platform.
 
-### 📋 Changelog — November 27, 2026
+### 📋 Changelog — November 28, 2026
 
 - 🔧 Behind-the-scenes maintenance to keep things running smoothly
 
